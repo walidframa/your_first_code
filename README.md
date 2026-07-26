@@ -40,12 +40,18 @@ hidden in the UI.
 
 ## Getting started
 
+Requires Node 20 or newer (Node 22 recommended).
+
 ```bash
-npm run setup   # installs server + client deps and seeds the database
-npm run dev     # starts API on :4000 and the app on :5173
+npm run setup   # installs all dependencies and seeds the database
+npm run dev     # starts the API on :4000 and the app on :5173
 ```
 
-Then open http://localhost:5173.
+Then open http://localhost:5173 and sign in with one of the demo accounts below —
+the login screen has one-tap buttons for both.
+
+To stop, press `Ctrl+C`. Data lives in `server/data.sqlite`; delete it and re-run
+`npm run seed` to start over.
 
 ### Demo accounts
 
