@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import crypto from 'crypto';
-import { db } from '../db.js';
+import { db, transaction } from '../db.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 
 const router = Router();
@@ -29,7 +29,7 @@ router.post('/', requireAuth, (req, res) => {
   }
 
   try {
-    const result = db.transaction(() => {
+    const result = transaction(() => {
       const lineItems = [];
       let subtotal = 0;
 
@@ -135,7 +135,7 @@ router.post('/:id/refund', requireAuth, requireRole('admin'), (req, res) => {
   if (!order) return res.status(404).json({ error: 'Order not found' });
   if (order.status === 'refunded') return res.status(400).json({ error: 'Order already refunded' });
 
-  db.transaction(() => {
+  transaction(() => {
     const items = db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(order.id);
     const restock = db.prepare('UPDATE products SET stock = stock + ? WHERE id = ?');
     for (const item of items) {
