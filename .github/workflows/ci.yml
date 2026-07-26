@@ -1,0 +1,106 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# A newer push to the same branch supersedes an in-flight run.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Tests and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            server/package-lock.json
+            client/package-lock.json
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          npm ci --prefix server
+          npm ci --prefix client
+
+      - name: Lint client
+        run: npm --prefix client run lint
+
+      - name: Server tests
+        run: npm --prefix server test
+
+      - name: Build client
+        run: npm --prefix client run build
+        env:
+          NODE_ENV: production
+
+      - name: Reject a production start without JWT_SECRET
+        run: |
+          set +e
+          output=$(NODE_ENV=production node server/src/index.js 2>&1)
+          status=$?
+          set -e
+          if [ "$status" -eq 0 ]; then
+            echo "::error::Server started in production without JWT_SECRET"
+            exit 1
+          fi
+          if ! echo "$output" | grep -q "Refusing to start in production"; then
+            echo "::error::Server exited for an unexpected reason"
+            echo "$output"
+            exit 1
+          fi
+          echo "Server correctly refused to start without JWT_SECRET."
+
+  e2e:
+    name: End-to-end
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            server/package-lock.json
+            client/package-lock.json
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          npm ci --prefix server
+          npm ci --prefix client
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run smoke test
+        run: npm run e2e
+        env:
+          E2E_SCREENSHOT_DIR: e2e-screenshots
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-screenshots
+          path: e2e-screenshots/
+          if-no-files-found: ignore
+          retention-days: 7
