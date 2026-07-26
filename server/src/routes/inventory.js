@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { db, ADJUSTMENT_REASONS } from '../db.js';
+import { db, transaction, ADJUSTMENT_REASONS } from '../db.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 
 const router = Router();
@@ -85,7 +85,7 @@ router.post('/adjust', requireAuth, requireRole('admin'), (req, res) => {
   }
 
   try {
-    const result = db.transaction(() => {
+    const result = transaction(() => {
       const product = db.prepare('SELECT * FROM products WHERE id = ?').get(productId);
       if (!product) throw new Error('Product not found');
 

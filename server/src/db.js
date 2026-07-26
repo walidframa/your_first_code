@@ -1,13 +1,36 @@
-import Database from 'better-sqlite3';
+import { DatabaseSync } from 'node:sqlite';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dbPath = process.env.DB_PATH || path.join(__dirname, '..', 'data.sqlite');
 
-export const db = new Database(dbPath);
-db.pragma('journal_mode = WAL');
-db.pragma('foreign_keys = ON');
+export const db = new DatabaseSync(dbPath);
+db.exec('PRAGMA journal_mode = WAL');
+db.exec('PRAGMA foreign_keys = ON');
+
+/**
+ * Run `fn` inside a transaction, rolling back if it throws.
+ *
+ * Mirrors the shape of better-sqlite3's `db.transaction()` — it returns a
+ * wrapped function rather than running immediately — so call sites read the
+ * same. node:sqlite has no built-in equivalent.
+ *
+ * Not reentrant: SQLite has no nested BEGIN, and nothing here nests.
+ */
+export function transaction(fn) {
+  return (...args) => {
+    db.exec('BEGIN');
+    try {
+      const result = fn(...args);
+      db.exec('COMMIT');
+      return result;
+    } catch (err) {
+      db.exec('ROLLBACK');
+      throw err;
+    }
+  };
+}
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (

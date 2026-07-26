@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { db } from '../db.js';
+import { db, transaction } from '../db.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { parseCsvToRecords } from '../lib/csv.js';
 import { CANONICAL_FIELDS, PRESETS, detectFormat, buildMapping, parseNumber } from '../lib/importFormats.js';
@@ -168,7 +168,7 @@ router.post('/commit', requireAuth, requireRole('admin'), (req, res) => {
     VALUES (?, ?, ?, ?, 'count_correction', ?)
   `);
 
-  db.transaction(() => {
+  transaction(() => {
     for (const row of result.rows) {
       if (row.errors.length) {
         outcome.errors.push({ line: row.line, sku: row.data.sku, messages: row.errors });
@@ -209,7 +209,11 @@ router.post('/commit', requireAuth, requireRole('admin'), (req, res) => {
         // Preserve the existing category when the file doesn't specify one.
         payload.category_id = categoryId ?? existing.category_id;
         payload.reorder_point = row.data.reorder_point ?? existing.reorder_point;
-        updateProduct.run({ ...payload, id: existing.id });
+        // The SKU is the match key and is not updated, so it is deliberately
+        // absent here — the statement binds only the columns it sets.
+        const { sku, ...updatable } = payload;
+        void sku;
+        updateProduct.run({ ...updatable, id: existing.id });
 
         const delta = payload.stock - existing.stock;
         if (delta !== 0) {

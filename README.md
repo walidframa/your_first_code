@@ -35,12 +35,19 @@ hidden in the UI.
 ## Stack
 
 - **Frontend** — React 19, Vite, React Router, Tailwind CSS v4, lucide-react, axios
-- **Backend** — Node, Express, better-sqlite3, JWT auth, bcrypt
-- **Database** — SQLite (file-based, zero setup)
+- **Backend** — Node, Express, JWT auth, bcrypt
+- **Database** — SQLite via Node's built-in `node:sqlite` (file-based, no native
+  build step and nothing to compile)
 
 ## Getting started
 
-Requires Node 20 or newer (Node 22 recommended).
+**Requires Node 24 or newer.** The database layer uses `node:sqlite`, which is
+built into Node and only available unflagged from Node 24. `npm run setup`
+refuses to start on an older version rather than failing part-way through.
+
+```bash
+node -v          # expect v24 or newer
+```
 
 ```bash
 npm run setup   # installs all dependencies and seeds the database
@@ -112,7 +119,7 @@ The parser handles quoted fields, embedded commas and newlines, CRLF, BOMs,
 ```
 server/
   src/
-    db.js                 schema, migrations, connection
+    db.js                 schema, migrations, connection, transaction helper
     seed.js               demo users, categories, products
     lib/csv.js            RFC 4180 CSV parser
     lib/importFormats.js  ERP column presets + number parsing
