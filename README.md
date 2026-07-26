@@ -40,7 +40,18 @@ hidden in the UI.
 
 ## Getting started
 
-Requires Node 20 or newer (Node 22 recommended).
+**Requires Node 20–24** — Node 22 LTS is what CI tests and is the safe choice.
+
+This is an upper bound, not just a floor: `better-sqlite3` is a native module that
+ships prebuilt binaries per released Node ABI. On a newer Node there is no prebuild,
+so npm falls back to compiling from source and usually fails with a node-gyp error.
+`npm run setup` refuses to start on an unsupported version rather than failing
+half-way through.
+
+```bash
+node -v          # expect v20.x – v24.x
+nvm use 22       # if you have nvm and need to switch
+```
 
 ```bash
 npm run setup   # installs all dependencies and seeds the database

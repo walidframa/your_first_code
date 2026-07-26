@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "description": "A point-of-sale web app with checkout, inventory, orders and role-based staff accounts",
+  "engines": {
+    "node": ">=20 <25"
+  },
   "scripts": {
     "setup": "npm install && npm --prefix server install && npm --prefix client install && npm run seed",
     "seed": "npm --prefix server run seed",
