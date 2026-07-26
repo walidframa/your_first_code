@@ -14,8 +14,10 @@ const WEB_PORT = 4611;
 
 const workDir = mkdtempSync(path.join(tmpdir(), 'pos-e2e-'));
 const children = [];
+let shuttingDown = false;
 
 function shutdown() {
+  shuttingDown = true;
   for (const child of children) {
     if (!child.killed) child.kill('SIGTERM');
   }
@@ -25,6 +27,18 @@ function shutdown() {
 process.on('exit', shutdown);
 process.on('SIGINT', () => process.exit(130));
 process.on('SIGTERM', () => process.exit(143));
+
+/** Track a long-running service so a crash surfaces immediately, not as a timeout. */
+function track(child, label) {
+  child.on('exit', (code, signal) => {
+    if (!shuttingDown) {
+      console.error(`\n${label} exited unexpectedly (code ${code}, signal ${signal})`);
+      process.exit(1);
+    }
+  });
+  children.push(child);
+  return child;
+}
 
 async function waitFor(url, label, timeoutMs = 60000) {
   const deadline = Date.now() + timeoutMs;
@@ -63,12 +77,13 @@ if (seed.status !== 0) {
 }
 
 console.log('Starting API…');
-children.push(
+track(
   spawn(process.execPath, ['src/index.js'], {
     cwd: path.join(repoRoot, 'server'),
     env,
     stdio: 'inherit',
   }),
+  'API',
 );
 await waitFor(`http://127.0.0.1:${API_PORT}/api/health`, 'API');
 
@@ -83,16 +98,20 @@ const build = spawnSync('npm', ['--prefix', 'client', 'run', 'build'], {
 });
 if (build.status !== 0) process.exit(1);
 
-children.push(
+track(
   spawn(
     'npm',
     [
       '--prefix', 'client', 'run', 'preview', '--',
       '--port', String(WEB_PORT),
       '--strictPort',
+      // Bind IPv4 explicitly. Left to default, vite binds "localhost", which
+      // resolves to ::1 on CI runners while we poll 127.0.0.1.
+      '--host', '127.0.0.1',
     ],
     { cwd: repoRoot, env, stdio: 'inherit', shell: process.platform === 'win32' },
   ),
+  'client',
 );
 await waitFor(`http://127.0.0.1:${WEB_PORT}/`, 'client');
 
