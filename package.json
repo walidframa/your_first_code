@@ -1,0 +1,17 @@
+{
+  "name": "front-desk-pos",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A point-of-sale web app with checkout, inventory, orders and role-based staff accounts",
+  "scripts": {
+    "setup": "npm --prefix server install && npm --prefix client install && npm run seed",
+    "seed": "npm --prefix server run seed",
+    "dev": "concurrently -n server,client -c green,cyan \"npm --prefix server run dev\" \"npm --prefix client run dev\"",
+    "dev:server": "npm --prefix server run dev",
+    "dev:client": "npm --prefix client run dev",
+    "build": "npm --prefix client run build"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  }
+}
