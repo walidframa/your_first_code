@@ -1,4 +1,4 @@
-import { Routes, Route } from 'react-router-dom';
+import { Routes, Route } from 'react-router';
 import Login from './pages/Login';
 import Layout from './components/Layout';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -6,6 +6,8 @@ import Checkout from './pages/Checkout';
 import MyOrders from './pages/MyOrders';
 import AdminDashboard from './pages/admin/Dashboard';
 import AdminProducts from './pages/admin/Products';
+import AdminInventory from './pages/admin/Inventory';
+import AdminImport from './pages/admin/Import';
 import AdminOrders from './pages/admin/Orders';
 import AdminUsers from './pages/admin/Users';
 
@@ -37,6 +39,22 @@ export default function App() {
           element={
             <ProtectedRoute roles={['admin']}>
               <AdminProducts />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/inventory"
+          element={
+            <ProtectedRoute roles={['admin']}>
+              <AdminInventory />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/import"
+          element={
+            <ProtectedRoute roles={['admin']}>
+              <AdminImport />
             </ProtectedRoute>
           }
         />

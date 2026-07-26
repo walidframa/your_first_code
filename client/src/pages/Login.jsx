@@ -1,6 +1,13 @@
 import { useState } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router';
+import { ScanLine } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { Button, Input } from '../components/ui';
+
+const DEMO_ACCOUNTS = [
+  { username: 'admin', password: 'admin123', label: 'Store owner', hint: 'Full back office' },
+  { username: 'cashier', password: 'cashier123', label: 'Cashier', hint: 'Register only' },
+];
 
 export default function Login() {
   const { login } = useAuth();
@@ -11,12 +18,11 @@ export default function Login() {
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  async function handleSubmit(e) {
-    e.preventDefault();
+  async function signIn(user, pass) {
     setError('');
     setSubmitting(true);
     try {
-      await login(username, password);
+      await login(user, pass);
       navigate(location.state?.from || '/', { replace: true });
     } catch (err) {
       setError(err.response?.data?.error || 'Login failed');
@@ -26,53 +32,69 @@ export default function Login() {
   }
 
   return (
-    <div className="flex h-screen items-center justify-center bg-slate-900 px-4">
-      <div className="w-full max-w-sm rounded-2xl bg-white p-8 shadow-xl">
+    <div className="flex h-full items-center justify-center bg-slate-900 p-4">
+      <div className="w-full max-w-sm">
         <div className="mb-6 text-center">
-          <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-600 text-2xl text-white">
-            🛒
+          <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-600 text-white">
+            <ScanLine size={24} />
           </div>
-          <h1 className="text-xl font-semibold text-slate-900">Front Desk POS</h1>
-          <p className="text-sm text-slate-500">Sign in to start selling</p>
+          <h1 className="text-xl font-semibold text-white">Front Desk POS</h1>
+          <p className="mt-1 text-sm text-slate-400">Sign in to open the register</p>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700">Username</label>
-            <input
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+        <div className="rounded-2xl bg-white p-6 shadow-xl">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              signIn(username, password);
+            }}
+            className="space-y-4"
+          >
+            <Input
+              label="Username"
+              name="username"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               autoFocus
               required
             />
-          </div>
-          <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700">Password</label>
-            <input
+            <Input
+              label="Password"
+              name="password"
               type="password"
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
             />
+
+            {error && <p className="text-sm text-red-600">{error}</p>}
+
+            <Button type="submit" size="lg" className="w-full" loading={submitting}>
+              Sign in
+            </Button>
+          </form>
+        </div>
+
+        <div className="mt-4 rounded-xl bg-slate-800/60 p-3">
+          <p className="mb-2 px-1 text-xs font-medium tracking-wide text-slate-400 uppercase">
+            Demo accounts
+          </p>
+          <div className="space-y-1">
+            {DEMO_ACCOUNTS.map((a) => (
+              <button
+                key={a.username}
+                onClick={() => signIn(a.username, a.password)}
+                disabled={submitting}
+                className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left transition hover:bg-slate-700/60 disabled:opacity-50"
+              >
+                <span>
+                  <span className="block text-sm font-medium text-white">{a.label}</span>
+                  <span className="block text-xs text-slate-400">{a.hint}</span>
+                </span>
+                <span className="font-mono text-xs text-slate-400">{a.username}</span>
+              </button>
+            ))}
           </div>
-
-          {error && <p className="text-sm text-red-600">{error}</p>}
-
-          <button
-            type="submit"
-            disabled={submitting}
-            className="w-full rounded-lg bg-emerald-600 py-2.5 font-medium text-white transition hover:bg-emerald-700 disabled:opacity-60"
-          >
-            {submitting ? 'Signing in…' : 'Sign in'}
-          </button>
-        </form>
-
-        <div className="mt-6 rounded-lg bg-slate-50 p-3 text-xs text-slate-500">
-          <p className="font-medium text-slate-600">Demo accounts</p>
-          <p>admin / admin123</p>
-          <p>cashier / cashier123</p>
         </div>
       </div>
     </div>

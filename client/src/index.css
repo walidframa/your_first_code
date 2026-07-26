@@ -1,10 +1,102 @@
 @import "tailwindcss";
 
-html, body, #root {
+/*
+ * Design tokens.
+ *
+ * Brand accent (#059669) and the chart colors below were validated against the
+ * white card surface with the data-viz palette checker: all clear the OKLCH
+ * lightness band, the chroma floor, and 3:1 contrast. The cash/card pair
+ * (#2a78d6 / #eb6834) additionally clears CVD and normal-vision separation.
+ */
+@theme {
+  --color-brand-50: #ecfdf5;
+  --color-brand-100: #d1fae5;
+  --color-brand-200: #a7f3d0;
+  --color-brand-300: #6ee7b7;
+  --color-brand-400: #34d399;
+  --color-brand-500: #10b981;
+  --color-brand-600: #059669;
+  --color-brand-700: #047857;
+  --color-brand-800: #065f46;
+  --color-brand-900: #064e3b;
+
+  /* Chart marks */
+  --color-viz-primary: #059669;
+  --color-viz-cash: #2a78d6;
+  --color-viz-card: #eb6834;
+
+  /* Status — fixed roles, always paired with an icon or label, never color alone */
+  --color-status-good: #0ca30c;
+  --color-status-warning: #fab219;
+  --color-status-serious: #ec835a;
+  --color-status-critical: #d03b3b;
+
+  --color-ink: #0f1115;
+  --color-ink-secondary: #4a5162;
+  --color-ink-muted: #79808f;
+
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+html,
+body,
+#root {
   height: 100%;
   margin: 0;
 }
 
 body {
   @apply bg-slate-100 text-slate-900 antialiased;
+  font-family: var(--font-sans);
+}
+
+/* Tabular figures only where numbers stack vertically. */
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.animate-toast-in {
+  animation: toast-in 160ms ease-out;
+}
+
+@keyframes sheet-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.animate-sheet-in {
+  animation: sheet-in 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-toast-in,
+  .animate-sheet-in {
+    animation: none;
+  }
+}
+
+/* The register and admin tables scroll internally; never bounce the page. */
+body {
+  overflow: hidden;
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
 }

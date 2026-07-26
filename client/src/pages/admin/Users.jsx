@@ -1,128 +1,164 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { Trash2, UserPlus } from 'lucide-react';
 import api from '../../api';
+import PageHeader from '../../components/PageHeader';
 import { useAuth } from '../../context/AuthContext';
+import { Badge, Button, Card, Input, Modal, Select, Skeleton, useToast } from '../../components/ui';
 
-const emptyForm = { username: '', password: '', name: '', role: 'cashier' };
+const emptyForm = { name: '', username: '', password: '', role: 'cashier' };
 
-export default function Users() {
-  const { user: currentUser } = useAuth();
-  const [users, setUsers] = useState([]);
+function StaffModal({ onClose, onSaved }) {
+  const toast = useToast();
   const [form, setForm] = useState(emptyForm);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
-  async function load() {
-    const res = await api.get('/users');
-    setUsers(res.data.users);
-  }
+  const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
 
-  useEffect(() => {
-    load();
-  }, []);
-
-  async function handleSubmit(e) {
+  async function submit(e) {
     e.preventDefault();
     setError('');
+    setSaving(true);
     try {
       await api.post('/users', form);
-      setForm(emptyForm);
-      await load();
+      toast(`${form.name} added`);
+      onSaved();
     } catch (err) {
       setError(err.response?.data?.error || 'Could not create user');
-    }
-  }
-
-  async function remove(id) {
-    setError('');
-    try {
-      await api.delete(`/users/${id}`);
-      await load();
-    } catch (err) {
-      setError(err.response?.data?.error || 'Could not delete user');
+    } finally {
+      setSaving(false);
     }
   }
 
   return (
-    <div className="h-full overflow-y-auto p-6">
-      <h1 className="mb-4 text-xl font-semibold text-slate-800">Staff Accounts</h1>
+    <Modal open onClose={onClose} title="Add staff member">
+      <form onSubmit={submit} className="space-y-4">
+        <Input label="Full name" value={form.name} onChange={set('name')} required autoFocus />
+        <Input label="Username" value={form.username} onChange={set('username')} required />
+        <Input
+          label="Password"
+          type="password"
+          value={form.password}
+          onChange={set('password')}
+          required
+          hint="At least 6 characters"
+        />
+        <Select label="Role" value={form.role} onChange={set('role')}>
+          <option value="cashier">Cashier — register and own sales</option>
+          <option value="admin">Admin — full access</option>
+        </Select>
 
-      <form onSubmit={handleSubmit} className="mb-6 rounded-xl border border-slate-200 bg-white p-4">
-        <h2 className="mb-3 font-medium text-slate-700">Add staff member</h2>
-        <div className="flex gap-2">
-          <input
-            className="flex-1 rounded border border-slate-300 px-2 py-1.5 text-sm"
-            placeholder="Full name"
-            value={form.name}
-            onChange={(e) => setForm({ ...form, name: e.target.value })}
-            required
-          />
-          <input
-            className="flex-1 rounded border border-slate-300 px-2 py-1.5 text-sm"
-            placeholder="Username"
-            value={form.username}
-            onChange={(e) => setForm({ ...form, username: e.target.value })}
-            required
-          />
-          <input
-            type="password"
-            className="flex-1 rounded border border-slate-300 px-2 py-1.5 text-sm"
-            placeholder="Password (min 6)"
-            value={form.password}
-            onChange={(e) => setForm({ ...form, password: e.target.value })}
-            required
-          />
-          <select
-            className="rounded border border-slate-300 px-2 py-1.5 text-sm"
-            value={form.role}
-            onChange={(e) => setForm({ ...form, role: e.target.value })}
-          >
-            <option value="cashier">Cashier</option>
-            <option value="admin">Admin</option>
-          </select>
-          <button type="submit" className="rounded-lg bg-emerald-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-emerald-700">
-            Add
-          </button>
+        {error && <p className="text-sm text-red-600">{error}</p>}
+
+        <div className="flex gap-2 pt-1">
+          <Button type="button" variant="secondary" onClick={onClose} className="flex-1">
+            Cancel
+          </Button>
+          <Button type="submit" className="flex-1" loading={saving}>
+            Add staff member
+          </Button>
         </div>
-        {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
       </form>
+    </Modal>
+  );
+}
 
-      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-        <table className="w-full text-sm">
-          <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
-            <tr>
-              <th className="px-4 py-3">Name</th>
-              <th className="px-4 py-3">Username</th>
-              <th className="px-4 py-3">Role</th>
-              <th className="px-4 py-3">Created</th>
-              <th className="px-4 py-3 text-right">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {users.map((u) => (
-              <tr key={u.id} className="border-t border-slate-100">
-                <td className="px-4 py-2.5 font-medium text-slate-700">{u.name}</td>
-                <td className="px-4 py-2.5 text-slate-500">{u.username}</td>
-                <td className="px-4 py-2.5">
-                  <span
-                    className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                      u.role === 'admin' ? 'bg-purple-100 text-purple-700' : 'bg-slate-100 text-slate-600'
-                    }`}
-                  >
-                    {u.role}
-                  </span>
-                </td>
-                <td className="px-4 py-2.5 text-slate-500">{u.created_at}</td>
-                <td className="px-4 py-2.5 text-right">
-                  {u.id !== currentUser.id && (
-                    <button onClick={() => remove(u.id)} className="text-xs text-red-600 hover:underline">
-                      Delete
-                    </button>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+export default function Users() {
+  const { user: currentUser } = useAuth();
+  const toast = useToast();
+  const [users, setUsers] = useState(null);
+  const [adding, setAdding] = useState(false);
+
+  const load = useCallback(() => {
+    api.get('/users').then((res) => setUsers(res.data.users));
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  async function remove(user) {
+    try {
+      await api.delete(`/users/${user.id}`);
+      toast(`${user.name} removed`);
+      load();
+    } catch (err) {
+      toast(err.response?.data?.error || 'Could not delete user', 'error');
+    }
+  }
+
+  return (
+    <div className="flex h-full flex-col">
+      <PageHeader
+        title="Staff"
+        subtitle="Who can access the register and back office"
+        actions={
+          <Button onClick={() => setAdding(true)}>
+            <UserPlus size={16} /> Add staff
+          </Button>
+        }
+      />
+
+      <div className="min-h-0 flex-1 overflow-y-auto p-6">
+        <Card>
+          {!users ? (
+            <div className="space-y-2 p-5">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <Skeleton key={i} className="h-11" />
+              ))}
+            </div>
+          ) : (
+            <table className="w-full text-sm">
+              <thead className="border-b border-slate-100 text-left text-xs text-slate-500">
+                <tr>
+                  <th className="px-5 py-2.5 font-medium">Name</th>
+                  <th className="px-3 py-2.5 font-medium">Username</th>
+                  <th className="px-3 py-2.5 font-medium">Role</th>
+                  <th className="px-3 py-2.5 font-medium">Added</th>
+                  <th className="px-5 py-2.5 text-right font-medium">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {users.map((u) => (
+                  <tr key={u.id} className="hover:bg-slate-50/60">
+                    <td className="px-5 py-2.5 font-medium text-slate-800">
+                      {u.name}
+                      {u.id === currentUser.id && <span className="ml-2 text-xs text-slate-400">You</span>}
+                    </td>
+                    <td className="px-3 py-2.5 text-slate-500">{u.username}</td>
+                    <td className="px-3 py-2.5">
+                      <Badge tone={u.role === 'admin' ? 'brand' : 'neutral'}>{u.role}</Badge>
+                    </td>
+                    <td className="px-3 py-2.5 text-slate-500">{u.created_at}</td>
+                    <td className="px-5 py-2.5 text-right">
+                      {u.id !== currentUser.id && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => remove(u)}
+                          aria-label={`Remove ${u.name}`}
+                        >
+                          <Trash2 size={14} />
+                        </Button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </Card>
       </div>
+
+      {adding && (
+        <StaffModal
+          onClose={() => setAdding(false)}
+          onSaved={() => {
+            setAdding(false);
+            load();
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -3,7 +3,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const dbPath = path.join(__dirname, '..', 'data.sqlite');
+const dbPath = process.env.DB_PATH || path.join(__dirname, '..', 'data.sqlite');
 
 export const db = new Database(dbPath);
 db.pragma('journal_mode = WAL');
@@ -32,7 +32,7 @@ db.exec(`
     cost REAL NOT NULL DEFAULT 0,
     stock INTEGER NOT NULL DEFAULT 0,
     category_id INTEGER REFERENCES categories(id),
-    image_emoji TEXT NOT NULL DEFAULT '📦',
+    image_emoji TEXT NOT NULL DEFAULT '',
     active INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
@@ -61,6 +61,45 @@ db.exec(`
     quantity INTEGER NOT NULL,
     line_total REAL NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS stock_adjustments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id INTEGER NOT NULL REFERENCES products(id),
+    user_id INTEGER REFERENCES users(id),
+    delta INTEGER NOT NULL,
+    resulting_stock INTEGER NOT NULL,
+    reason TEXT NOT NULL,
+    note TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders(created_at);
+  CREATE INDEX IF NOT EXISTS idx_order_items_order ON order_items(order_id);
+  CREATE INDEX IF NOT EXISTS idx_adjustments_product ON stock_adjustments(product_id, created_at);
 `);
+
+// Additive migrations for databases created by earlier versions. SQLite has no
+// "ADD COLUMN IF NOT EXISTS", so check the table shape first.
+function addColumn(table, column, definition) {
+  const columns = db.prepare(`PRAGMA table_info(${table})`).all();
+  if (!columns.some((c) => c.name === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
+}
+
+addColumn('products', 'barcode', 'TEXT');
+addColumn('products', 'image_url', 'TEXT');
+addColumn('products', 'supplier', 'TEXT');
+addColumn('products', 'reorder_point', 'INTEGER NOT NULL DEFAULT 5');
+
+export const ADJUSTMENT_REASONS = [
+  'received',
+  'damaged',
+  'theft',
+  'count_correction',
+  'return',
+  'transfer',
+  'other',
+];
 
 export default db;

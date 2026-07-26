@@ -37,7 +37,7 @@ router.get('/summary', requireAuth, requireRole('admin'), (req, res) => {
     FROM orders ${where}
     GROUP BY date(created_at)
     ORDER BY day DESC
-    LIMIT 14
+    LIMIT 90
   `).all(...params);
 
   const topProducts = db.prepare(`
@@ -50,7 +50,21 @@ router.get('/summary', requireAuth, requireRole('admin'), (req, res) => {
     LIMIT 5
   `).all(...joinedParams);
 
-  const lowStock = db.prepare('SELECT id, name, sku, stock FROM products WHERE active = 1 AND stock <= 10 ORDER BY stock ASC').all();
+  const lowStock = db
+    .prepare(
+      `SELECT id, name, sku, stock, reorder_point FROM products
+       WHERE active = 1 AND stock <= reorder_point
+       ORDER BY stock ASC, name LIMIT 12`,
+    )
+    .all();
+
+  const paymentMix = db
+    .prepare(
+      `SELECT payment_method, COALESCE(SUM(total), 0) AS revenue, COUNT(*) AS orders
+       FROM orders ${where}
+       GROUP BY payment_method`,
+    )
+    .all(...params);
 
   res.json({
     revenue: totals.revenue,
@@ -58,9 +72,10 @@ router.get('/summary', requireAuth, requireRole('admin'), (req, res) => {
     discountsGiven: totals.discountsGiven,
     orderCount: totals.orderCount,
     averageOrderValue: totals.orderCount ? Math.round((totals.revenue / totals.orderCount) * 100) / 100 : 0,
-    byDay,
+    byDay: byDay.slice().reverse(),
     topProducts,
     lowStock,
+    paymentMix,
   });
 });
 
