@@ -56,6 +56,21 @@ Then open http://localhost:5173.
 
 Change these before deploying anywhere real.
 
+## Tests
+
+```bash
+npm test   # server unit + API integration tests (node:test, no extra deps)
+npm run e2e  # Playwright smoke test against a throwaway DB and a production build
+```
+
+`npm run e2e` seeds a temporary database, boots the API and a preview build of the
+client on their own ports, drives Chromium through the register, back office and
+import flows, then tears everything down. Set `E2E_SCREENSHOT_DIR` to capture
+screenshots of each stage.
+
+CI runs both suites plus the client build and lint on every pull request
+(`.github/workflows/ci.yml`).
+
 ## Configuration
 
 Copy `server/.env.example` to `server/.env` to override defaults:

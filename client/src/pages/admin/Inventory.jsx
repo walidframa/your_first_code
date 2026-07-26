@@ -3,7 +3,6 @@ import { ArrowDownRight, ArrowUpRight, History, Search, SlidersHorizontal } from
 import api from '../../api';
 import PageHeader from '../../components/PageHeader';
 import {
-  Badge,
   Button,
   Card,
   EmptyState,
