@@ -1,44 +1,64 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, Banknote, CreditCard, Delete } from 'lucide-react';
 import { Button, Modal, cx, money } from './ui';
+import { useSettings, lbp } from '../context/SettingsContext';
 
-const QUICK_CASH = [5, 10, 20, 50, 100];
+const QUICK_USD = [5, 10, 20, 50, 100];
+const QUICK_LBP = [100000, 200000, 500000, 1000000, 5000000];
 
 /**
- * Payment step: pick a tender, and for cash enter the amount with a keypad.
- * Split out from the cart so the register stays a single-glance screen.
+ * Payment step. The customer may hand over USD, LBP, or both; the cashier
+ * chooses which currency to give change in and the sheet shows the exact
+ * amount to hand back.
  */
 export default function PaymentSheet({ open, total, onClose, onConfirm, submitting }) {
+  const { rate, toLbp } = useSettings();
+
   const [method, setMethod] = useState(null);
-  const [entry, setEntry] = useState('');
+  const [usdEntry, setUsdEntry] = useState('');
+  const [lbpEntry, setLbpEntry] = useState('');
+  const [active, setActive] = useState('USD');
+  const [changeCurrency, setChangeCurrency] = useState('LBP');
 
   useEffect(() => {
     if (open) {
       setMethod(null);
-      setEntry('');
+      setUsdEntry('');
+      setLbpEntry('');
+      setActive('USD');
+      setChangeCurrency('LBP');
     }
   }, [open]);
 
-  const tendered = Number(entry || 0);
-  const change = tendered - total;
-  const canConfirmCash = tendered >= total && total > 0;
+  const paidUsd = Number(usdEntry || 0);
+  const paidLbp = Number(lbpEntry || 0);
+  const tenderedUsd = paidUsd + (rate ? paidLbp / rate : 0);
+  const remaining = total - tenderedUsd;
+  const covered = remaining <= 0.0001;
+  const changeUsd = Math.max(0, tenderedUsd - total);
 
-  const suggestions = useMemo(() => {
-    const rounded = Math.ceil(total);
-    const set = new Set([Number(total.toFixed(2)), rounded]);
-    for (const q of QUICK_CASH) if (q >= total) set.add(q);
-    return [...set].sort((a, b) => a - b).slice(0, 4);
-  }, [total]);
+  const totalLbp = useMemo(() => toLbp(total), [toLbp, total]);
+
+  const setEntry = active === 'USD' ? setUsdEntry : setLbpEntry;
 
   function press(key) {
     setEntry((prev) => {
       if (key === 'clear') return '';
       if (key === 'back') return prev.slice(0, -1);
-      if (key === '.') return prev.includes('.') ? prev : (prev || '0') + '.';
-      // Cap at two decimal places.
-      if (prev.includes('.') && prev.split('.')[1].length >= 2) return prev;
+      if (key === '.') {
+        if (active === 'LBP') return prev; // pounds have no subunit in practice
+        return prev.includes('.') ? prev : (prev || '0') + '.';
+      }
+      if (active === 'USD' && prev.includes('.') && prev.split('.')[1].length >= 2) return prev;
       return prev === '0' ? key : prev + key;
     });
+  }
+
+  function confirm() {
+    const payments = [];
+    if (paidUsd > 0) payments.push({ currency: 'USD', amount: paidUsd });
+    if (paidLbp > 0) payments.push({ currency: 'LBP', amount: paidLbp });
+    onConfirm({ paymentMethod: 'cash', payments, changeCurrency });
   }
 
   return (
@@ -46,8 +66,8 @@ export default function PaymentSheet({ open, total, onClose, onConfirm, submitti
       open={open}
       onClose={submitting ? undefined : onClose}
       title={method === null ? 'Take payment' : method === 'cash' ? 'Cash payment' : 'Card payment'}
-      subtitle={`Amount due ${money(total)}`}
-      size={method === 'cash' ? 'md' : 'sm'}
+      subtitle={`${money(total)} · ${lbp(totalLbp)}`}
+      size={method === 'cash' ? 'lg' : 'sm'}
     >
       {method === null && (
         <div className="grid grid-cols-2 gap-3">
@@ -73,6 +93,7 @@ export default function PaymentSheet({ open, total, onClose, onConfirm, submitti
           <div className="rounded-xl bg-slate-50 px-4 py-6 text-center">
             <p className="text-sm text-slate-500">Charge to card</p>
             <p className="mt-1 text-3xl font-semibold text-slate-900">{money(total)}</p>
+            <p className="mt-0.5 text-sm text-slate-500">{lbp(totalLbp)}</p>
           </div>
           <p className="text-center text-xs text-slate-500">
             This records the sale. No card is actually charged — connect a payment provider to take real
@@ -96,31 +117,88 @@ export default function PaymentSheet({ open, total, onClose, onConfirm, submitti
 
       {method === 'cash' && (
         <div className="space-y-4">
-          <div className="rounded-xl bg-slate-50 px-4 py-4 text-center">
-            <p className="text-xs tracking-wide text-slate-500 uppercase">Cash received</p>
-            <p className="mt-1 text-3xl font-semibold text-slate-900">
-              {entry ? money(tendered) : <span className="text-slate-300">$0.00</span>}
-            </p>
-            {entry !== '' && (
-              <p
+          {/* What has been handed over, per currency */}
+          <div className="grid grid-cols-2 gap-2">
+            {[
+              { key: 'USD', label: 'US dollars', value: usdEntry, display: money(paidUsd) },
+              { key: 'LBP', label: 'Lebanese pounds', value: lbpEntry, display: lbp(paidLbp) },
+            ].map((c) => (
+              <button
+                key={c.key}
+                onClick={() => setActive(c.key)}
                 className={cx(
-                  'mt-1 text-sm font-medium',
-                  change >= 0 ? 'text-brand-700' : 'text-red-600',
+                  'rounded-xl px-3 py-3 text-left transition ring-1',
+                  active === c.key ? 'bg-white ring-brand-500 ring-2' : 'bg-slate-50 ring-slate-200',
                 )}
               >
-                {change >= 0 ? `Change due ${money(change)}` : `${money(-change)} short`}
-              </p>
+                <span className="block text-xs text-slate-500">{c.label}</span>
+                <span
+                  className={cx(
+                    'mt-0.5 block text-xl font-semibold',
+                    c.value ? 'text-slate-900' : 'text-slate-300',
+                  )}
+                >
+                  {c.value ? c.display : c.key === 'USD' ? '$0.00' : '0 LL'}
+                </span>
+              </button>
+            ))}
+          </div>
+
+          <div
+            className={cx(
+              'rounded-xl px-4 py-3 text-center',
+              covered ? 'bg-brand-50' : 'bg-amber-50',
+            )}
+          >
+            {covered ? (
+              <>
+                <p className="text-xs tracking-wide text-slate-500 uppercase">Change to give</p>
+                <p className="mt-0.5 text-3xl font-semibold text-slate-900">
+                  {changeCurrency === 'LBP' ? lbp(toLbp(changeUsd)) : money(changeUsd)}
+                </p>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  {changeCurrency === 'LBP'
+                    ? `≈ ${money(changeUsd)}`
+                    : `≈ ${lbp(toLbp(changeUsd))}`}
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="text-xs tracking-wide text-amber-800 uppercase">Still due</p>
+                <p className="mt-0.5 text-3xl font-semibold text-amber-900">{money(remaining)}</p>
+                <p className="mt-0.5 text-xs text-amber-700">{lbp(toLbp(remaining))}</p>
+              </>
             )}
           </div>
 
+          {covered && (
+            <div>
+              <p className="mb-1.5 text-sm text-slate-600">Give change in</p>
+              <div className="flex rounded-lg bg-slate-100 p-0.5 text-sm font-medium">
+                {['LBP', 'USD'].map((c) => (
+                  <button
+                    key={c}
+                    onClick={() => setChangeCurrency(c)}
+                    className={cx(
+                      'flex-1 rounded-md px-3 py-1.5 transition',
+                      changeCurrency === c ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500',
+                    )}
+                  >
+                    {c === 'LBP' ? 'Lebanese pounds' : 'US dollars'}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="flex flex-wrap gap-2">
-            {suggestions.map((amount) => (
+            {(active === 'USD' ? QUICK_USD : QUICK_LBP).map((amount) => (
               <button
                 key={amount}
                 onClick={() => setEntry(String(amount))}
-                className="flex-1 rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-200"
+                className="flex-1 rounded-lg bg-slate-100 px-2 py-2 text-sm font-medium whitespace-nowrap text-slate-700 transition hover:bg-slate-200"
               >
-                {amount === Number(total.toFixed(2)) ? 'Exact' : money(amount)}
+                {active === 'USD' ? money(amount) : `${(amount / 1000).toLocaleString()}k`}
               </button>
             ))}
           </div>
@@ -130,8 +208,9 @@ export default function PaymentSheet({ open, total, onClose, onConfirm, submitti
               <button
                 key={key}
                 onClick={() => press(key)}
+                disabled={key === '.' && active === 'LBP'}
                 aria-label={key === 'back' ? 'Backspace' : key}
-                className="flex h-14 items-center justify-center rounded-xl bg-white text-lg font-medium text-slate-800 ring-1 ring-slate-200 transition hover:bg-slate-50 active:bg-slate-100"
+                className="flex h-13 items-center justify-center rounded-xl bg-white py-3 text-lg font-medium text-slate-800 ring-1 ring-slate-200 transition hover:bg-slate-50 active:bg-slate-100 disabled:opacity-30"
               >
                 {key === 'back' ? <Delete size={18} /> : key}
               </button>
@@ -145,11 +224,13 @@ export default function PaymentSheet({ open, total, onClose, onConfirm, submitti
             <Button
               size="lg"
               className="flex-1"
-              disabled={!canConfirmCash}
+              disabled={!covered}
               loading={submitting}
-              onClick={() => onConfirm({ paymentMethod: 'cash', amountTendered: tendered })}
+              onClick={confirm}
             >
-              {canConfirmCash ? `Confirm · change ${money(change)}` : 'Enter cash received'}
+              {covered
+                ? `Confirm · change ${changeCurrency === 'LBP' ? lbp(toLbp(changeUsd)) : money(changeUsd)}`
+                : `${money(remaining)} still due`}
             </Button>
           </div>
         </div>

@@ -2,20 +2,31 @@ import { Router } from 'express';
 import crypto from 'crypto';
 import { db, transaction } from '../db.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
+import { getSettings } from '../lib/settings.js';
+import {
+  CURRENCIES,
+  round2,
+  changeBreakdown,
+  tenderTotals,
+  validatePayments,
+} from '../lib/currency.js';
 
 const router = Router();
 const TAX_RATE = Number(process.env.TAX_RATE || 0.08);
-
-function round2(n) {
-  return Math.round(n * 100) / 100;
-}
 
 router.get('/tax-rate', requireAuth, (req, res) => {
   res.json({ taxRate: TAX_RATE });
 });
 
 router.post('/', requireAuth, (req, res) => {
-  const { items, discountPercent = 0, paymentMethod, amountTendered } = req.body || {};
+  const {
+    items,
+    discountPercent = 0,
+    paymentMethod,
+    amountTendered,
+    payments,
+    changeCurrency = 'LBP',
+  } = req.body || {};
 
   if (!Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: 'Cart must contain at least one item' });
@@ -27,6 +38,16 @@ router.post('/', requireAuth, (req, res) => {
   if (!Number.isFinite(discount) || discount < 0 || discount > 100) {
     return res.status(400).json({ error: 'discountPercent must be between 0 and 100' });
   }
+  if (!CURRENCIES.includes(changeCurrency)) {
+    return res.status(400).json({ error: `changeCurrency must be one of: ${CURRENCIES.join(', ')}` });
+  }
+
+  const { exchange_rate: exchangeRate, lbp_rounding: lbpRounding } = getSettings();
+
+  // A bare `amountTendered` is treated as a single USD cash leg, so older
+  // clients keep working now that tender is a list.
+  const tender =
+    payments ?? (amountTendered !== undefined ? [{ currency: 'USD', amount: amountTendered }] : null);
 
   try {
     const result = transaction(() => {
@@ -56,20 +77,47 @@ router.post('/', requireAuth, (req, res) => {
 
       let amountTenderedValue = null;
       let changeDue = null;
+      let paidUsd = 0;
+      let paidLbp = 0;
+      let changeUsd = 0;
+      let changeLbp = 0;
+
       if (paymentMethod === 'cash') {
-        amountTenderedValue = Number(amountTendered);
-        if (!Number.isFinite(amountTenderedValue) || amountTenderedValue < total) {
-          throw new Error('Amount tendered must be at least the total for cash payments');
+        const invalid = validatePayments(tender || []);
+        if (invalid) throw new Error(invalid);
+
+        const totals = tenderTotals(tender, exchangeRate);
+        if (totals.totalUsdEquivalent + 1e-9 < total) {
+          throw new Error(
+            `Tendered ${totals.totalUsdEquivalent.toFixed(2)} USD is less than the ${total.toFixed(2)} USD total`,
+          );
         }
-        changeDue = round2(amountTenderedValue - total);
+
+        paidUsd = totals.paidUsd;
+        paidLbp = totals.paidLbp;
+        amountTenderedValue = totals.totalUsdEquivalent;
+        changeDue = round2(totals.totalUsdEquivalent - total);
+
+        const breakdown = changeBreakdown(changeDue, changeCurrency, exchangeRate, lbpRounding);
+        changeUsd = breakdown.changeUsd;
+        changeLbp = breakdown.changeLbp;
       }
 
       const orderNumber = `ORD-${Date.now()}-${crypto.randomBytes(2).toString('hex').toUpperCase()}`;
 
       const orderInfo = db.prepare(`
-        INSERT INTO orders (order_number, cashier_id, subtotal, discount, tax, total, payment_method, amount_tendered, change_due, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed')
-      `).run(orderNumber, req.user.id, subtotal, discountAmount, tax, total, paymentMethod, amountTenderedValue, changeDue);
+        INSERT INTO orders (
+          order_number, cashier_id, subtotal, discount, tax, total, payment_method,
+          amount_tendered, change_due, status,
+          exchange_rate, paid_usd, paid_lbp, change_usd, change_lbp, change_currency
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed', ?, ?, ?, ?, ?, ?)
+      `).run(
+        orderNumber, req.user.id, subtotal, discountAmount, tax, total, paymentMethod,
+        amountTenderedValue, changeDue,
+        exchangeRate, paidUsd, paidLbp, changeUsd, changeLbp,
+        paymentMethod === 'cash' ? changeCurrency : null,
+      );
 
       const orderId = orderInfo.lastInsertRowid;
 

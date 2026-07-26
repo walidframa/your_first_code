@@ -206,6 +206,170 @@ test('blocks cashiers from refunding', async () => {
   assert.equal((await req('POST', `/orders/${completed.id}/refund`, null, cashierToken)).status, 403);
 });
 
+/* -------------------------------------------------------- dual currency */
+
+test('settings expose a default rate that cashiers can read', async () => {
+  const res = await req('GET', '/settings', null, cashierToken);
+  assert.equal(res.status, 200);
+  assert.ok(res.json.settings.exchange_rate > 0);
+  assert.ok(res.json.settings.lbp_rounding >= 1);
+});
+
+test('only admins can change the rate', async () => {
+  assert.equal((await req('PUT', '/settings', { exchange_rate: 90000 }, cashierToken)).status, 403);
+});
+
+test('rejects a nonsensical rate', async () => {
+  assert.equal((await req('PUT', '/settings', { exchange_rate: 0 }, adminToken)).status, 400);
+  assert.equal((await req('PUT', '/settings', { exchange_rate: -5 }, adminToken)).status, 400);
+  assert.equal((await req('PUT', '/settings', { exchange_rate: 'abc' }, adminToken)).status, 400);
+});
+
+test('changing the rate records history, and a no-op change does not', async () => {
+  const changed = await req('PUT', '/settings', { exchange_rate: 90500, lbp_rounding: 1000 }, adminToken);
+  assert.equal(changed.json.settings.exchange_rate, 90500);
+
+  let history = (await req('GET', '/settings/rate-history', null, adminToken)).json.history;
+  assert.equal(history[0].rate, 90500);
+  assert.equal(history[0].user_name, 'Store Owner');
+  const countAfterChange = history.length;
+
+  // Re-submitting the same rate is not a rate change and must not add noise.
+  await req('PUT', '/settings', { exchange_rate: 90500 }, adminToken);
+  history = (await req('GET', '/settings/rate-history', null, adminToken)).json.history;
+  assert.equal(history.length, countAfterChange);
+
+  // Restore the rate the rest of the suite prices against.
+  await req('PUT', '/settings', { exchange_rate: 89000 }, adminToken);
+  assert.equal((await req('GET', '/settings', null, adminToken)).json.settings.exchange_rate, 89000);
+});
+
+test('paying entirely in LBP settles a USD-priced sale', async () => {
+  const product = (await req('GET', '/products/lookup?code=SNK-003', null, cashierToken)).json.product;
+  // 2 × 2.25 = 4.50 USD, +8% tax = 4.86 USD → 432,540 LBP at 89,000.
+  const res = await req(
+    'POST',
+    '/orders',
+    {
+      items: [{ productId: product.id, quantity: 2 }],
+      paymentMethod: 'cash',
+      payments: [{ currency: 'LBP', amount: 500000 }],
+      changeCurrency: 'LBP',
+    },
+    cashierToken,
+  );
+
+  assert.equal(res.status, 201);
+  const order = res.json.order;
+  assert.equal(order.total, 4.86);
+  assert.equal(order.paid_lbp, 500000);
+  assert.equal(order.paid_usd, 0);
+  assert.equal(order.exchange_rate, 89000, 'the rate in force is recorded on the order');
+  // 500,000 LBP ≈ 5.62 USD, so change ≈ 0.76 USD ≈ 67,640 LBP → 68,000.
+  assert.equal(order.change_lbp, 68000);
+  assert.equal(order.change_usd, 0);
+  assert.equal(order.change_currency, 'LBP');
+});
+
+test('a split USD + LBP tender settles and returns change in USD', async () => {
+  const product = (await req('GET', '/products/lookup?code=SNK-003', null, cashierToken)).json.product;
+  const res = await req(
+    'POST',
+    '/orders',
+    {
+      items: [{ productId: product.id, quantity: 2 }],
+      paymentMethod: 'cash',
+      payments: [
+        { currency: 'USD', amount: 3 },
+        { currency: 'LBP', amount: 200000 },
+      ],
+      changeCurrency: 'USD',
+    },
+    cashierToken,
+  );
+
+  assert.equal(res.status, 201);
+  const order = res.json.order;
+  assert.equal(order.paid_usd, 3);
+  assert.equal(order.paid_lbp, 200000);
+  // 3 USD + 200,000 LBP (2.25 USD) = 5.25 USD against a 4.86 total.
+  assert.equal(order.amount_tendered, 5.25);
+  assert.equal(order.change_usd, 0.39);
+  assert.equal(order.change_lbp, 0);
+});
+
+test('refuses a tender that falls short across both currencies', async () => {
+  const product = (await req('GET', '/products/lookup?code=SNK-003', null, cashierToken)).json.product;
+  const res = await req(
+    'POST',
+    '/orders',
+    {
+      items: [{ productId: product.id, quantity: 2 }],
+      paymentMethod: 'cash',
+      payments: [
+        { currency: 'USD', amount: 1 },
+        { currency: 'LBP', amount: 100000 },
+      ],
+    },
+    cashierToken,
+  );
+  assert.equal(res.status, 400);
+  assert.match(res.json.error, /less than/i);
+});
+
+test('rejects an unknown tender currency', async () => {
+  const product = (await req('GET', '/products/lookup?code=SNK-003', null, cashierToken)).json.product;
+  const res = await req(
+    'POST',
+    '/orders',
+    {
+      items: [{ productId: product.id, quantity: 1 }],
+      paymentMethod: 'cash',
+      payments: [{ currency: 'EUR', amount: 50 }],
+    },
+    cashierToken,
+  );
+  assert.equal(res.status, 400);
+});
+
+test('a rate change does not alter already-recorded orders', async () => {
+  const product = (await req('GET', '/products/lookup?code=SNK-003', null, cashierToken)).json.product;
+  const before = (
+    await req(
+      'POST',
+      '/orders',
+      {
+        items: [{ productId: product.id, quantity: 1 }],
+        paymentMethod: 'cash',
+        payments: [{ currency: 'LBP', amount: 500000 }],
+        changeCurrency: 'LBP',
+      },
+      cashierToken,
+    )
+  ).json.order;
+
+  await req('PUT', '/settings', { exchange_rate: 100000 }, adminToken);
+  const reread = (await req('GET', `/orders/${before.id}`, null, cashierToken)).json.order;
+  assert.equal(reread.exchange_rate, 89000, 'historical order keeps the rate it was sold at');
+  assert.equal(reread.change_lbp, before.change_lbp);
+
+  await req('PUT', '/settings', { exchange_rate: 89000 }, adminToken);
+});
+
+test('card sales record no tender and no change', async () => {
+  const product = (await req('GET', '/products/lookup?code=SNK-003', null, cashierToken)).json.product;
+  const res = await req(
+    'POST',
+    '/orders',
+    { items: [{ productId: product.id, quantity: 1 }], paymentMethod: 'card' },
+    cashierToken,
+  );
+  assert.equal(res.status, 201);
+  assert.equal(res.json.order.paid_usd, 0);
+  assert.equal(res.json.order.paid_lbp, 0);
+  assert.equal(res.json.order.change_currency, null);
+});
+
 /* -------------------------------------------------------------- inventory */
 
 test('inventory overview is admin only', async () => {

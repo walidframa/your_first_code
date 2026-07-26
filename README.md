@@ -11,6 +11,9 @@ orders and staff.
 - Product grid with search and category filters, live stock counts
 - Cart with quantity steppers capped at available stock
 - Order-level discount, automatic tax, live total
+- **Dual currency (USD + LBP)** — totals shown in both; the customer can pay in
+  dollars, pounds, or a mix of the two in one sale, and the cashier chooses which
+  currency to give change in. The exact amount to hand back is shown for both.
 - Payment sheet: card, or cash with a numeric keypad and quick-cash amounts
 - Change due surfaced prominently, plus a printable receipt
 - Keyboard shortcuts: `/` focuses search, `F2` opens payment
@@ -28,6 +31,8 @@ orders and staff.
 - Products: full CRUD with barcode, supplier, cost/margin, image URL, archive/restore
 - Orders: every cashier's sales with full refunds that restock items
 - Staff: `admin` / `cashier` accounts
+- Settings: the USD→LBP exchange rate, the pound rounding step, a live preview
+  and a full history of who changed the rate and when
 
 Cashiers only see their own sales; admin routes are enforced server-side, not just
 hidden in the UI.
@@ -99,6 +104,28 @@ Copy `server/.env.example` to `server/.env` to override defaults:
 refuses to start unless it is set to at least 32 characters. In development an
 ephemeral random secret is generated per process (with a warning), so sessions do
 not survive a restart until you set one.
+
+## Dual currency
+
+Products are priced in **US dollars only**. Lebanese pounds are derived from a
+single exchange rate set in Admin → Settings, so there is one number to update
+each morning and the two price lists can never drift apart.
+
+- Every total is shown in both currencies, on the register, the payment sheet and
+  the receipt.
+- A sale can be settled with any mix of USD and LBP notes. The app converts the
+  pound legs at the current rate and tells the cashier what is still due.
+- Change is given in whichever currency the cashier picks, rounded to the
+  configured step (1,000 LL by default — quoting to the single pound is
+  meaningless).
+- **The rate in force is stored on each order.** Changing the rate never
+  retroactively alters past sales, so a receipt still reconciles months later.
+
+| Route | Method | Role |
+| ----- | ------ | ---- |
+| `/api/settings` | GET | any (the register needs the live rate) |
+| `/api/settings` | PUT | admin |
+| `/api/settings/rate-history` | GET | admin |
 
 ## Importing an existing catalog
 

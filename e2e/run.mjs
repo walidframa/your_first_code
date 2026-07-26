@@ -40,9 +40,15 @@ function track(child, label) {
   return child;
 }
 
-async function waitFor(url, label, timeoutMs = 60000) {
+async function waitFor(url, label, child, timeoutMs = 60000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
+    // If the service died (e.g. its port was already taken), stop immediately —
+    // otherwise a stale server left over from an earlier run can answer the
+    // health check and the suite silently tests the wrong process.
+    if (child && child.exitCode !== null) {
+      throw new Error(`${label} exited with code ${child.exitCode} before becoming ready`);
+    }
     try {
       const res = await fetch(url);
       if (res.ok) return;
@@ -77,7 +83,7 @@ if (seed.status !== 0) {
 }
 
 console.log('Starting API…');
-track(
+const api = track(
   spawn(process.execPath, ['src/index.js'], {
     cwd: path.join(repoRoot, 'server'),
     env,
@@ -85,7 +91,7 @@ track(
   }),
   'API',
 );
-await waitFor(`http://127.0.0.1:${API_PORT}/api/health`, 'API');
+await waitFor(`http://127.0.0.1:${API_PORT}/api/health`, 'API', api);
 
 console.log('Building and serving the client…');
 const build = spawnSync('npm', ['--prefix', 'client', 'run', 'build'], {
@@ -98,7 +104,7 @@ const build = spawnSync('npm', ['--prefix', 'client', 'run', 'build'], {
 });
 if (build.status !== 0) process.exit(1);
 
-track(
+const web = track(
   spawn(
     'npm',
     [
@@ -113,7 +119,7 @@ track(
   ),
   'client',
 );
-await waitFor(`http://127.0.0.1:${WEB_PORT}/`, 'client');
+await waitFor(`http://127.0.0.1:${WEB_PORT}/`, 'client', web);
 
 console.log('Running smoke test…');
 const smoke = spawnSync(process.execPath, ['e2e/smoke.mjs'], {

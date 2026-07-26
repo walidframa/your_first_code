@@ -96,6 +96,20 @@ db.exec(`
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
+  CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_by INTEGER REFERENCES users(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS exchange_rate_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    rate REAL NOT NULL,
+    user_id INTEGER REFERENCES users(id),
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
   CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders(created_at);
   CREATE INDEX IF NOT EXISTS idx_order_items_order ON order_items(order_id);
   CREATE INDEX IF NOT EXISTS idx_adjustments_product ON stock_adjustments(product_id, created_at);
@@ -114,6 +128,16 @@ addColumn('products', 'barcode', 'TEXT');
 addColumn('products', 'image_url', 'TEXT');
 addColumn('products', 'supplier', 'TEXT');
 addColumn('products', 'reorder_point', 'INTEGER NOT NULL DEFAULT 5');
+
+// Dual-currency tender. Prices are held in USD; these record what was actually
+// handed over, plus the rate in force at the time so historical orders stay
+// convertible after the rate moves.
+addColumn('orders', 'exchange_rate', 'REAL');
+addColumn('orders', 'paid_usd', 'REAL NOT NULL DEFAULT 0');
+addColumn('orders', 'paid_lbp', 'REAL NOT NULL DEFAULT 0');
+addColumn('orders', 'change_usd', 'REAL NOT NULL DEFAULT 0');
+addColumn('orders', 'change_lbp', 'REAL NOT NULL DEFAULT 0');
+addColumn('orders', 'change_currency', 'TEXT');
 
 export const ADJUSTMENT_REASONS = [
   'received',
