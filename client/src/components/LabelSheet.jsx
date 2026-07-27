@@ -5,17 +5,6 @@ import { money } from './ui';
 import { lbp } from '../context/SettingsContext';
 
 /**
- * Label sizes, in millimetres, matching common sheet and roll stock.
- * `perRow` is what fits across an A4 sheet at these widths.
- */
-export const LABEL_SIZES = {
-  small: { key: 'small', label: 'Small · 38 × 21 mm', width: 38, height: 21.2, perRow: 5, barcodeHeight: 22 },
-  medium: { key: 'medium', label: 'Medium · 63.5 × 34 mm', width: 63.5, height: 33.9, perRow: 3, barcodeHeight: 34 },
-  large: { key: 'large', label: 'Large · 70 × 42 mm', width: 70, height: 42, perRow: 2, barcodeHeight: 44 },
-  thermal: { key: 'thermal', label: 'Thermal roll · 50 × 30 mm', width: 50, height: 30, perRow: 3, barcodeHeight: 30 },
-};
-
-/**
  * One barcode, drawn by JsBarcode into an inline SVG.
  *
  * The symbology is detected per code rather than assumed, and JsBarcode is
@@ -55,38 +44,39 @@ export function Label({ product, size, rate, showLbp = true }) {
       style={{
         width: `${size.width}mm`,
         height: `${size.height}mm`,
-        padding: '1.5mm',
+        padding: `${size.padding}mm`,
       }}
     >
       <span
         className="w-full leading-tight font-semibold text-black"
         style={{
-          fontSize: size.width > 55 ? '9pt' : '7pt',
+          fontSize: `${size.namePt}pt`,
+          lineHeight: 1.1,
           overflow: 'hidden',
           display: '-webkit-box',
-          WebkitLineClamp: 2,
+          WebkitLineClamp: size.nameLines,
           WebkitBoxOrient: 'vertical',
         }}
       >
         {product.name}
       </span>
 
-      <span className="font-bold text-black" style={{ fontSize: size.width > 55 ? '13pt' : '10pt' }}>
+      <span className="font-bold text-black" style={{ fontSize: `${size.pricePt}pt`, lineHeight: 1 }}>
         {money(product.price)}
       </span>
 
       {showLbp && rate > 0 && (
-        <span className="text-black" style={{ fontSize: size.width > 55 ? '8pt' : '6pt' }}>
+        <span className="text-black" style={{ fontSize: `${size.subPt}pt`, lineHeight: 1 }}>
           {lbp(priceLbp)}
         </span>
       )}
 
       {code ? (
         <div className="flex w-full flex-col items-center">
-          <Barcode value={code} height={size.barcodeHeight} width={size.width > 55 ? 1.6 : 1.1} />
+          <Barcode value={code} height={size.barcodeHeight} width={size.barWidth} />
           <span
             className="tracking-wider text-black"
-            style={{ fontSize: size.width > 55 ? '7pt' : '5pt', marginTop: '0.5mm' }}
+            style={{ fontSize: `${size.codePt}pt`, lineHeight: 1, marginTop: '0.3mm' }}
           >
             {code}
           </span>

@@ -419,6 +419,39 @@ try {
     if (sheetPages !== 1) throw new Error(`expected 1 A4 page, got ${sheetPages}`);
   });
 
+  await step('the page is sized to the label stock, preset or custom', async () => {
+    await page.getByRole('button', { name: /Label printer/ }).click();
+
+    // The printed page must match the physical label, or the run is misaligned.
+    const pageSizeMm = async () => {
+      const pdf = await page.pdf({ printBackground: true, preferCSSPageSize: true });
+      const box = pdf.toString('latin1').match(/MediaBox\s*\[\s*0\s+0\s+([\d.]+)\s+([\d.]+)/);
+      return [box[1], box[2]].map((pt) => (Number(pt) / 72) * 25.4);
+    };
+    const near = (actual, expected) => Math.abs(actual - expected) < 0.5;
+
+    await page.getByLabel('Label size').selectOption('tiny');
+    await page.waitForTimeout(400);
+    const [tw, th] = await pageSizeMm();
+    if (!near(tw, 40) || !near(th, 20)) throw new Error(`40 × 20 preset printed ${tw} × ${th} mm`);
+
+    // Stock that matches no preset is entered by hand.
+    await page.getByLabel('Label size').selectOption('custom');
+    await page.getByLabel('Width (mm)').fill('57');
+    await page.getByLabel('Height (mm)').fill('32');
+    await page.waitForTimeout(500);
+    const [cw, ch] = await pageSizeMm();
+    if (!near(cw, 57) || !near(ch, 32)) throw new Error(`custom 57 × 32 printed ${cw} × ${ch} mm`);
+
+    // Nothing on the label may spill outside its die-cut edge.
+    const spill = await page.evaluate(() =>
+      [...document.querySelectorAll('.label-one')].some(
+        (el) => el.scrollHeight > el.clientHeight + 1 || el.scrollWidth > el.clientWidth + 1,
+      ),
+    );
+    if (spill) throw new Error('label contents overflow the label');
+  });
+
   await step('a quotation converts to a sales order', async () => {
     await page.click('a[title="Documents"]');
     await page.click('button:has-text("New document")');

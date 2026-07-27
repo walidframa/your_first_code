@@ -30,8 +30,9 @@ orders and staff.
   upsert-by-SKU
 - Products: full CRUD with barcode, supplier, cost/margin, image URL, archive/restore
 - Orders: every cashier's sales with full refunds that restock items
-- **Labels**: printable barcode and price labels in four stock sizes, preloaded
-  from a purchase invoice's received quantities
+- **Labels**: printable barcode and price labels for roll or A4 stock, in five
+  built-in sizes or any size you type in, preloaded from a purchase invoice's
+  received quantities
 - **Documents**: quotations, sales orders, sales invoices and purchase invoices —
   a purchase invoice receives stock, a sales invoice issues it, and quotations
   convert through to invoices
@@ -168,9 +169,20 @@ preloads its lines with the quantities just received, since that is usually why
 you are printing.
 
 Each label carries the product name, the price in **both currencies**, a barcode
-and its human-readable number. Four stock sizes are offered (38×21, 63.5×34,
-70×42 mm sheets and a 50×30 mm thermal roll), and printing hides the whole app so
-only the sheet reaches the page.
+and its human-readable number. Printing hides the whole app so only the sheet
+reaches the page.
+
+Choose the stock first, because it decides the page:
+
+- **Label printer** — one physical label is one page, and the page is sized to
+  the label. Without this the whole run is squeezed onto the first label.
+- **A4 label sheet** — a grid of die-cut labels on one page. Print at 100%
+  scale; "fit to page" shifts the grid off the die-cut.
+
+Five sizes are built in — 40×20, 38×21, 50×30, 63.5×34 and 70×42 mm — and
+**Custom size…** takes any stock between 10×8 and 210×297 mm. Type sizes, the
+barcode height and how many fit across a sheet are all derived from the
+dimensions, so a size typed in is laid out as carefully as a built-in one.
 
 **Barcodes are rendered by JsBarcode, not hand-rolled** — a subtly wrong barcode
 scans as the wrong product. What the app decides is the *symbology*: a valid

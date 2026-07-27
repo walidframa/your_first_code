@@ -4,13 +4,15 @@ import { AlertTriangle, Minus, Plus, Printer, Search, Tag, Trash2, Truck } from 
 import api from '../../api';
 import PageHeader from '../../components/PageHeader';
 import { useSettings } from '../../context/SettingsContext';
-import LabelSheet, { LABEL_SIZES } from '../../components/LabelSheet';
+import LabelSheet from '../../components/LabelSheet';
+import { CUSTOM_LIMITS, LABEL_SIZES, customSize, perSheet } from '../../lib/labelLayout';
 import { codeFor, hasSuspectCheckDigit } from '../../lib/barcode';
 import {
   Badge,
   Button,
   Card,
   EmptyState,
+  Input,
   ProductThumb,
   Select,
   Skeleton,
@@ -27,12 +29,17 @@ export default function Labels() {
   const [products, setProducts] = useState(null);
   const [selection, setSelection] = useState([]); // [{ product, quantity }]
   const [search, setSearch] = useState('');
-  const [sizeKey, setSizeKey] = useState('medium');
+  const [sizeKey, setSizeKey] = useState('tiny');
+  const [customW, setCustomW] = useState('40');
+  const [customH, setCustomH] = useState('20');
   const [showLbp, setShowLbp] = useState(true);
   const [mode, setMode] = useState('sheet');
   const [sourceLabel, setSourceLabel] = useState('');
 
-  const size = LABEL_SIZES[sizeKey];
+  // A custom size falls back to a preset while the typed values are unusable,
+  // so the preview never blanks out mid-keystroke.
+  const custom = customSize(customW, customH);
+  const size = sizeKey === 'custom' ? custom || LABEL_SIZES.tiny : LABEL_SIZES[sizeKey];
   const fromDocument = searchParams.get('fromDocument');
 
   useEffect(() => {
@@ -103,8 +110,7 @@ export default function Labels() {
   const suspect = selection.filter((e) => hasSuspectCheckDigit(e.product.barcode));
   const missingCode = selection.filter((e) => !codeFor(e.product));
   // On a label printer every label is its own page; on a sheet, as many as fit.
-  const perSheet = size.perRow * Math.floor(281 / (size.height + 2));
-  const pages = mode === 'roll' ? labels.length : Math.ceil(labels.length / perSheet) || 0;
+  const pages = mode === 'roll' ? labels.length : Math.ceil(labels.length / perSheet(size)) || 0;
 
   return (
     <div className="flex h-full flex-col">
@@ -212,7 +218,40 @@ export default function Labels() {
                     {s.label}
                   </option>
                 ))}
+                <option value="custom">Custom size…</option>
               </Select>
+
+              {sizeKey === 'custom' && (
+                <div className="mt-3 flex items-end gap-2">
+                  <Input
+                    label="Width (mm)"
+                    name="customW"
+                    type="number"
+                    min={CUSTOM_LIMITS.minWidth}
+                    max={CUSTOM_LIMITS.maxWidth}
+                    step="0.1"
+                    value={customW}
+                    onChange={(e) => setCustomW(e.target.value)}
+                  />
+                  <span className="pb-2.5 text-slate-400">×</span>
+                  <Input
+                    label="Height (mm)"
+                    name="customH"
+                    type="number"
+                    min={CUSTOM_LIMITS.minHeight}
+                    max={CUSTOM_LIMITS.maxHeight}
+                    step="0.1"
+                    value={customH}
+                    onChange={(e) => setCustomH(e.target.value)}
+                  />
+                </div>
+              )}
+              {sizeKey === 'custom' && !custom && (
+                <p className="mt-1.5 text-xs text-red-600">
+                  Enter a width of {CUSTOM_LIMITS.minWidth}–{CUSTOM_LIMITS.maxWidth} mm and a height of{' '}
+                  {CUSTOM_LIMITS.minHeight}–{CUSTOM_LIMITS.maxHeight} mm.
+                </p>
+              )}
               <p className="mt-2 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">
                 {mode === 'roll'
                   ? `Each label prints on its own ${size.width} × ${size.height} mm page. In the print dialog set the paper size to match your labels and margins to none.`
