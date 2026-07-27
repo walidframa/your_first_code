@@ -143,14 +143,19 @@ router.post('/', requireAuth, (req, res) => {
 
       const orderId = orderInfo.lastInsertRowid;
 
+      // The cost is copied onto the line, not looked up later: profit for a
+      // sale made last month must not change when a supplier puts a price up.
       const insertItem = db.prepare(`
-        INSERT INTO order_items (order_id, product_id, name, price, quantity, line_total)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO order_items (order_id, product_id, name, price, quantity, line_total, cost)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
       `);
       const decrementStock = db.prepare('UPDATE products SET stock = stock - ? WHERE id = ?');
 
       for (const li of lineItems) {
-        insertItem.run(orderId, li.product.id, li.product.name, li.product.price, li.quantity, li.lineTotal);
+        insertItem.run(
+          orderId, li.product.id, li.product.name, li.product.price, li.quantity, li.lineTotal,
+          li.product.cost ?? null,
+        );
         decrementStock.run(li.quantity, li.product.id);
       }
 

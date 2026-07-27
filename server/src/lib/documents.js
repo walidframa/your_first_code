@@ -2,6 +2,7 @@ import { db } from '../db.js';
 import { round2, tenderTotals, validatePayments } from './currency.js';
 import { addEntry, creditCheck } from './accounts.js';
 import { recordMovement } from './cash.js';
+import { recordCostChange } from './costHistory.js';
 
 const TAX_RATE = Number(process.env.TAX_RATE || 0.08);
 
@@ -108,6 +109,12 @@ export function buildLines(items, docType) {
       price: round2(price),
       quantity,
       lineTotal: round2(price * quantity),
+      /*
+       * What the goods cost us. On a purchase invoice that is the price being
+       * paid; on a sale it is the product's cost at the time, kept on the line
+       * so profit is computed from what was true then.
+       */
+      cost: docType === 'purchase_invoice' ? round2(price) : (product?.cost ?? null),
     });
   }
   return lines;
@@ -231,6 +238,24 @@ function moveStock(doc, items, userId, direction, note) {
           ? `Not enough stock for ${product.name} (have ${product.stock}, need ${Math.round(item.quantity)})`
           : `${product.name} would go below zero (have ${product.stock}) — it has been sold on already`,
       );
+    }
+
+    /*
+     * A delivery is where a supplier's price change actually arrives. Update
+     * the product's cost to what was just paid, and keep the old figure on the
+     * record so the margin's movement can be explained later.
+     */
+    if (direction > 0 && type.stock > 0 && item.cost !== null && item.cost !== undefined) {
+      db.prepare('UPDATE products SET cost = ? WHERE id = ?').run(item.cost, product.id);
+      recordCostChange({
+        productId: product.id,
+        cost: item.cost,
+        previousCost: product.cost,
+        source: 'purchase',
+        note: `Received on ${note}`,
+        documentId: doc.id,
+        userId,
+      });
     }
 
     adjustStock.run(delta, product.id);

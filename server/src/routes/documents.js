@@ -135,11 +135,13 @@ router.post('/', requireAuth, requireRole('admin'), (req, res) => {
         );
 
       const insertItem = db.prepare(
-        `INSERT INTO document_items (document_id, product_id, name, sku, price, quantity, line_total)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO document_items (document_id, product_id, name, sku, price, quantity, line_total, cost)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       );
       for (const l of lines) {
-        insertItem.run(info.lastInsertRowid, l.productId, l.name, l.sku, l.price, l.quantity, l.lineTotal);
+        insertItem.run(
+          info.lastInsertRowid, l.productId, l.name, l.sku, l.price, l.quantity, l.lineTotal, l.cost ?? null,
+        );
       }
       return info.lastInsertRowid;
     })();
@@ -188,6 +190,7 @@ router.put('/:id', requireAuth, requireRole('admin'), (req, res) => {
           price: i.price,
           quantity: i.quantity,
           lineTotal: i.line_total,
+          cost: i.cost,
         }));
     const totals = totalsFor(lines, discountPercent ?? doc.discount_percent);
 
@@ -242,11 +245,11 @@ router.put('/:id', requireAuth, requireRole('admin'), (req, res) => {
 
       db.prepare('DELETE FROM document_items WHERE document_id = ?').run(doc.id);
       const insertItem = db.prepare(
-        `INSERT INTO document_items (document_id, product_id, name, sku, price, quantity, line_total)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO document_items (document_id, product_id, name, sku, price, quantity, line_total, cost)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       );
       for (const l of lines) {
-        insertItem.run(doc.id, l.productId, l.name, l.sku, l.price, l.quantity, l.lineTotal);
+        insertItem.run(doc.id, l.productId, l.name, l.sku, l.price, l.quantity, l.lineTotal, l.cost ?? null);
       }
 
       // Then apply the edited version, against its new party and totals.
@@ -361,11 +364,13 @@ router.post('/:id/convert', requireAuth, requireRole('admin'), (req, res) => {
         );
 
       const insertItem = db.prepare(
-        `INSERT INTO document_items (document_id, product_id, name, sku, price, quantity, line_total)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO document_items (document_id, product_id, name, sku, price, quantity, line_total, cost)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       );
       for (const i of items) {
-        insertItem.run(info.lastInsertRowid, i.product_id, i.name, i.sku, i.price, i.quantity, i.line_total);
+        insertItem.run(
+          info.lastInsertRowid, i.product_id, i.name, i.sku, i.price, i.quantity, i.line_total, i.cost,
+        );
       }
       return info.lastInsertRowid;
     })();
@@ -413,6 +418,10 @@ router.delete('/:id', requireAuth, requireRole('admin'), (req, res) => {
        * The note already names it, so nothing is lost from the record.
        */
       db.prepare('UPDATE cash_movements SET document_id = NULL WHERE document_id = ?').run(doc.id);
+
+      // Likewise the cost the delivery arrived at: the price really did change,
+      // and the note says which document brought it in.
+      db.prepare('UPDATE product_cost_history SET document_id = NULL WHERE document_id = ?').run(doc.id);
       db.prepare('DELETE FROM document_items WHERE document_id = ?').run(doc.id);
       db.prepare('DELETE FROM documents WHERE id = ?').run(doc.id);
     })();

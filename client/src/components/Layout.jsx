@@ -14,8 +14,10 @@ import {
   Settings as SettingsIcon,
   Store,
   Tag,
+  TrendingUp,
   Upload,
   Users,
+  Wallet,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { cx } from './ui';
@@ -25,20 +27,47 @@ const REGISTER_NAV = [
   { to: '/orders', label: 'My sales', icon: Receipt },
 ];
 
+/*
+ * Grouped, because fifteen icons in a column is a list to be searched rather
+ * than a menu to be read. The headings are what let someone look in the right
+ * third of the rail instead of scanning all of it.
+ */
 const ADMIN_NAV = [
-  { to: '/admin', label: 'Dashboard', icon: BarChart3, end: true },
-  { to: '/admin/products', label: 'Products', icon: Package },
-  { to: '/admin/inventory', label: 'Inventory', icon: Boxes },
-  { to: '/admin/import', label: 'Import', icon: Upload },
-  { to: '/admin/documents', label: 'Documents', icon: FileText },
-  { to: '/admin/labels', label: 'Labels', icon: Tag },
-  { to: '/admin/customers', label: 'Customers', icon: Contact },
-  { to: '/admin/suppliers', label: 'Suppliers', icon: Building2 },
-  { to: '/admin/orders', label: 'Orders', icon: Receipt },
-  { to: '/admin/cashbox', label: 'Cashbox', icon: Banknote },
-  { to: '/admin/shopify', label: 'Shopify', icon: ShoppingBag },
-  { to: '/admin/users', label: 'Staff', icon: Users },
-  { to: '/admin/settings', label: 'Settings', icon: SettingsIcon },
+  {
+    heading: 'Stock',
+    items: [
+      { to: '/admin/products', label: 'Products', icon: Package },
+      { to: '/admin/inventory', label: 'Inventory', icon: Boxes },
+      { to: '/admin/labels', label: 'Labels', icon: Tag },
+      { to: '/admin/import', label: 'Import', icon: Upload },
+    ],
+  },
+  {
+    heading: 'Selling',
+    items: [
+      { to: '/admin/documents', label: 'Documents', icon: FileText },
+      { to: '/admin/orders', label: 'Orders', icon: Receipt },
+      { to: '/admin/customers', label: 'Customers', icon: Contact },
+      { to: '/admin/suppliers', label: 'Suppliers', icon: Building2 },
+    ],
+  },
+  {
+    heading: 'Money',
+    items: [
+      { to: '/admin', label: 'Dashboard', icon: BarChart3, end: true },
+      { to: '/admin/cashbox', label: 'Cashbox', icon: Banknote },
+      { to: '/admin/expenses', label: 'Expenses', icon: Wallet },
+      { to: '/admin/profit', label: 'Profit', icon: TrendingUp },
+    ],
+  },
+  {
+    heading: 'Setup',
+    items: [
+      { to: '/admin/shopify', label: 'Shopify', icon: ShoppingBag },
+      { to: '/admin/users', label: 'Staff', icon: Users },
+      { to: '/admin/settings', label: 'Settings', icon: SettingsIcon },
+    ],
+  },
 ];
 
 function NavItem({ to, label, icon: Icon, end }) {
@@ -49,12 +78,12 @@ function NavItem({ to, label, icon: Icon, end }) {
       title={label}
       className={({ isActive }) =>
         cx(
-          'group relative flex h-12 w-full flex-col items-center justify-center gap-0.5 rounded-xl transition',
+          'group relative flex h-11 w-full flex-col items-center justify-center gap-0.5 rounded-lg transition',
           isActive ? 'bg-brand-600 text-white shadow-sm' : 'text-slate-400 hover:bg-slate-800 hover:text-white',
         )
       }
     >
-      <Icon size={19} aria-hidden="true" />
+      <Icon size={18} aria-hidden="true" />
       <span className="text-[10px] leading-none font-medium">{label}</span>
     </NavLink>
   );
@@ -83,18 +112,24 @@ export default function Layout() {
           ))}
         </nav>
 
+        {/* The rail scrolls rather than squashing: a shorter screen must not
+            cut the last group off with no way to reach it. */}
         {user.role === 'admin' && (
-          <>
-            <div className="my-2 h-px w-8 bg-slate-700" role="separator" />
-            <nav className="flex w-full flex-col gap-1">
-              {ADMIN_NAV.map((item) => (
-                <NavItem key={item.to} {...item} />
-              ))}
-            </nav>
-          </>
+          <div className="min-h-0 w-full flex-1 space-y-2 overflow-y-auto pt-2">
+            {ADMIN_NAV.map((group) => (
+              <nav key={group.heading} className="flex w-full flex-col gap-1">
+                <p className="px-1 pb-0.5 text-[9px] font-semibold tracking-wider text-slate-400 uppercase">
+                  {group.heading}
+                </p>
+                {group.items.map((item) => (
+                  <NavItem key={item.to} {...item} />
+                ))}
+              </nav>
+            ))}
+          </div>
         )}
 
-        <div className="mt-auto flex w-full flex-col items-center gap-2 pt-3">
+        <div className="mt-auto flex w-full shrink-0 flex-col items-center gap-2 pt-3">
           <div
             className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-700 text-xs font-semibold text-white"
             title={`${user.name} · ${user.role}`}

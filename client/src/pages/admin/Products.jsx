@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router';
-import { Archive, ArchiveRestore, Package, Pencil, Plus, Search, Upload } from 'lucide-react';
+import { Archive, ArchiveRestore, History, Package, Pencil, Plus, Search, Upload } from 'lucide-react';
 import api from '../../api';
 import PageHeader from '../../components/PageHeader';
+import ItemActivity from '../../components/ItemActivity';
 import { useSettings, lbp } from '../../context/SettingsContext';
 import {
   Badge,
@@ -134,6 +135,7 @@ export default function Products() {
   const [search, setSearch] = useState('');
   const [showArchived, setShowArchived] = useState(false);
   const [editing, setEditing] = useState(undefined);
+  const [activityFor, setActivityFor] = useState(null);
 
   const load = useCallback(async () => {
     const [productsRes, categoriesRes] = await Promise.all([
@@ -275,6 +277,14 @@ export default function Products() {
                         </td>
                         <td className="px-5 py-2.5">
                           <div className="flex justify-end gap-1">
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => setActivityFor(p.id)}
+                              aria-label={`Activity for ${p.name}`}
+                            >
+                              <History size={14} />
+                            </Button>
                             <Button size="sm" variant="secondary" onClick={() => setEditing(p)}>
                               <Pencil size={13} /> Edit
                             </Button>
@@ -309,6 +319,8 @@ export default function Products() {
           }}
         />
       )}
+
+      {activityFor && <ItemActivity productId={activityFor} onClose={() => setActivityFor(null)} />}
     </div>
   );
 }

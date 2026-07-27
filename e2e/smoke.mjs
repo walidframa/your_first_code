@@ -63,6 +63,20 @@ async function step(name, fn) {
  * the dialog is still unmounting, and the failure then points at the click
  * rather than at the dialog that never closed.
  */
+/**
+ * Open the New document dialog and wait for it to settle.
+ *
+ * The dialog animates in, and a click that lands mid-animation is reported by
+ * Playwright as "element is not stable" — a flake that only shows on a slower
+ * machine. Waiting for the heading is waiting for the animation.
+ */
+async function openNewDocument() {
+  await page.click('button:has-text("New document")');
+  await page.waitForSelector('[role=dialog] >> text=New document', { timeout: 15000 });
+  await page.locator('[role=dialog]').getByRole('button', { name: /Quotation/ }).waitFor();
+  return page.locator('[role=dialog]');
+}
+
 async function closeDialog() {
   const dialog = page.locator('[role=dialog]');
   if (!(await dialog.count())) return;
@@ -367,10 +381,7 @@ try {
 
     await page.click('a[title="Documents"]');
     await page.waitForSelector('button:has-text("New document")', { timeout: 15000 });
-    await page.click('button:has-text("New document")');
-    await page.waitForSelector('text=New document');
-
-    const dialog = page.locator('[role=dialog]');
+    const dialog = await openNewDocument();
     // Type is chosen by icon tile now.
     await dialog.getByRole('button', { name: /Purchase invoice/ }).click();
     await dialog.locator('#doc-party').selectOption({ label: 'Corner Bakehouse' });
@@ -482,8 +493,7 @@ try {
 
   await step('a quotation converts to a sales order', async () => {
     await page.click('a[title="Documents"]');
-    await page.click('button:has-text("New document")');
-    const dialog = page.locator('[role=dialog]');
+    const dialog = await openNewDocument();
     await dialog.getByRole('button', { name: /Quotation/ }).click();
     await dialog.locator('#doc-party').selectOption({ label: 'Rami Haddad' });
     await dialog.getByLabel('Search products to add').fill('Croissant');
@@ -500,8 +510,7 @@ try {
 
   await step('a new product can be created from inside a document', async () => {
     await page.click('a[title="Documents"]');
-    await page.click('button:has-text("New document")');
-    const dialog = page.locator('[role=dialog]');
+    const dialog = await openNewDocument();
     await dialog.getByRole('button', { name: /Purchase invoice/ }).click();
     await dialog.locator('#doc-party').selectOption({ label: 'Corner Bakehouse' });
 
@@ -525,8 +534,7 @@ try {
 
   await step('a purchase paid in cash leaves no payable behind', async () => {
     await page.click('a[title="Documents"]');
-    await page.click('button:has-text("New document")');
-    const dialog = page.locator('[role=dialog]');
+    const dialog = await openNewDocument();
     await dialog.getByRole('button', { name: /Purchase invoice/ }).click();
     await dialog.locator('#doc-party').selectOption({ label: 'Corner Bakehouse' });
     await dialog.getByLabel('Search products to add').fill('Croissant');
@@ -555,8 +563,7 @@ try {
 
   await step('a part payment leaves only the remainder owing', async () => {
     await page.click('a[title="Documents"]');
-    await page.click('button:has-text("New document")');
-    const dialog = page.locator('[role=dialog]');
+    const dialog = await openNewDocument();
     await dialog.getByRole('button', { name: /Purchase invoice/ }).click();
     await dialog.locator('#doc-party').selectOption({ label: 'Corner Bakehouse' });
     await dialog.getByLabel('Search products to add').fill('Croissant');
@@ -585,8 +592,7 @@ try {
 
   await step('a confirmed document can be corrected, and the books follow', async () => {
     await page.click('a[title="Documents"]');
-    await page.click('button:has-text("New document")');
-    let dialog = page.locator('[role=dialog]');
+    let dialog = await openNewDocument();
     await dialog.getByRole('button', { name: /Purchase invoice/ }).click();
     await dialog.locator('#doc-party').selectOption({ label: 'Corner Bakehouse' });
     await dialog.getByLabel('Search products to add').fill('Bagel');
@@ -692,6 +698,57 @@ try {
     await page.waitForSelector('[role=dialog] >> text=Over / short');
     await closeDialog();
   });
+
+  await step('an item’s activity shows what it did and what it cost', async () => {
+    await page.click('a[title="Products"]');
+    await page.waitForSelector('text=Your catalog', { timeout: 15000 });
+    await page.click('button[aria-label="Activity for Croissant"]');
+
+    await page.waitForSelector('text=Everything it did', { timeout: 15000 });
+    // Sold, refunded or received — this product has been through all three by
+    // now, and which one is on top depends on what the run did last.
+    await page.waitForSelector('[role=dialog] >> text=/Sold|Refunded|Received/', { timeout: 15000 });
+    await page.waitForSelector('[role=dialog] >> text=/ORD-|PI-/');
+    // Price, cost and margin are on every product; whether this one's cost has
+    // moved depends on what the run bought, and is pinned in the API tests.
+    await page.waitForSelector('[role=dialog] >> text=Sells for');
+    await page.waitForSelector('[role=dialog] >> text=Margin');
+    await closeDialog();
+  });
+
+  await step('an expense is recorded and comes off the profit', async () => {
+    await page.click('a[title="Expenses"]');
+    await page.waitForSelector('text=What it costs to keep the doors open', { timeout: 15000 });
+
+    await page.click('button:has-text("Add expense")');
+    await page.waitForSelector('text=Money spent running the shop', { timeout: 10000 });
+    await page.getByLabel('What for').selectOption('rent');
+    await page.getByLabel('Dollars').fill('250');
+    await page.getByLabel('Paid with').selectOption('bank');
+    await page.getByLabel('Note').fill('Monthly rent');
+    await page.click('button:has-text("Record it")');
+    await page.waitForSelector('text=Expense recorded', { timeout: 15000 });
+    await page.waitForSelector('text=Where the money went');
+  });
+  await shot('expenses');
+
+  await step('the profit report subtracts cost and expenses in turn', async () => {
+    await page.click('a[title="Profit"]');
+    await page.waitForSelector('text=What made the most', { timeout: 15000 });
+
+    await page.waitForSelector('text=Cost of goods');
+    await page.waitForSelector('text=Gross profit');
+    await page.waitForSelector('text=Net profit');
+    await page.waitForSelector('text=/250.00/', { timeout: 15000 });
+
+    // Switching expenses off leaves gross profit as the headline instead.
+    await page.getByLabel('Take expenses off').uncheck();
+    await page.waitForTimeout(600);
+    if (await page.locator('text=Net profit').count()) {
+      throw new Error('net profit is meaningless with expenses switched off');
+    }
+  });
+  await shot('profit');
 
   await step('Shopify asks to be connected before it will sync anything', async () => {
     await page.click('a[title="Shopify"]');
