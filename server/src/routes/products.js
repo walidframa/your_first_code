@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { db } from '../db.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
+import { activityFor, costHistoryFor, recordCostChange } from '../lib/costHistory.js';
 
 const router = Router();
 
@@ -122,6 +123,15 @@ router.put('/:id', requireAuth, requireRole('admin'), (req, res) => {
     req.params.id
   );
 
+  // A cost that moved is worth remembering; one that did not is noise.
+  recordCostChange({
+    productId: product.id,
+    cost: Number(merged.cost) || 0,
+    previousCost: product.cost,
+    source: 'edited',
+    userId: req.user.id,
+  });
+
   const updated = db.prepare('SELECT * FROM products WHERE id = ?').get(req.params.id);
   res.json({ product: serializeProduct(updated) });
 });
@@ -131,6 +141,24 @@ router.delete('/:id', requireAuth, requireRole('admin'), (req, res) => {
   if (!product) return res.status(404).json({ error: 'Product not found' });
   db.prepare('UPDATE products SET active = 0 WHERE id = ?').run(req.params.id);
   res.json({ ok: true });
+});
+
+/**
+ * Everything that has happened to one product, in one list.
+ *
+ * Sales, deliveries, stock corrections and cost changes live in four tables;
+ * a shopkeeper asking what happened to an item wants them in order, not in
+ * four places.
+ */
+router.get('/:id/activity', requireAuth, requireRole('admin'), (req, res) => {
+  const product = db.prepare('SELECT * FROM products WHERE id = ?').get(req.params.id);
+  if (!product) return res.status(404).json({ error: 'Product not found' });
+
+  res.json({
+    product,
+    activity: activityFor(product.id, req.query.limit),
+    costHistory: costHistoryFor(product.id, req.query.limit),
+  });
 });
 
 export default router;

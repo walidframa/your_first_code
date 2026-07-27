@@ -325,6 +325,63 @@ function backfillDocumentPayments() {
 backfillDocumentPayments();
 
 /*
+ * Cost at the moment of sale.
+ *
+ * Profit is revenue less what the goods cost, and what they cost is whatever
+ * was paid for *those* goods — not what the same product costs today. Reading
+ * the current cost would rewrite last month's profit every time a supplier put
+ * a price up, so each line keeps the figure that was true when it sold.
+ */
+addColumn('order_items', 'cost', 'REAL');
+addColumn('document_items', 'cost', 'REAL');
+
+/*
+ * What a product has cost over time.
+ *
+ * A shopkeeper wanting to know why the margin moved needs to see the cost
+ * change and when. Written whenever the cost is edited or a purchase invoice
+ * comes in at a different price.
+ */
+db.exec(`
+  CREATE TABLE IF NOT EXISTS product_cost_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id INTEGER NOT NULL REFERENCES products(id),
+    cost REAL NOT NULL,
+    previous_cost REAL,
+    source TEXT NOT NULL,
+    note TEXT,
+    document_id INTEGER REFERENCES documents(id),
+    user_id INTEGER REFERENCES users(id),
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_cost_history_product ON product_cost_history(product_id, created_at);
+
+  /*
+   * Running the shop costs money that never appears on an invoice: rent,
+   * electricity, wages, the van's fuel. Without them a "profit" figure is only
+   * gross margin wearing a better name.
+   */
+  CREATE TABLE IF NOT EXISTS expenses (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    spent_on TEXT NOT NULL DEFAULT (date('now')),
+    category TEXT NOT NULL,
+    amount_usd REAL NOT NULL DEFAULT 0,
+    amount_lbp REAL NOT NULL DEFAULT 0,
+    exchange_rate REAL,
+    /* Where the money came from, so cash expenses can reach the drawer. */
+    paid_with TEXT NOT NULL DEFAULT 'cash' CHECK (paid_with IN ('cash', 'bank', 'card', 'other')),
+    supplier_id INTEGER REFERENCES suppliers(id),
+    note TEXT,
+    cash_movement_id INTEGER REFERENCES cash_movements(id),
+    user_id INTEGER REFERENCES users(id),
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_expenses_date ON expenses(spent_on);
+`);
+
+/*
  * The cash drawer.
  *
  * A session is one sitting of the till: opened with a float, closed with a

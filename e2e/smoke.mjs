@@ -693,6 +693,57 @@ try {
     await closeDialog();
   });
 
+  await step('an item’s activity shows what it did and what it cost', async () => {
+    await page.click('a[title="Products"]');
+    await page.waitForSelector('text=Your catalog', { timeout: 15000 });
+    await page.click('button[aria-label="Activity for Croissant"]');
+
+    await page.waitForSelector('text=Everything it did', { timeout: 15000 });
+    // Sold, refunded or received — this product has been through all three by
+    // now, and which one is on top depends on what the run did last.
+    await page.waitForSelector('[role=dialog] >> text=/Sold|Refunded|Received/', { timeout: 15000 });
+    await page.waitForSelector('[role=dialog] >> text=/ORD-|PI-/');
+    // Price, cost and margin are on every product; whether this one's cost has
+    // moved depends on what the run bought, and is pinned in the API tests.
+    await page.waitForSelector('[role=dialog] >> text=Sells for');
+    await page.waitForSelector('[role=dialog] >> text=Margin');
+    await closeDialog();
+  });
+
+  await step('an expense is recorded and comes off the profit', async () => {
+    await page.click('a[title="Expenses"]');
+    await page.waitForSelector('text=What it costs to keep the doors open', { timeout: 15000 });
+
+    await page.click('button:has-text("Add expense")');
+    await page.waitForSelector('text=Money spent running the shop', { timeout: 10000 });
+    await page.getByLabel('What for').selectOption('rent');
+    await page.getByLabel('Dollars').fill('250');
+    await page.getByLabel('Paid with').selectOption('bank');
+    await page.getByLabel('Note').fill('Monthly rent');
+    await page.click('button:has-text("Record it")');
+    await page.waitForSelector('text=Expense recorded', { timeout: 15000 });
+    await page.waitForSelector('text=Where the money went');
+  });
+  await shot('expenses');
+
+  await step('the profit report subtracts cost and expenses in turn', async () => {
+    await page.click('a[title="Profit"]');
+    await page.waitForSelector('text=What made the most', { timeout: 15000 });
+
+    await page.waitForSelector('text=Cost of goods');
+    await page.waitForSelector('text=Gross profit');
+    await page.waitForSelector('text=Net profit');
+    await page.waitForSelector('text=/250.00/', { timeout: 15000 });
+
+    // Switching expenses off leaves gross profit as the headline instead.
+    await page.getByLabel('Take expenses off').uncheck();
+    await page.waitForTimeout(600);
+    if (await page.locator('text=Net profit').count()) {
+      throw new Error('net profit is meaningless with expenses switched off');
+    }
+  });
+  await shot('profit');
+
   await step('Shopify asks to be connected before it will sync anything', async () => {
     await page.click('a[title="Shopify"]');
     await page.waitForSelector('text=Connect your Shopify shop', { timeout: 15000 });

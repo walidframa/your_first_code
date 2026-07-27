@@ -225,10 +225,12 @@ function SessionReport({ id, onClose }) {
 
 export default function CashSessions() {
   const [sessions, setSessions] = useState(null);
+  const [current, setCurrent] = useState(null);
   const [viewing, setViewing] = useState(null);
 
   const load = useCallback(() => {
     api.get('/cash/sessions').then((res) => setSessions(res.data.sessions));
+    api.get('/cash/current').then((res) => setCurrent(res.data));
   }, []);
 
   useEffect(() => {
@@ -240,6 +242,61 @@ export default function CashSessions() {
       <PageHeader title="Cashbox" subtitle="Every sitting of the till, and how it counted" />
 
       <div className="min-h-0 flex-1 overflow-y-auto p-6">
+        {/*
+         * Cash on hand first, because it is the question this page is opened to
+         * answer. Everything below is history.
+         */}
+        <Card className={cx('mb-4 px-5 py-4', current?.session ? 'ring-brand-200' : '')}>
+          {current?.session ? (
+            <>
+              <div className="flex items-baseline justify-between gap-4">
+                <div>
+                  <p className="text-xs text-slate-500">Cash on hand</p>
+                  <p className="mt-1 flex items-baseline gap-3">
+                    <span className="tnum text-3xl font-semibold text-slate-900">
+                      {money(current.expected?.usd ?? 0)}
+                    </span>
+                    <span className="tnum text-xl font-medium text-slate-500">
+                      {lbp(current.expected?.lbp ?? 0)}
+                    </span>
+                  </p>
+                </div>
+                <div className="text-right">
+                  <Badge tone="good">cashbox open</Badge>
+                  <p className="mt-1 text-xs text-slate-400">
+                    since {new Date(`${current.session.opened_at}Z`).toLocaleString()} ·{' '}
+                    {current.session.opened_by_name}
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-3 flex flex-wrap gap-x-6 gap-y-1 border-t border-slate-100 pt-3 text-sm">
+                <span className="text-slate-500">
+                  Opened with{' '}
+                  <span className="tnum text-slate-800">
+                    {money(current.session.opening_usd)} · {lbp(current.session.opening_lbp)}
+                  </span>
+                </span>
+                <span className="text-slate-500">
+                  <span className="tnum text-slate-800">{current.movementCount}</span> movement
+                  {current.movementCount === 1 ? '' : 's'} since
+                </span>
+              </div>
+            </>
+          ) : (
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="text-xs text-slate-500">Cash on hand</p>
+                <p className="mt-1 text-3xl font-semibold text-slate-400">—</p>
+              </div>
+              <div className="text-right">
+                <Badge tone="neutral">cashbox closed</Badge>
+                <p className="mt-1 text-xs text-slate-400">Open it from the register to start a sitting.</p>
+              </div>
+            </div>
+          )}
+        </Card>
+
         <Card>
           {!sessions ? (
             <div className="space-y-2 p-5">

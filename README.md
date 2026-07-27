@@ -289,6 +289,50 @@ Admin → **Cashbox** lists every sitting with what it was out by, and opens the
 Z-report: the drawer's movements, the sitting's sales by payment method, and
 expected against counted.
 
+## Expenses and profit
+
+**Expenses** is the money that keeps the doors open — rent, wages, electricity,
+the van's fuel — none of which appears on an invoice. Categories are a fixed
+list so a month's spending can be compared with last month's rather than read.
+
+An expense **paid in cash comes out of the open cashbox**, so the drawer still
+counts right at close. One that would empty a drawer it was never in is refused,
+with the suggestion to record it as paid by bank instead.
+
+**Profit** answers three questions in order:
+
+```
+revenue        what was sold for
+− cost         what those goods cost to buy    → gross profit
+− expenses     what it cost to keep open       → net profit
+```
+
+Reported for **today, this week, this month, this year, any two dates, or one
+sitting of the cashbox**. Expenses can be switched off, because gross profit
+says whether the pricing works and net profit says whether the shop does — two
+different questions, both worth asking.
+
+**Cost comes from the figure stored on each sold line**, not from what the
+product costs today. Otherwise a supplier raising a price next week would
+quietly rewrite last month's profit. Lines sold before this was recorded have no
+cost to subtract, and the report says how many rather than quietly reporting a
+figure that is too good.
+
+Refunded orders are left out of revenue entirely rather than netted off: an
+order that was refunded did not happen, and counting it twice would distort the
+average sale.
+
+## What an item did
+
+Products → the history button on any row. Sales, deliveries, stock corrections
+and every cost change, in one list in order — because the useful question is
+usually "what happened around the time the margin moved", and that only answers
+itself when purchases and cost changes sit in the same column.
+
+Cost changes are recorded when the cost is edited **and when a delivery arrives
+at a different price** — a purchase invoice updates the product's cost and keeps
+the old figure on the record, so the margin's movement can be explained later.
+
 ## Shopify
 
 Admin → **Shopify**. Sell an item on the website and it leaves the shelf here;
