@@ -1,5 +1,6 @@
 import { db } from '../db.js';
 import { round2 } from './currency.js';
+import { addEntry, creditCheck } from './accounts.js';
 
 const TAX_RATE = Number(process.env.TAX_RATE || 0.08);
 
@@ -122,6 +123,137 @@ export function totalsFor(lines, discountPercent = 0) {
   const tax = round2(taxable * TAX_RATE);
 
   return { subtotal, discountPercent: pct, discount, tax, total: round2(taxable + tax) };
+}
+
+/* ------------------------------------------------------------------ effects */
+
+/*
+ * Confirming a document moves stock and posts to the ledger; cancelling undoes
+ * exactly that. Editing or deleting a confirmed document is the same pair run
+ * back to back, so both live here rather than inline in the route — a fix
+ * applied in one place would otherwise drift from the other.
+ *
+ * Every caller must already be inside a transaction: a half-applied document
+ * would leave stock and the ledger disagreeing.
+ */
+
+export function itemsOf(documentId) {
+  return db.prepare('SELECT * FROM document_items WHERE document_id = ? ORDER BY id').all(documentId);
+}
+
+/**
+ * Move stock for a document's lines. `direction` is +1 to apply the document's
+ * own effect and -1 to undo it.
+ */
+function moveStock(doc, items, userId, direction, note) {
+  const type = DOC_TYPES[doc.doc_type];
+  if (type.stock === 0) return;
+
+  const adjustStock = db.prepare('UPDATE products SET stock = stock + ? WHERE id = ?');
+  const logMovement = db.prepare(
+    `INSERT INTO stock_adjustments (product_id, user_id, delta, resulting_stock, reason, note)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+  );
+
+  for (const item of items) {
+    if (!item.product_id) continue; // free-text line, nothing to move
+
+    const product = db.prepare('SELECT * FROM products WHERE id = ?').get(item.product_id);
+    if (!product) {
+      // A product deleted since can still be undone — there is just no stock to
+      // put back. Applying against a missing product is a real error.
+      if (direction < 0) continue;
+      throw new Error(`Product for line "${item.name}" no longer exists`);
+    }
+
+    const delta = Math.round(item.quantity) * type.stock * direction;
+    const resulting = product.stock + delta;
+    if (resulting < 0) {
+      throw new Error(
+        direction > 0
+          ? `Not enough stock for ${product.name} (have ${product.stock}, need ${Math.round(item.quantity)})`
+          : `${product.name} would go below zero (have ${product.stock}) — it has been sold on already`,
+      );
+    }
+
+    adjustStock.run(delta, product.id);
+    logMovement.run(
+      product.id,
+      userId,
+      delta,
+      resulting,
+      direction > 0 && type.stock > 0 ? 'received' : 'count_correction',
+      note,
+    );
+  }
+}
+
+/** Does this document put a balance on somebody's account? */
+function postsToLedger(doc) {
+  return DOC_TYPES[doc.doc_type].posts !== 0 && !!doc.party_id && !!doc.on_account;
+}
+
+/**
+ * Apply what confirming a document does: stock out or in, and the party billed.
+ * Throws — rolling the caller's transaction back — if stock or credit will not
+ * allow it.
+ */
+export function applyEffects(doc, items, userId, note = doc.doc_number) {
+  if (items.length === 0) throw new Error('A document needs at least one line');
+
+  moveStock(doc, items, userId, 1, note);
+
+  if (postsToLedger(doc)) {
+    if (doc.party_type === 'customer') {
+      const check = creditCheck(doc.party_id, doc.total);
+      if (!check.ok) throw new Error(check.error);
+    }
+    addEntry({
+      partyType: doc.party_type,
+      partyId: doc.party_id,
+      kind: doc.doc_type === 'purchase_invoice' ? 'bill' : 'sale',
+      amountUsd: doc.total,
+      exchangeRate: doc.exchange_rate,
+      note,
+      userId,
+    });
+  }
+}
+
+/**
+ * Undo what confirming a document did. The ledger is corrected with an
+ * offsetting entry rather than by deleting the original, so the party's
+ * statement still shows what happened and when.
+ */
+export function reverseEffects(doc, items, userId, note = `Cancelled ${doc.doc_number}`) {
+  moveStock(doc, items, userId, -1, note);
+
+  if (postsToLedger(doc)) {
+    addEntry({
+      partyType: doc.party_type,
+      partyId: doc.party_id,
+      kind: 'refund',
+      amountUsd: -doc.total,
+      exchangeRate: doc.exchange_rate,
+      note,
+      userId,
+    });
+  }
+}
+
+/**
+ * A document another one was created from cannot be deleted while that
+ * successor is live, or the successor would point at nothing. Returns the
+ * blocking document, or null.
+ */
+export function liveSuccessorOf(documentId) {
+  return (
+    db
+      .prepare(
+        "SELECT id, doc_number FROM documents WHERE converted_from_id = ? AND status != 'cancelled'",
+      )
+      .get(documentId) || null
+  );
 }
 
 export function getDocument(id) {

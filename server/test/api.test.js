@@ -964,7 +964,7 @@ test('cancelling a confirmed purchase invoice reverses stock and the payable', a
   assert.equal((await req('GET', `/suppliers/${supplier.id}`, null, adminToken)).json.party.balance, 0);
 });
 
-test('a confirmed document cannot be edited or deleted', async () => {
+test('a confirmed document cannot be confirmed twice', async () => {
   const supplier = (await req('POST', '/suppliers', { name: 'Locked' }, adminToken)).json.party;
   const item = await product('SNK-001');
   const doc = (
@@ -977,10 +977,221 @@ test('a confirmed document cannot be edited or deleted', async () => {
   ).json.document;
 
   await req('POST', `/documents/${doc.id}/confirm`, null, adminToken);
-
-  assert.equal((await req('PUT', `/documents/${doc.id}`, { discountPercent: 50 }, adminToken)).status, 400);
-  assert.equal((await req('DELETE', `/documents/${doc.id}`, null, adminToken)).status, 400);
   assert.equal((await req('POST', `/documents/${doc.id}/confirm`, null, adminToken)).status, 400);
+});
+
+test('editing a confirmed purchase invoice re-applies stock and the payable', async () => {
+  const supplier = (await req('POST', '/suppliers', { name: 'Amendable' }, adminToken)).json.party;
+  const item = await product('APP-004');
+  const before = item.stock;
+
+  const doc = (
+    await req(
+      'POST',
+      '/documents',
+      {
+        docType: 'purchase_invoice',
+        partyId: supplier.id,
+        items: [{ productId: item.id, quantity: 10, price: 4 }],
+      },
+      adminToken,
+    )
+  ).json.document;
+
+  await req('POST', `/documents/${doc.id}/confirm`, null, adminToken);
+  assert.equal((await product('APP-004')).stock, before + 10);
+  const owedAfterConfirm = (await req('GET', `/suppliers/${supplier.id}`, null, adminToken)).json.party
+    .balance;
+  assert.ok(owedAfterConfirm > 0);
+
+  // The delivery was short: 6 came, not 10.
+  const edited = await req(
+    'PUT',
+    `/documents/${doc.id}`,
+    { items: [{ productId: item.id, quantity: 6, price: 4 }] },
+    adminToken,
+  );
+  assert.equal(edited.status, 200);
+  assert.equal(edited.json.document.status, 'confirmed', 'it stays confirmed');
+  assert.equal(edited.json.document.subtotal, 24);
+
+  assert.equal((await product('APP-004')).stock, before + 6, 'stock follows the corrected quantity');
+  const owedAfterEdit = (await req('GET', `/suppliers/${supplier.id}`, null, adminToken)).json.party.balance;
+  assert.ok(
+    Math.abs(owedAfterEdit - owedAfterConfirm * 0.6) < 0.01,
+    `the payable follows the corrected total (was ${owedAfterConfirm}, now ${owedAfterEdit})`,
+  );
+});
+
+test('an edit that cannot be applied leaves the confirmed document untouched', async () => {
+  const supplier = (await req('POST', '/suppliers', { name: 'Sold On' }, adminToken)).json.party;
+  const item = await product('BAK-001');
+  const before = item.stock;
+
+  const doc = (
+    await req(
+      'POST',
+      '/documents',
+      {
+        docType: 'purchase_invoice',
+        partyId: supplier.id,
+        items: [{ productId: item.id, quantity: 5, price: 1 }],
+      },
+      adminToken,
+    )
+  ).json.document;
+  await req('POST', `/documents/${doc.id}/confirm`, null, adminToken);
+
+  // Everything received has since been sold, so the receipt cannot be undone.
+  await req(
+    'POST',
+    '/inventory/adjust',
+    { productId: item.id, delta: -(before + 5), reason: 'other', note: 'cleared out' },
+    adminToken,
+  );
+  assert.equal((await product('BAK-001')).stock, 0);
+
+  const failed = await req(
+    'PUT',
+    `/documents/${doc.id}`,
+    { items: [{ productId: item.id, quantity: 1, price: 1 }] },
+    adminToken,
+  );
+  assert.equal(failed.status, 400);
+  assert.match(failed.json.error, /below zero/i);
+
+  const unchanged = await req('GET', `/documents/${doc.id}`, null, adminToken);
+  assert.equal(unchanged.json.items[0].quantity, 5, 'the lines are as they were');
+  assert.equal((await product('BAK-001')).stock, 0, 'and no stock moved');
+});
+
+test('deleting a confirmed document reverses it first', async () => {
+  const supplier = (await req('POST', '/suppliers', { name: 'Deletable' }, adminToken)).json.party;
+  const item = await product('SNK-001');
+  const before = item.stock;
+
+  const doc = (
+    await req(
+      'POST',
+      '/documents',
+      {
+        docType: 'purchase_invoice',
+        partyId: supplier.id,
+        items: [{ productId: item.id, quantity: 4, price: 2 }],
+      },
+      adminToken,
+    )
+  ).json.document;
+  await req('POST', `/documents/${doc.id}/confirm`, null, adminToken);
+  assert.equal((await product('SNK-001')).stock, before + 4);
+
+  const deleted = await req('DELETE', `/documents/${doc.id}`, null, adminToken);
+  assert.equal(deleted.status, 200);
+  assert.equal(deleted.json.deleted, doc.doc_number);
+
+  assert.equal((await req('GET', `/documents/${doc.id}`, null, adminToken)).status, 404);
+  assert.equal((await product('SNK-001')).stock, before, 'the stock it brought in is gone with it');
+  assert.equal(
+    (await req('GET', `/suppliers/${supplier.id}`, null, adminToken)).json.party.balance,
+    0,
+    'and so is what was owed',
+  );
+});
+
+test('a document that another was created from is kept until that one is dealt with', async () => {
+  const customer = (await req('POST', '/customers', { name: 'Chained' }, adminToken)).json.party;
+  const item = await product('BAK-001');
+  const quote = (
+    await req(
+      'POST',
+      '/documents',
+      { docType: 'quotation', partyId: customer.id, items: [{ productId: item.id, quantity: 1 }] },
+      adminToken,
+    )
+  ).json.document;
+
+  const order = (
+    await req('POST', `/documents/${quote.id}/convert`, { docType: 'sales_order' }, adminToken)
+  ).json.document;
+
+  const blocked = await req('DELETE', `/documents/${quote.id}`, null, adminToken);
+  assert.equal(blocked.status, 400);
+  assert.match(blocked.json.error, new RegExp(order.doc_number));
+
+  // Once the successor is out of the way, the source can go.
+  await req('DELETE', `/documents/${order.id}`, null, adminToken);
+  assert.equal((await req('DELETE', `/documents/${quote.id}`, null, adminToken)).status, 200);
+});
+
+test('a cancelled document can be edited and deleted without touching the books', async () => {
+  const supplier = (await req('POST', '/suppliers', { name: 'Void' }, adminToken)).json.party;
+  const item = await product('SNK-001');
+  const before = item.stock;
+
+  const doc = (
+    await req(
+      'POST',
+      '/documents',
+      {
+        docType: 'purchase_invoice',
+        partyId: supplier.id,
+        items: [{ productId: item.id, quantity: 3, price: 5 }],
+      },
+      adminToken,
+    )
+  ).json.document;
+  await req('POST', `/documents/${doc.id}/confirm`, null, adminToken);
+  await req('POST', `/documents/${doc.id}/cancel`, null, adminToken);
+  assert.equal((await product('SNK-001')).stock, before);
+
+  const edited = await req(
+    'PUT',
+    `/documents/${doc.id}`,
+    { items: [{ productId: item.id, quantity: 9, price: 5 }], notes: 'typo fixed' },
+    adminToken,
+  );
+  assert.equal(edited.status, 200);
+  assert.equal(edited.json.document.status, 'cancelled');
+  assert.equal((await product('SNK-001')).stock, before, 'a cancelled document moves nothing');
+
+  assert.equal((await req('DELETE', `/documents/${doc.id}`, null, adminToken)).status, 200);
+  assert.equal((await product('SNK-001')).stock, before);
+  assert.equal((await req('GET', `/suppliers/${supplier.id}`, null, adminToken)).json.party.balance, 0);
+});
+
+test('a sales invoice can be re-pointed at another customer', async () => {
+  const wrong = (await req('POST', '/customers', { name: 'Wrong Person', credit_limit: 500 }, adminToken))
+    .json.party;
+  const right = (await req('POST', '/customers', { name: 'Right Person', credit_limit: 500 }, adminToken))
+    .json.party;
+  const item = await product('SNK-001');
+
+  const doc = (
+    await req(
+      'POST',
+      '/documents',
+      {
+        docType: 'sales_invoice',
+        partyId: wrong.id,
+        items: [{ productId: item.id, quantity: 1, price: 10 }],
+      },
+      adminToken,
+    )
+  ).json.document;
+  assert.equal((await req('POST', `/documents/${doc.id}/confirm`, null, adminToken)).status, 200);
+  assert.ok((await req('GET', `/customers/${wrong.id}`, null, adminToken)).json.party.balance > 0);
+
+  const moved = await req('PUT', `/documents/${doc.id}`, { partyId: right.id }, adminToken);
+  assert.equal(moved.status, 200);
+  assert.equal(
+    (await req('GET', `/customers/${wrong.id}`, null, adminToken)).json.party.balance,
+    0,
+    'the wrong customer no longer owes it',
+  );
+  assert.ok(
+    (await req('GET', `/customers/${right.id}`, null, adminToken)).json.party.balance > 0,
+    'the right one does',
+  );
 });
 
 test('a draft can be edited and deleted', async () => {

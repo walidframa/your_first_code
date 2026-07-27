@@ -153,7 +153,17 @@ it is the moment stock moves and the ledger is posted.
   and figures carry over and the chain is recorded both ways.
 - **Cancelling a confirmed document reverses everything it did** — stock back,
   ledger entry reversed.
-- Confirmed documents cannot be edited or deleted; drafts can be both.
+- **Any document can be edited or deleted**, whatever its status. A draft is
+  simply rewritten. A confirmed one is *undone and re-applied* in a single
+  transaction: editing a purchase invoice from 10 units to 6 takes the ten back
+  out of stock, puts six in, and rebills the supplier at the new total. If the
+  new version cannot be applied — the goods have been sold on, the customer is
+  over their limit — nothing changes at all.
+- Corrections are **recorded, not hidden**. Both halves appear in the stock
+  history and on the party's account, tagged `Edited PI-0007` or
+  `Deleted PI-0007`, so a balance can always be traced back to what caused it.
+- A document another was created from is kept until that successor is cancelled
+  or deleted, so nothing is left pointing at a document that no longer exists.
 - Lines may reference a product or be free text (delivery, labour), and free-text
   lines are skipped when stock moves.
 - Purchase-invoice lines default to product **cost**; sales documents to price.

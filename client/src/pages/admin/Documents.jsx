@@ -1,12 +1,14 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import {
+  AlertTriangle,
   ArrowRight,
   Ban,
   Check,
   ClipboardList,
   FileText,
   LayoutGrid,
+  Pencil,
   Plus,
   Printer,
   Receipt,
@@ -77,20 +79,29 @@ function TypeIcon({ type, size = 16 }) {
   return <Icon size={size} />;
 }
 
-/* --------------------------------------------------------------- new form */
+/* ---------------------------------------------------------- create / edit */
 
-function DocumentForm({ onClose, onSaved }) {
+/**
+ * The same form creates a document and edits one.
+ *
+ * Editing keeps the type — the number already says what it is, and changing it
+ * would change what the document does — so the type picker only appears when
+ * creating.
+ */
+function DocumentForm({ existing, onClose, onSaved }) {
   const toast = useToast();
   const { rate, toLbp } = useSettings();
+  const editing = !!existing;
+  const doc = existing?.document;
 
-  const [docType, setDocType] = useState('purchase_invoice');
+  const [docType, setDocType] = useState(doc?.doc_type || 'purchase_invoice');
   const [parties, setParties] = useState([]);
-  const [partyId, setPartyId] = useState('');
+  const [partyId, setPartyId] = useState(doc?.party_id ? String(doc.party_id) : '');
   const [products, setProducts] = useState([]);
   const [lines, setLines] = useState([]);
-  const [discountPercent, setDiscountPercent] = useState(0);
-  const [onAccount, setOnAccount] = useState(true);
-  const [notes, setNotes] = useState('');
+  const [discountPercent, setDiscountPercent] = useState(doc?.discount_percent ?? 0);
+  const [onAccount, setOnAccount] = useState(doc ? !!doc.on_account : true);
+  const [notes, setNotes] = useState(doc?.notes || '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [quickCreate, setQuickCreate] = useState(null);
@@ -109,18 +120,49 @@ function DocumentForm({ onClose, onSaved }) {
     loadProducts();
   }, [loadProducts]);
 
+  /* Picking a different type means a different list to choose from. */
+  const lastPartyType = useRef(partyType);
   useEffect(() => {
-    setPartyId('');
+    if (lastPartyType.current !== partyType) {
+      lastPartyType.current = partyType;
+      setPartyId('');
+    }
     api.get(`/${partyType}s`).then((res) => setParties(res.data.parties));
   }, [partyType]);
 
-  /** Re-price product lines when switching between cost-based and price-based types. */
+  /*
+   * Lines carry the whole product so the row can show its thumbnail, but the
+   * saved document only stores an id — so they are rebuilt once the catalogue
+   * has loaded. A product archived since is kept as a free-text line rather
+   * than dropped, which would silently change the document.
+   */
   useEffect(() => {
-    setLines((prev) =>
-      prev.map((l) => {
-        if (!l.product) return l;
-        return { ...l, price: String(l.product[priceField] ?? l.product.price ?? 0) };
+    if (!editing || products.length === 0) return;
+    setLines(
+      existing.items.map((item, i) => {
+        const product = products.find((p) => p.id === item.product_id) || null;
+        return {
+          key: `e${item.id ?? i}`,
+          product,
+          name: item.name,
+          quantity: String(item.quantity),
+          price: String(item.price),
+        };
       }),
+    );
+  }, [editing, existing, products]);
+
+  /*
+   * Switching between a cost-based and a price-based type re-prices the lines.
+   * The first run is skipped so opening an edit form does not overwrite the
+   * prices the document was actually agreed at.
+   */
+  const lastPriceField = useRef(priceField);
+  useEffect(() => {
+    if (lastPriceField.current === priceField) return;
+    lastPriceField.current = priceField;
+    setLines((prev) =>
+      prev.map((l) => (l.product ? { ...l, price: String(l.product[priceField] ?? l.product.price ?? 0) } : l)),
     );
   }, [priceField]);
 
@@ -173,24 +215,28 @@ function DocumentForm({ onClose, onSaved }) {
     e.preventDefault();
     setError('');
     setSaving(true);
+
+    const payload = {
+      partyId: Number(partyId),
+      discountPercent: Number(discountPercent) || 0,
+      onAccount,
+      notes: notes || null,
+      items: lines.map((l) => ({
+        productId: l.product?.id ?? null,
+        name: l.product ? undefined : l.name,
+        quantity: Number(l.quantity),
+        price: Number(l.price),
+      })),
+    };
+
     try {
-      const res = await api.post('/documents', {
-        docType,
-        partyId: Number(partyId),
-        discountPercent: Number(discountPercent) || 0,
-        onAccount,
-        notes: notes || null,
-        items: lines.map((l) => ({
-          productId: l.product?.id ?? null,
-          name: l.product ? undefined : l.name,
-          quantity: Number(l.quantity),
-          price: Number(l.price),
-        })),
-      });
-      toast(`${meta.label} ${res.data.document.doc_number} created`);
+      const res = editing
+        ? await api.put(`/documents/${doc.id}`, payload)
+        : await api.post('/documents', { docType, ...payload });
+      toast(`${meta.label} ${res.data.document.doc_number} ${editing ? 'updated' : 'created'}`);
       onSaved(res.data.document.id);
     } catch (err) {
-      setError(err.response?.data?.error || 'Could not create document');
+      setError(err.response?.data?.error || `Could not ${editing ? 'save' : 'create'} the document`);
     } finally {
       setSaving(false);
     }
@@ -198,32 +244,64 @@ function DocumentForm({ onClose, onSaved }) {
 
   return (
     <>
-      <Modal open onClose={onClose} title="New document" size="xl">
+      <Modal
+        open
+        onClose={onClose}
+        title={editing ? `Edit ${doc.doc_number}` : 'New document'}
+        subtitle={editing ? meta.label : undefined}
+        size="xl"
+      >
         <form onSubmit={submit} className="space-y-4">
           {/* Type is picked by icon — it decides everything else on this form. */}
-          <div className="grid grid-cols-4 gap-2">
-            {Object.entries(TYPE_META).map(([key, m]) => {
-              const Icon = m.icon;
-              const selected = docType === key;
-              return (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => setDocType(key)}
-                  className={cx(
-                    'flex flex-col items-center gap-1.5 rounded-xl px-2 py-3 text-center ring-1 transition',
-                    selected ? m.active : `${m.tint} hover:brightness-95`,
-                  )}
-                >
-                  <Icon size={20} />
-                  <span className="text-xs leading-tight font-medium">{m.label}</span>
-                  <span className={cx('text-[10px] leading-tight', selected ? 'opacity-90' : 'opacity-70')}>
-                    {m.effect}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
+          {!editing && (
+            <div className="grid grid-cols-4 gap-2">
+              {Object.entries(TYPE_META).map(([key, m]) => {
+                const Icon = m.icon;
+                const selected = docType === key;
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setDocType(key)}
+                    className={cx(
+                      'flex flex-col items-center gap-1.5 rounded-xl px-2 py-3 text-center ring-1 transition',
+                      selected ? m.active : `${m.tint} hover:brightness-95`,
+                    )}
+                  >
+                    <Icon size={20} />
+                    <span className="text-xs leading-tight font-medium">{m.label}</span>
+                    <span className={cx('text-[10px] leading-tight', selected ? 'opacity-90' : 'opacity-70')}>
+                      {m.effect}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {/*
+           * Editing something already confirmed is a correction to the books,
+           * not a draft change — say so before it is saved, not after.
+           */}
+          {editing && doc.status === 'confirmed' && (
+            <p className="flex items-start gap-2 rounded-xl bg-amber-50 px-3 py-2.5 text-sm text-amber-800 ring-1 ring-amber-200">
+              <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+              <span>
+                {isInvoice ? (
+                  <>
+                    This {meta.label.toLowerCase()} is confirmed. Saving puts back the stock it moved and
+                    clears the balance it created, then applies both again at the new figures — the
+                    correction shows in the stock history and on the account.
+                  </>
+                ) : (
+                  <>
+                    This {meta.label.toLowerCase()} is confirmed, but a {meta.label.toLowerCase()} moves
+                    neither stock nor money — only the paperwork changes.
+                  </>
+                )}
+              </span>
+            </p>
+          )}
 
           <div>
             <label htmlFor="doc-party" className="mb-1.5 block text-sm font-medium text-slate-700">
@@ -402,7 +480,7 @@ function DocumentForm({ onClose, onSaved }) {
               Cancel
             </Button>
             <Button type="submit" className="flex-1" disabled={!valid} loading={saving}>
-              Create draft
+              {editing ? 'Save changes' : 'Create draft'}
             </Button>
           </div>
         </form>
@@ -424,13 +502,15 @@ function DocumentForm({ onClose, onSaved }) {
 
 /* ------------------------------------------------------------------ detail */
 
-function DocumentDetail({ id, onClose, onChanged }) {
+function DocumentDetail({ id, onClose, onChanged, onDeleted }) {
   const toast = useToast();
   const navigate = useNavigate();
   const { rate, toLbp } = useSettings();
   const [data, setData] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [editing, setEditing] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   const load = useCallback(() => {
     api.get(`/documents/${id}`).then((res) => setData(res.data));
@@ -439,6 +519,20 @@ function DocumentDetail({ id, onClose, onChanged }) {
   useEffect(() => {
     load();
   }, [load]);
+
+  async function remove() {
+    setError('');
+    setBusy(true);
+    try {
+      const res = await api.delete(`/documents/${id}`);
+      toast(`${res.data.deleted} deleted`);
+      onDeleted();
+    } catch (err) {
+      setConfirmingDelete(false);
+      setError(err.response?.data?.error || 'Could not delete this document');
+      setBusy(false);
+    }
+  }
 
   async function act(path, body, successMessage) {
     setError('');
@@ -471,6 +565,47 @@ function DocumentDetail({ id, onClose, onChanged }) {
   const { document: doc, items, convertedTo } = data;
   const meta = TYPE_META[doc.doc_type];
   const canConvert = doc.doc_type === 'quotation' || doc.doc_type === 'sales_order';
+  const liveSuccessor = convertedTo.find((c) => c.status !== 'cancelled');
+
+  if (editing) {
+    return (
+      <DocumentForm
+        existing={data}
+        onClose={() => setEditing(false)}
+        onSaved={() => {
+          setEditing(false);
+          load();
+          onChanged();
+        }}
+      />
+    );
+  }
+
+  if (confirmingDelete) {
+    return (
+      <Modal open onClose={() => setConfirmingDelete(false)} title={`Delete ${doc.doc_number}?`}>
+        <p className="text-sm text-slate-600">
+          {doc.status === 'confirmed' && doc.doc_type.endsWith('invoice')
+            ? `This ${meta.label.toLowerCase()} is confirmed, so it is reversed first — stock goes back and
+               the balance is cleared — and then the paperwork is deleted. The reversal stays in the stock
+               history and on the account.`
+            : `The ${meta.label.toLowerCase()} and its ${items.length} line${
+                items.length === 1 ? '' : 's'
+              } will be deleted. Nothing else changes.`}
+        </p>
+        <p className="mt-2 text-sm text-slate-500">This cannot be undone.</p>
+
+        <div className="mt-5 flex gap-2">
+          <Button variant="secondary" className="flex-1" onClick={() => setConfirmingDelete(false)}>
+            Keep it
+          </Button>
+          <Button variant="danger" className="flex-1" loading={busy} onClick={remove}>
+            <Trash2 size={15} /> Delete {doc.doc_number}
+          </Button>
+        </div>
+      </Modal>
+    );
+  }
 
   return (
     <Modal
@@ -585,6 +720,10 @@ function DocumentDetail({ id, onClose, onChanged }) {
           </Button>
         )}
 
+        <Button variant="secondary" onClick={() => setEditing(true)}>
+          <Pencil size={15} /> Edit
+        </Button>
+
         {doc.status !== 'cancelled' && (
           <Button
             variant="danger"
@@ -594,6 +733,20 @@ function DocumentDetail({ id, onClose, onChanged }) {
             <Ban size={15} /> Cancel
           </Button>
         )}
+
+        {/*
+         * Cancelling keeps the paperwork and reverses it; deleting removes it
+         * altogether. A document another was created from stays put until that
+         * one is dealt with, so the button says why rather than failing later.
+         */}
+        <Button
+          variant="danger"
+          disabled={!!liveSuccessor}
+          title={liveSuccessor ? `${liveSuccessor.doc_number} was created from this one` : undefined}
+          onClick={() => setConfirmingDelete(true)}
+        >
+          <Trash2 size={15} /> Delete
+        </Button>
       </div>
     </Modal>
   );
@@ -765,7 +918,17 @@ export default function Documents() {
         />
       )}
 
-      {viewing && <DocumentDetail id={viewing} onClose={() => setViewing(null)} onChanged={load} />}
+      {viewing && (
+        <DocumentDetail
+          id={viewing}
+          onClose={() => setViewing(null)}
+          onChanged={load}
+          onDeleted={() => {
+            setViewing(null);
+            load();
+          }}
+        />
+      )}
     </div>
   );
 }
