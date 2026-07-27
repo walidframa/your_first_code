@@ -40,6 +40,23 @@ function track(child, label) {
   return child;
 }
 
+/**
+ * Refuse to start when the port is already taken.
+ *
+ * Without this a server left over from an earlier run answers the readiness
+ * check before the newly spawned one has finished failing, and the suite
+ * quietly tests yesterday's build.
+ */
+async function requireFreePort(port, label) {
+  try {
+    await fetch(`http://127.0.0.1:${port}/`, { signal: AbortSignal.timeout(2000) });
+  } catch {
+    return; // Nothing listening, which is what we want.
+  }
+  console.error(`Port ${port} is already serving something; stop it before running the ${label}.`);
+  process.exit(1);
+}
+
 async function waitFor(url, label, child, timeoutMs = 60000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -69,6 +86,9 @@ const env = {
   // Points the client's dev/preview proxy at this run's API instance.
   API_TARGET: `http://127.0.0.1:${API_PORT}`,
 };
+
+await requireFreePort(API_PORT, 'API');
+await requireFreePort(WEB_PORT, 'client');
 
 console.log('Seeding a throwaway database…');
 const seed = spawnSync('npm', ['--prefix', 'server', 'run', 'seed'], {
