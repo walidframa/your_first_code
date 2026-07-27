@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, Banknote, CreditCard, Delete } from 'lucide-react';
+import { ArrowLeft, Banknote, CreditCard, Delete, Wallet } from 'lucide-react';
 import { Button, Modal, cx, money } from './ui';
 import { useSettings, lbp } from '../context/SettingsContext';
 
@@ -11,7 +11,7 @@ const QUICK_LBP = [100000, 200000, 500000, 1000000, 5000000];
  * chooses which currency to give change in and the sheet shows the exact
  * amount to hand back.
  */
-export default function PaymentSheet({ open, total, onClose, onConfirm, submitting }) {
+export default function PaymentSheet({ open, total, customer, onClose, onConfirm, submitting }) {
   const { rate, toLbp } = useSettings();
 
   const [method, setMethod] = useState(null);
@@ -70,20 +70,39 @@ export default function PaymentSheet({ open, total, onClose, onConfirm, submitti
       size={method === 'cash' ? 'lg' : 'sm'}
     >
       {method === null && (
-        <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              onClick={() => setMethod('card')}
+              className="flex flex-col items-center gap-2 rounded-xl bg-white px-4 py-8 ring-1 ring-slate-300 transition hover:bg-slate-50 hover:ring-brand-400"
+            >
+              <CreditCard size={26} className="text-slate-700" />
+              <span className="font-medium text-slate-800">Card</span>
+            </button>
+            <button
+              onClick={() => setMethod('cash')}
+              className="flex flex-col items-center gap-2 rounded-xl bg-white px-4 py-8 ring-1 ring-slate-300 transition hover:bg-slate-50 hover:ring-brand-400"
+            >
+              <Banknote size={26} className="text-slate-700" />
+              <span className="font-medium text-slate-800">Cash</span>
+            </button>
+          </div>
+
+          {/* Credit is only offered once a customer is attached to the sale. */}
           <button
-            onClick={() => setMethod('card')}
-            className="flex flex-col items-center gap-2 rounded-xl bg-white px-4 py-8 ring-1 ring-slate-300 transition hover:bg-slate-50 hover:ring-brand-400"
+            onClick={() => customer && onConfirm({ paymentMethod: 'account' })}
+            disabled={!customer || submitting}
+            className={cx(
+              'flex w-full items-center justify-center gap-2 rounded-xl px-4 py-4 ring-1 transition',
+              customer
+                ? 'bg-white text-slate-800 ring-slate-300 hover:bg-slate-50 hover:ring-brand-400'
+                : 'cursor-not-allowed bg-slate-50 text-slate-400 ring-slate-200',
+            )}
           >
-            <CreditCard size={26} className="text-slate-700" />
-            <span className="font-medium text-slate-800">Card</span>
-          </button>
-          <button
-            onClick={() => setMethod('cash')}
-            className="flex flex-col items-center gap-2 rounded-xl bg-white px-4 py-8 ring-1 ring-slate-300 transition hover:bg-slate-50 hover:ring-brand-400"
-          >
-            <Banknote size={26} className="text-slate-700" />
-            <span className="font-medium text-slate-800">Cash</span>
+            <Wallet size={20} />
+            <span className="font-medium">
+              {customer ? `Put on ${customer.name}'s account` : 'On account — pick a customer first'}
+            </span>
           </button>
         </div>
       )}

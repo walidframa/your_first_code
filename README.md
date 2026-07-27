@@ -30,6 +30,9 @@ orders and staff.
   upsert-by-SKU
 - Products: full CRUD with barcode, supplier, cost/margin, image URL, archive/restore
 - Orders: every cashier's sales with full refunds that restock items
+- **Customers**: contacts with credit limits, running balances, a full ledger and
+  recorded payments — sell on account straight from the register
+- **Suppliers**: bills and payments made, so you can see what you owe
 - Staff: `admin` / `cashier` accounts
 - Settings: the USD→LBP exchange rate, the pound rounding step, a live preview
   and a full history of who changed the rate and when
@@ -126,6 +129,32 @@ each morning and the two price lists can never drift apart.
 | `/api/settings` | GET | any (the register needs the live rate) |
 | `/api/settings` | PUT | admin |
 | `/api/settings/rate-history` | GET | admin |
+
+## Customers, credit and cash flow
+
+One ledger records both sides of the book. Every entry carries a signed amount
+where **positive always means outstanding** — a credit sale to a customer, a bill
+from a supplier — and negative reduces it. A balance is therefore just the sum of
+a party's entries, and the same query serves receivables and payables.
+
+- Customers have a **credit limit**. An account sale is refused if it would push
+  them over, and the check runs inside the sale's transaction so a concurrent
+  sale cannot slip past it.
+- Payments can be taken in **USD, LBP or both**, converted at the current rate.
+- Refunding an account sale credits the customer back automatically.
+- A party with an outstanding balance cannot be archived.
+- New customers can carry an **opening balance**, so an existing paper book can
+  be brought across on day one.
+- The dashboard shows receivables, payables and the net position.
+
+| Route | Method | Role |
+| ----- | ------ | ---- |
+| `/api/customers`, `/api/suppliers` | GET | any (the register picks customers) |
+| `/api/customers/:id` | GET | any |
+| `/api/customers`, `/api/suppliers` | POST / PUT / DELETE | admin |
+| `/api/customers/:id/payments` | POST | admin |
+| `/api/customers/:id/charges` | POST | admin |
+| `/api/accounts/summary`, `/api/accounts/entries` | GET | admin |
 
 ## Importing an existing catalog
 

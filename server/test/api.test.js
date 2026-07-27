@@ -488,6 +488,217 @@ test('import is admin only', async () => {
   assert.equal(res.status, 403);
 });
 
+/* --------------------------------------------------- customers & accounts */
+
+let customerId;
+let supplierId;
+
+test('creates a customer with a credit limit', async () => {
+  const res = await req(
+    'POST',
+    '/customers',
+    { name: 'Rami Haddad', phone: '03 111 222', credit_limit: 100 },
+    adminToken,
+  );
+  assert.equal(res.status, 201);
+  assert.equal(res.json.party.balance, 0);
+  assert.equal(res.json.party.credit_limit, 100);
+  customerId = res.json.party.id;
+});
+
+test('creates a customer with an opening balance', async () => {
+  const res = await req(
+    'POST',
+    '/customers',
+    { name: 'Carried Over', credit_limit: 500, opening_balance: 75 },
+    adminToken,
+  );
+  assert.equal(res.json.party.balance, 75, 'opening balance lands in the ledger');
+});
+
+test('rejects a nameless party and a negative credit limit', async () => {
+  assert.equal((await req('POST', '/customers', { name: '   ' }, adminToken)).status, 400);
+  assert.equal((await req('POST', '/customers', { name: 'X', credit_limit: -5 }, adminToken)).status, 400);
+});
+
+test('cashiers can list customers but not create them', async () => {
+  assert.equal((await req('GET', '/customers', null, cashierToken)).status, 200);
+  assert.equal((await req('POST', '/customers', { name: 'Nope' }, cashierToken)).status, 403);
+});
+
+test('an account sale increases what the customer owes', async () => {
+  const product = (await req('GET', '/products/lookup?code=BAK-002', null, cashierToken)).json.product;
+  const res = await req(
+    'POST',
+    '/orders',
+    { items: [{ productId: product.id, quantity: 2 }], paymentMethod: 'account', customerId },
+    cashierToken,
+  );
+  assert.equal(res.status, 201);
+  assert.equal(res.json.order.payment_method, 'account');
+  assert.equal(res.json.order.customer_id, customerId);
+
+  const detail = await req('GET', `/customers/${customerId}`, null, adminToken);
+  assert.equal(detail.json.party.balance, res.json.order.total);
+  assert.equal(detail.json.entries[0].kind, 'sale');
+});
+
+test('an account sale requires a customer', async () => {
+  const product = (await req('GET', '/products/lookup?code=BAK-002', null, cashierToken)).json.product;
+  const res = await req(
+    'POST',
+    '/orders',
+    { items: [{ productId: product.id, quantity: 1 }], paymentMethod: 'account' },
+    cashierToken,
+  );
+  assert.equal(res.status, 400);
+  assert.match(res.json.error, /customer is required/i);
+});
+
+test('the credit limit is enforced', async () => {
+  const tight = (
+    await req('POST', '/customers', { name: 'Tight Limit', credit_limit: 5 }, adminToken)
+  ).json.party;
+  const product = (await req('GET', '/products/lookup?code=APP-001', null, cashierToken)).json.product;
+
+  const res = await req(
+    'POST',
+    '/orders',
+    { items: [{ productId: product.id, quantity: 1 }], paymentMethod: 'account', customerId: tight.id },
+    cashierToken,
+  );
+  assert.equal(res.status, 400);
+  assert.match(res.json.error, /credit limit/i);
+
+  // The failed sale must not have moved stock or the balance.
+  const after = (await req('GET', '/products/lookup?code=APP-001', null, cashierToken)).json.product;
+  assert.equal(after.stock, product.stock);
+  assert.equal((await req('GET', `/customers/${tight.id}`, null, adminToken)).json.party.balance, 0);
+});
+
+test('a payment in mixed currency reduces the balance', async () => {
+  const before = (await req('GET', `/customers/${customerId}`, null, adminToken)).json.party.balance;
+
+  const res = await req(
+    'POST',
+    `/customers/${customerId}/payments`,
+    {
+      payments: [
+        { currency: 'USD', amount: 2 },
+        { currency: 'LBP', amount: 178000 },
+      ],
+      note: 'Part payment',
+    },
+    adminToken,
+  );
+
+  assert.equal(res.status, 201);
+  assert.equal(res.json.amountUsd, 4, '2 USD + 178,000 LL = 4 USD at 89,000');
+  assert.equal(res.json.balance, Math.round((before - 4) * 100) / 100);
+});
+
+test('rejects an empty or zero payment', async () => {
+  assert.equal(
+    (await req('POST', `/customers/${customerId}/payments`, { payments: [] }, adminToken)).status,
+    400,
+  );
+  assert.equal(
+    (
+      await req(
+        'POST',
+        `/customers/${customerId}/payments`,
+        { payments: [{ currency: 'USD', amount: 0 }] },
+        adminToken,
+      )
+    ).status,
+    400,
+  );
+});
+
+test('refunding an account sale credits the customer back', async () => {
+  const fresh = (
+    await req('POST', '/customers', { name: 'Refund Me', credit_limit: 200 }, adminToken)
+  ).json.party;
+  const product = (await req('GET', '/products/lookup?code=BAK-002', null, cashierToken)).json.product;
+
+  const order = (
+    await req(
+      'POST',
+      '/orders',
+      { items: [{ productId: product.id, quantity: 1 }], paymentMethod: 'account', customerId: fresh.id },
+      cashierToken,
+    )
+  ).json.order;
+
+  assert.equal((await req('GET', `/customers/${fresh.id}`, null, adminToken)).json.party.balance, order.total);
+
+  await req('POST', `/orders/${order.id}/refund`, null, adminToken);
+  assert.equal(
+    (await req('GET', `/customers/${fresh.id}`, null, adminToken)).json.party.balance,
+    0,
+    'refund clears what the sale added',
+  );
+});
+
+test('a customer with a balance cannot be archived', async () => {
+  const res = await req('DELETE', `/customers/${customerId}`, null, adminToken);
+  assert.equal(res.status, 400);
+  assert.match(res.json.error, /outstanding balance/i);
+});
+
+test('a settled customer can be archived', async () => {
+  const settled = (await req('POST', '/customers', { name: 'Settled' }, adminToken)).json.party;
+  assert.equal((await req('DELETE', `/customers/${settled.id}`, null, adminToken)).status, 200);
+  const list = (await req('GET', '/customers', null, adminToken)).json.parties;
+  assert.ok(!list.some((p) => p.id === settled.id), 'archived customers drop out of the default list');
+});
+
+test('supplier bills and payments move the payable', async () => {
+  const supplier = (
+    await req('POST', '/suppliers', { name: 'Corner Bakehouse', phone: '01 555 666' }, adminToken)
+  ).json.party;
+  supplierId = supplier.id;
+
+  await req('POST', `/suppliers/${supplierId}/charges`, { amount: 250, note: 'Invoice 88' }, adminToken);
+  assert.equal((await req('GET', `/suppliers/${supplierId}`, null, adminToken)).json.party.balance, 250);
+
+  await req(
+    'POST',
+    `/suppliers/${supplierId}/payments`,
+    { payments: [{ currency: 'USD', amount: 100 }] },
+    adminToken,
+  );
+  assert.equal((await req('GET', `/suppliers/${supplierId}`, null, adminToken)).json.party.balance, 150);
+});
+
+test('suppliers have no credit limit field', async () => {
+  const res = await req('POST', '/suppliers', { name: 'No Limit Co', credit_limit: 999 }, adminToken);
+  assert.equal(res.status, 201);
+  assert.equal(res.json.party.credit_limit, undefined);
+});
+
+test('the accounts summary reports both sides of the book', async () => {
+  const res = await req('GET', '/accounts/summary', null, adminToken);
+  assert.equal(res.status, 200);
+  assert.ok(res.json.receivable > 0, 'customers owe something');
+  assert.equal(res.json.payable, 150, 'the supplier is still owed 150');
+  assert.equal(res.json.net, Math.round((res.json.receivable - res.json.payable) * 100) / 100);
+  assert.ok(Array.isArray(res.json.topDebtors));
+});
+
+test('the accounts feed is admin only', async () => {
+  assert.equal((await req('GET', '/accounts/summary', null, cashierToken)).status, 403);
+  assert.equal((await req('GET', '/accounts/entries', null, cashierToken)).status, 403);
+  assert.equal((await req('GET', '/accounts/entries', null, adminToken)).status, 200);
+});
+
+test('the cash-flow feed names the party and the order', async () => {
+  const entries = (await req('GET', '/accounts/entries', null, adminToken)).json.entries;
+  assert.ok(entries.length > 0);
+  assert.ok(entries.some((e) => e.party_name && e.kind === 'payment'));
+  assert.ok(entries.some((e) => e.order_number));
+});
+
 /* ---------------------------------------------------------------- reports */
 
 test('summary reports revenue, payment mix and reorder-based low stock', async () => {

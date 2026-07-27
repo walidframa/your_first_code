@@ -96,6 +96,55 @@ db.exec(`
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
+  CREATE TABLE IF NOT EXISTS customers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    phone TEXT,
+    email TEXT,
+    address TEXT,
+    credit_limit REAL NOT NULL DEFAULT 0,
+    notes TEXT,
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS suppliers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    phone TEXT,
+    email TEXT,
+    address TEXT,
+    notes TEXT,
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  /*
+   * One ledger for both sides of the book.
+   *
+   * amount_usd is signed and always means "outstanding": positive increases
+   * what is owed (a credit sale to a customer, a bill from a supplier),
+   * negative reduces it (a payment, a refund). A party's balance is therefore
+   * just SUM(amount_usd), and the same query serves receivables and payables.
+   */
+  CREATE TABLE IF NOT EXISTS account_entries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    party_type TEXT NOT NULL CHECK (party_type IN ('customer', 'supplier')),
+    party_id INTEGER NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('sale', 'payment', 'refund', 'bill', 'adjustment', 'opening')),
+    amount_usd REAL NOT NULL,
+    paid_usd REAL NOT NULL DEFAULT 0,
+    paid_lbp REAL NOT NULL DEFAULT 0,
+    exchange_rate REAL,
+    order_id INTEGER REFERENCES orders(id),
+    note TEXT,
+    user_id INTEGER REFERENCES users(id),
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_account_entries_party
+    ON account_entries(party_type, party_id, created_at);
+
   CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL,
@@ -138,6 +187,65 @@ addColumn('orders', 'paid_lbp', 'REAL NOT NULL DEFAULT 0');
 addColumn('orders', 'change_usd', 'REAL NOT NULL DEFAULT 0');
 addColumn('orders', 'change_lbp', 'REAL NOT NULL DEFAULT 0');
 addColumn('orders', 'change_currency', 'TEXT');
+
+addColumn('orders', 'customer_id', 'INTEGER REFERENCES customers(id)');
+
+/*
+ * Credit sales need payment_method = 'account', but SQLite cannot alter a CHECK
+ * constraint — the table has to be rebuilt. Detect the old constraint from the
+ * stored DDL so this runs exactly once, and copy by column name so the columns
+ * added by addColumn() above come across intact.
+ */
+function migrateOrdersPaymentMethods() {
+  const row = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'orders'").get();
+  if (!row?.sql || row.sql.includes("'account'")) return;
+
+  const columns = db
+    .prepare('PRAGMA table_info(orders)')
+    .all()
+    .map((c) => c.name);
+  const columnList = columns.join(', ');
+
+  db.exec('PRAGMA foreign_keys = OFF');
+  db.exec('BEGIN');
+  try {
+    db.exec(`
+      CREATE TABLE orders_migrated (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        order_number TEXT UNIQUE NOT NULL,
+        cashier_id INTEGER NOT NULL REFERENCES users(id),
+        customer_id INTEGER REFERENCES customers(id),
+        subtotal REAL NOT NULL,
+        discount REAL NOT NULL DEFAULT 0,
+        tax REAL NOT NULL DEFAULT 0,
+        total REAL NOT NULL,
+        payment_method TEXT NOT NULL CHECK (payment_method IN ('cash', 'card', 'account')),
+        amount_tendered REAL,
+        change_due REAL,
+        status TEXT NOT NULL DEFAULT 'completed' CHECK (status IN ('completed', 'refunded')),
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        exchange_rate REAL,
+        paid_usd REAL NOT NULL DEFAULT 0,
+        paid_lbp REAL NOT NULL DEFAULT 0,
+        change_usd REAL NOT NULL DEFAULT 0,
+        change_lbp REAL NOT NULL DEFAULT 0,
+        change_currency TEXT
+      )
+    `);
+    db.exec(`INSERT INTO orders_migrated (${columnList}) SELECT ${columnList} FROM orders`);
+    db.exec('DROP TABLE orders');
+    db.exec('ALTER TABLE orders_migrated RENAME TO orders');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders(created_at)');
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  } finally {
+    db.exec('PRAGMA foreign_keys = ON');
+  }
+}
+
+migrateOrdersPaymentMethods();
 
 export const ADJUSTMENT_REASONS = [
   'received',

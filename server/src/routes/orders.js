@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import { db, transaction } from '../db.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { getSettings } from '../lib/settings.js';
+import { addEntry, creditCheck } from '../lib/accounts.js';
 import {
   CURRENCIES,
   round2,
@@ -26,13 +27,17 @@ router.post('/', requireAuth, (req, res) => {
     amountTendered,
     payments,
     changeCurrency = 'LBP',
+    customerId = null,
   } = req.body || {};
 
   if (!Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: 'Cart must contain at least one item' });
   }
-  if (!['cash', 'card'].includes(paymentMethod)) {
-    return res.status(400).json({ error: 'paymentMethod must be cash or card' });
+  if (!['cash', 'card', 'account'].includes(paymentMethod)) {
+    return res.status(400).json({ error: 'paymentMethod must be cash, card or account' });
+  }
+  if (paymentMethod === 'account' && !customerId) {
+    return res.status(400).json({ error: 'A customer is required for an account sale' });
   }
   const discount = Number(discountPercent);
   if (!Number.isFinite(discount) || discount < 0 || discount > 100) {
@@ -82,6 +87,13 @@ router.post('/', requireAuth, (req, res) => {
       let changeUsd = 0;
       let changeLbp = 0;
 
+      if (paymentMethod === 'account') {
+        // Checked inside the transaction so a concurrent sale cannot slip the
+        // customer past their limit between the check and the insert.
+        const check = creditCheck(customerId, total);
+        if (!check.ok) throw new Error(check.error);
+      }
+
       if (paymentMethod === 'cash') {
         const invalid = validatePayments(tender || []);
         if (invalid) throw new Error(invalid);
@@ -107,13 +119,13 @@ router.post('/', requireAuth, (req, res) => {
 
       const orderInfo = db.prepare(`
         INSERT INTO orders (
-          order_number, cashier_id, subtotal, discount, tax, total, payment_method,
+          order_number, cashier_id, customer_id, subtotal, discount, tax, total, payment_method,
           amount_tendered, change_due, status,
           exchange_rate, paid_usd, paid_lbp, change_usd, change_lbp, change_currency
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed', ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed', ?, ?, ?, ?, ?, ?)
       `).run(
-        orderNumber, req.user.id, subtotal, discountAmount, tax, total, paymentMethod,
+        orderNumber, req.user.id, customerId || null, subtotal, discountAmount, tax, total, paymentMethod,
         amountTenderedValue, changeDue,
         exchangeRate, paidUsd, paidLbp, changeUsd, changeLbp,
         paymentMethod === 'cash' ? changeCurrency : null,
@@ -132,6 +144,19 @@ router.post('/', requireAuth, (req, res) => {
         decrementStock.run(li.quantity, li.product.id);
       }
 
+      if (paymentMethod === 'account') {
+        addEntry({
+          partyType: 'customer',
+          partyId: customerId,
+          kind: 'sale',
+          amountUsd: total,
+          exchangeRate,
+          orderId,
+          note: orderNumber,
+          userId: req.user.id,
+        });
+      }
+
       return { orderId, orderNumber, subtotal, discountAmount, tax, total, changeDue };
     })();
 
@@ -145,7 +170,9 @@ router.post('/', requireAuth, (req, res) => {
 
 router.get('/', requireAuth, (req, res) => {
   const { from, to } = req.query;
-  let sql = 'SELECT o.*, u.name AS cashier_name FROM orders o JOIN users u ON u.id = o.cashier_id WHERE 1=1';
+  let sql = `SELECT o.*, u.name AS cashier_name, c.name AS customer_name
+    FROM orders o JOIN users u ON u.id = o.cashier_id
+    LEFT JOIN customers c ON c.id = o.customer_id WHERE 1=1`;
   const params = [];
 
   if (req.user.role !== 'admin') {
@@ -168,7 +195,9 @@ router.get('/', requireAuth, (req, res) => {
 
 router.get('/:id', requireAuth, (req, res) => {
   const order = db.prepare(`
-    SELECT o.*, u.name AS cashier_name FROM orders o JOIN users u ON u.id = o.cashier_id WHERE o.id = ?
+    SELECT o.*, u.name AS cashier_name, c.name AS customer_name
+    FROM orders o JOIN users u ON u.id = o.cashier_id
+    LEFT JOIN customers c ON c.id = o.customer_id WHERE o.id = ?
   `).get(req.params.id);
   if (!order) return res.status(404).json({ error: 'Order not found' });
   if (req.user.role !== 'admin' && order.cashier_id !== req.user.id) {
@@ -190,6 +219,18 @@ router.post('/:id/refund', requireAuth, requireRole('admin'), (req, res) => {
       if (item.product_id) restock.run(item.quantity, item.product_id);
     }
     db.prepare("UPDATE orders SET status = 'refunded' WHERE id = ?").run(order.id);
+
+    if (order.payment_method === 'account' && order.customer_id) {
+      addEntry({
+        partyType: 'customer',
+        partyId: order.customer_id,
+        kind: 'refund',
+        amountUsd: -order.total,
+        orderId: order.id,
+        note: `Refund of ${order.order_number}`,
+        userId: req.user.id,
+      });
+    }
   })();
 
   const updated = db.prepare('SELECT * FROM orders WHERE id = ?').get(order.id);

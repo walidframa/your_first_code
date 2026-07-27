@@ -3,6 +3,7 @@ import { Minus, Plus, Search, ShoppingCart, Trash2, X } from 'lucide-react';
 import api from '../api';
 import Receipt from '../components/Receipt';
 import PaymentSheet from '../components/PaymentSheet';
+import CustomerPicker from '../components/CustomerPicker';
 import { Button, EmptyState, ProductThumb, Skeleton, cx, money, useToast } from '../components/ui';
 import { useSettings, lbp } from '../context/SettingsContext';
 
@@ -26,6 +27,7 @@ export default function Checkout() {
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [receipt, setReceipt] = useState(null);
+  const [customer, setCustomer] = useState(null);
 
   const loadData = useCallback(async () => {
     const [productsRes, categoriesRes, taxRes] = await Promise.all([
@@ -135,10 +137,12 @@ export default function Checkout() {
         paymentMethod,
         payments,
         changeCurrency,
+        customerId: customer?.id ?? null,
       });
       setReceipt({ order: res.data.order, items: res.data.items });
       setCart([]);
       setDiscountPercent(0);
+      setCustomer(null);
       setPaymentOpen(false);
       await loadData();
     } catch (err) {
@@ -300,6 +304,10 @@ export default function Checkout() {
           )}
         </div>
 
+        <div className="border-b border-slate-100 px-3 py-2">
+          <CustomerPicker customer={customer} onChange={setCustomer} />
+        </div>
+
         <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
           {cart.length === 0 ? (
             <EmptyState
@@ -418,6 +426,7 @@ export default function Checkout() {
       <PaymentSheet
         open={paymentOpen}
         total={total}
+        customer={customer}
         submitting={submitting}
         onClose={() => setPaymentOpen(false)}
         onConfirm={handleConfirmPayment}
