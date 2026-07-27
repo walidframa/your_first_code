@@ -283,9 +283,10 @@ export function ToastProvider({ children }) {
   return (
     <ToastContext.Provider value={value}>
       {children}
-      {/* Bottom-right so toasts never cover the scan bar or a page header. */}
+      {/* Bottom-left, clear of the nav rail: away from the scan bar at the top
+          and from the cart totals and Charge button down the right. */}
       <div
-        className="pointer-events-none fixed right-4 bottom-4 z-[100] flex flex-col items-end gap-2"
+        className="pointer-events-none fixed bottom-4 left-24 z-[100] flex flex-col items-start gap-2"
         aria-live="polite"
         aria-atomic="false"
       >

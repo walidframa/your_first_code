@@ -3,6 +3,7 @@ import { Link } from 'react-router';
 import { Archive, ArchiveRestore, Package, Pencil, Plus, Search, Upload } from 'lucide-react';
 import api from '../../api';
 import PageHeader from '../../components/PageHeader';
+import { useSettings, lbp } from '../../context/SettingsContext';
 import {
   Badge,
   Button,
@@ -127,6 +128,7 @@ function ProductModal({ product, categories, onClose, onSaved }) {
 
 export default function Products() {
   const toast = useToast();
+  const { rate, toLbp } = useSettings();
   const [products, setProducts] = useState(null);
   const [categories, setCategories] = useState([]);
   const [search, setSearch] = useState('');
@@ -261,8 +263,11 @@ export default function Products() {
                           </div>
                         </td>
                         <td className="px-3 py-2.5 text-slate-500">{p.category_name || '—'}</td>
-                        <td className="tnum px-3 py-2.5 text-right font-medium text-slate-800">
-                          {money(p.price)}
+                        <td className="tnum px-3 py-2.5 text-right">
+                          <span className="block font-medium text-slate-800">{money(p.price)}</span>
+                          {rate > 0 && (
+                            <span className="block text-xs text-slate-400">{lbp(toLbp(p.price))}</span>
+                          )}
                         </td>
                         <td className="tnum px-3 py-2.5 text-right text-slate-500">{margin.toFixed(0)}%</td>
                         <td className="px-3 py-2.5">
