@@ -14,6 +14,7 @@ import {
   ProductThumb,
   Select,
   Skeleton,
+  cx,
   money,
   useToast,
 } from '../../components/ui';
@@ -28,6 +29,7 @@ export default function Labels() {
   const [search, setSearch] = useState('');
   const [sizeKey, setSizeKey] = useState('medium');
   const [showLbp, setShowLbp] = useState(true);
+  const [mode, setMode] = useState('sheet');
   const [sourceLabel, setSourceLabel] = useState('');
 
   const size = LABEL_SIZES[sizeKey];
@@ -100,7 +102,9 @@ export default function Labels() {
 
   const suspect = selection.filter((e) => hasSuspectCheckDigit(e.product.barcode));
   const missingCode = selection.filter((e) => !codeFor(e.product));
-  const pages = Math.ceil(labels.length / (size.perRow * Math.floor(281 / (size.height + 2)))) || 0;
+  // On a label printer every label is its own page; on a sheet, as many as fit.
+  const perSheet = size.perRow * Math.floor(281 / (size.height + 2));
+  const pages = mode === 'roll' ? labels.length : Math.ceil(labels.length / perSheet) || 0;
 
   return (
     <div className="flex h-full flex-col">
@@ -170,6 +174,38 @@ export default function Labels() {
             </Card>
 
             <Card className="p-4">
+              <p className="mb-1.5 text-sm font-medium text-slate-700">Printing onto</p>
+              <div className="mb-4 grid grid-cols-2 gap-2">
+                {[
+                  {
+                    key: 'roll',
+                    title: 'Label printer',
+                    hint: 'One label per page — rolls and die-cut labels',
+                  },
+                  {
+                    key: 'sheet',
+                    title: 'A4 label sheet',
+                    hint: 'Many labels per page — Avery-style sheets',
+                  },
+                ].map((m) => (
+                  <button
+                    key={m.key}
+                    onClick={() => setMode(m.key)}
+                    className={cx(
+                      'rounded-xl px-3 py-2.5 text-left ring-1 transition',
+                      mode === m.key
+                        ? 'bg-brand-600 text-white ring-brand-600'
+                        : 'bg-white text-slate-700 ring-slate-300 hover:ring-slate-400',
+                    )}
+                  >
+                    <span className="block text-sm font-medium">{m.title}</span>
+                    <span className={cx('block text-[11px] leading-tight', mode === m.key ? 'opacity-90' : 'text-slate-500')}>
+                      {m.hint}
+                    </span>
+                  </button>
+                ))}
+              </div>
+
               <Select label="Label size" value={sizeKey} onChange={(e) => setSizeKey(e.target.value)}>
                 {Object.values(LABEL_SIZES).map((s) => (
                   <option key={s.key} value={s.key}>
@@ -177,6 +213,12 @@ export default function Labels() {
                   </option>
                 ))}
               </Select>
+              <p className="mt-2 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">
+                {mode === 'roll'
+                  ? `Each label prints on its own ${size.width} × ${size.height} mm page. In the print dialog set the paper size to match your labels and margins to none.`
+                  : `Up to ${size.perRow} labels across an A4 page. Set scale to 100% — "fit to page" will shift them off the die-cut.`}
+              </p>
+
               <label className="mt-3 flex items-center gap-2 text-sm text-slate-600">
                 <input
                   type="checkbox"
@@ -220,7 +262,12 @@ export default function Labels() {
               <div className="flex items-center justify-between border-b border-slate-100 px-4 py-2.5">
                 <p className="text-sm font-medium text-slate-800">
                   {labels.length} label{labels.length === 1 ? '' : 's'}
-                  {pages > 0 && <span className="ml-1 text-xs text-slate-400">· ~{pages} page{pages === 1 ? '' : 's'}</span>}
+                  {pages > 0 && (
+                    <span className="ml-1 text-xs text-slate-400">
+                      · {mode === 'roll' ? '' : '~'}
+                      {pages} page{pages === 1 ? '' : 's'}
+                    </span>
+                  )}
                 </p>
                 {selection.length > 0 && (
                   <button
@@ -297,7 +344,7 @@ export default function Labels() {
               </Card>
             ) : (
               <div className="overflow-x-auto rounded-xl bg-white p-4 ring-1 ring-slate-200">
-                <LabelSheet labels={labels} size={size} rate={rate} showLbp={showLbp} />
+                <LabelSheet labels={labels} size={size} rate={rate} showLbp={showLbp} mode={mode} />
               </div>
             )}
           </div>

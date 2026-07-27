@@ -50,6 +50,15 @@ body {
   font-family: var(--font-sans);
 }
 
+/*
+ * On screen, show where each label's edge falls. `outline` rather than `border`
+ * so it can never alter the label's printed millimetre dimensions.
+ */
+.label-one {
+  outline: 0.2mm dashed #cbd5e1;
+  outline-offset: -0.2mm;
+}
+
 /* Tabular figures only where numbers stack vertically. */
 .tnum {
   font-variant-numeric: tabular-nums;
@@ -127,14 +136,38 @@ body {
     padding: 0;
   }
 
-  @page {
-    size: A4;
-    margin: 6mm;
-  }
+  /* The @page size is emitted by LabelSheet, since it depends on the mode. */
 
-  /* Never split a label across two sheets of paper. */
+  /* Never split a label across two pages. */
   .label-sheet > * {
     break-inside: avoid;
     page-break-inside: avoid;
+  }
+
+  /*
+   * Roll / label-printer stock: one physical label is one page. Each label
+   * takes a page of its own and fills it exactly — without the page break the
+   * whole run is squeezed onto the first label.
+   */
+  .label-sheet.mode-roll {
+    display: block;
+    position: static;
+    width: auto;
+  }
+
+  .label-sheet.mode-roll > * {
+    break-after: page;
+    page-break-after: always;
+    margin: 0;
+  }
+
+  .label-sheet.mode-roll > *:last-child {
+    break-after: auto;
+    page-break-after: auto;
+  }
+
+  /* The dashed outline is a preview guide; real stock is already die-cut. */
+  .label-one {
+    border: none !important;
   }
 }
