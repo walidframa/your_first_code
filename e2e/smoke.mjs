@@ -343,10 +343,16 @@ try {
     await page.waitForSelector('text=New document');
 
     const dialog = page.locator('[role=dialog]');
-    await dialog.locator('select').first().selectOption('purchase_invoice');
-    await dialog.locator('select').nth(1).selectOption({ label: 'Corner Bakehouse' });
-    await dialog.locator('select').nth(2).selectOption({ index: 1 });
-    await dialog.getByLabel('Quantity').fill('10');
+    // Type is chosen by icon tile now.
+    await dialog.getByRole('button', { name: /Purchase invoice/ }).click();
+    await dialog.locator('#doc-party').selectOption({ label: 'Corner Bakehouse' });
+
+    // Search for a product and add it with Enter.
+    await dialog.getByLabel('Search products to add').fill('Bagel');
+    await dialog.locator('text=/BAK-002/').first().waitFor();
+    await dialog.getByLabel('Search products to add').press('Enter');
+    await dialog.locator('text=/Quantity for Bagel/i').first().waitFor().catch(() => {});
+    await dialog.getByLabel(/Quantity for Bagel/i).fill('10');
     await page.click('button:has-text("Create draft")');
 
     // Opens straight into the detail view as a draft.
@@ -368,10 +374,11 @@ try {
     await page.click('a[title="Documents"]');
     await page.click('button:has-text("New document")');
     const dialog = page.locator('[role=dialog]');
-    await dialog.locator('select').first().selectOption('quotation');
-    await dialog.locator('select').nth(1).selectOption({ label: 'Rami Haddad' });
-    await dialog.locator('select').nth(2).selectOption({ index: 1 });
-    await dialog.getByLabel('Quantity').fill('2');
+    await dialog.getByRole('button', { name: /Quotation/ }).click();
+    await dialog.locator('#doc-party').selectOption({ label: 'Rami Haddad' });
+    await dialog.getByLabel('Search products to add').fill('Croissant');
+    await dialog.getByLabel('Search products to add').press('Enter');
+    await dialog.getByLabel(/Quantity for/i).first().fill('2');
     await page.click('button:has-text("Create draft")');
     await page.waitForSelector('text=/QT-\\d{4}/', { timeout: 15000 });
 
@@ -380,6 +387,31 @@ try {
     await page.waitForSelector('td:has-text("SO-0001")', { timeout: 15000 });
   });
   await shot('documents');
+
+  await step('a new product can be created from inside a document', async () => {
+    await page.click('a[title="Documents"]');
+    await page.click('button:has-text("New document")');
+    const dialog = page.locator('[role=dialog]');
+    await dialog.getByRole('button', { name: /Purchase invoice/ }).click();
+    await dialog.locator('#doc-party').selectOption({ label: 'Corner Bakehouse' });
+
+    // Searching for something that does not exist offers to create it.
+    await dialog.getByLabel('Search products to add').fill('Pistachio Baklava');
+    await page.waitForSelector('text=/No product matches/');
+    await page.click('button:has-text("Create “Pistachio Baklava” as a new product")');
+
+    await page.waitForSelector('text=New product', { timeout: 15000 });
+    await page.fill('[role=dialog] #sku', 'BAK-999');
+    await page.fill('[role=dialog] #price', '6.50');
+    await page.fill('[role=dialog] #cost', '2.25');
+    await page.click('button:has-text("Create and add")');
+
+    // It is created and lands on the document as a line at cost.
+    await page.waitForSelector('text=Pistachio Baklava created', { timeout: 15000 });
+    await page.waitForSelector('td:has-text("BAK-999")', { timeout: 15000 });
+    await page.keyboard.press('Escape');
+  });
+  await shot('inline-product');
 
   await step('the dashboard reports both sides of the book', async () => {
     await page.click('a[title="Dashboard"]');
