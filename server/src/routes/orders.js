@@ -4,6 +4,7 @@ import { db, transaction } from '../db.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { getSettings } from '../lib/settings.js';
 import { addEntry, creditCheck } from '../lib/accounts.js';
+import { currentSession, recordMovement, requiresSession } from '../lib/cash.js';
 import {
   CURRENCIES,
   round2,
@@ -95,6 +96,15 @@ router.post('/', requireAuth, (req, res) => {
       }
 
       if (paymentMethod === 'cash') {
+        /*
+         * Cash needs a drawer to go into. Card and account sales do not touch
+         * it, so they are left alone — refusing those would stop the shop
+         * trading for no reason.
+         */
+        if (requiresSession() && !currentSession()) {
+          throw new Error('The cashbox is closed — open it before taking cash');
+        }
+
         const invalid = validatePayments(tender || []);
         if (invalid) throw new Error(invalid);
 
@@ -151,6 +161,23 @@ router.post('/', requireAuth, (req, res) => {
           kind: 'sale',
           amountUsd: total,
           exchangeRate,
+          orderId,
+          note: orderNumber,
+          userId: req.user.id,
+        });
+      }
+
+      /*
+       * What actually stayed in the drawer: taken less change given back, per
+       * currency. A $20 note for a $7 sale with change in pounds leaves the
+       * drawer $20 heavier and its pounds lighter, and both need recording or
+       * the count will not add up.
+       */
+      if (paymentMethod === 'cash') {
+        recordMovement({
+          kind: 'sale',
+          amountUsd: round2(paidUsd - changeUsd),
+          amountLbp: paidLbp - changeLbp,
           orderId,
           note: orderNumber,
           userId: req.user.id,
@@ -227,6 +254,19 @@ router.post('/:id/refund', requireAuth, requireRole('admin'), (req, res) => {
         kind: 'refund',
         amountUsd: -order.total,
         orderId: order.id,
+        note: `Refund of ${order.order_number}`,
+        userId: req.user.id,
+      });
+    }
+
+    // Refunding a cash sale hands money back across the counter.
+    if (order.payment_method === 'cash') {
+      recordMovement({
+        kind: 'refund',
+        amountUsd: -round2(order.paid_usd - order.change_usd),
+        amountLbp: -(order.paid_lbp - order.change_lbp),
+        orderId: order.id,
+        reason: 'refund',
         note: `Refund of ${order.order_number}`,
         userId: req.user.id,
       });

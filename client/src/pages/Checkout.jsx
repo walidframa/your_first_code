@@ -4,6 +4,7 @@ import api from '../api';
 import Receipt from '../components/Receipt';
 import PaymentSheet from '../components/PaymentSheet';
 import CustomerPicker from '../components/CustomerPicker';
+import CashBox from '../components/CashBox';
 import { Button, EmptyState, ProductThumb, Skeleton, cx, money, useToast } from '../components/ui';
 import { useSettings, lbp } from '../context/SettingsContext';
 
@@ -285,6 +286,13 @@ export default function Checkout() {
 
       {/* Cart */}
       <aside className="no-print flex w-[380px] shrink-0 flex-col border-l border-slate-200 bg-white">
+        {/*
+         * The drawer's state belongs where the money is taken. A cashier who
+         * only finds out it is shut when a cash sale is refused has already
+         * kept a customer waiting.
+         */}
+        <CashBox />
+
         <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3.5">
           <div>
             <h2 className="font-semibold text-slate-900">Current sale</h2>

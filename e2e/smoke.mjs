@@ -94,6 +94,18 @@ try {
   });
   await shot('register');
 
+  await step('the cashbox must be opened before cash can be taken', async () => {
+    await page.waitForSelector('text=Cashbox closed', { timeout: 15000 });
+    await page.waitForSelector('text=/Cash sales are refused/');
+
+    await page.click('button:has-text("Open the cashbox")');
+    await page.waitForSelector('text=What is in the drawer to start with?', { timeout: 10000 });
+    await page.getByLabel('Dollars').fill('100');
+    await page.getByLabel('Pounds').fill('2000000');
+    await page.click('button:has-text("Open cashbox")');
+    await page.waitForSelector('text=Cashbox open', { timeout: 15000 });
+  });
+
   await step('scanning a barcode adds the product', async () => {
     await page.fill(scanBox, '5012345000015');
     await page.press(scanBox, 'Enter');
@@ -638,6 +650,47 @@ try {
       throw new Error('a converted quotation should not be deletable');
     }
     await page.keyboard.press('Escape');
+  });
+
+  await step('the cashbox closes against a blind count', async () => {
+    await page.click('a[title="Register"]');
+    await page.waitForSelector('text=Cashbox open', { timeout: 15000 });
+
+    // Money out of the drawer for an expense.
+    await page.click('button:has-text("Cash out")');
+    await page.waitForSelector('text=Money coming out of the drawer', { timeout: 10000 });
+    await page.getByLabel('Reason').selectOption('expense');
+    await page.getByLabel('Dollars').fill('15');
+    await page.getByLabel('What for?').fill('Milk and cleaning');
+    await page.click('button:has-text("Take out")');
+    await page.waitForSelector('text=/taken out of the drawer/i', { timeout: 15000 });
+
+    // Counted note by note, with the expected figure withheld until it is in.
+    await page.click('button:has-text("Close")');
+    await page.waitForSelector('text=Count what is in the drawer', { timeout: 10000 });
+    if (await page.locator('[role=dialog]').getByText('Expected').count()) {
+      throw new Error('the expected figure must not be visible while counting');
+    }
+    await page.getByLabel('USD 100 notes').fill('1');
+    await page.waitForSelector('[role=dialog] >> text=$100.00');
+
+    await page.click('button:has-text("Close and check")');
+    await page.waitForSelector('text=How the drawer came out', { timeout: 15000 });
+    await page.waitForSelector('[role=dialog] >> text=Expected');
+    await page.click('button:has-text("Done")');
+    await page.waitForSelector('text=Cashbox closed', { timeout: 15000 });
+  });
+  await shot('cashbox');
+
+  await step('the shift report shows every movement and what it was out by', async () => {
+    await page.click('a[title="Cashbox"]');
+    await page.waitForSelector('text=Every sitting of the till', { timeout: 15000 });
+    await page.click('tbody tr >> nth=0');
+    await page.waitForSelector('text=Every movement', { timeout: 15000 });
+    await page.waitForSelector('[role=dialog] >> text=Opening float');
+    await page.waitForSelector('[role=dialog] >> text=Cash out');
+    await page.waitForSelector('[role=dialog] >> text=Over / short');
+    await closeDialog();
   });
 
   await step('Shopify asks to be connected before it will sync anything', async () => {

@@ -65,6 +65,10 @@ before(async () => {
 
   adminToken = (await req('POST', '/auth/login', { username: 'admin', password: 'admin123' })).json.token;
   cashierToken = (await req('POST', '/auth/login', { username: 'cashier', password: 'cashier123' })).json.token;
+
+  // Cash cannot be taken with the drawer shut, so the suite opens one first —
+  // the same thing a cashier does at the start of a shift.
+  await req('POST', '/cash/open', { openingUsd: 200, openingLbp: 5_000_000 }, adminToken);
 });
 
 after(() => {
