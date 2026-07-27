@@ -12,6 +12,7 @@ import AdminOrders from './pages/admin/Orders';
 import AdminUsers from './pages/admin/Users';
 import AdminSettings from './pages/admin/Settings';
 import AdminParties from './pages/admin/Parties';
+import AdminDocuments from './pages/admin/Documents';
 
 export default function App() {
   return (
@@ -57,6 +58,14 @@ export default function App() {
           element={
             <ProtectedRoute roles={['admin']}>
               <AdminImport />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/documents"
+          element={
+            <ProtectedRoute roles={['admin']}>
+              <AdminDocuments />
             </ProtectedRoute>
           }
         />

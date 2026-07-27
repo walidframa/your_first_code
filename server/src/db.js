@@ -145,6 +145,52 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_account_entries_party
     ON account_entries(party_type, party_id, created_at);
 
+  /*
+   * Quotations, sales orders, sales invoices and purchase invoices are the same
+   * document with different consequences, so they share one table.
+   *
+   * A document is inert while it is a draft. Confirming it is what moves stock
+   * and posts to the ledger; cancelling a confirmed document reverses both.
+   */
+  CREATE TABLE IF NOT EXISTS documents (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    doc_type TEXT NOT NULL
+      CHECK (doc_type IN ('quotation', 'sales_order', 'sales_invoice', 'purchase_invoice')),
+    doc_number TEXT UNIQUE NOT NULL,
+    party_type TEXT CHECK (party_type IN ('customer', 'supplier')),
+    party_id INTEGER,
+    status TEXT NOT NULL DEFAULT 'draft'
+      CHECK (status IN ('draft', 'confirmed', 'cancelled')),
+    issue_date TEXT NOT NULL DEFAULT (date('now')),
+    valid_until TEXT,
+    subtotal REAL NOT NULL DEFAULT 0,
+    discount_percent REAL NOT NULL DEFAULT 0,
+    discount REAL NOT NULL DEFAULT 0,
+    tax REAL NOT NULL DEFAULT 0,
+    total REAL NOT NULL DEFAULT 0,
+    exchange_rate REAL,
+    on_account INTEGER NOT NULL DEFAULT 1,
+    notes TEXT,
+    converted_from_id INTEGER REFERENCES documents(id),
+    user_id INTEGER REFERENCES users(id),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    confirmed_at TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS document_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    document_id INTEGER NOT NULL REFERENCES documents(id),
+    product_id INTEGER REFERENCES products(id),
+    name TEXT NOT NULL,
+    sku TEXT,
+    price REAL NOT NULL,
+    quantity REAL NOT NULL,
+    line_total REAL NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_documents_type ON documents(doc_type, created_at);
+  CREATE INDEX IF NOT EXISTS idx_document_items_doc ON document_items(document_id);
+
   CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL,

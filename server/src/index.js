@@ -9,6 +9,7 @@ import reportRoutes from './routes/reports.js';
 import userRoutes from './routes/users.js';
 import settingsRoutes from './routes/settings.js';
 import accountsRoutes from './routes/accounts.js';
+import documentRoutes from './routes/documents.js';
 import { partyRouter } from './routes/parties.js';
 import inventoryRoutes from './routes/inventory.js';
 import importRoutes from './routes/imports.js';
@@ -29,6 +30,7 @@ app.use('/api/inventory', inventoryRoutes);
 app.use('/api/imports', importRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/accounts', accountsRoutes);
+app.use('/api/documents', documentRoutes);
 app.use('/api/customers', partyRouter('customer'));
 app.use('/api/suppliers', partyRouter('supplier'));
 

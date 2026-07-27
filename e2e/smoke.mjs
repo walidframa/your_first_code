@@ -329,6 +329,58 @@ try {
   });
   await shot('suppliers');
 
+  await step('a purchase invoice receives stock and creates a payable', async () => {
+    // Note the stock level before receiving.
+    await page.click('a[title="Inventory"]');
+    await page.waitForSelector('text=Units on hand', { timeout: 15000 });
+    const unitsOnHand = async () =>
+      Number((await page.locator('p:has-text("Units on hand") + p').innerText()).replace(/,/g, ''));
+    const before = await unitsOnHand();
+
+    await page.click('a[title="Documents"]');
+    await page.waitForSelector('button:has-text("New document")', { timeout: 15000 });
+    await page.click('button:has-text("New document")');
+    await page.waitForSelector('text=New document');
+
+    const dialog = page.locator('[role=dialog]');
+    await dialog.locator('select').first().selectOption('purchase_invoice');
+    await dialog.locator('select').nth(1).selectOption({ label: 'Corner Bakehouse' });
+    await dialog.locator('select').nth(2).selectOption({ index: 1 });
+    await dialog.getByLabel('Quantity').fill('10');
+    await page.click('button:has-text("Create draft")');
+
+    // Opens straight into the detail view as a draft.
+    await page.waitForSelector('text=/PI-\\d{4}/', { timeout: 15000 });
+    await page.waitForSelector('[role=dialog] >> text=draft');
+
+    await page.click('button:has-text("Confirm")');
+    await page.waitForSelector('[role=dialog] >> text=confirmed', { timeout: 15000 });
+    await page.keyboard.press('Escape');
+
+    await page.click('a[title="Inventory"]');
+    await page.waitForSelector('text=Units on hand', { timeout: 15000 });
+    const after = await unitsOnHand();
+    if (after !== before + 10) throw new Error(`stock went ${before} → ${after}, expected +10`);
+  });
+  await shot('purchase-invoice');
+
+  await step('a quotation converts to a sales order', async () => {
+    await page.click('a[title="Documents"]');
+    await page.click('button:has-text("New document")');
+    const dialog = page.locator('[role=dialog]');
+    await dialog.locator('select').first().selectOption('quotation');
+    await dialog.locator('select').nth(1).selectOption({ label: 'Rami Haddad' });
+    await dialog.locator('select').nth(2).selectOption({ index: 1 });
+    await dialog.getByLabel('Quantity').fill('2');
+    await page.click('button:has-text("Create draft")');
+    await page.waitForSelector('text=/QT-\\d{4}/', { timeout: 15000 });
+
+    await page.click('button:has-text("To sales order")');
+    await page.waitForSelector('text=Converted', { timeout: 15000 });
+    await page.waitForSelector('td:has-text("SO-0001")', { timeout: 15000 });
+  });
+  await shot('documents');
+
   await step('the dashboard reports both sides of the book', async () => {
     await page.click('a[title="Dashboard"]');
     await page.waitForSelector('text=Owed to you', { timeout: 15000 });

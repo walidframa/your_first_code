@@ -30,6 +30,9 @@ orders and staff.
   upsert-by-SKU
 - Products: full CRUD with barcode, supplier, cost/margin, image URL, archive/restore
 - Orders: every cashier's sales with full refunds that restock items
+- **Documents**: quotations, sales orders, sales invoices and purchase invoices —
+  a purchase invoice receives stock, a sales invoice issues it, and quotations
+  convert through to invoices
 - **Customers**: contacts with credit limits, running balances, a full ledger and
   recorded payments — sell on account straight from the register
 - **Suppliers**: bills and payments made, so you can see what you owe
@@ -129,6 +132,32 @@ each morning and the two price lists can never drift apart.
 | `/api/settings` | GET | any (the register needs the live rate) |
 | `/api/settings` | PUT | admin |
 | `/api/settings/rate-history` | GET | admin |
+
+## Documents
+
+Quotations, sales orders, sales invoices and purchase invoices are one table with
+different consequences. A document is **inert while it is a draft** — confirming
+it is the moment stock moves and the ledger is posted.
+
+| Type | On confirm |
+| ---- | ---------- |
+| Quotation | nothing — it is an offer |
+| Sales order | nothing — it is a commitment |
+| Sales invoice | stock out, customer billed (credit limit enforced) |
+| Purchase invoice | **stock in**, supplier payable raised |
+
+- **Convert** a quotation to a sales order, and either to a sales invoice. Lines
+  and figures carry over and the chain is recorded both ways.
+- **Cancelling a confirmed document reverses everything it did** — stock back,
+  ledger entry reversed.
+- Confirmed documents cannot be edited or deleted; drafts can be both.
+- Lines may reference a product or be free text (delivery, labour), and free-text
+  lines are skipped when stock moves.
+- Purchase-invoice lines default to product **cost**; sales documents to price.
+- Stock movements are written to the inventory ledger tagged with the document
+  number, so a receipt is traceable from the product's history.
+
+Numbers are sequential per type: `QT-0001`, `SO-0001`, `SI-0001`, `PI-0001`.
 
 ## Customers, credit and cash flow
 
