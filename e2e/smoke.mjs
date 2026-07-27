@@ -495,6 +495,75 @@ try {
   });
   await shot('inline-product');
 
+  await step('a confirmed document can be corrected, and the books follow', async () => {
+    await page.click('a[title="Documents"]');
+    await page.click('button:has-text("New document")');
+    let dialog = page.locator('[role=dialog]');
+    await dialog.getByRole('button', { name: /Purchase invoice/ }).click();
+    await dialog.locator('#doc-party').selectOption({ label: 'Corner Bakehouse' });
+    await dialog.getByLabel('Search products to add').fill('Bagel');
+    await dialog.getByLabel('Search products to add').press('Enter');
+    await dialog.getByLabel(/Quantity for/i).first().fill('10');
+    await dialog.getByLabel(/Unit price for/i).first().fill('2');
+    await page.click('button:has-text("Create draft")');
+    await page.waitForSelector('text=/PI-\\d{4}/', { timeout: 15000 });
+
+    await page.click('button:has-text("Confirm")');
+    await page.waitForSelector('text=confirmed', { timeout: 15000 });
+
+    // Only six turned up, not ten.
+    await page.click('button:has-text("Edit")');
+    await page.waitForSelector('text=/puts back the stock it moved/', { timeout: 15000 });
+    dialog = page.locator('[role=dialog]');
+    if ((await dialog.getByLabel(/Quantity for/i).first().inputValue()) !== '10') {
+      throw new Error('the edit form did not load the document as it stands');
+    }
+    await dialog.getByLabel(/Quantity for/i).first().fill('6');
+    await page.click('button:has-text("Save changes")');
+    await page.waitForSelector('text=/updated/', { timeout: 15000 });
+
+    // $12 of goods plus 8% tax, and still confirmed.
+    await page.waitForSelector('[role=dialog] >> text=$12.96', { timeout: 15000 });
+    await page.waitForSelector('[role=dialog] >> text=confirmed');
+  });
+  await shot('document-edited');
+
+  await step('the correction shows in the stock history', async () => {
+    await page.keyboard.press('Escape');
+    await page.click('a[title="Inventory"]');
+    await page.waitForSelector('text=Units on hand', { timeout: 15000 });
+
+    await page.click('tr:has-text("Bagel") button[aria-label^="History for"]');
+    await page.waitForSelector('text=Stock history', { timeout: 15000 });
+    // Both halves of the correction are on the record, not just the net.
+    await page.waitForSelector('[role=dialog] >> text=/Edited PI-/', { timeout: 15000 });
+    await page.keyboard.press('Escape');
+  });
+
+  await step('a document can be deleted, and is reversed on the way out', async () => {
+    await page.click('a[title="Documents"]');
+    await page.click('td:has-text("PI-0002")');
+    await page.waitForSelector('text=Print labels', { timeout: 15000 });
+
+    await page.click('button:has-text("Delete")');
+    await page.waitForSelector('text=/This cannot be undone/', { timeout: 15000 });
+    await page.click('button:has-text("Delete PI-0002")');
+    await page.waitForSelector('text=/PI-0002 deleted/', { timeout: 15000 });
+
+    if (await page.locator('td:has-text("PI-0002")').count()) {
+      throw new Error('the deleted document is still listed');
+    }
+  });
+
+  await step('a document another was created from cannot be deleted', async () => {
+    await page.click('td:has-text("QT-0001")');
+    await page.waitForSelector('text=/SO-0001/', { timeout: 15000 });
+    if (await page.getByRole('button', { name: 'Delete', exact: true }).isEnabled()) {
+      throw new Error('a converted quotation should not be deletable');
+    }
+    await page.keyboard.press('Escape');
+  });
+
   await step('the dashboard reports both sides of the book', async () => {
     await page.click('a[title="Dashboard"]');
     await page.waitForSelector('text=Owed to you', { timeout: 15000 });

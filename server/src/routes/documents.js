@@ -2,13 +2,16 @@ import { Router } from 'express';
 import { db, transaction } from '../db.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { getSettings } from '../lib/settings.js';
-import { addEntry, creditCheck } from '../lib/accounts.js';
 import {
   DOC_TYPES,
   PARTY_TABLE,
+  applyEffects,
   buildLines,
   getDocument,
+  itemsOf,
+  liveSuccessorOf,
   nextDocNumber,
+  reverseEffects,
   totalsFor,
 } from '../lib/documents.js';
 
@@ -122,33 +125,58 @@ router.post('/', requireAuth, requireRole('admin'), (req, res) => {
   }
 });
 
-/** Only drafts are editable — a confirmed document has already moved things. */
+/**
+ * Edit a document.
+ *
+ * A draft is just rewritten. A **confirmed** document has already moved stock
+ * and billed somebody, so editing it undoes the old version and applies the new
+ * one in the same transaction — if the new version cannot be applied (no stock
+ * left, over the credit limit) nothing changes at all. Both halves leave a
+ * stock movement and a ledger entry behind, so the correction is on the record
+ * rather than being rewritten out of history.
+ *
+ * A cancelled document is already reversed, so editing it only changes the
+ * paperwork.
+ */
 router.put('/:id', requireAuth, requireRole('admin'), (req, res) => {
   const doc = db.prepare('SELECT * FROM documents WHERE id = ?').get(req.params.id);
   if (!doc) return res.status(404).json({ error: 'Document not found' });
-  if (doc.status !== 'draft') {
-    return res.status(400).json({ error: `A ${doc.status} document cannot be edited` });
-  }
 
   const { partyId, items, discountPercent, notes, validUntil, onAccount } = req.body || {};
 
+  const type = DOC_TYPES[doc.doc_type];
+  const nextPartyId = partyId === undefined ? doc.party_id : partyId || null;
+  if (nextPartyId) {
+    const party = db.prepare(`SELECT * FROM ${PARTY_TABLE[type.party]} WHERE id = ?`).get(nextPartyId);
+    if (!party) return res.status(400).json({ error: `That ${type.party} does not exist` });
+  } else if (type.posts !== 0) {
+    return res.status(400).json({ error: `A ${type.label.toLowerCase()} needs a ${type.party}` });
+  }
+
   try {
-    const lines = items ? buildLines(items, doc.doc_type) : null;
-    const totals = lines
-      ? totalsFor(lines, discountPercent ?? doc.discount_percent)
-      : totalsFor(
-          db.prepare('SELECT * FROM document_items WHERE document_id = ?').all(doc.id).map((i) => ({
-            lineTotal: i.line_total,
-          })),
-          discountPercent ?? doc.discount_percent,
-        );
+    const lines = items
+      ? buildLines(items, doc.doc_type)
+      : itemsOf(doc.id).map((i) => ({
+          productId: i.product_id,
+          name: i.name,
+          sku: i.sku,
+          price: i.price,
+          quantity: i.quantity,
+          lineTotal: i.line_total,
+        }));
+    const totals = totalsFor(lines, discountPercent ?? doc.discount_percent);
 
     transaction(() => {
+      // Undo the old version first, using the lines as they stand now.
+      if (doc.status === 'confirmed') {
+        reverseEffects(doc, itemsOf(doc.id), req.user.id, `Edited ${doc.doc_number}`);
+      }
+
       db.prepare(
         `UPDATE documents SET party_id = ?, valid_until = ?, subtotal = ?, discount_percent = ?,
            discount = ?, tax = ?, total = ?, on_account = ?, notes = ? WHERE id = ?`,
       ).run(
-        partyId === undefined ? doc.party_id : partyId || null,
+        nextPartyId,
         validUntil === undefined ? doc.valid_until : validUntil || null,
         totals.subtotal,
         totals.discountPercent,
@@ -160,15 +188,19 @@ router.put('/:id', requireAuth, requireRole('admin'), (req, res) => {
         doc.id,
       );
 
-      if (lines) {
-        db.prepare('DELETE FROM document_items WHERE document_id = ?').run(doc.id);
-        const insertItem = db.prepare(
-          `INSERT INTO document_items (document_id, product_id, name, sku, price, quantity, line_total)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        );
-        for (const l of lines) {
-          insertItem.run(doc.id, l.productId, l.name, l.sku, l.price, l.quantity, l.lineTotal);
-        }
+      db.prepare('DELETE FROM document_items WHERE document_id = ?').run(doc.id);
+      const insertItem = db.prepare(
+        `INSERT INTO document_items (document_id, product_id, name, sku, price, quantity, line_total)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      );
+      for (const l of lines) {
+        insertItem.run(doc.id, l.productId, l.name, l.sku, l.price, l.quantity, l.lineTotal);
+      }
+
+      // Then apply the edited version, against its new party and totals.
+      if (doc.status === 'confirmed') {
+        const updated = db.prepare('SELECT * FROM documents WHERE id = ?').get(doc.id);
+        applyEffects(updated, itemsOf(doc.id), req.user.id, `Edited ${doc.doc_number}`);
       }
     })();
 
@@ -189,64 +221,9 @@ router.post('/:id/confirm', requireAuth, requireRole('admin'), (req, res) => {
     return res.status(400).json({ error: `This document is already ${doc.status}` });
   }
 
-  const type = DOC_TYPES[doc.doc_type];
-
   try {
     transaction(() => {
-      const items = db.prepare('SELECT * FROM document_items WHERE document_id = ?').all(doc.id);
-      if (items.length === 0) throw new Error('A document needs at least one line');
-
-      if (type.stock !== 0) {
-        const adjustStock = db.prepare('UPDATE products SET stock = stock + ? WHERE id = ?');
-        const logMovement = db.prepare(
-          `INSERT INTO stock_adjustments (product_id, user_id, delta, resulting_stock, reason, note)
-           VALUES (?, ?, ?, ?, ?, ?)`,
-        );
-
-        for (const item of items) {
-          if (!item.product_id) continue; // free-text line, nothing to move
-
-          const product = db.prepare('SELECT * FROM products WHERE id = ?').get(item.product_id);
-          if (!product) throw new Error(`Product for line "${item.name}" no longer exists`);
-
-          const delta = Math.round(item.quantity) * type.stock;
-          const resulting = product.stock + delta;
-          if (resulting < 0) {
-            throw new Error(
-              `Not enough stock for ${product.name} (have ${product.stock}, need ${Math.round(item.quantity)})`,
-            );
-          }
-
-          adjustStock.run(delta, product.id);
-          logMovement.run(
-            product.id,
-            req.user.id,
-            delta,
-            resulting,
-            type.stock > 0 ? 'received' : 'count_correction',
-            doc.doc_number,
-          );
-        }
-      }
-
-      // Only invoices billed to an account touch the ledger; a cash purchase
-      // or a paid-on-the-spot sale leaves no balance behind.
-      if (type.posts !== 0 && doc.party_id && doc.on_account) {
-        if (doc.party_type === 'customer') {
-          const check = creditCheck(doc.party_id, doc.total);
-          if (!check.ok) throw new Error(check.error);
-        }
-        addEntry({
-          partyType: doc.party_type,
-          partyId: doc.party_id,
-          kind: doc.doc_type === 'purchase_invoice' ? 'bill' : 'sale',
-          amountUsd: doc.total,
-          exchangeRate: doc.exchange_rate,
-          note: doc.doc_number,
-          userId: req.user.id,
-        });
-      }
-
+      applyEffects(doc, itemsOf(doc.id), req.user.id);
       db.prepare("UPDATE documents SET status = 'confirmed', confirmed_at = datetime('now') WHERE id = ?").run(
         doc.id,
       );
@@ -266,50 +243,11 @@ router.post('/:id/cancel', requireAuth, requireRole('admin'), (req, res) => {
     return res.status(400).json({ error: 'This document is already cancelled' });
   }
 
-  const type = DOC_TYPES[doc.doc_type];
-
   try {
     transaction(() => {
       if (doc.status === 'confirmed') {
-        const items = db.prepare('SELECT * FROM document_items WHERE document_id = ?').all(doc.id);
-
-        if (type.stock !== 0) {
-          const adjustStock = db.prepare('UPDATE products SET stock = stock + ? WHERE id = ?');
-          const logMovement = db.prepare(
-            `INSERT INTO stock_adjustments (product_id, user_id, delta, resulting_stock, reason, note)
-             VALUES (?, ?, ?, ?, 'count_correction', ?)`,
-          );
-
-          for (const item of items) {
-            if (!item.product_id) continue;
-            const product = db.prepare('SELECT * FROM products WHERE id = ?').get(item.product_id);
-            if (!product) continue;
-
-            const delta = Math.round(item.quantity) * -type.stock;
-            const resulting = product.stock + delta;
-            if (resulting < 0) {
-              throw new Error(
-                `Cannot cancel: ${product.name} would go below zero (have ${product.stock})`,
-              );
-            }
-            adjustStock.run(delta, product.id);
-            logMovement.run(product.id, req.user.id, delta, resulting, `Cancelled ${doc.doc_number}`);
-          }
-        }
-
-        if (type.posts !== 0 && doc.party_id && doc.on_account) {
-          addEntry({
-            partyType: doc.party_type,
-            partyId: doc.party_id,
-            kind: 'refund',
-            amountUsd: -doc.total,
-            exchangeRate: doc.exchange_rate,
-            note: `Cancelled ${doc.doc_number}`,
-            userId: req.user.id,
-          });
-        }
+        reverseEffects(doc, itemsOf(doc.id), req.user.id);
       }
-
       db.prepare("UPDATE documents SET status = 'cancelled' WHERE id = ?").run(doc.id);
     })();
 
@@ -336,9 +274,7 @@ router.post('/:id/convert', requireAuth, requireRole('admin'), (req, res) => {
     });
   }
 
-  const existing = db
-    .prepare("SELECT doc_number FROM documents WHERE converted_from_id = ? AND status != 'cancelled'")
-    .get(doc.id);
+  const existing = liveSuccessorOf(doc.id);
   if (existing) {
     return res.status(400).json({ error: `Already converted to ${existing.doc_number}` });
   }
@@ -388,19 +324,44 @@ router.post('/:id/convert', requireAuth, requireRole('admin'), (req, res) => {
   }
 });
 
+/**
+ * Delete a document outright.
+ *
+ * A confirmed one is reversed first — stock goes back and the balance is
+ * cleared — so deleting can never leave the books believing in a document that
+ * no longer exists. The reversal's own stock movements and ledger entry stay,
+ * which is the point: the paperwork is gone, the correction is not hidden.
+ *
+ * A document another was created from is kept until that successor is dealt
+ * with, so nothing is left pointing at a deleted row.
+ */
 router.delete('/:id', requireAuth, requireRole('admin'), (req, res) => {
   const doc = db.prepare('SELECT * FROM documents WHERE id = ?').get(req.params.id);
   if (!doc) return res.status(404).json({ error: 'Document not found' });
-  if (doc.status !== 'draft') {
-    return res.status(400).json({ error: 'Only drafts can be deleted — cancel it instead' });
+
+  const successor = liveSuccessorOf(doc.id);
+  if (successor) {
+    return res.status(400).json({
+      error: `${successor.doc_number} was created from this one — cancel or delete that first`,
+    });
   }
 
-  transaction(() => {
-    db.prepare('DELETE FROM document_items WHERE document_id = ?').run(doc.id);
-    db.prepare('DELETE FROM documents WHERE id = ?').run(doc.id);
-  })();
+  try {
+    transaction(() => {
+      if (doc.status === 'confirmed') {
+        reverseEffects(doc, itemsOf(doc.id), req.user.id, `Deleted ${doc.doc_number}`);
+      }
+      // A cancelled successor still points here; leave it without a source
+      // rather than a dangling one.
+      db.prepare('UPDATE documents SET converted_from_id = NULL WHERE converted_from_id = ?').run(doc.id);
+      db.prepare('DELETE FROM document_items WHERE document_id = ?').run(doc.id);
+      db.prepare('DELETE FROM documents WHERE id = ?').run(doc.id);
+    })();
 
-  res.json({ ok: true });
+    res.json({ ok: true, deleted: doc.doc_number });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
 });
 
 export default router;
