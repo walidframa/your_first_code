@@ -21,7 +21,9 @@ const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
 // The unknown-barcode check deliberately provokes a 404 from the lookup
 // endpoint, so failed responses are tracked by URL rather than trusting the
 // browser's generic "Failed to load resource" console line.
-const ALLOWED_FAILURES = [/\/api\/products\/lookup/];
+// The Shopify step likewise submits a deliberately invalid shop address, to
+// check the error is reported rather than the credentials quietly stored.
+const ALLOWED_FAILURES = [/\/api\/products\/lookup/, /\/api\/shopify\/connect/];
 
 const consoleErrors = [];
 const failedResponses = [];
@@ -637,6 +639,19 @@ try {
     }
     await page.keyboard.press('Escape');
   });
+
+  await step('Shopify asks to be connected before it will sync anything', async () => {
+    await page.click('a[title="Shopify"]');
+    await page.waitForSelector('text=Connect your Shopify shop', { timeout: 15000 });
+    await page.waitForSelector('text=/read_inventory/');
+
+    // The address is checked before anything is stored, so a typo says so.
+    await page.getByLabel('Shop address').fill('not-a-shop');
+    await page.getByLabel('Admin API access token').fill('shpat_whatever');
+    await page.click('button:has-text("Connect")');
+    await page.waitForSelector('text=/myshopify.com/', { timeout: 15000 });
+  });
+  await shot('shopify');
 
   await step('the dashboard reports both sides of the book', async () => {
     await page.click('a[title="Dashboard"]');

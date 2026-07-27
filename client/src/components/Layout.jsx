@@ -9,6 +9,7 @@ import {
   Package,
   Receipt,
   ScanLine,
+  ShoppingBag,
   Settings as SettingsIcon,
   Store,
   Tag,
@@ -33,6 +34,7 @@ const ADMIN_NAV = [
   { to: '/admin/customers', label: 'Customers', icon: Contact },
   { to: '/admin/suppliers', label: 'Suppliers', icon: Building2 },
   { to: '/admin/orders', label: 'Orders', icon: Receipt },
+  { to: '/admin/shopify', label: 'Shopify', icon: ShoppingBag },
   { to: '/admin/users', label: 'Staff', icon: Users },
   { to: '/admin/settings', label: 'Settings', icon: SettingsIcon },
 ];

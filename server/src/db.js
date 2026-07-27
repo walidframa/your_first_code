@@ -324,6 +324,78 @@ function backfillDocumentPayments() {
 
 backfillDocumentPayments();
 
+/*
+ * Shopify inventory sync.
+ *
+ * `shopify_links` ties a local product to one Shopify variant, and remembers
+ * the quantity Shopify last agreed on. That remembered figure is what makes
+ * two-way sync possible without either side clobbering the other: a difference
+ * against it is a change made *on Shopify* since we last looked, and is applied
+ * locally, while a difference between local stock and it is a change made here,
+ * and is pushed out.
+ */
+db.exec(`
+  CREATE TABLE IF NOT EXISTS shopify_links (
+    product_id INTEGER PRIMARY KEY REFERENCES products(id),
+    variant_id TEXT NOT NULL,
+    inventory_item_id TEXT NOT NULL,
+    shopify_product_id TEXT,
+    shopify_title TEXT,
+    shopify_sku TEXT,
+    shopify_qty INTEGER,
+    last_synced_at TEXT,
+    last_error TEXT
+  );
+
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_shopify_links_variant ON shopify_links(variant_id);
+
+  /*
+   * Outbound work. Rows are queued inside the same transaction as the stock
+   * change that caused them, so a sale is never recorded without its push being
+   * recorded too — but the push itself happens later, outside the transaction,
+   * because a slow or unreachable Shopify must never hold up the register.
+   */
+  CREATE TABLE IF NOT EXISTS shopify_sync_queue (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id INTEGER NOT NULL REFERENCES products(id),
+    reason TEXT NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    next_attempt_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_shopify_queue_product ON shopify_sync_queue(product_id);
+
+  /* A log the shopkeeper can read when the numbers look wrong. */
+  CREATE TABLE IF NOT EXISTS shopify_sync_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id INTEGER REFERENCES products(id),
+    direction TEXT NOT NULL CHECK (direction IN ('push', 'pull', 'link', 'error')),
+    detail TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_shopify_log_created ON shopify_sync_log(created_at);
+`);
+
+/*
+ * Every stock change queues a push, wherever it came from — a sale, a refund, a
+ * manual adjustment, a purchase invoice being confirmed. A trigger rather than a
+ * call at each site, so a stock change added later cannot forget to sync.
+ *
+ * Applying an inbound change fires this too. That is harmless: the worker skips
+ * a product whose stock already matches what Shopify last reported.
+ */
+db.exec(`
+  CREATE TRIGGER IF NOT EXISTS products_stock_queues_shopify_push
+  AFTER UPDATE OF stock ON products
+  WHEN OLD.stock <> NEW.stock
+  BEGIN
+    INSERT INTO shopify_sync_queue (product_id, reason) VALUES (NEW.id, 'stock changed');
+  END;
+`);
+
 export const ADJUSTMENT_REASONS = [
   'received',
   'damaged',

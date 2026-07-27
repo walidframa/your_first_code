@@ -8,7 +8,21 @@ export const SETTING_DEFAULTS = {
   exchange_rate: 89000,
   lbp_rounding: 1000,
   secondary_currency: 'LBP',
+
+  // Shopify connection. The token is a credential: it is stored here but never
+  // sent back to the browser — see SECRET_SETTINGS.
+  shopify_enabled: 'false',
+  shopify_domain: '',
+  shopify_token: '',
+  shopify_location_id: '',
+  shopify_location_name: '',
+  shopify_last_sync: '',
+  // Only ever set by the tests, which point the client at a stand-in server.
+  shopify_base_url: '',
 };
+
+/** Never leaves the server. Redacted to a boolean for the UI. */
+export const SECRET_SETTINGS = new Set(['shopify_token']);
 
 const NUMERIC = new Set(['exchange_rate', 'lbp_rounding']);
 
@@ -34,6 +48,21 @@ export function getSettings() {
 /** The rate to price a sale at right now. */
 export function getExchangeRate() {
   return getSettings().exchange_rate;
+}
+
+/**
+ * Settings safe to send to a browser: credentials become a boolean saying
+ * whether one is set, so the UI can show "connected" without ever holding a
+ * token it could leak.
+ */
+export function publicSettings() {
+  const settings = getSettings();
+  const safe = {};
+  for (const [key, value] of Object.entries(settings)) {
+    if (SECRET_SETTINGS.has(key)) safe[`${key}_set`] = !!value;
+    else safe[key] = value;
+  }
+  return safe;
 }
 
 export function setSetting(key, value, userId) {

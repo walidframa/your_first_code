@@ -1,12 +1,18 @@
 import { Router } from 'express';
 import { requireAuth, requireRole } from '../middleware/auth.js';
-import { getSettings, setSetting, recordRateChange, getRateHistory } from '../lib/settings.js';
+import {
+  getSettings,
+  publicSettings,
+  setSetting,
+  recordRateChange,
+  getRateHistory,
+} from '../lib/settings.js';
 
 const router = Router();
 
 /** Any signed-in user can read settings — the register needs the live rate. */
 router.get('/', requireAuth, (req, res) => {
-  res.json({ settings: getSettings() });
+  res.json({ settings: publicSettings() });
 });
 
 router.get('/rate-history', requireAuth, requireRole('admin'), (req, res) => {
@@ -36,7 +42,7 @@ router.put('/', requireAuth, requireRole('admin'), (req, res) => {
     setSetting('lbp_rounding', Math.round(step), req.user.id);
   }
 
-  res.json({ settings: getSettings() });
+  res.json({ settings: publicSettings() });
 });
 
 export default router;
