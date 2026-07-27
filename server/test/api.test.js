@@ -699,6 +699,388 @@ test('the cash-flow feed names the party and the order', async () => {
   assert.ok(entries.some((e) => e.order_number));
 });
 
+/* -------------------------------------------------------------- documents */
+
+async function product(sku, token = adminToken) {
+  return (await req('GET', `/products/lookup?code=${sku}`, null, token)).json.product;
+}
+
+test('a purchase invoice receives stock and creates a payable', async () => {
+  const supplier = (await req('POST', '/suppliers', { name: 'Stock Source' }, adminToken)).json.party;
+  const item = await product('SNK-002');
+
+  const created = await req(
+    'POST',
+    '/documents',
+    {
+      docType: 'purchase_invoice',
+      partyId: supplier.id,
+      items: [{ productId: item.id, quantity: 24, price: 1.2 }],
+    },
+    adminToken,
+  );
+  assert.equal(created.status, 201);
+  assert.equal(created.json.document.status, 'draft');
+  assert.match(created.json.document.doc_number, /^PI-\d{4}$/);
+  assert.equal(created.json.document.subtotal, 28.8, '24 × 1.20');
+
+  // A draft is inert.
+  assert.equal((await product('SNK-002')).stock, item.stock);
+  assert.equal((await req('GET', `/suppliers/${supplier.id}`, null, adminToken)).json.party.balance, 0);
+
+  const confirmed = await req('POST', `/documents/${created.json.document.id}/confirm`, null, adminToken);
+  assert.equal(confirmed.json.document.status, 'confirmed');
+  assert.ok(confirmed.json.document.confirmed_at);
+
+  assert.equal((await product('SNK-002')).stock, item.stock + 24, 'stock came in');
+  assert.equal(
+    (await req('GET', `/suppliers/${supplier.id}`, null, adminToken)).json.party.balance,
+    confirmed.json.document.total,
+    'the supplier is now owed the invoice total',
+  );
+});
+
+test('a purchase invoice defaults its prices to product cost', async () => {
+  const supplier = (await req('POST', '/suppliers', { name: 'Cost Default' }, adminToken)).json.party;
+  const item = await product('SNK-001');
+  const created = await req(
+    'POST',
+    '/documents',
+    { docType: 'purchase_invoice', partyId: supplier.id, items: [{ productId: item.id, quantity: 2 }] },
+    adminToken,
+  );
+  assert.equal(created.json.items[0].price, item.cost);
+});
+
+test('confirming a purchase invoice writes the stock ledger', async () => {
+  const moves = (await req('GET', '/inventory/movements?limit=200', null, adminToken)).json.movements;
+  assert.ok(moves.some((m) => /^PI-/.test(m.note || '') && m.reason === 'received'));
+});
+
+test('a sales invoice deducts stock and bills the customer', async () => {
+  const customer = (
+    await req('POST', '/customers', { name: 'Invoice Buyer', credit_limit: 1000 }, adminToken)
+  ).json.party;
+  const item = await product('BEV-004');
+
+  const doc = (
+    await req(
+      'POST',
+      '/documents',
+      {
+        docType: 'sales_invoice',
+        partyId: customer.id,
+        items: [{ productId: item.id, quantity: 3 }],
+      },
+      adminToken,
+    )
+  ).json.document;
+
+  await req('POST', `/documents/${doc.id}/confirm`, null, adminToken);
+
+  assert.equal((await product('BEV-004')).stock, item.stock - 3, 'stock went out');
+  assert.equal(
+    (await req('GET', `/customers/${customer.id}`, null, adminToken)).json.party.balance,
+    doc.total,
+  );
+});
+
+test('a sales invoice cannot oversell', async () => {
+  const customer = (
+    await req('POST', '/customers', { name: 'Greedy', credit_limit: 100000 }, adminToken)
+  ).json.party;
+  const item = await product('BEV-004');
+
+  const doc = (
+    await req(
+      'POST',
+      '/documents',
+      {
+        docType: 'sales_invoice',
+        partyId: customer.id,
+        items: [{ productId: item.id, quantity: item.stock + 50 }],
+      },
+      adminToken,
+    )
+  ).json.document;
+
+  const res = await req('POST', `/documents/${doc.id}/confirm`, null, adminToken);
+  assert.equal(res.status, 400);
+  assert.match(res.json.error, /not enough stock/i);
+
+  assert.equal((await product('BEV-004')).stock, item.stock, 'nothing moved');
+  assert.equal((await req('GET', `/customers/${customer.id}`, null, adminToken)).json.party.balance, 0);
+  assert.equal(
+    (await req('GET', `/documents/${doc.id}`, null, adminToken)).json.document.status,
+    'draft',
+    'a failed confirm leaves it a draft',
+  );
+});
+
+test('a sales invoice respects the credit limit', async () => {
+  const customer = (
+    await req('POST', '/customers', { name: 'Small Limit', credit_limit: 1 }, adminToken)
+  ).json.party;
+  const item = await product('APP-002');
+
+  const doc = (
+    await req(
+      'POST',
+      '/documents',
+      { docType: 'sales_invoice', partyId: customer.id, items: [{ productId: item.id, quantity: 1 }] },
+      adminToken,
+    )
+  ).json.document;
+
+  const res = await req('POST', `/documents/${doc.id}/confirm`, null, adminToken);
+  assert.equal(res.status, 400);
+  assert.match(res.json.error, /credit limit/i);
+  assert.equal((await product('APP-002')).stock, item.stock, 'stock is not moved when credit fails');
+});
+
+test('an invoice marked not-on-account moves stock but leaves no balance', async () => {
+  const customer = (await req('POST', '/customers', { name: 'Paid Now' }, adminToken)).json.party;
+  const item = await product('SNK-003');
+
+  const doc = (
+    await req(
+      'POST',
+      '/documents',
+      {
+        docType: 'sales_invoice',
+        partyId: customer.id,
+        onAccount: false,
+        items: [{ productId: item.id, quantity: 2 }],
+      },
+      adminToken,
+    )
+  ).json.document;
+
+  await req('POST', `/documents/${doc.id}/confirm`, null, adminToken);
+  assert.equal((await product('SNK-003')).stock, item.stock - 2);
+  assert.equal(
+    (await req('GET', `/customers/${customer.id}`, null, adminToken)).json.party.balance,
+    0,
+    'a paid invoice does not go on the account',
+  );
+});
+
+test('a quotation moves nothing when confirmed', async () => {
+  const customer = (await req('POST', '/customers', { name: 'Just Asking' }, adminToken)).json.party;
+  const item = await product('BAK-004');
+
+  const doc = (
+    await req(
+      'POST',
+      '/documents',
+      { docType: 'quotation', partyId: customer.id, items: [{ productId: item.id, quantity: 5 }] },
+      adminToken,
+    )
+  ).json.document;
+  assert.match(doc.doc_number, /^QT-\d{4}$/);
+
+  await req('POST', `/documents/${doc.id}/confirm`, null, adminToken);
+  assert.equal((await product('BAK-004')).stock, item.stock, 'a quotation is not a commitment');
+  assert.equal((await req('GET', `/customers/${customer.id}`, null, adminToken)).json.party.balance, 0);
+});
+
+test('a quotation converts to an order and then an invoice', async () => {
+  const customer = (
+    await req('POST', '/customers', { name: 'Converts Well', credit_limit: 500 }, adminToken)
+  ).json.party;
+  const item = await product('BAK-001');
+
+  const quote = (
+    await req(
+      'POST',
+      '/documents',
+      { docType: 'quotation', partyId: customer.id, items: [{ productId: item.id, quantity: 2 }] },
+      adminToken,
+    )
+  ).json.document;
+
+  const order = (
+    await req('POST', `/documents/${quote.id}/convert`, { docType: 'sales_order' }, adminToken)
+  ).json.document;
+  assert.match(order.doc_number, /^SO-\d{4}$/);
+  assert.equal(order.converted_from_id, quote.id);
+  assert.equal(order.total, quote.total, 'the figures carry over');
+
+  const invoice = (
+    await req('POST', `/documents/${order.id}/convert`, { docType: 'sales_invoice' }, adminToken)
+  ).json.document;
+  assert.match(invoice.doc_number, /^SI-\d{4}$/);
+
+  const detail = await req('GET', `/documents/${quote.id}`, null, adminToken);
+  assert.equal(detail.json.convertedTo[0].doc_number, order.doc_number);
+});
+
+test('refuses an impossible conversion and a repeat conversion', async () => {
+  const customer = (await req('POST', '/customers', { name: 'Convert Twice' }, adminToken)).json.party;
+  const item = await product('BAK-001');
+  const quote = (
+    await req(
+      'POST',
+      '/documents',
+      { docType: 'quotation', partyId: customer.id, items: [{ productId: item.id, quantity: 1 }] },
+      adminToken,
+    )
+  ).json.document;
+
+  assert.equal(
+    (await req('POST', `/documents/${quote.id}/convert`, { docType: 'purchase_invoice' }, adminToken)).status,
+    400,
+  );
+
+  await req('POST', `/documents/${quote.id}/convert`, { docType: 'sales_order' }, adminToken);
+  const second = await req('POST', `/documents/${quote.id}/convert`, { docType: 'sales_order' }, adminToken);
+  assert.equal(second.status, 400);
+  assert.match(second.json.error, /already converted/i);
+});
+
+test('cancelling a confirmed purchase invoice reverses stock and the payable', async () => {
+  const supplier = (await req('POST', '/suppliers', { name: 'Returns Co' }, adminToken)).json.party;
+  const item = await product('APP-004');
+
+  const doc = (
+    await req(
+      'POST',
+      '/documents',
+      {
+        docType: 'purchase_invoice',
+        partyId: supplier.id,
+        items: [{ productId: item.id, quantity: 10, price: 4 }],
+      },
+      adminToken,
+    )
+  ).json.document;
+
+  await req('POST', `/documents/${doc.id}/confirm`, null, adminToken);
+  assert.equal((await product('APP-004')).stock, item.stock + 10);
+
+  const cancelled = await req('POST', `/documents/${doc.id}/cancel`, null, adminToken);
+  assert.equal(cancelled.json.document.status, 'cancelled');
+  assert.equal((await product('APP-004')).stock, item.stock, 'stock is back where it started');
+  assert.equal((await req('GET', `/suppliers/${supplier.id}`, null, adminToken)).json.party.balance, 0);
+});
+
+test('a confirmed document cannot be edited or deleted', async () => {
+  const supplier = (await req('POST', '/suppliers', { name: 'Locked' }, adminToken)).json.party;
+  const item = await product('SNK-001');
+  const doc = (
+    await req(
+      'POST',
+      '/documents',
+      { docType: 'purchase_invoice', partyId: supplier.id, items: [{ productId: item.id, quantity: 1 }] },
+      adminToken,
+    )
+  ).json.document;
+
+  await req('POST', `/documents/${doc.id}/confirm`, null, adminToken);
+
+  assert.equal((await req('PUT', `/documents/${doc.id}`, { discountPercent: 50 }, adminToken)).status, 400);
+  assert.equal((await req('DELETE', `/documents/${doc.id}`, null, adminToken)).status, 400);
+  assert.equal((await req('POST', `/documents/${doc.id}/confirm`, null, adminToken)).status, 400);
+});
+
+test('a draft can be edited and deleted', async () => {
+  const supplier = (await req('POST', '/suppliers', { name: 'Editable' }, adminToken)).json.party;
+  const item = await product('SNK-001');
+  const doc = (
+    await req(
+      'POST',
+      '/documents',
+      { docType: 'purchase_invoice', partyId: supplier.id, items: [{ productId: item.id, quantity: 1, price: 10 }] },
+      adminToken,
+    )
+  ).json.document;
+
+  const edited = await req(
+    'PUT',
+    `/documents/${doc.id}`,
+    { items: [{ productId: item.id, quantity: 3, price: 10 }], discountPercent: 10 },
+    adminToken,
+  );
+  assert.equal(edited.json.document.subtotal, 30);
+  assert.equal(edited.json.document.discount, 3);
+  assert.equal(edited.json.items.length, 1);
+  assert.equal(edited.json.items[0].quantity, 3);
+
+  assert.equal((await req('DELETE', `/documents/${doc.id}`, null, adminToken)).status, 200);
+  assert.equal((await req('GET', `/documents/${doc.id}`, null, adminToken)).status, 404);
+});
+
+test('validates lines and party', async () => {
+  const supplier = (await req('POST', '/suppliers', { name: 'Validation' }, adminToken)).json.party;
+
+  assert.equal(
+    (await req('POST', '/documents', { docType: 'nonsense', partyId: supplier.id, items: [] }, adminToken))
+      .status,
+    400,
+  );
+  assert.equal(
+    (await req('POST', '/documents', { docType: 'purchase_invoice', partyId: supplier.id, items: [] }, adminToken))
+      .status,
+    400,
+  );
+  assert.equal(
+    (
+      await req(
+        'POST',
+        '/documents',
+        { docType: 'purchase_invoice', partyId: supplier.id, items: [{ name: 'Thing', quantity: 0, price: 1 }] },
+        adminToken,
+      )
+    ).status,
+    400,
+  );
+  assert.equal(
+    (await req('POST', '/documents', { docType: 'sales_invoice', items: [{ name: 'X', quantity: 1, price: 1 }] }, adminToken))
+      .status,
+    400,
+    'an invoice needs a party',
+  );
+});
+
+test('supports free-text lines with no product', async () => {
+  const supplier = (await req('POST', '/suppliers', { name: 'Services Ltd' }, adminToken)).json.party;
+  const doc = (
+    await req(
+      'POST',
+      '/documents',
+      {
+        docType: 'purchase_invoice',
+        partyId: supplier.id,
+        items: [{ name: 'Delivery charge', quantity: 1, price: 15 }],
+      },
+      adminToken,
+    )
+  ).json.document;
+
+  const res = await req('POST', `/documents/${doc.id}/confirm`, null, adminToken);
+  assert.equal(res.status, 200, 'a line with no product confirms without touching stock');
+  assert.equal(res.json.document.subtotal, 15);
+});
+
+test('documents are admin only', async () => {
+  assert.equal((await req('GET', '/documents', null, cashierToken)).status, 403);
+  assert.equal(
+    (await req('POST', '/documents', { docType: 'quotation', items: [] }, cashierToken)).status,
+    403,
+  );
+});
+
+test('documents can be filtered by type and status', async () => {
+  const all = (await req('GET', '/documents', null, adminToken)).json.documents;
+  const pis = (await req('GET', '/documents?type=purchase_invoice', null, adminToken)).json.documents;
+  assert.ok(pis.length > 0);
+  assert.ok(pis.every((d) => d.doc_type === 'purchase_invoice'));
+  assert.ok(pis.length < all.length);
+
+  const drafts = (await req('GET', '/documents?status=draft', null, adminToken)).json.documents;
+  assert.ok(drafts.every((d) => d.status === 'draft'));
+});
+
 /* ---------------------------------------------------------------- reports */
 
 test('summary reports revenue, payment mix and reorder-based low stock', async () => {
