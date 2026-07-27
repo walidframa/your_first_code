@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useNavigate } from 'react-router';
 import {
   ArrowRight,
   Ban,
@@ -10,6 +11,7 @@ import {
   Printer,
   Receipt,
   Search,
+  Tag,
   Trash2,
   Truck,
 } from 'lucide-react';
@@ -424,6 +426,7 @@ function DocumentForm({ onClose, onSaved }) {
 
 function DocumentDetail({ id, onClose, onChanged }) {
   const toast = useToast();
+  const navigate = useNavigate();
   const { rate, toLbp } = useSettings();
   const [data, setData] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -572,6 +575,13 @@ function DocumentDetail({ id, onClose, onChanged }) {
           >
             <ArrowRight size={15} />
             {doc.doc_type === 'quotation' ? 'To sales order' : 'To invoice'}
+          </Button>
+        )}
+
+        {/* Labelling stock is the usual next step after receiving it. */}
+        {doc.doc_type === 'purchase_invoice' && doc.status === 'confirmed' && (
+          <Button variant="secondary" onClick={() => navigate(`/admin/labels?fromDocument=${doc.id}`)}>
+            <Tag size={15} /> Print labels
           </Button>
         )}
 

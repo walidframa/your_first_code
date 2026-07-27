@@ -79,7 +79,7 @@ try {
   await shot('register');
 
   await step('scanning a barcode adds the product', async () => {
-    await page.fill(scanBox, '5012345000011');
+    await page.fill(scanBox, '5012345000015');
     await page.press(scanBox, 'Enter');
     await page.waitForSelector('aside >> text=Espresso', { timeout: 10000 });
     await page.waitForSelector('text=Added Espresso', { timeout: 5000 });
@@ -369,6 +369,38 @@ try {
     if (after !== before + 10) throw new Error(`stock went ${before} → ${after}, expected +10`);
   });
   await shot('purchase-invoice');
+
+  await step('labels can be printed from a confirmed purchase invoice', async () => {
+    await page.click('a[title="Documents"]');
+    await page.click('td:has-text("PI-0001")');
+    await page.waitForSelector('text=Print labels', { timeout: 15000 });
+    await page.click('button:has-text("Print labels")');
+
+    // Lands on the label page preloaded with the received quantity.
+    await page.waitForSelector('text=Loaded from PI-0001', { timeout: 15000 });
+    await page.waitForSelector('text=/10 labels/', { timeout: 15000 });
+
+    // Each label carries a real barcode, drawn as SVG bars.
+    const bars = await page.locator('.label-sheet svg rect').count();
+    if (bars < 10) throw new Error(`expected barcode bars, found ${bars} rects`);
+
+    // And the price in both currencies.
+    await page.locator('.label-sheet').first().locator('text=/\\$/').first().waitFor();
+    await page.locator('.label-sheet').first().locator('text=/LL/').first().waitFor();
+  });
+  await shot('labels');
+
+  await step('label size and currency options change the sheet', async () => {
+    await page.selectOption('#sizeKey, select', { label: 'Small · 38 × 21 mm' }).catch(async () => {
+      await page.getByLabel('Label size').selectOption('small');
+    });
+    await page.waitForTimeout(400);
+    await page.getByLabel('Show the price in pounds too').uncheck();
+    await page.waitForTimeout(300);
+    if (await page.locator('.label-sheet').first().locator('text=/ LL/').count()) {
+      throw new Error('pound prices still shown after unticking');
+    }
+  });
 
   await step('a quotation converts to a sales order', async () => {
     await page.click('a[title="Documents"]');

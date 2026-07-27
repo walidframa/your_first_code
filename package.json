@@ -13,7 +13,7 @@
     "dev:server": "npm --prefix server run dev",
     "dev:client": "npm --prefix client run dev",
     "build": "npm --prefix client run build",
-    "test": "npm --prefix server test",
+    "test": "npm --prefix server test && npm --prefix client test",
     "e2e": "node e2e/run.mjs"
   },
   "devDependencies": {

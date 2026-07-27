@@ -11,6 +11,7 @@ import {
   ScanLine,
   Settings as SettingsIcon,
   Store,
+  Tag,
   Upload,
   Users,
 } from 'lucide-react';
@@ -28,6 +29,7 @@ const ADMIN_NAV = [
   { to: '/admin/inventory', label: 'Inventory', icon: Boxes },
   { to: '/admin/import', label: 'Import', icon: Upload },
   { to: '/admin/documents', label: 'Documents', icon: FileText },
+  { to: '/admin/labels', label: 'Labels', icon: Tag },
   { to: '/admin/customers', label: 'Customers', icon: Contact },
   { to: '/admin/suppliers', label: 'Suppliers', icon: Building2 },
   { to: '/admin/orders', label: 'Orders', icon: Receipt },

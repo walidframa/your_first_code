@@ -100,3 +100,41 @@ body {
     display: none !important;
   }
 }
+
+/*
+ * Label printing.
+ *
+ * When a label sheet is on screen, print only that sheet. Hiding by visibility
+ * rather than display keeps the sheet's own layout intact while removing the
+ * app shell, the modal chrome and the backdrop from the page.
+ */
+@media print {
+  body:has(.label-sheet) * {
+    visibility: hidden;
+  }
+
+  body:has(.label-sheet) .label-sheet,
+  body:has(.label-sheet) .label-sheet * {
+    visibility: visible;
+  }
+
+  body:has(.label-sheet) .label-sheet {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+  }
+
+  @page {
+    size: A4;
+    margin: 6mm;
+  }
+
+  /* Never split a label across two sheets of paper. */
+  .label-sheet > * {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+}
