@@ -254,6 +254,69 @@ Admin → **Import**. Drop a CSV and the importer will:
 The parser handles quoted fields, embedded commas and newlines, CRLF, BOMs,
 `;`/tab/`|` delimiters, and prices written as `$1,299.00` or `1.299,50`.
 
+## Shopify
+
+Admin → **Shopify**. Sell an item on the website and it leaves the shelf here;
+sell it at the counter and it leaves the website. Stock is the only thing
+synced — prices, product copy and images stay wherever you edit them.
+
+### Setup
+
+In Shopify: **Settings → Apps and sales channels → Develop apps → Create an
+app**, give it the scopes `read_products`, `read_inventory`, `write_inventory`
+and `read_locations`, install it, and copy the Admin API access token. Paste
+that and the shop address here, choose which **location** this till represents
+— stock in a warehouse is then left alone — and press **Match by SKU**.
+
+Matching is by SKU, then by barcode, and always exact. A fuzzy match on names
+would eventually tie two different products together and quietly move the wrong
+stock; anything it cannot place is listed so you can fix the SKU or link it by
+hand.
+
+### How it stays right in both directions
+
+The hard part of two-way sync is deciding who wins when both sides have moved.
+This never compares the two sides to each other. Each link remembers the
+quantity Shopify held when the two last agreed, and both differences are
+measured against *that*:
+
+```
+remote − remembered  → sold or restocked on Shopify   → applied here
+local  − remembered  → sold or restocked here         → pushed there
+```
+
+So two sold at the counter and three on the website in the same minute ends at
+five gone, not one side overwriting the other. Pushes set an absolute quantity
+rather than a delta, so a sync that was missed while the internet was down still
+lands on the right number afterwards instead of being wrong for ever.
+
+Every stock change queues its own push — from a sale, a refund, a manual
+adjustment or a purchase invoice — through a database trigger rather than a call
+at each site, so a way of moving stock added later cannot forget to sync. The
+push happens after the transaction commits: a slow Shopify must never hold up
+the register.
+
+A sale on Shopify appears in the product's own stock history, tagged
+**Sold on Shopify**, not just in a sync log.
+
+### When they disagree
+
+Existing stock that has never matched is not silently overwritten. The page
+lists what differs and asks which figure is right — after a stocktake the shop
+is, after a rush of website orders Shopify is, and only you know which happened.
+Settle them one at a time or all at once.
+
+### Timing
+
+Pushes go out every 15 seconds; the shop is polled every two minutes. Shopify
+can also call `POST /api/shopify/webhook` to make a website sale appear in
+seconds — the signature is verified with the app's own token. Polling stays on
+regardless, since a shop behind a home router has no address Shopify can reach
+and an undelivered webhook is simply never delivered.
+
+Both intervals are configurable with `SHOPIFY_PUSH_INTERVAL_MS` and
+`SHOPIFY_PULL_INTERVAL_MS`.
+
 ## Project layout
 
 ```
@@ -313,3 +376,11 @@ All routes except `POST /api/auth/login` require a `Bearer` token.
 - Tax is a single store-wide rate, not per-product or per-jurisdiction.
 - SQLite suits a single register well. Multi-location or high concurrency would
   want Postgres and a real payment provider.
+- The Shopify sync covers **stock only**, against **one location**. Prices,
+  product details and orders are not synced, and a Shopify product with several
+  variants needs each variant linked to its own product here.
+- The Shopify integration is tested against a stand-in shop that speaks the same
+  API — see `server/test/fakeShopify.js`. That exercises every path including
+  retries and conflicts, but the first connection to a real shop is still the
+  real test; **Connect** reports Shopify's own error message so a wrong scope or
+  token says so plainly.

@@ -13,12 +13,25 @@ import documentRoutes from './routes/documents.js';
 import { partyRouter } from './routes/parties.js';
 import inventoryRoutes from './routes/inventory.js';
 import importRoutes from './routes/imports.js';
+import shopifyRoutes from './routes/shopify.js';
+import { startShopifyWorker } from './lib/shopifyWorker.js';
 
 const app = express();
 const PORT = process.env.PORT || 4000;
 
 app.use(cors());
-app.use(express.json({ limit: '6mb' }));
+/*
+ * Keep the raw body around: Shopify signs the exact bytes it sent, so a webhook
+ * cannot be verified against a re-serialised object.
+ */
+app.use(
+  express.json({
+    limit: '6mb',
+    verify: (req, res, buf) => {
+      req.rawBody = buf;
+    },
+  }),
+);
 
 app.get('/api/health', (req, res) => res.json({ ok: true }));
 app.use('/api/auth', authRoutes);
@@ -31,6 +44,7 @@ app.use('/api/imports', importRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/accounts', accountsRoutes);
 app.use('/api/documents', documentRoutes);
+app.use('/api/shopify', shopifyRoutes);
 app.use('/api/customers', partyRouter('customer'));
 app.use('/api/suppliers', partyRouter('supplier'));
 
@@ -43,4 +57,6 @@ app.use((err, req, res, next) => {
 
 app.listen(PORT, () => {
   console.log(`POS server listening on http://localhost:${PORT}`);
+  // No-ops until a shop is connected and the sync is switched on.
+  startShopifyWorker();
 });
