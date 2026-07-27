@@ -9,6 +9,13 @@ export const SETTING_DEFAULTS = {
   lbp_rounding: 1000,
   secondary_currency: 'LBP',
 
+  /*
+   * Whether a cash sale needs an open drawer. On by default: a till that can
+   * take money with nothing to put it in cannot be counted at the end of the
+   * day, which is the whole point of a cashbox.
+   */
+  require_cash_session: 'true',
+
   // Shopify connection. The token is a credential: it is stored here but never
   // sent back to the browser — see SECRET_SETTINGS.
   shopify_enabled: 'false',

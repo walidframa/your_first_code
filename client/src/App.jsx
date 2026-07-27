@@ -15,6 +15,7 @@ import AdminParties from './pages/admin/Parties';
 import AdminDocuments from './pages/admin/Documents';
 import AdminLabels from './pages/admin/Labels';
 import AdminShopify from './pages/admin/Shopify';
+import AdminCashSessions from './pages/admin/CashSessions';
 
 export default function App() {
   return (
@@ -76,6 +77,14 @@ export default function App() {
           element={
             <ProtectedRoute roles={['admin']}>
               <AdminLabels />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/cashbox"
+          element={
+            <ProtectedRoute roles={['admin']}>
+              <AdminCashSessions />
             </ProtectedRoute>
           }
         />

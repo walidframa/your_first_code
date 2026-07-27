@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { db, transaction } from '../db.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
+import { recordMovement } from '../lib/cash.js';
 import { round2 } from '../lib/currency.js';
 import {
   PARTY_TABLES,
@@ -174,6 +175,24 @@ export function partyRouter(partyType) {
         note: req.body?.note || null,
         userId: req.user.id,
       });
+
+      /*
+       * Settling an account moves real notes: a customer paying what they owe
+       * fills the drawer, paying a supplier empties it. Cheques and transfers
+       * do not, so only cash is recorded here.
+       */
+      if (req.body?.inCash !== false) {
+        const sign = isCustomer ? 1 : -1;
+        recordMovement({
+          kind: isCustomer ? 'customer_payment' : 'supplier_payment',
+          amountUsd: sign * result.paidUsd,
+          amountLbp: sign * result.paidLbp,
+          reason: isCustomer ? 'customer_payment' : 'supplier',
+          note: `${party.name}${req.body?.note ? ` — ${req.body.note}` : ''}`,
+          userId: req.user.id,
+        });
+      }
+
       res.status(201).json({ ...result, balance: balanceOf(partyType, party.id) });
     } catch (err) {
       res.status(400).json({ error: err.message });

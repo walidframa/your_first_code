@@ -1,6 +1,7 @@
 import { db } from '../db.js';
 import { round2, tenderTotals, validatePayments } from './currency.js';
 import { addEntry, creditCheck } from './accounts.js';
+import { recordMovement } from './cash.js';
 
 const TAX_RATE = Number(process.env.TAX_RATE || 0.08);
 
@@ -293,6 +294,24 @@ export function applyEffects(doc, items, userId, note = doc.doc_number) {
       note: `${note} — paid ${doc.payment_method}`,
       userId,
     });
+
+    /*
+     * Paid from the till, so the till has to know. A purchase settled in cash
+     * empties the drawer; an invoice a customer pays on the spot fills it.
+     * Card and transfer never reach the drawer.
+     */
+    if (doc.payment_method === 'cash') {
+      const sign = doc.doc_type === 'purchase_invoice' ? -1 : 1;
+      recordMovement({
+        kind: 'document',
+        amountUsd: sign * doc.paid_usd,
+        amountLbp: sign * doc.paid_lbp,
+        reason: doc.doc_type === 'purchase_invoice' ? 'supplier' : 'customer_payment',
+        documentId: doc.id,
+        note,
+        userId,
+      });
+    }
   }
 }
 
@@ -327,6 +346,19 @@ export function reverseEffects(doc, items, userId, note = `Cancelled ${doc.doc_n
       note: `${note} — ${doc.payment_method} payment returned`,
       userId,
     });
+
+    if (doc.payment_method === 'cash') {
+      const sign = doc.doc_type === 'purchase_invoice' ? 1 : -1;
+      recordMovement({
+        kind: 'document',
+        amountUsd: sign * doc.paid_usd,
+        amountLbp: sign * doc.paid_lbp,
+        reason: 'correction',
+        documentId: doc.id,
+        note,
+        userId,
+      });
+    }
   }
 }
 

@@ -406,6 +406,13 @@ router.delete('/:id', requireAuth, requireRole('admin'), (req, res) => {
       // A cancelled successor still points here; leave it without a source
       // rather than a dangling one.
       db.prepare('UPDATE documents SET converted_from_id = NULL WHERE converted_from_id = ?').run(doc.id);
+
+      /*
+       * The cash this document moved really did move, so the drawer keeps its
+       * movements — but they can no longer point at a document that is gone.
+       * The note already names it, so nothing is lost from the record.
+       */
+      db.prepare('UPDATE cash_movements SET document_id = NULL WHERE document_id = ?').run(doc.id);
       db.prepare('DELETE FROM document_items WHERE document_id = ?').run(doc.id);
       db.prepare('DELETE FROM documents WHERE id = ?').run(doc.id);
     })();

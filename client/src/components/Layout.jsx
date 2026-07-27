@@ -1,6 +1,7 @@
 import { NavLink, Outlet } from 'react-router';
 import {
   BarChart3,
+  Banknote,
   Boxes,
   Building2,
   Contact,
@@ -34,6 +35,7 @@ const ADMIN_NAV = [
   { to: '/admin/customers', label: 'Customers', icon: Contact },
   { to: '/admin/suppliers', label: 'Suppliers', icon: Building2 },
   { to: '/admin/orders', label: 'Orders', icon: Receipt },
+  { to: '/admin/cashbox', label: 'Cashbox', icon: Banknote },
   { to: '/admin/shopify', label: 'Shopify', icon: ShoppingBag },
   { to: '/admin/users', label: 'Staff', icon: Users },
   { to: '/admin/settings', label: 'Settings', icon: SettingsIcon },

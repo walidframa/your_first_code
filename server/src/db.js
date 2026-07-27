@@ -325,6 +325,72 @@ function backfillDocumentPayments() {
 backfillDocumentPayments();
 
 /*
+ * The cash drawer.
+ *
+ * A session is one sitting of the till: opened with a float, closed with a
+ * count. Every movement of physical money belongs to one, so "what should be in
+ * the drawer" is a sum rather than a guess, and the difference against what was
+ * actually counted is the number that tells a shopkeeper something is wrong.
+ *
+ * Both currencies are held separately rather than converted. The drawer
+ * contains dollar notes and pound notes; converting them to a single figure
+ * would make a count that is right in each currency look wrong the moment the
+ * rate moves.
+ */
+db.exec(`
+  CREATE TABLE IF NOT EXISTS cash_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'closed')),
+    opened_by INTEGER NOT NULL REFERENCES users(id),
+    opened_at TEXT NOT NULL DEFAULT (datetime('now')),
+    opening_usd REAL NOT NULL DEFAULT 0,
+    opening_lbp REAL NOT NULL DEFAULT 0,
+    opening_note TEXT,
+    closed_by INTEGER REFERENCES users(id),
+    closed_at TEXT,
+    counted_usd REAL,
+    counted_lbp REAL,
+    expected_usd REAL,
+    expected_lbp REAL,
+    /* Counted less expected: negative is short, positive is over. */
+    over_short_usd REAL,
+    over_short_lbp REAL,
+    /* What was left in the drawer for the next sitting; the rest was banked. */
+    carried_usd REAL,
+    carried_lbp REAL,
+    closing_note TEXT,
+    exchange_rate REAL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_cash_sessions_status ON cash_sessions(status, opened_at);
+
+  /*
+   * The cash account itself. Every row is money physically entering or leaving
+   * the drawer, whatever caused it — a sale, a supplier paid from the till, the
+   * owner topping it up, a run to the bank.
+   */
+  CREATE TABLE IF NOT EXISTS cash_movements (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id INTEGER NOT NULL REFERENCES cash_sessions(id),
+    kind TEXT NOT NULL CHECK (kind IN (
+      'opening_float', 'sale', 'refund', 'customer_payment', 'supplier_payment',
+      'document', 'cash_in', 'cash_out', 'bank_drop', 'correction'
+    )),
+    /* Signed: positive is money in, negative is money out. */
+    amount_usd REAL NOT NULL DEFAULT 0,
+    amount_lbp REAL NOT NULL DEFAULT 0,
+    reason TEXT,
+    note TEXT,
+    order_id INTEGER REFERENCES orders(id),
+    document_id INTEGER REFERENCES documents(id),
+    user_id INTEGER REFERENCES users(id),
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_cash_movements_session ON cash_movements(session_id, created_at);
+`);
+
+/*
  * Shopify inventory sync.
  *
  * `shopify_links` ties a local product to one Shopify variant, and remembers

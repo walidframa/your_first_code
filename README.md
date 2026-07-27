@@ -254,6 +254,41 @@ Admin → **Import**. Drop a CSV and the importer will:
 The parser handles quoted fields, embedded commas and newlines, CRLF, BOMs,
 `;`/tab/`|` delimiters, and prices written as `$1,299.00` or `1.299,50`.
 
+## The cashbox
+
+The register's drawer is opened at the start of a sitting and closed with a
+count at the end. **A cash sale is refused while it is shut** — a till that can
+take money with nowhere to put it cannot be counted, which is the whole point.
+Card and account sales are unaffected, and the requirement can be turned off
+with the `require_cash_session` setting.
+
+**Opening** asks what is already in the drawer — yesterday's carried-over change,
+or petty cash put in now.
+
+**During the sitting**, everything that moves real money is recorded against it:
+cash sales (what stayed in the drawer, not what was handed over), refunds,
+customers settling accounts, suppliers paid from the till, invoices marked paid
+in cash, and **Cash in / Cash out** by hand with a reason — petty cash, an
+expense, wages, the owner taking money out, a run to the bank. Reasons come from
+a fixed list so a month's spending can actually be added up.
+
+**Closing is a blind count.** The drawer is counted note by note, and only then
+is the expected figure shown. Told the answer first, a tired cashier writes it
+down whether the money is there or not, and the one number the exercise exists
+to produce means nothing. Whatever is not left as tomorrow's float is recorded as
+going to the bank.
+
+Dollars and pounds are counted side by side and never converted into one
+another: a drawer is right or wrong in each currency independently, and folding
+them together would make yesterday's correct count look short as soon as the rate
+moved. Change given in the other currency is handled properly — a $20 note for a
+$3 sale with change in pounds leaves the drawer twenty dollars heavier and its
+pounds lighter, and both are recorded.
+
+Admin → **Cashbox** lists every sitting with what it was out by, and opens the
+Z-report: the drawer's movements, the sitting's sales by payment method, and
+expected against counted.
+
 ## Shopify
 
 Admin → **Shopify**. Sell an item on the website and it leaves the shelf here;
