@@ -132,20 +132,42 @@ try {
   });
   await shot('payment');
 
-  await step('cash keypad computes change', async () => {
-    await page.click('[role=dialog] button:has-text("Cash")');
-    await page.waitForSelector('text=Cash received');
-    const dialog = page.locator('[role=dialog]');
-    await dialog.getByRole('button', { name: '5', exact: true }).click();
-    await dialog.getByRole('button', { name: '0', exact: true }).click();
-    await page.waitForSelector('text=Change due');
+  await step('register shows the pound equivalent of the total', async () => {
+    await page.waitForSelector('text=In pounds');
+    await page.waitForSelector('text=/1 USD = [\\d,]+ LL/');
   });
-  await shot('cash-keypad');
+
+  await step('split USD + LBP tender covers the total', async () => {
+    await page.click('[role=dialog] button:has-text("Cash")');
+    const dialog = page.locator('[role=dialog]');
+
+    // A small USD amount alone leaves a balance still due.
+    await dialog.getByRole('button', { name: '1', exact: true }).click();
+    await page.waitForSelector('text=Still due');
+
+    // Top up in pounds. The cart is ~$24, so 1,000,000 LL (~$11) is still short;
+    // 5,000,000 LL (~$56) covers it.
+    await dialog.getByRole('button', { name: 'Lebanese pounds' }).first().click();
+    await dialog.getByRole('button', { name: '1,000k' }).click();
+    await page.waitForSelector('text=Still due', { timeout: 5000 });
+    await dialog.getByRole('button', { name: '5,000k' }).click();
+    await page.waitForSelector('text=Change to give');
+  });
+  await shot('split-tender');
+
+  await step('cashier can switch the change currency', async () => {
+    const dialog = page.locator('[role=dialog]');
+    await dialog.getByRole('button', { name: 'US dollars' }).last().click();
+    await page.waitForSelector('text=/Confirm · change \\$/');
+    await dialog.getByRole('button', { name: 'Lebanese pounds' }).last().click();
+    await page.waitForSelector('text=/Confirm · change [\\d,]+ LL/');
+  });
 
   await step('confirming payment shows the receipt', async () => {
     await page.click('button:has-text("Confirm · change")');
     await page.waitForSelector('text=Payment complete', { timeout: 15000 });
-    await page.waitForSelector('text=Give $');
+    await page.waitForSelector('text=/Give [\\d,]+ LL change/');
+    await page.waitForSelector('text=Paid in pounds');
   });
   await shot('receipt');
 
@@ -259,6 +281,22 @@ try {
   await step('staff page lists accounts', async () => {
     await page.click('a[title="Staff"]');
     await page.waitForSelector('text=Store Owner', { timeout: 15000 });
+  });
+
+  await step('admin can change the exchange rate', async () => {
+    await page.click('a[title="Settings"]');
+    await page.waitForSelector('text=Exchange rate', { timeout: 15000 });
+    await page.fill('input[type=number] >> nth=0', '95000');
+    await page.click('button:has-text("Save changes")');
+    await page.waitForSelector('text=Exchange rate updated', { timeout: 15000 });
+    // The preview and history reflect the new rate.
+    await page.waitForSelector('text=95,000');
+  });
+  await shot('settings');
+
+  await step('the register picks up the new rate', async () => {
+    await page.click('a[title="Register"]');
+    await page.waitForSelector('text=1 USD = 95,000 LL', { timeout: 15000 });
   });
 
   console.log('\nAuthorization');

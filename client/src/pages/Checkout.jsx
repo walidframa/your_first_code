@@ -4,12 +4,14 @@ import api from '../api';
 import Receipt from '../components/Receipt';
 import PaymentSheet from '../components/PaymentSheet';
 import { Button, EmptyState, ProductThumb, Skeleton, cx, money, useToast } from '../components/ui';
+import { useSettings, lbp } from '../context/SettingsContext';
 
 const round2 = (n) => Math.round(n * 100) / 100;
 
 export default function Checkout() {
   const toast = useToast();
   const searchRef = useRef(null);
+  const { rate, toLbp } = useSettings();
 
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
@@ -124,14 +126,15 @@ export default function Checkout() {
   const total = round2(taxableAmount + tax);
   const itemCount = cart.reduce((sum, i) => sum + i.quantity, 0);
 
-  async function handleConfirmPayment({ paymentMethod, amountTendered }) {
+  async function handleConfirmPayment({ paymentMethod, payments, changeCurrency }) {
     setSubmitting(true);
     try {
       const res = await api.post('/orders', {
         items: cart.map((i) => ({ productId: i.productId, quantity: i.quantity })),
         discountPercent: Number(discountPercent) || 0,
         paymentMethod,
-        amountTendered,
+        payments,
+        changeCurrency,
       });
       setReceipt({ order: res.data.order, items: res.data.items });
       setCart([]);
@@ -272,7 +275,14 @@ export default function Checkout() {
       {/* Cart */}
       <aside className="no-print flex w-[380px] shrink-0 flex-col border-l border-slate-200 bg-white">
         <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3.5">
-          <h2 className="font-semibold text-slate-900">Current sale</h2>
+          <div>
+            <h2 className="font-semibold text-slate-900">Current sale</h2>
+            {rate > 0 && (
+              <p className="tnum text-[11px] text-slate-400">
+                1 USD = {Number(rate).toLocaleString('en-US')} LL
+              </p>
+            )}
+          </div>
           {cart.length > 0 && (
             <button
               onClick={() => setCart([])}
@@ -366,6 +376,12 @@ export default function Checkout() {
               <dt className="font-semibold text-slate-900">Total</dt>
               <dd className="text-2xl font-semibold text-slate-900">{money(total)}</dd>
             </div>
+            {rate > 0 && (
+              <div className="flex items-baseline justify-between">
+                <dt className="text-xs text-slate-400">In pounds</dt>
+                <dd className="tnum text-base font-medium text-slate-600">{lbp(toLbp(total))}</dd>
+              </div>
+            )}
           </dl>
 
           <Button

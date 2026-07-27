@@ -1,8 +1,14 @@
 import { CheckCircle2, Printer } from 'lucide-react';
 import { Button, Modal, money } from './ui';
+import { lbp } from '../context/SettingsContext';
 
 export default function Receipt({ receipt, onClose }) {
   const { order, items } = receipt;
+  // Use the rate stored on the order, not the current one — a receipt must
+  // still reconcile after the rate moves.
+  const rate = order.exchange_rate || 0;
+  const totalLbp = rate ? Math.round((order.total * rate) / 1000) * 1000 : 0;
+  const gaveLbpChange = order.change_currency === 'LBP' && order.change_lbp > 0;
 
   return (
     <Modal open onClose={onClose} size="sm" className="print:shadow-none print:ring-0">
@@ -13,7 +19,7 @@ export default function Receipt({ receipt, onClose }) {
         <h2 className="text-lg font-semibold text-slate-900">Payment complete</h2>
         {order.payment_method === 'cash' && order.change_due > 0 && (
           <p className="mt-2 inline-block rounded-lg bg-amber-50 px-3 py-1.5 text-sm font-semibold text-amber-900">
-            Give {money(order.change_due)} change
+            Give {gaveLbpChange ? lbp(order.change_lbp) : money(order.change_usd || order.change_due)} change
           </p>
         )}
         <p className="mt-2 text-xs text-slate-400">{order.order_number}</p>
@@ -49,17 +55,39 @@ export default function Receipt({ receipt, onClose }) {
           <dt className="text-slate-900">Total</dt>
           <dd className="tnum text-slate-900">{money(order.total)}</dd>
         </div>
+        {rate > 0 && (
+          <div className="flex justify-between text-xs">
+            <dt className="text-slate-400">Total in pounds</dt>
+            <dd className="tnum text-slate-500">{lbp(totalLbp)}</dd>
+          </div>
+        )}
         {order.payment_method === 'cash' && (
           <>
-            <div className="flex justify-between">
-              <dt className="text-slate-500">Cash received</dt>
-              <dd className="tnum text-slate-700">{money(order.amount_tendered)}</dd>
-            </div>
+            {order.paid_usd > 0 && (
+              <div className="flex justify-between">
+                <dt className="text-slate-500">Paid in dollars</dt>
+                <dd className="tnum text-slate-700">{money(order.paid_usd)}</dd>
+              </div>
+            )}
+            {order.paid_lbp > 0 && (
+              <div className="flex justify-between">
+                <dt className="text-slate-500">Paid in pounds</dt>
+                <dd className="tnum text-slate-700">{lbp(order.paid_lbp)}</dd>
+              </div>
+            )}
             <div className="flex justify-between font-medium text-brand-700">
               <dt>Change</dt>
-              <dd className="tnum">{money(order.change_due)}</dd>
+              <dd className="tnum">
+                {gaveLbpChange ? lbp(order.change_lbp) : money(order.change_usd || order.change_due)}
+              </dd>
             </div>
           </>
+        )}
+        {rate > 0 && (
+          <div className="flex justify-between text-xs">
+            <dt className="text-slate-400">Rate</dt>
+            <dd className="tnum text-slate-400">1 USD = {Number(rate).toLocaleString('en-US')} LL</dd>
+          </div>
         )}
         {order.payment_method === 'card' && (
           <div className="flex justify-between">

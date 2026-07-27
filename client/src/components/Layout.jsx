@@ -6,6 +6,7 @@ import {
   Package,
   Receipt,
   ScanLine,
+  Settings as SettingsIcon,
   Store,
   Upload,
   Users,
@@ -25,6 +26,7 @@ const ADMIN_NAV = [
   { to: '/admin/import', label: 'Import', icon: Upload },
   { to: '/admin/orders', label: 'Orders', icon: Receipt },
   { to: '/admin/users', label: 'Staff', icon: Users },
+  { to: '/admin/settings', label: 'Settings', icon: SettingsIcon },
 ];
 
 function NavItem({ to, label, icon: Icon, end }) {
