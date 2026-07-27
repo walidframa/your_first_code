@@ -13,6 +13,7 @@ import AdminUsers from './pages/admin/Users';
 import AdminSettings from './pages/admin/Settings';
 import AdminParties from './pages/admin/Parties';
 import AdminDocuments from './pages/admin/Documents';
+import AdminLabels from './pages/admin/Labels';
 
 export default function App() {
   return (
@@ -66,6 +67,14 @@ export default function App() {
           element={
             <ProtectedRoute roles={['admin']}>
               <AdminDocuments />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/labels"
+          element={
+            <ProtectedRoute roles={['admin']}>
+              <AdminLabels />
             </ProtectedRoute>
           }
         />

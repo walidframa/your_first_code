@@ -91,7 +91,7 @@ test('rejects requests with no token', async () => {
 /* --------------------------------------------------------------- products */
 
 test('looks a product up by barcode', async () => {
-  const res = await req('GET', '/products/lookup?code=5012345000011', null, cashierToken);
+  const res = await req('GET', '/products/lookup?code=5012345000015', null, cashierToken);
   assert.equal(res.json.product.name, 'Espresso');
 });
 
@@ -428,8 +428,8 @@ test('rejects an unknown adjustment reason', async () => {
 
 const SHOPIFY_CSV = [
   'Handle,Title,Vendor,Type,Variant SKU,Variant Price,Variant Inventory Qty,Cost per item,Variant Barcode,Image Src',
-  'flat-white,Flat White,Blue Bottle,Beverages,BEV-910,"4,50",30,1.60,5012345000202,',
-  'espresso,Espresso Refreshed,Blue Bottle,Beverages,BEV-001,$3.95,140,1.10,5012345000011,',
+  'flat-white,Flat White,Blue Bottle,Beverages,BEV-910,"4,50",30,1.60,5012345000206,',
+  'espresso,Espresso Refreshed,Blue Bottle,Beverages,BEV-001,$3.95,140,1.10,5012345000015,',
   'bad-row,,NoVendor,Beverages,,notanumber,5,,,',
 ].join('\n');
 

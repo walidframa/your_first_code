@@ -30,6 +30,8 @@ orders and staff.
   upsert-by-SKU
 - Products: full CRUD with barcode, supplier, cost/margin, image URL, archive/restore
 - Orders: every cashier's sales with full refunds that restock items
+- **Labels**: printable barcode and price labels in four stock sizes, preloaded
+  from a purchase invoice's received quantities
 - **Documents**: quotations, sales orders, sales invoices and purchase invoices —
   a purchase invoice receives stock, a sales invoice issues it, and quotations
   convert through to invoices
@@ -158,6 +160,24 @@ it is the moment stock moves and the ledger is posted.
   number, so a receipt is traceable from the product's history.
 
 Numbers are sequential per type: `QT-0001`, `SO-0001`, `SI-0001`, `PI-0001`.
+
+## Printing labels
+
+Admin → **Labels**, or **Print labels** on a confirmed purchase invoice — which
+preloads its lines with the quantities just received, since that is usually why
+you are printing.
+
+Each label carries the product name, the price in **both currencies**, a barcode
+and its human-readable number. Four stock sizes are offered (38×21, 63.5×34,
+70×42 mm sheets and a 50×30 mm thermal roll), and printing hides the whole app so
+only the sheet reaches the page.
+
+**Barcodes are rendered by JsBarcode, not hand-rolled** — a subtly wrong barcode
+scans as the wrong product. What the app decides is the *symbology*: a valid
+EAN-13, UPC-A or EAN-8 is encoded as such, and anything else — an internal SKU, or
+a code whose check digit is wrong — falls back to Code 128 so a label always
+prints something scannable. A retail-length code with a bad check digit is
+flagged in the UI rather than silently mis-encoded.
 
 ## Customers, credit and cash flow
 
