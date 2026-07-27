@@ -30,6 +30,7 @@ import {
   Input,
   Modal,
   ProductThumb,
+  Select,
   Skeleton,
   cx,
   money,
@@ -100,7 +101,22 @@ function DocumentForm({ existing, onClose, onSaved }) {
   const [products, setProducts] = useState([]);
   const [lines, setLines] = useState([]);
   const [discountPercent, setDiscountPercent] = useState(doc?.discount_percent ?? 0);
-  const [onAccount, setOnAccount] = useState(doc ? !!doc.on_account : true);
+  /*
+   * How the document is settled. `account` leaves the whole total owing; `full`
+   * settles it at the counter; `part` takes something now and leaves the rest.
+   * The amount is held as typed so a half-entered figure is never rounded away
+   * mid-keystroke.
+   */
+  const [settleAs, setSettleAs] = useState(() => {
+    if (!doc || !doc.paid_total) return 'account';
+    return doc.outstanding <= 0 ? 'full' : 'part';
+  });
+  const [payMethod, setPayMethod] = useState(doc?.payment_method || 'cash');
+  const [payCurrency, setPayCurrency] = useState(doc?.paid_lbp > 0 ? 'LBP' : 'USD');
+  const [payAmount, setPayAmount] = useState(() => {
+    if (!doc?.paid_total) return '';
+    return String(doc.paid_lbp > 0 ? doc.paid_lbp : doc.paid_usd);
+  });
   const [notes, setNotes] = useState(doc?.notes || '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -206,20 +222,42 @@ function DocumentForm({ existing, onClose, onSaved }) {
   const tax = (subtotal - discount) * 0.08;
   const total = subtotal - discount + tax;
 
-  const valid =
-    partyId &&
+  /*
+   * What the payment comes to in dollars. A part payment is entered in whichever
+   * currency actually changed hands, so pounds are converted here at the same
+   * rate the server will use.
+   */
+  const partAmountUsd =
+    payCurrency === 'LBP' && rate > 0 ? (Number(payAmount) || 0) / rate : Number(payAmount) || 0;
+  const paidUsd = settleAs === 'account' ? 0 : settleAs === 'full' ? total : partAmountUsd;
+  const outstanding = Math.max(0, total - paidUsd);
+  const overpaid = paidUsd > total + 0.01;
+
+  const linesValid =
     lines.length > 0 &&
     lines.every((l) => (l.product || l.name.trim()) && Number(l.quantity) > 0 && Number(l.price) >= 0);
+  const paymentValid = settleAs !== 'part' || (partAmountUsd > 0 && !overpaid);
+  const valid = partyId && linesValid && paymentValid;
 
   async function submit(e) {
     e.preventDefault();
     setError('');
     setSaving(true);
 
+    // Paying in full is sent as a dollar figure — the total is already in USD,
+    // so converting it to pounds and back would only introduce rounding.
+    const payments =
+      settleAs === 'account'
+        ? []
+        : settleAs === 'full'
+          ? [{ currency: 'USD', amount: Number(total.toFixed(2)) }]
+          : [{ currency: payCurrency, amount: Number(payAmount) }];
+
     const payload = {
       partyId: Number(partyId),
       discountPercent: Number(discountPercent) || 0,
-      onAccount,
+      payments,
+      paymentMethod: payments.length ? payMethod : null,
       notes: notes || null,
       items: lines.map((l) => ({
         productId: l.product?.id ?? null,
@@ -432,17 +470,6 @@ function DocumentForm({ existing, onClose, onSaved }) {
                 onChange={(e) => setDiscountPercent(e.target.value)}
               />
               <Input label="Notes" value={notes} onChange={(e) => setNotes(e.target.value)} />
-              {isInvoice && (
-                <label className="flex items-center gap-2 text-sm text-slate-600">
-                  <input
-                    type="checkbox"
-                    checked={onAccount}
-                    onChange={(e) => setOnAccount(e.target.checked)}
-                    className="h-4 w-4 rounded border-slate-300 accent-brand-600"
-                  />
-                  Put on account (untick if paid immediately)
-                </label>
-              )}
             </div>
 
             <dl className="space-y-1 self-end rounded-xl bg-slate-50 px-4 py-3 text-sm">
@@ -470,8 +497,112 @@ function DocumentForm({ existing, onClose, onSaved }) {
                   <dd className="tnum text-slate-500">{lbp(toLbp(total))}</dd>
                 </div>
               )}
+              {isInvoice && settleAs !== 'account' && (
+                <>
+                  <div className="flex justify-between border-t border-slate-200 pt-1">
+                    <dt className="text-slate-500">Paid</dt>
+                    <dd className="tnum text-slate-700">−{money(paidUsd)}</dd>
+                  </div>
+                  <div className="flex justify-between font-semibold">
+                    <dt className={outstanding > 0 ? 'text-slate-900' : 'text-brand-700'}>
+                      {outstanding > 0 ? 'Still owing' : 'Settled'}
+                    </dt>
+                    <dd className={cx('tnum', outstanding > 0 ? 'text-slate-900' : 'text-brand-700')}>
+                      {money(outstanding)}
+                    </dd>
+                  </div>
+                </>
+              )}
             </dl>
           </div>
+
+          {/*
+           * Not everything is bought on credit. A delivery paid in cash on the
+           * spot should leave no payable behind, and the money that went out
+           * still has to be recorded.
+           */}
+          {isInvoice && (
+            <fieldset className="rounded-xl ring-1 ring-slate-200">
+              <legend className="ml-3 px-1 text-sm font-medium text-slate-700">
+                {docType === 'purchase_invoice' ? 'How you paid the supplier' : 'How the customer paid'}
+              </legend>
+
+              <div className="space-y-3 px-3 pt-1 pb-3">
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    ['account', 'On account', partyType === 'supplier' ? 'Pay later' : 'They pay later'],
+                    ['full', 'Paid in full', 'Nothing left owing'],
+                    ['part', 'Part paid', 'Some now, rest later'],
+                  ].map(([key, label, hint]) => (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => setSettleAs(key)}
+                      aria-pressed={settleAs === key}
+                      className={cx(
+                        'rounded-lg px-3 py-2 text-left ring-1 transition',
+                        settleAs === key
+                          ? 'bg-brand-600 text-white ring-brand-600'
+                          : 'bg-white text-slate-600 ring-slate-200 hover:ring-slate-300',
+                      )}
+                    >
+                      <span className="block text-sm font-medium">{label}</span>
+                      <span className={cx('block text-xs', settleAs === key ? 'opacity-90' : 'text-slate-400')}>
+                        {hint}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+
+                {settleAs !== 'account' && (
+                  <div className="grid grid-cols-3 items-start gap-3">
+                    <Select
+                      label="Method"
+                      name="payMethod"
+                      value={payMethod}
+                      onChange={(e) => setPayMethod(e.target.value)}
+                    >
+                      <option value="cash">Cash</option>
+                      <option value="card">Card</option>
+                      <option value="transfer">Bank transfer</option>
+                    </Select>
+
+                    {settleAs === 'part' && (
+                      <>
+                        <Input
+                          label="Amount paid now"
+                          name="payAmount"
+                          type="number"
+                          min="0"
+                          step={payCurrency === 'LBP' ? '1000' : '0.01'}
+                          value={payAmount}
+                          onChange={(e) => setPayAmount(e.target.value)}
+                          hint={
+                            payCurrency === 'LBP' && partAmountUsd > 0 ? `= ${money(partAmountUsd)}` : undefined
+                          }
+                        />
+                        <Select
+                          label="Currency"
+                          name="payCurrency"
+                          value={payCurrency}
+                          onChange={(e) => setPayCurrency(e.target.value)}
+                        >
+                          <option value="USD">USD</option>
+                          <option value="LBP">LBP</option>
+                        </Select>
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {overpaid && (
+                  <p className="text-sm text-red-600">
+                    That is more than the {money(total)} total. Use “Paid in full” instead.
+                  </p>
+                )}
+              </div>
+            </fieldset>
+          )}
 
           {error && <p className="text-sm text-red-600">{error}</p>}
 
@@ -620,7 +751,14 @@ function DocumentDetail({ id, onClose, onChanged, onDeleted }) {
           <TypeIcon type={doc.doc_type} size={15} />
         </span>
         <Badge tone={STATUS_TONES[doc.status]}>{doc.status}</Badge>
-        {doc.on_account && doc.doc_type.endsWith('invoice') && <Badge tone="info">On account</Badge>}
+        {doc.doc_type.endsWith('invoice') &&
+          (doc.outstanding <= 0 ? (
+            <Badge tone="good">Paid {doc.payment_method}</Badge>
+          ) : doc.paid_total > 0 ? (
+            <Badge tone="warning">Part paid</Badge>
+          ) : (
+            <Badge tone="info">On account</Badge>
+          ))}
         {doc.converted_from_number && (
           <span className="text-xs text-slate-400">from {doc.converted_from_number}</span>
         )}
@@ -680,14 +818,34 @@ function DocumentDetail({ id, onClose, onChanged, onDeleted }) {
             <dd className="tnum text-slate-500">{lbp(toLbp(doc.total))}</dd>
           </div>
         )}
+
+        {doc.paid_total > 0 && (
+          <>
+            <div className="flex justify-between border-t border-slate-100 pt-1">
+              <dt className="text-slate-500">
+                Paid {doc.payment_method}
+                {doc.paid_lbp > 0 && doc.paid_usd > 0 && ' (part in pounds)'}
+              </dt>
+              <dd className="tnum text-slate-700">−{money(doc.paid_total)}</dd>
+            </div>
+            <div className="flex justify-between font-semibold">
+              <dt className={doc.outstanding > 0 ? 'text-slate-900' : 'text-brand-700'}>
+                {doc.outstanding > 0 ? 'Still owing' : 'Settled in full'}
+              </dt>
+              <dd className={cx('tnum', doc.outstanding > 0 ? 'text-slate-900' : 'text-brand-700')}>
+                {money(doc.outstanding)}
+              </dd>
+            </div>
+          </>
+        )}
       </dl>
 
       {doc.notes && <p className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-600">{doc.notes}</p>}
       {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
 
       <div className="no-print mt-5 flex flex-wrap gap-2">
-        <Button variant="secondary" onClick={() => window.print()} aria-label="Print">
-          <Printer size={15} />
+        <Button variant="secondary" onClick={() => window.print()}>
+          <Printer size={15} /> Print
         </Button>
 
         {doc.status === 'draft' && (
@@ -724,13 +882,18 @@ function DocumentDetail({ id, onClose, onChanged, onDeleted }) {
           <Pencil size={15} /> Edit
         </Button>
 
+        {/*
+         * "Void", not "Cancel" — in every other dialog Cancel means "close
+         * without doing anything", and this one voids the document. Kept out of
+         * the danger variant too, so Delete is the only red button on the row.
+         */}
         {doc.status !== 'cancelled' && (
           <Button
-            variant="danger"
+            variant="secondary"
             loading={busy}
             onClick={() => act('cancel', null, `${doc.doc_number} cancelled`)}
           >
-            <Ban size={15} /> Cancel
+            <Ban size={15} /> Void
           </Button>
         )}
 
@@ -898,6 +1061,17 @@ export default function Documents() {
                     </td>
                     <td className="tnum px-5 py-2.5 text-right font-semibold text-slate-900">
                       {money(d.total)}
+                      {/* What is still owed matters more than what it cost. */}
+                      {d.doc_type.endsWith('invoice') && d.paid_total > 0 && (
+                        <span
+                          className={cx(
+                            'block text-xs font-normal',
+                            d.outstanding > 0 ? 'text-amber-600' : 'text-brand-600',
+                          )}
+                        >
+                          {d.outstanding > 0 ? `${money(d.outstanding)} owing` : 'paid'}
+                        </span>
+                      )}
                     </td>
                   </tr>
                 ))}

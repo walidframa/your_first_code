@@ -838,9 +838,12 @@ test('a sales invoice respects the credit limit', async () => {
   assert.equal((await product('APP-002')).stock, item.stock, 'stock is not moved when credit fails');
 });
 
-test('an invoice marked not-on-account moves stock but leaves no balance', async () => {
+test('an invoice paid in full moves stock but leaves no balance', async () => {
+  // No credit limit: paying at the counter must not need one.
   const customer = (await req('POST', '/customers', { name: 'Paid Now' }, adminToken)).json.party;
   const item = await product('SNK-003');
+  const price = item.price * 2;
+  const total = Math.round(price * 1.08 * 100) / 100;
 
   const doc = (
     await req(
@@ -849,20 +852,242 @@ test('an invoice marked not-on-account moves stock but leaves no balance', async
       {
         docType: 'sales_invoice',
         partyId: customer.id,
-        onAccount: false,
         items: [{ productId: item.id, quantity: 2 }],
+        payments: [{ currency: 'USD', amount: total }],
+        paymentMethod: 'cash',
       },
       adminToken,
     )
   ).json.document;
+  assert.equal(doc.outstanding, 0);
+  assert.equal(doc.on_account, false);
 
-  await req('POST', `/documents/${doc.id}/confirm`, null, adminToken);
+  assert.equal((await req('POST', `/documents/${doc.id}/confirm`, null, adminToken)).status, 200);
   assert.equal((await product('SNK-003')).stock, item.stock - 2);
   assert.equal(
     (await req('GET', `/customers/${customer.id}`, null, adminToken)).json.party.balance,
     0,
     'a paid invoice does not go on the account',
   );
+
+  // But the sale and the payment are both on the statement.
+  const entries = (await req('GET', `/customers/${customer.id}`, null, adminToken)).json.entries;
+  const forThisDoc = entries.filter((e) => (e.note || '').includes(doc.doc_number));
+  assert.equal(forThisDoc.length, 2, 'the sale and the cash are both recorded');
+  assert.ok(forThisDoc.some((e) => e.kind === 'sale' && e.amount_usd > 0));
+  assert.ok(forThisDoc.some((e) => e.kind === 'payment' && e.amount_usd < 0));
+});
+
+test('a cash purchase invoice records the money that went out', async () => {
+  const supplier = (await req('POST', '/suppliers', { name: 'Cash Only Co' }, adminToken)).json.party;
+  const item = await product('APP-004');
+
+  const doc = (
+    await req(
+      'POST',
+      '/documents',
+      {
+        docType: 'purchase_invoice',
+        partyId: supplier.id,
+        items: [{ productId: item.id, quantity: 5, price: 2 }],
+        payments: [{ currency: 'USD', amount: 10.8 }],
+        paymentMethod: 'cash',
+      },
+      adminToken,
+    )
+  ).json.document;
+
+  assert.equal(doc.total, 10.8);
+  assert.equal(doc.paid_total, 10.8);
+  assert.equal(doc.outstanding, 0);
+  assert.equal(doc.payment_method, 'cash');
+
+  await req('POST', `/documents/${doc.id}/confirm`, null, adminToken);
+  const party = (await req('GET', `/suppliers/${supplier.id}`, null, adminToken)).json;
+  assert.equal(party.party.balance, 0, 'nothing is owed to a supplier paid on delivery');
+  assert.equal(party.entries.filter((e) => (e.note || '').includes(doc.doc_number)).length, 2);
+});
+
+test('a part-paid invoice leaves only the remainder on the account', async () => {
+  const supplier = (await req('POST', '/suppliers', { name: 'Half Now' }, adminToken)).json.party;
+  const item = await product('SNK-001');
+
+  const doc = (
+    await req(
+      'POST',
+      '/documents',
+      {
+        docType: 'purchase_invoice',
+        partyId: supplier.id,
+        items: [{ productId: item.id, quantity: 10, price: 10 }],
+        payments: [{ currency: 'USD', amount: 40 }],
+        paymentMethod: 'cash',
+      },
+      adminToken,
+    )
+  ).json.document;
+
+  assert.equal(doc.total, 108);
+  assert.equal(doc.outstanding, 68);
+  assert.equal(doc.on_account, true, 'the unpaid part is still on account');
+
+  await req('POST', `/documents/${doc.id}/confirm`, null, adminToken);
+  assert.equal((await req('GET', `/suppliers/${supplier.id}`, null, adminToken)).json.party.balance, 68);
+});
+
+test('a payment can be made in pounds', async () => {
+  const settings = (await req('GET', '/settings', null, adminToken)).json.settings;
+  const rate = settings.exchange_rate;
+  const supplier = (await req('POST', '/suppliers', { name: 'Paid In Lira' }, adminToken)).json.party;
+  const item = await product('BAK-002');
+
+  // Hand over the pound equivalent of $50.
+  const doc = (
+    await req(
+      'POST',
+      '/documents',
+      {
+        docType: 'purchase_invoice',
+        partyId: supplier.id,
+        items: [{ productId: item.id, quantity: 10, price: 10 }],
+        payments: [{ currency: 'LBP', amount: 50 * rate }],
+        paymentMethod: 'cash',
+      },
+      adminToken,
+    )
+  ).json.document;
+
+  assert.equal(doc.paid_lbp, 50 * rate);
+  assert.equal(doc.paid_total, 50, 'pounds are converted at the document’s own rate');
+  assert.equal(doc.outstanding, 58);
+});
+
+test('refuses a payment larger than the total, or with no method', async () => {
+  const supplier = (await req('POST', '/suppliers', { name: 'Overpaid' }, adminToken)).json.party;
+  const item = await product('SNK-001');
+  const body = {
+    docType: 'purchase_invoice',
+    partyId: supplier.id,
+    items: [{ productId: item.id, quantity: 1, price: 10 }],
+  };
+
+  const over = await req(
+    'POST',
+    '/documents',
+    { ...body, payments: [{ currency: 'USD', amount: 50 }], paymentMethod: 'cash' },
+    adminToken,
+  );
+  assert.equal(over.status, 400);
+  assert.match(over.json.error, /more than the/i);
+
+  const noMethod = await req(
+    'POST',
+    '/documents',
+    { ...body, payments: [{ currency: 'USD', amount: 5 }] },
+    adminToken,
+  );
+  assert.equal(noMethod.status, 400);
+  assert.match(noMethod.json.error, /payment method/i);
+});
+
+test('a cash purchase reverses both the bill and the payment when cancelled', async () => {
+  const supplier = (await req('POST', '/suppliers', { name: 'Returned Cash' }, adminToken)).json.party;
+  const item = await product('APP-004');
+  const before = item.stock;
+
+  const doc = (
+    await req(
+      'POST',
+      '/documents',
+      {
+        docType: 'purchase_invoice',
+        partyId: supplier.id,
+        items: [{ productId: item.id, quantity: 3, price: 5 }],
+        payments: [{ currency: 'USD', amount: 16.2 }],
+        paymentMethod: 'cash',
+      },
+      adminToken,
+    )
+  ).json.document;
+
+  await req('POST', `/documents/${doc.id}/confirm`, null, adminToken);
+  await req('POST', `/documents/${doc.id}/cancel`, null, adminToken);
+
+  assert.equal((await product('APP-004')).stock, before, 'stock is back');
+  assert.equal(
+    (await req('GET', `/suppliers/${supplier.id}`, null, adminToken)).json.party.balance,
+    0,
+    'and the account is square, not showing a credit',
+  );
+});
+
+test('editing a document can add a payment to it', async () => {
+  const supplier = (await req('POST', '/suppliers', { name: 'Pays Later' }, adminToken)).json.party;
+  const item = await product('SNK-001');
+
+  const doc = (
+    await req(
+      'POST',
+      '/documents',
+      {
+        docType: 'purchase_invoice',
+        partyId: supplier.id,
+        items: [{ productId: item.id, quantity: 2, price: 10 }],
+      },
+      adminToken,
+    )
+  ).json.document;
+  await req('POST', `/documents/${doc.id}/confirm`, null, adminToken);
+  assert.equal((await req('GET', `/suppliers/${supplier.id}`, null, adminToken)).json.party.balance, 21.6);
+
+  const paid = await req(
+    'PUT',
+    `/documents/${doc.id}`,
+    { payments: [{ currency: 'USD', amount: 21.6 }], paymentMethod: 'cash' },
+    adminToken,
+  );
+  assert.equal(paid.status, 200);
+  assert.equal(paid.json.document.outstanding, 0);
+  assert.equal((await req('GET', `/suppliers/${supplier.id}`, null, adminToken)).json.party.balance, 0);
+});
+
+test('editing lines leaves an existing payment alone', async () => {
+  const supplier = (await req('POST', '/suppliers', { name: 'Keeps Its Cash' }, adminToken)).json.party;
+  const item = await product('SNK-001');
+
+  const doc = (
+    await req(
+      'POST',
+      '/documents',
+      {
+        docType: 'purchase_invoice',
+        partyId: supplier.id,
+        items: [{ productId: item.id, quantity: 5, price: 10 }],
+        payments: [{ currency: 'USD', amount: 20 }],
+        paymentMethod: 'cash',
+      },
+      adminToken,
+    )
+  ).json.document;
+
+  const edited = await req(
+    'PUT',
+    `/documents/${doc.id}`,
+    { items: [{ productId: item.id, quantity: 4, price: 10 }] },
+    adminToken,
+  );
+  assert.equal(edited.json.document.paid_total, 20, 'the payment survives a line change');
+  assert.equal(edited.json.document.outstanding, 23.2);
+
+  // But the total cannot drop below what has already been handed over.
+  const tooSmall = await req(
+    'PUT',
+    `/documents/${doc.id}`,
+    { items: [{ productId: item.id, quantity: 1, price: 1 }] },
+    adminToken,
+  );
+  assert.equal(tooSmall.status, 400);
+  assert.match(tooSmall.json.error, /already been paid/i);
 });
 
 test('a quotation moves nothing when confirmed', async () => {

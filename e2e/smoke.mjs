@@ -54,6 +54,20 @@ async function step(name, fn) {
   }
 }
 
+/**
+ * Dismiss whatever dialog is open and wait for it to actually go.
+ *
+ * Escape alone is racy here: the next step's click lands on the backdrop while
+ * the dialog is still unmounting, and the failure then points at the click
+ * rather than at the dialog that never closed.
+ */
+async function closeDialog() {
+  const dialog = page.locator('[role=dialog]');
+  if (!(await dialog.count())) return;
+  await dialog.getByRole('button', { name: 'Close' }).first().click();
+  await dialog.first().waitFor({ state: 'detached', timeout: 10000 });
+}
+
 async function shot(name) {
   if (!SHOT_DIR) return;
   shotIndex += 1;
@@ -494,6 +508,66 @@ try {
     await page.keyboard.press('Escape');
   });
   await shot('inline-product');
+
+  await step('a purchase paid in cash leaves no payable behind', async () => {
+    await page.click('a[title="Documents"]');
+    await page.click('button:has-text("New document")');
+    const dialog = page.locator('[role=dialog]');
+    await dialog.getByRole('button', { name: /Purchase invoice/ }).click();
+    await dialog.locator('#doc-party').selectOption({ label: 'Corner Bakehouse' });
+    await dialog.getByLabel('Search products to add').fill('Croissant');
+    await dialog.getByLabel('Search products to add').press('Enter');
+    await dialog.getByLabel(/Quantity for/i).first().fill('10');
+    await dialog.getByLabel(/Unit price for/i).first().fill('1');
+
+    await dialog.getByRole('button', { name: /Paid in full/ }).click();
+    await dialog.getByLabel('Method').selectOption('cash');
+    await page.waitForSelector('[role=dialog] >> text=Settled', { timeout: 10000 });
+
+    await page.click('button:has-text("Create draft")');
+    await page.waitForSelector('text=/Paid cash/', { timeout: 15000 });
+    await page.click('button:has-text("Confirm")');
+    await page.waitForSelector('text=confirmed', { timeout: 15000 });
+    await page.keyboard.press('Escape');
+
+    // The delivery is on the supplier's statement, but nothing is owed for it.
+    await page.click('a[title="Suppliers"]');
+    await page.waitForSelector('text=Total you owe', { timeout: 15000 });
+    await page.click('td:has-text("Corner Bakehouse")');
+    await page.waitForSelector('text=/paid cash/', { timeout: 15000 });
+    await closeDialog();
+  });
+  await shot('paid-in-cash');
+
+  await step('a part payment leaves only the remainder owing', async () => {
+    await page.click('a[title="Documents"]');
+    await page.click('button:has-text("New document")');
+    const dialog = page.locator('[role=dialog]');
+    await dialog.getByRole('button', { name: /Purchase invoice/ }).click();
+    await dialog.locator('#doc-party').selectOption({ label: 'Corner Bakehouse' });
+    await dialog.getByLabel('Search products to add').fill('Croissant');
+    await dialog.getByLabel('Search products to add').press('Enter');
+    await dialog.getByLabel(/Quantity for/i).first().fill('10');
+    await dialog.getByLabel(/Unit price for/i).first().fill('10');
+
+    await dialog.getByRole('button', { name: /Part paid/ }).click();
+    await dialog.getByLabel('Amount paid now').fill('40');
+    // $100 plus 8% tax, less the $40 handed over.
+    await page.waitForSelector('[role=dialog] >> text=$68.00', { timeout: 10000 });
+
+    // Paying more than the total is refused rather than silently accepted.
+    await dialog.getByLabel('Amount paid now').fill('500');
+    await page.waitForSelector('text=/more than the/', { timeout: 10000 });
+    if (await page.getByRole('button', { name: 'Create draft' }).isEnabled()) {
+      throw new Error('an overpayment should block the save');
+    }
+
+    await dialog.getByLabel('Amount paid now').fill('40');
+    await page.click('button:has-text("Create draft")');
+    await page.waitForSelector('text=Still owing', { timeout: 15000 });
+    await page.waitForSelector('[role=dialog] >> text=$68.00');
+    await closeDialog();
+  });
 
   await step('a confirmed document can be corrected, and the books follow', async () => {
     await page.click('a[title="Documents"]');

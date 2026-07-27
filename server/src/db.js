@@ -293,6 +293,37 @@ function migrateOrdersPaymentMethods() {
 
 migrateOrdersPaymentMethods();
 
+/*
+ * Paying a document at the counter.
+ *
+ * A purchase settled in cash on delivery is not a payable, and a sales invoice
+ * paid on the spot is not a receivable — but both still happened, and the cash
+ * that moved is what the shop needs to see. These record what was handed over,
+ * in either currency, so `on_account` becomes a consequence of the figures
+ * rather than a separate switch: whatever is not paid goes on the account.
+ */
+addColumn('documents', 'paid_usd', 'REAL NOT NULL DEFAULT 0');
+addColumn('documents', 'paid_lbp', 'REAL NOT NULL DEFAULT 0');
+addColumn('documents', 'payment_method', 'TEXT');
+
+/*
+ * Documents created before those columns used `on_account = 0` to mean "settled
+ * immediately, post nothing". That is now expressed as being paid in full, so
+ * the payment appears on the party's statement like any other.
+ */
+function backfillDocumentPayments() {
+  const pending = db
+    .prepare("SELECT COUNT(*) AS n FROM documents WHERE on_account = 0 AND paid_usd = 0 AND total > 0")
+    .get();
+  if (pending.n === 0) return;
+
+  db.prepare(
+    "UPDATE documents SET paid_usd = total, payment_method = 'cash' WHERE on_account = 0 AND paid_usd = 0 AND total > 0",
+  ).run();
+}
+
+backfillDocumentPayments();
+
 export const ADJUSTMENT_REASONS = [
   'received',
   'damaged',

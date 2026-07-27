@@ -149,6 +149,19 @@ it is the moment stock moves and the ledger is posted.
 | Sales invoice | stock out, customer billed (credit limit enforced) |
 | Purchase invoice | **stock in**, supplier payable raised |
 
+### Paying at the counter
+
+Not everything is bought on credit. An invoice can be settled **on account**,
+**paid in full**, or **part paid** — some now, the rest owing — by cash, card or
+bank transfer, and a part payment can be entered in **pounds or dollars**.
+
+Both halves are posted: the bill goes on the party's statement and the payment
+comes straight off it. A delivery paid in cash therefore leaves the supplier's
+balance at zero while still showing on their statement and in the day's cash
+movements — which a document that quietly posted nothing never did. The credit
+limit applies to what is actually left owing, so a customer with no credit can
+still buy, as long as they pay for it.
+
 - **Convert** a quotation to a sales order, and either to a sales invoice. Lines
   and figures carry over and the chain is recorded both ways.
 - **Cancelling a confirmed document reverses everything it did** — stock back,
