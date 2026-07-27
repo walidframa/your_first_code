@@ -253,16 +253,23 @@ export default function Checkout() {
                     <span className="line-clamp-2 min-h-[2.5rem] text-sm leading-tight font-medium text-slate-800">
                       {p.name}
                     </span>
-                    <div className="flex w-full items-baseline justify-between">
-                      <span className="tnum text-sm font-semibold text-slate-900">{money(p.price)}</span>
-                      <span
-                        className={cx(
-                          'tnum text-xs',
-                          soldOut ? 'text-red-600' : low ? 'text-amber-700' : 'text-slate-400',
-                        )}
-                      >
-                        {soldOut ? 'Sold out' : `${p.stock} left`}
-                      </span>
+                    <div className="w-full">
+                      <div className="flex items-baseline justify-between gap-2">
+                        <span className="tnum text-sm font-semibold text-slate-900">{money(p.price)}</span>
+                        <span
+                          className={cx(
+                            'tnum text-xs',
+                            soldOut ? 'text-red-600' : low ? 'text-amber-700' : 'text-slate-400',
+                          )}
+                        >
+                          {soldOut ? 'Sold out' : `${p.stock} left`}
+                        </span>
+                      </div>
+                      {rate > 0 && (
+                        <span className="tnum block text-xs font-medium text-slate-500">
+                          {lbp(toLbp(p.price))}
+                        </span>
+                      )}
                     </div>
                   </button>
                 );
@@ -307,7 +314,10 @@ export default function Checkout() {
                   <ProductThumb product={item} size="sm" />
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium text-slate-800">{item.name}</p>
-                    <p className="tnum text-xs text-slate-400">{money(item.price)} each</p>
+                    <p className="tnum text-xs text-slate-400">
+                      {money(item.price)} each
+                      {rate > 0 && <> · {lbp(toLbp(item.price))}</>}
+                    </p>
                   </div>
                   <div className="flex items-center gap-1">
                     <button
@@ -327,9 +337,16 @@ export default function Checkout() {
                       <Plus size={13} />
                     </button>
                   </div>
-                  <span className="tnum w-16 shrink-0 text-right text-sm font-semibold text-slate-900">
-                    {money(item.price * item.quantity)}
-                  </span>
+                  <div className="w-24 shrink-0 text-right">
+                    <span className="tnum block text-sm font-semibold text-slate-900">
+                      {money(item.price * item.quantity)}
+                    </span>
+                    {rate > 0 && (
+                      <span className="tnum block text-[11px] text-slate-400">
+                        {lbp(toLbp(item.price * item.quantity))}
+                      </span>
+                    )}
+                  </div>
                 </li>
               ))}
             </ul>

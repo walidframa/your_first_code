@@ -137,6 +137,18 @@ try {
     await page.waitForSelector('text=/1 USD = [\\d,]+ LL/');
   });
 
+  await step('each product tile shows both currencies', async () => {
+    const tile = page.locator('section button', { hasText: 'Espresso' }).first();
+    await tile.locator('text=/\\$\\d/').first().waitFor();
+    await tile.locator('text=/[\\d,]+ LL/').first().waitFor();
+  });
+
+  await step('each cart line shows both currencies', async () => {
+    const line = page.locator('aside li', { hasText: 'Espresso' }).first();
+    await line.locator('text=/\\$[\\d.]+ each/').waitFor();
+    await line.locator('text=/[\\d,]+ LL/').first().waitFor();
+  });
+
   await step('split USD + LBP tender covers the total', async () => {
     await page.click('[role=dialog] button:has-text("Cash")');
     const dialog = page.locator('[role=dialog]');
