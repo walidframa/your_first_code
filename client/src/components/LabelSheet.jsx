@@ -51,12 +51,11 @@ export function Label({ product, size, rate, showLbp = true }) {
 
   return (
     <div
-      className="flex flex-col items-center justify-between overflow-hidden bg-white text-center"
+      className="label-one flex flex-col items-center justify-between overflow-hidden bg-white text-center"
       style={{
         width: `${size.width}mm`,
         height: `${size.height}mm`,
         padding: '1.5mm',
-        border: '0.2mm dashed #cbd5e1',
       }}
     >
       <span
@@ -104,20 +103,42 @@ export function Label({ product, size, rate, showLbp = true }) {
 /**
  * The printable sheet. Only this element survives the print stylesheet, so the
  * app's own chrome never appears on the page.
+ *
+ * Two modes, because the stock differs:
+ *
+ *  - `sheet`: an A4 page of die-cut labels (Avery-style), laid out as a grid.
+ *  - `roll`:  a label printer, where **one physical label is one page**. Each
+ *             label gets its own page and the page itself is sized to the label,
+ *             otherwise the whole grid is squeezed onto a single label.
+ *
+ * The page size cannot come from a stylesheet written ahead of time because it
+ * depends on the size chosen, so the @page rule is emitted here.
  */
-export default function LabelSheet({ labels, size, rate, showLbp }) {
+export default function LabelSheet({ labels, size, rate, showLbp, mode = 'sheet' }) {
+  const pageRule =
+    mode === 'roll'
+      ? `@page { size: ${size.width}mm ${size.height}mm; margin: 0; }`
+      : '@page { size: A4; margin: 6mm; }';
+
   return (
-    <div
-      className="label-sheet grid bg-white"
-      style={{
-        gridTemplateColumns: `repeat(${size.perRow}, ${size.width}mm)`,
-        gap: '2mm',
-        justifyContent: 'center',
-      }}
-    >
-      {labels.map((product, i) => (
-        <Label key={`${product.id}-${i}`} product={product} size={size} rate={rate} showLbp={showLbp} />
-      ))}
-    </div>
+    <>
+      <style>{pageRule}</style>
+      <div
+        className={`label-sheet bg-white ${mode === 'roll' ? 'mode-roll' : 'mode-sheet grid'}`}
+        style={
+          mode === 'roll'
+            ? undefined
+            : {
+                gridTemplateColumns: `repeat(${size.perRow}, ${size.width}mm)`,
+                gap: '2mm',
+                justifyContent: 'center',
+              }
+        }
+      >
+        {labels.map((product, i) => (
+          <Label key={`${product.id}-${i}`} product={product} size={size} rate={rate} showLbp={showLbp} />
+        ))}
+      </div>
+    </>
   );
 }

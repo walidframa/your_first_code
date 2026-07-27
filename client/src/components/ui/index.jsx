@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useId, useMemo, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Info, Loader2, X, XCircle } from 'lucide-react';
 
 export function cx(...parts) {
@@ -58,7 +58,10 @@ export function Button({
 /* ----------------------------------------------------------------- Input */
 
 export function Input({ className, label, hint, error, id, ...props }) {
-  const inputId = id || props.name;
+  // Always produce an id so the label is associated with the field, even when
+  // the caller passes neither id nor name.
+  const generated = useId();
+  const inputId = id || props.name || generated;
   return (
     <div className={cx('w-full', className)}>
       {label && (
@@ -85,7 +88,8 @@ export function Input({ className, label, hint, error, id, ...props }) {
 }
 
 export function Select({ className, label, children, id, ...props }) {
-  const selectId = id || props.name;
+  const generated = useId();
+  const selectId = id || props.name || generated;
   return (
     <div className={cx('w-full', className)}>
       {label && (

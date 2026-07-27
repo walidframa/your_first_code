@@ -391,15 +391,32 @@ try {
   await shot('labels');
 
   await step('label size and currency options change the sheet', async () => {
-    await page.selectOption('#sizeKey, select', { label: 'Small · 38 × 21 mm' }).catch(async () => {
-      await page.getByLabel('Label size').selectOption('small');
-    });
+    await page.getByLabel('Label size').selectOption('small');
     await page.waitForTimeout(400);
     await page.getByLabel('Show the price in pounds too').uncheck();
     await page.waitForTimeout(300);
     if (await page.locator('.label-sheet').first().locator('text=/ LL/').count()) {
       throw new Error('pound prices still shown after unticking');
     }
+  });
+
+  await step('label printer mode puts one label on each page', async () => {
+    await page.getByRole('button', { name: /Label printer/ }).click();
+    await page.waitForTimeout(400);
+    // The page count follows the label count, not the sheet capacity.
+    await page.waitForSelector('text=/10 pages/', { timeout: 10000 });
+
+    // Each label is its own page in the generated PDF.
+    const pdf = await page.pdf({ printBackground: true, preferCSSPageSize: true });
+    const pages = (pdf.toString('latin1').match(/\/Type\s*\/Page[^s]/g) || []).length;
+    if (pages !== 10) throw new Error(`expected 10 pages, got ${pages}`);
+
+    // Switching to sheet stock puts them all on one A4 page instead.
+    await page.getByRole('button', { name: /A4 label sheet/ }).click();
+    await page.waitForTimeout(400);
+    const sheetPdf = await page.pdf({ printBackground: true, preferCSSPageSize: true });
+    const sheetPages = (sheetPdf.toString('latin1').match(/\/Type\s*\/Page[^s]/g) || []).length;
+    if (sheetPages !== 1) throw new Error(`expected 1 A4 page, got ${sheetPages}`);
   });
 
   await step('a quotation converts to a sales order', async () => {
