@@ -1,5 +1,5 @@
 import { db } from '../db.js';
-import { round2 } from './currency.js';
+import { round2, tenderTotals, validatePayments } from './currency.js';
 import { addEntry, creditCheck } from './accounts.js';
 
 const TAX_RATE = Number(process.env.TAX_RATE || 0.08);
@@ -125,6 +125,62 @@ export function totalsFor(lines, discountPercent = 0) {
   return { subtotal, discountPercent: pct, discount, tax, total: round2(taxable + tax) };
 }
 
+/* ----------------------------------------------------------------- payment */
+
+export const PAYMENT_METHODS = ['cash', 'card', 'transfer'];
+
+/**
+ * What was handed over on a document, in USD.
+ *
+ * Pounds are converted at the rate stored on the document rather than today's,
+ * so a purchase settled last month still reconciles after the rate moves.
+ */
+export function paidUsdEquivalent(doc) {
+  const rate = Number(doc.exchange_rate);
+  const lbpAsUsd = rate > 0 ? Number(doc.paid_lbp || 0) / rate : 0;
+  return round2(Number(doc.paid_usd || 0) + lbpAsUsd);
+}
+
+/** What is left on the party's account after the payment. */
+export function outstandingOf(doc) {
+  return round2(Number(doc.total) - paidUsdEquivalent(doc));
+}
+
+/**
+ * Validate and total a payment made against a document.
+ *
+ * `payments` is the same { currency, amount } list the register uses, so a
+ * supplier paid partly in dollars and partly in pounds is expressed the same
+ * way at the counter and on a purchase invoice. Returns the sums plus the
+ * method, or throws with a message meant for the user.
+ */
+export function settlement(payments, method, total, rate) {
+  if (!payments || payments.length === 0) {
+    return { paidUsd: 0, paidLbp: 0, paidTotal: 0, method: null };
+  }
+
+  const invalid = validatePayments(payments);
+  if (invalid) throw new Error(invalid);
+  if (!PAYMENT_METHODS.includes(method)) {
+    throw new Error(`Payment method must be one of: ${PAYMENT_METHODS.join(', ')}`);
+  }
+
+  const totals = tenderTotals(payments, rate);
+  if (totals.totalUsdEquivalent <= 0) throw new Error('A payment must be greater than zero');
+  if (totals.totalUsdEquivalent > round2(total) + 0.01) {
+    throw new Error(
+      `Paying ${totals.totalUsdEquivalent.toFixed(2)} USD is more than the ${round2(total).toFixed(2)} USD total`,
+    );
+  }
+
+  return {
+    paidUsd: totals.paidUsd,
+    paidLbp: totals.paidLbp,
+    paidTotal: totals.totalUsdEquivalent,
+    method,
+  };
+}
+
 /* ------------------------------------------------------------------ effects */
 
 /*
@@ -188,54 +244,87 @@ function moveStock(doc, items, userId, direction, note) {
   }
 }
 
-/** Does this document put a balance on somebody's account? */
+/** Does this document belong on somebody's account at all? */
 function postsToLedger(doc) {
-  return DOC_TYPES[doc.doc_type].posts !== 0 && !!doc.party_id && !!doc.on_account;
+  return DOC_TYPES[doc.doc_type].posts !== 0 && !!doc.party_id;
 }
 
 /**
- * Apply what confirming a document does: stock out or in, and the party billed.
- * Throws — rolling the caller's transaction back — if stock or credit will not
- * allow it.
+ * Apply what confirming a document does: stock out or in, the party billed, and
+ * whatever was paid at the counter taken off again. Throws — rolling the
+ * caller's transaction back — if stock or credit will not allow it.
+ *
+ * The bill and the payment are posted as two entries even when they cancel out.
+ * A cash purchase leaves no balance, but the shop still needs to see the money
+ * that went out, and the supplier's statement should show the delivery.
  */
 export function applyEffects(doc, items, userId, note = doc.doc_number) {
   if (items.length === 0) throw new Error('A document needs at least one line');
 
   moveStock(doc, items, userId, 1, note);
+  if (!postsToLedger(doc)) return;
 
-  if (postsToLedger(doc)) {
-    if (doc.party_type === 'customer') {
-      const check = creditCheck(doc.party_id, doc.total);
-      if (!check.ok) throw new Error(check.error);
-    }
+  // Only the unpaid remainder is credit, so that is what the limit applies to.
+  if (doc.party_type === 'customer') {
+    const check = creditCheck(doc.party_id, outstandingOf(doc));
+    if (!check.ok) throw new Error(check.error);
+  }
+
+  addEntry({
+    partyType: doc.party_type,
+    partyId: doc.party_id,
+    kind: doc.doc_type === 'purchase_invoice' ? 'bill' : 'sale',
+    amountUsd: doc.total,
+    exchangeRate: doc.exchange_rate,
+    note,
+    userId,
+  });
+
+  const paid = paidUsdEquivalent(doc);
+  if (paid > 0) {
     addEntry({
       partyType: doc.party_type,
       partyId: doc.party_id,
-      kind: doc.doc_type === 'purchase_invoice' ? 'bill' : 'sale',
-      amountUsd: doc.total,
+      kind: 'payment',
+      amountUsd: -paid,
+      paidUsd: doc.paid_usd,
+      paidLbp: doc.paid_lbp,
       exchangeRate: doc.exchange_rate,
-      note,
+      note: `${note} — paid ${doc.payment_method}`,
       userId,
     });
   }
 }
 
 /**
- * Undo what confirming a document did. The ledger is corrected with an
- * offsetting entry rather than by deleting the original, so the party's
- * statement still shows what happened and when.
+ * Undo what confirming a document did. The ledger is corrected with offsetting
+ * entries rather than by deleting the originals, so the party's statement still
+ * shows what happened and when.
  */
 export function reverseEffects(doc, items, userId, note = `Cancelled ${doc.doc_number}`) {
   moveStock(doc, items, userId, -1, note);
+  if (!postsToLedger(doc)) return;
 
-  if (postsToLedger(doc)) {
+  addEntry({
+    partyType: doc.party_type,
+    partyId: doc.party_id,
+    kind: 'refund',
+    amountUsd: -doc.total,
+    exchangeRate: doc.exchange_rate,
+    note,
+    userId,
+  });
+
+  // Money paid at the counter comes back with it.
+  const paid = paidUsdEquivalent(doc);
+  if (paid > 0) {
     addEntry({
       partyType: doc.party_type,
       partyId: doc.party_id,
-      kind: 'refund',
-      amountUsd: -doc.total,
+      kind: 'adjustment',
+      amountUsd: paid,
       exchangeRate: doc.exchange_rate,
-      note,
+      note: `${note} — ${doc.payment_method} payment returned`,
       userId,
     });
   }
@@ -279,7 +368,17 @@ export function getDocument(id) {
     .prepare('SELECT id, doc_type, doc_number, status FROM documents WHERE converted_from_id = ?')
     .all(id);
 
-  return { document: { ...doc, on_account: !!doc.on_account }, items, convertedTo };
+  return {
+    document: {
+      ...doc,
+      on_account: !!doc.on_account,
+      // Derived so the client never has to redo the conversion itself.
+      paid_total: paidUsdEquivalent(doc),
+      outstanding: outstandingOf(doc),
+    },
+    items,
+    convertedTo,
+  };
 }
 
 export { TAX_RATE };

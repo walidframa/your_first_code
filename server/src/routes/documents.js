@@ -5,20 +5,26 @@ import { getSettings } from '../lib/settings.js';
 import {
   DOC_TYPES,
   PARTY_TABLE,
+  PAYMENT_METHODS,
   applyEffects,
   buildLines,
   getDocument,
   itemsOf,
   liveSuccessorOf,
   nextDocNumber,
+  outstandingOf,
+  paidUsdEquivalent,
   reverseEffects,
+  settlement,
   totalsFor,
 } from '../lib/documents.js';
+import { round2 } from '../lib/currency.js';
 
 const router = Router();
 
 router.get('/types', requireAuth, (req, res) => {
   res.json({
+    paymentMethods: PAYMENT_METHODS,
     types: Object.entries(DOC_TYPES).map(([key, t]) => ({
       key,
       label: t.label,
@@ -56,7 +62,12 @@ router.get('/', requireAuth, requireRole('admin'), (req, res) => {
   }
   sql += ' ORDER BY d.created_at DESC, d.id DESC LIMIT 500';
 
-  res.json({ documents: db.prepare(sql).all(...params) });
+  const documents = db
+    .prepare(sql)
+    .all(...params)
+    .map((d) => ({ ...d, paid_total: paidUsdEquivalent(d), outstanding: outstandingOf(d) }));
+
+  res.json({ documents });
 });
 
 router.get('/:id', requireAuth, requireRole('admin'), (req, res) => {
@@ -66,8 +77,16 @@ router.get('/:id', requireAuth, requireRole('admin'), (req, res) => {
 });
 
 router.post('/', requireAuth, requireRole('admin'), (req, res) => {
-  const { docType, partyId, items, discountPercent = 0, notes, validUntil, onAccount = true } =
-    req.body || {};
+  const {
+    docType,
+    partyId,
+    items,
+    discountPercent = 0,
+    notes,
+    validUntil,
+    payments = [],
+    paymentMethod = null,
+  } = req.body || {};
 
   const type = DOC_TYPES[docType];
   if (!type) return res.status(400).json({ error: 'Unknown document type' });
@@ -83,14 +102,16 @@ router.post('/', requireAuth, requireRole('admin'), (req, res) => {
     const lines = buildLines(items, docType);
     const totals = totalsFor(lines, discountPercent);
     const { exchange_rate: rate } = getSettings();
+    const paid = settlement(payments, paymentMethod, totals.total, rate);
 
     const id = transaction(() => {
       const info = db
         .prepare(
           `INSERT INTO documents
              (doc_type, doc_number, party_type, party_id, status, valid_until, subtotal,
-              discount_percent, discount, tax, total, exchange_rate, on_account, notes, user_id)
-           VALUES (?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              discount_percent, discount, tax, total, exchange_rate, on_account, notes, user_id,
+              paid_usd, paid_lbp, payment_method)
+           VALUES (?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           docType,
@@ -104,9 +125,13 @@ router.post('/', requireAuth, requireRole('admin'), (req, res) => {
           totals.tax,
           totals.total,
           rate,
-          onAccount ? 1 : 0,
+          // Whatever is not paid at the counter is what goes on the account.
+          paid.paidTotal < totals.total ? 1 : 0,
           notes || null,
           req.user.id,
+          paid.paidUsd,
+          paid.paidLbp,
+          paid.method,
         );
 
       const insertItem = db.prepare(
@@ -142,7 +167,7 @@ router.put('/:id', requireAuth, requireRole('admin'), (req, res) => {
   const doc = db.prepare('SELECT * FROM documents WHERE id = ?').get(req.params.id);
   if (!doc) return res.status(404).json({ error: 'Document not found' });
 
-  const { partyId, items, discountPercent, notes, validUntil, onAccount } = req.body || {};
+  const { partyId, items, discountPercent, notes, validUntil, payments, paymentMethod } = req.body || {};
 
   const type = DOC_TYPES[doc.doc_type];
   const nextPartyId = partyId === undefined ? doc.party_id : partyId || null;
@@ -166,6 +191,29 @@ router.put('/:id', requireAuth, requireRole('admin'), (req, res) => {
         }));
     const totals = totalsFor(lines, discountPercent ?? doc.discount_percent);
 
+    /*
+     * A payment is replaced wholesale when one is sent, and left alone when the
+     * field is absent — so editing the lines of an already-paid document does
+     * not quietly wipe the payment off it.
+     */
+    const paid =
+      payments === undefined
+        ? {
+            paidUsd: doc.paid_usd,
+            paidLbp: doc.paid_lbp,
+            paidTotal: paidUsdEquivalent(doc),
+            method: doc.payment_method,
+          }
+        : settlement(payments, paymentMethod, totals.total, doc.exchange_rate);
+
+    if (paid.paidTotal > round2(totals.total) + 0.01) {
+      return res.status(400).json({
+        error: `${paid.paidTotal.toFixed(2)} USD has already been paid — the new total of ${totals.total.toFixed(
+          2,
+        )} USD is less than that`,
+      });
+    }
+
     transaction(() => {
       // Undo the old version first, using the lines as they stand now.
       if (doc.status === 'confirmed') {
@@ -174,7 +222,8 @@ router.put('/:id', requireAuth, requireRole('admin'), (req, res) => {
 
       db.prepare(
         `UPDATE documents SET party_id = ?, valid_until = ?, subtotal = ?, discount_percent = ?,
-           discount = ?, tax = ?, total = ?, on_account = ?, notes = ? WHERE id = ?`,
+           discount = ?, tax = ?, total = ?, on_account = ?, notes = ?,
+           paid_usd = ?, paid_lbp = ?, payment_method = ? WHERE id = ?`,
       ).run(
         nextPartyId,
         validUntil === undefined ? doc.valid_until : validUntil || null,
@@ -183,8 +232,11 @@ router.put('/:id', requireAuth, requireRole('admin'), (req, res) => {
         totals.discount,
         totals.tax,
         totals.total,
-        onAccount === undefined ? doc.on_account : onAccount ? 1 : 0,
+        paid.paidTotal < totals.total ? 1 : 0,
         notes === undefined ? doc.notes : notes || null,
+        paid.paidUsd,
+        paid.paidLbp,
+        paid.method,
         doc.id,
       );
 

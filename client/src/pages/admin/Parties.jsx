@@ -387,7 +387,13 @@ export default function Parties({ type }) {
           <p className="text-xs text-slate-500">{config.totalLabel}</p>
           <p className="mt-1 text-3xl font-semibold text-slate-900">{money(outstanding)}</p>
           <p className="mt-0.5 text-xs text-slate-400">
-            across {(parties || []).filter((p) => p.balance > 0.005).length} of {(parties || []).length}
+            {(() => {
+              const owing = (parties || []).filter((p) => p.balance > 0.005).length;
+              const all = (parties || []).length;
+              if (all === 0) return `No ${config.single}s yet`;
+              if (owing === 0) return `Every ${config.single} is square`;
+              return `across ${owing} of ${all} ${all === 1 ? config.single : `${config.single}s`}`;
+            })()}
           </p>
         </Card>
 
