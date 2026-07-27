@@ -8,6 +8,8 @@ import orderRoutes from './routes/orders.js';
 import reportRoutes from './routes/reports.js';
 import userRoutes from './routes/users.js';
 import settingsRoutes from './routes/settings.js';
+import accountsRoutes from './routes/accounts.js';
+import { partyRouter } from './routes/parties.js';
 import inventoryRoutes from './routes/inventory.js';
 import importRoutes from './routes/imports.js';
 
@@ -26,6 +28,9 @@ app.use('/api/users', userRoutes);
 app.use('/api/inventory', inventoryRoutes);
 app.use('/api/imports', importRoutes);
 app.use('/api/settings', settingsRoutes);
+app.use('/api/accounts', accountsRoutes);
+app.use('/api/customers', partyRouter('customer'));
+app.use('/api/suppliers', partyRouter('supplier'));
 
 app.use((req, res) => res.status(404).json({ error: 'Not found' }));
 // eslint-disable-next-line no-unused-vars

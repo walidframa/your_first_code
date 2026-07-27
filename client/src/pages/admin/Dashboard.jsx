@@ -56,6 +56,7 @@ export default function Dashboard() {
   const [summary, setSummary] = useState(null);
   const [range, setRange] = useState('30d');
   const [refreshing, setRefreshing] = useState(false);
+  const [accounts, setAccounts] = useState(null);
 
   useEffect(() => {
     const selected = RANGES.find((r) => r.key === range);
@@ -72,6 +73,11 @@ export default function Dashboard() {
       .then((res) => setSummary(res.data))
       .finally(() => setRefreshing(false));
   }, [range]);
+
+  // Balances are a running position, not scoped to the selected date range.
+  useEffect(() => {
+    api.get('/accounts/summary').then((res) => setAccounts(res.data));
+  }, []);
 
   return (
     <div className="flex h-full flex-col">
@@ -119,6 +125,45 @@ export default function Dashboard() {
                 across {summary.orderCount} order{summary.orderCount === 1 ? '' : 's'}
               </p>
             </section>
+
+            {accounts && (
+              <div className="grid grid-cols-3 gap-4">
+                <Link to="/admin/customers">
+                  <Card className="px-4 py-3.5 transition hover:ring-brand-300">
+                    <p className="text-xs text-slate-500">Owed to you</p>
+                    <p className="mt-1 text-2xl font-semibold text-amber-700">
+                      {money(accounts.receivable)}
+                    </p>
+                    <p className="mt-0.5 text-xs text-slate-400">
+                      across {accounts.receivableParties} customer
+                      {accounts.receivableParties === 1 ? '' : 's'}
+                    </p>
+                  </Card>
+                </Link>
+                <Link to="/admin/suppliers">
+                  <Card className="px-4 py-3.5 transition hover:ring-brand-300">
+                    <p className="text-xs text-slate-500">You owe</p>
+                    <p className="mt-1 text-2xl font-semibold text-slate-900">{money(accounts.payable)}</p>
+                    <p className="mt-0.5 text-xs text-slate-400">
+                      across {accounts.payableParties} supplier
+                      {accounts.payableParties === 1 ? '' : 's'}
+                    </p>
+                  </Card>
+                </Link>
+                <Card className="px-4 py-3.5">
+                  <p className="text-xs text-slate-500">Net position</p>
+                  <p
+                    className={cx(
+                      'mt-1 text-2xl font-semibold',
+                      accounts.net >= 0 ? 'text-brand-700' : 'text-red-600',
+                    )}
+                  >
+                    {money(accounts.net)}
+                  </p>
+                  <p className="mt-0.5 text-xs text-slate-400">receivables less payables</p>
+                </Card>
+              </div>
+            )}
 
             <div className="grid grid-cols-4 gap-4">
               <StatTile label="Orders" value={summary.orderCount} />

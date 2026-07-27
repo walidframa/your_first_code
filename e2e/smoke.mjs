@@ -295,6 +295,65 @@ try {
     await page.waitForSelector('text=Store Owner', { timeout: 15000 });
   });
 
+  await step('admin can add a customer with a credit limit', async () => {
+    await page.click('a[title="Customers"]');
+    await page.waitForSelector('text=Total owed to you', { timeout: 15000 });
+    await page.click('button:has-text("New customer")');
+    await page.waitForSelector('text=New customer');
+    await page.fill('input[name="name"], [role=dialog] input >> nth=0', 'Rami Haddad');
+    await page.fill('[role=dialog] input[type=number] >> nth=0', '200');
+    await page.click('button:has-text("Add")');
+    await page.waitForSelector('td:has-text("Rami Haddad")', { timeout: 15000 });
+  });
+  await shot('customers');
+
+  await step('recording a payment moves the balance', async () => {
+    await page.click('td:has-text("Rami Haddad")');
+    await page.waitForSelector('text=Balance', { timeout: 15000 });
+    await page.click('button:has-text("Charge")');
+    await page.waitForSelector('text=Add a charge');
+    await page.fill('[role=dialog] input[type=number] >> nth=0', '50');
+    await page.click('button:has-text("Record $50.00")');
+    await page.waitForSelector('text=Charge recorded', { timeout: 15000 });
+    await page.waitForSelector('text=/Owes you \\$50\\.00|\\$50\\.00/', { timeout: 15000 });
+  });
+
+  await step('a supplier bill shows up as a payable', async () => {
+    await page.keyboard.press('Escape');
+    await page.click('a[title="Suppliers"]');
+    await page.waitForSelector('text=Total you owe', { timeout: 15000 });
+    await page.click('button:has-text("New supplier")');
+    await page.fill('[role=dialog] input >> nth=0', 'Corner Bakehouse');
+    await page.click('button:has-text("Add")');
+    await page.waitForSelector('td:has-text("Corner Bakehouse")', { timeout: 15000 });
+  });
+  await shot('suppliers');
+
+  await step('the dashboard reports both sides of the book', async () => {
+    await page.click('a[title="Dashboard"]');
+    await page.waitForSelector('text=Owed to you', { timeout: 15000 });
+    await page.waitForSelector('text=You owe');
+    await page.waitForSelector('text=Net position');
+  });
+
+  await step('a cashier can put a sale on a customer account', async () => {
+    await page.click('a[title="Register"]');
+    await page.waitForSelector('text=Current sale', { timeout: 15000 });
+    await page.getByRole('button', { name: /^Bagel/ }).first().click();
+
+    await page.click('button:has-text("Add customer")');
+    await page.waitForSelector('text=Choose a customer', { timeout: 15000 });
+    await page.click('button:has-text("Rami Haddad")');
+    await page.waitForSelector('text=owes');
+
+    await page.click('button:has-text("Charge $")');
+    await page.waitForSelector("text=Put on Rami Haddad's account");
+    await page.click("button:has-text(\"Put on Rami Haddad's account\")");
+    await page.waitForSelector('text=Payment complete', { timeout: 15000 });
+    await page.click('button:has-text("New sale")');
+  });
+  await shot('account-sale');
+
   await step('admin can change the exchange rate', async () => {
     await page.click('a[title="Settings"]');
     await page.waitForSelector('text=Exchange rate', { timeout: 15000 });
