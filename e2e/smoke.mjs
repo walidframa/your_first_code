@@ -63,6 +63,20 @@ async function step(name, fn) {
  * the dialog is still unmounting, and the failure then points at the click
  * rather than at the dialog that never closed.
  */
+/**
+ * Open the New document dialog and wait for it to settle.
+ *
+ * The dialog animates in, and a click that lands mid-animation is reported by
+ * Playwright as "element is not stable" — a flake that only shows on a slower
+ * machine. Waiting for the heading is waiting for the animation.
+ */
+async function openNewDocument() {
+  await page.click('button:has-text("New document")');
+  await page.waitForSelector('[role=dialog] >> text=New document', { timeout: 15000 });
+  await page.locator('[role=dialog]').getByRole('button', { name: /Quotation/ }).waitFor();
+  return page.locator('[role=dialog]');
+}
+
 async function closeDialog() {
   const dialog = page.locator('[role=dialog]');
   if (!(await dialog.count())) return;
@@ -367,10 +381,7 @@ try {
 
     await page.click('a[title="Documents"]');
     await page.waitForSelector('button:has-text("New document")', { timeout: 15000 });
-    await page.click('button:has-text("New document")');
-    await page.waitForSelector('text=New document');
-
-    const dialog = page.locator('[role=dialog]');
+    const dialog = await openNewDocument();
     // Type is chosen by icon tile now.
     await dialog.getByRole('button', { name: /Purchase invoice/ }).click();
     await dialog.locator('#doc-party').selectOption({ label: 'Corner Bakehouse' });
@@ -482,8 +493,7 @@ try {
 
   await step('a quotation converts to a sales order', async () => {
     await page.click('a[title="Documents"]');
-    await page.click('button:has-text("New document")');
-    const dialog = page.locator('[role=dialog]');
+    const dialog = await openNewDocument();
     await dialog.getByRole('button', { name: /Quotation/ }).click();
     await dialog.locator('#doc-party').selectOption({ label: 'Rami Haddad' });
     await dialog.getByLabel('Search products to add').fill('Croissant');
@@ -500,8 +510,7 @@ try {
 
   await step('a new product can be created from inside a document', async () => {
     await page.click('a[title="Documents"]');
-    await page.click('button:has-text("New document")');
-    const dialog = page.locator('[role=dialog]');
+    const dialog = await openNewDocument();
     await dialog.getByRole('button', { name: /Purchase invoice/ }).click();
     await dialog.locator('#doc-party').selectOption({ label: 'Corner Bakehouse' });
 
@@ -525,8 +534,7 @@ try {
 
   await step('a purchase paid in cash leaves no payable behind', async () => {
     await page.click('a[title="Documents"]');
-    await page.click('button:has-text("New document")');
-    const dialog = page.locator('[role=dialog]');
+    const dialog = await openNewDocument();
     await dialog.getByRole('button', { name: /Purchase invoice/ }).click();
     await dialog.locator('#doc-party').selectOption({ label: 'Corner Bakehouse' });
     await dialog.getByLabel('Search products to add').fill('Croissant');
@@ -555,8 +563,7 @@ try {
 
   await step('a part payment leaves only the remainder owing', async () => {
     await page.click('a[title="Documents"]');
-    await page.click('button:has-text("New document")');
-    const dialog = page.locator('[role=dialog]');
+    const dialog = await openNewDocument();
     await dialog.getByRole('button', { name: /Purchase invoice/ }).click();
     await dialog.locator('#doc-party').selectOption({ label: 'Corner Bakehouse' });
     await dialog.getByLabel('Search products to add').fill('Croissant');
@@ -585,8 +592,7 @@ try {
 
   await step('a confirmed document can be corrected, and the books follow', async () => {
     await page.click('a[title="Documents"]');
-    await page.click('button:has-text("New document")');
-    let dialog = page.locator('[role=dialog]');
+    let dialog = await openNewDocument();
     await dialog.getByRole('button', { name: /Purchase invoice/ }).click();
     await dialog.locator('#doc-party').selectOption({ label: 'Corner Bakehouse' });
     await dialog.getByLabel('Search products to add').fill('Bagel');
