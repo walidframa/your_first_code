@@ -49,8 +49,18 @@ export function RevenueChart({ data }) {
   const [view, setView] = useState('chart');
   const [hover, setHover] = useState(null);
 
-  if (!data.length) {
-    return <p className="px-5 pb-5 text-sm text-slate-400">No sales in this period.</p>;
+  /*
+   * Nothing sold is not the same as a chart of zero. An axis drawn against a
+   * maximum of nothing reads "$1, $1, $0" and invites the reader to look for a
+   * shape that is not there, so say it in words instead.
+   */
+  const total = data.reduce((sum, d) => sum + d.revenue, 0);
+  if (!data.length || total === 0) {
+    return (
+      <p className="px-5 pb-5 text-sm text-slate-400">
+        No sales in this period{data.length ? ' — nothing was rung up on any of these days' : ''}.
+      </p>
+    );
   }
 
   const max = niceCeil(Math.max(...data.map((d) => d.revenue)));

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowDownLeft, ArrowUpRight, Banknote, Lock, LockOpen } from 'lucide-react';
+import { ArrowDownLeft, ArrowUpRight, Banknote, EyeOff, Lock, LockOpen, RefreshCw } from 'lucide-react';
 import api from '../api';
 import { lbp } from '../context/SettingsContext';
 import { Button, Input, Modal, Select, cx, money, useToast } from './ui';
@@ -424,18 +424,23 @@ function MoveCash({ direction, onClose, onDone }) {
   );
 }
 
-/* ------------------------------------------------------------------- bar */
+/* ----------------------------------------------------------------- panel */
 
 /**
- * The drawer's state, where the cashier is already looking.
+ * The drawer, where the cashier is already looking.
  *
- * Shut, it is the loudest thing on the screen, because a cash sale will be
- * refused until it is open and finding that out at the counter with a customer
- * waiting is the worst moment to learn it.
+ * Cash on hand is the panel's whole reason to exist, so it is the biggest thing
+ * in it rather than a note beside the status — a figure at eleven pixels in a
+ * corner reads as decoration, and gets missed.
+ *
+ * Shut, the panel is the loudest thing on the screen: a cash sale will be
+ * refused until it is open, and the worst moment to learn that is at the
+ * counter with a customer waiting.
  */
 export default function CashBox({ onChanged }) {
   const [state, setState] = useState(null);
   const [dialog, setDialog] = useState(null);
+  const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
     const res = await api.get('/cash/current');
@@ -446,6 +451,15 @@ export default function CashBox({ onChanged }) {
     load();
   }, [load]);
 
+  const refresh = async () => {
+    setBusy(true);
+    try {
+      await load();
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const done = () => {
     setDialog(null);
     load();
@@ -455,66 +469,93 @@ export default function CashBox({ onChanged }) {
   if (!state) return null;
   const { session, denominations, expected } = state;
 
-  return (
-    <>
-      {/*
-       * Stacked rather than side by side: the cart column is narrow, and a row
-       * that has to wrap puts the icon in the middle of the sentence.
-       */}
-      <div
-        className={cx(
-          'border-b px-4 py-2.5',
-          session ? 'border-slate-100 bg-white' : 'border-amber-200 bg-amber-50',
-        )}
-      >
-        <div className="flex items-start gap-2">
-          <Banknote
-            size={16}
-            className={cx('mt-0.5 shrink-0', session ? 'text-brand-600' : 'text-amber-600')}
-          />
-          {session ? (
+  if (!session) {
+    return (
+      <>
+        <div className="border-b border-amber-200 bg-amber-50 px-4 py-3">
+          <div className="flex items-center gap-2">
+            <span className="rounded-lg bg-amber-100 p-1.5 text-amber-700">
+              <Lock size={15} />
+            </span>
             <div className="min-w-0 flex-1">
-              <p className="flex items-baseline justify-between gap-2 text-sm font-medium text-slate-800">
-                <span>Cashbox open</span>
-                {expected && (
-                  <span className="tnum shrink-0 font-normal text-slate-500">
-                    {money(expected.usd)} · {lbp(expected.lbp)}
-                  </span>
-                )}
-              </p>
-              <p className="text-[11px] text-slate-400">
-                since {new Date(`${session.opened_at}Z`).toLocaleTimeString([], { timeStyle: 'short' })} ·{' '}
-                {session.opened_by_name}
-              </p>
-            </div>
-          ) : (
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium text-amber-900">Cashbox closed</p>
+              <p className="text-sm font-semibold text-amber-900">Cashbox closed</p>
               <p className="text-[11px] leading-snug text-amber-700">
                 {state.required ? 'Cash sales are refused until it is open' : 'Open it to track the drawer'}
               </p>
             </div>
-          )}
+          </div>
+          <Button size="sm" className="mt-2.5 w-full" onClick={() => setDialog('open')}>
+            <LockOpen size={15} /> Open the cashbox
+          </Button>
         </div>
 
-        <div className="mt-2 flex items-center gap-1">
-          {session ? (
-            <>
-              <Button size="sm" variant="subtle" className="flex-1" onClick={() => setDialog('in')}>
-                <ArrowDownLeft size={15} /> Cash in
-              </Button>
-              <Button size="sm" variant="subtle" className="flex-1" onClick={() => setDialog('out')}>
-                <ArrowUpRight size={15} /> Cash out
-              </Button>
-              <Button size="sm" variant="secondary" onClick={() => setDialog('close')}>
-                <Lock size={14} /> Close
-              </Button>
-            </>
-          ) : (
-            <Button size="sm" className="w-full" onClick={() => setDialog('open')}>
-              <LockOpen size={14} /> Open the cashbox
-            </Button>
-          )}
+        {dialog === 'open' && (
+          <OpenDrawer denominations={denominations} onClose={() => setDialog(null)} onOpened={done} />
+        )}
+      </>
+    );
+  }
+
+  return (
+    <>
+      <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <span className="flex items-center gap-1.5 text-[11px] font-semibold tracking-wide text-slate-500 uppercase">
+            <Banknote size={13} className="text-brand-600" />
+            Cash on hand
+          </span>
+          <button
+            onClick={refresh}
+            aria-label="Refresh cash on hand"
+            title="Refresh"
+            className="rounded p-1 text-slate-400 transition hover:bg-slate-200 hover:text-slate-700"
+          >
+            <RefreshCw size={13} className={busy ? 'animate-spin' : undefined} />
+          </button>
+        </div>
+
+        {expected ? (
+          <p className="flex items-baseline gap-2">
+            <span className="tnum text-2xl leading-none font-semibold text-slate-900">
+              {money(expected.usd)}
+            </span>
+            <span className="tnum text-base leading-none font-medium text-slate-500">
+              {lbp(expected.lbp)}
+            </span>
+          </p>
+        ) : (
+          /*
+           * A cashier counts blind, so the figure is withheld — said plainly,
+           * because a blank space where a number should be looks broken.
+           */
+          <p className="flex items-center gap-1.5 text-sm text-slate-500">
+            <EyeOff size={14} /> Counted at close
+          </p>
+        )}
+
+        <p className="mt-1 text-[11px] text-slate-400">
+          Open since {new Date(`${session.opened_at}Z`).toLocaleTimeString([], { timeStyle: 'short' })} ·{' '}
+          {session.opened_by_name}
+        </p>
+
+        <div className="mt-2.5 flex items-center gap-1.5">
+          <Button size="sm" variant="secondary" className="flex-1" onClick={() => setDialog('in')}>
+            <ArrowDownLeft size={15} /> Cash in
+          </Button>
+          <Button size="sm" variant="secondary" className="flex-1" onClick={() => setDialog('out')}>
+            <ArrowUpRight size={15} /> Cash out
+          </Button>
+          {/* Icon-only to fit three controls in a narrow column, so it needs a
+              name of its own for anyone not looking at the icon. */}
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => setDialog('close')}
+            aria-label="Close the cashbox"
+            title="Close the cashbox"
+          >
+            <Lock size={15} />
+          </Button>
         </div>
       </div>
 

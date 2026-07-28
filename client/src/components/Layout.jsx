@@ -10,6 +10,7 @@ import {
   Package,
   Receipt,
   ScanLine,
+  ScrollText,
   ShoppingBag,
   Settings as SettingsIcon,
   Store,
@@ -46,7 +47,7 @@ const ADMIN_NAV = [
     heading: 'Selling',
     items: [
       { to: '/admin/documents', label: 'Documents', icon: FileText },
-      { to: '/admin/orders', label: 'Orders', icon: Receipt },
+      { to: '/admin/orders', label: 'Orders', icon: ScrollText },
       { to: '/admin/customers', label: 'Customers', icon: Contact },
       { to: '/admin/suppliers', label: 'Suppliers', icon: Building2 },
     ],
@@ -115,17 +116,21 @@ export default function Layout() {
         {/* The rail scrolls rather than squashing: a shorter screen must not
             cut the last group off with no way to reach it. */}
         {user.role === 'admin' && (
-          <div className="min-h-0 w-full flex-1 space-y-2 overflow-y-auto pt-2">
-            {ADMIN_NAV.map((group) => (
-              <nav key={group.heading} className="flex w-full flex-col gap-1">
-                <p className="px-1 pb-0.5 text-[9px] font-semibold tracking-wider text-slate-400 uppercase">
-                  {group.heading}
-                </p>
-                {group.items.map((item) => (
-                  <NavItem key={item.to} {...item} />
-                ))}
-              </nav>
-            ))}
+          <div className="relative min-h-0 w-full flex-1">
+            <div className="h-full space-y-2 overflow-y-auto pt-2 pb-4">
+              {ADMIN_NAV.map((group) => (
+                <nav key={group.heading} className="flex w-full flex-col gap-1">
+                  <p className="px-1 pb-0.5 text-[9px] font-semibold tracking-wider text-slate-400 uppercase">
+                    {group.heading}
+                  </p>
+                  {group.items.map((item) => (
+                    <NavItem key={item.to} {...item} />
+                  ))}
+                </nav>
+              ))}
+            </div>
+            {/* A hint that the list continues past the fold. */}
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-gradient-to-t from-slate-900 to-transparent" />
           </div>
         )}
 

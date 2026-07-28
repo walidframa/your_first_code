@@ -108,13 +108,22 @@ export default function Profit() {
               />
               Take expenses off
             </label>
-            <Select name="preset" value={preset} onChange={(e) => setPreset(e.target.value)} aria-label="Period">
-              {PRESETS.map(([value, text]) => (
-                <option key={value} value={value}>
-                  {text}
-                </option>
-              ))}
-            </Select>
+            {/* Sized by a wrapper: the Select is w-full by design, and two
+                width utilities on one element is a coin toss. */}
+            <div className="w-40 shrink-0">
+              <Select
+                name="preset"
+                value={preset}
+                onChange={(e) => setPreset(e.target.value)}
+                aria-label="Period"
+              >
+                {PRESETS.map(([value, text]) => (
+                  <option key={value} value={value}>
+                    {text}
+                  </option>
+                ))}
+              </Select>
+            </div>
           </div>
         }
       />
