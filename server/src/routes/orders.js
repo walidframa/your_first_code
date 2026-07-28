@@ -6,7 +6,7 @@ import { getSettings } from '../lib/settings.js';
 import { addEntry, creditCheck } from '../lib/accounts.js';
 import { currentSession, recordMovement, requiresSession } from '../lib/cash.js';
 import {
-  CURRENCIES,
+  CHANGE_MODES,
   round2,
   changeBreakdown,
   tenderTotals,
@@ -28,6 +28,7 @@ router.post('/', requireAuth, (req, res) => {
     amountTendered,
     payments,
     changeCurrency = 'LBP',
+    changeUsd: requestedChangeUsd = null,
     customerId = null,
   } = req.body || {};
 
@@ -44,8 +45,12 @@ router.post('/', requireAuth, (req, res) => {
   if (!Number.isFinite(discount) || discount < 0 || discount > 100) {
     return res.status(400).json({ error: 'discountPercent must be between 0 and 100' });
   }
-  if (!CURRENCIES.includes(changeCurrency)) {
-    return res.status(400).json({ error: `changeCurrency must be one of: ${CURRENCIES.join(', ')}` });
+  // 'SPLIT' is a third way of giving change, not a third currency.
+  if (!CHANGE_MODES.includes(changeCurrency)) {
+    return res.status(400).json({ error: `changeCurrency must be one of: ${CHANGE_MODES.join(', ')}` });
+  }
+  if (changeCurrency === 'SPLIT' && Number(requestedChangeUsd) < 0) {
+    return res.status(400).json({ error: 'The dollars given as change cannot be negative' });
   }
 
   const { exchange_rate: exchangeRate, lbp_rounding: lbpRounding } = getSettings();
@@ -120,7 +125,13 @@ router.post('/', requireAuth, (req, res) => {
         amountTenderedValue = totals.totalUsdEquivalent;
         changeDue = round2(totals.totalUsdEquivalent - total);
 
-        const breakdown = changeBreakdown(changeDue, changeCurrency, exchangeRate, lbpRounding);
+        const breakdown = changeBreakdown(
+          changeDue,
+          changeCurrency,
+          exchangeRate,
+          lbpRounding,
+          requestedChangeUsd,
+        );
         changeUsd = breakdown.changeUsd;
         changeLbp = breakdown.changeLbp;
       }

@@ -11,6 +11,13 @@
 
 export const CURRENCIES = ['USD', 'LBP'];
 
+/**
+ * How change can be given back. `SPLIT` is not a currency — it is some dollars
+ * and the rest in pounds, which is how a till with a thinning stack of notes
+ * actually settles up.
+ */
+export const CHANGE_MODES = [...CURRENCIES, 'SPLIT'];
+
 /** Round a USD amount to cents. */
 export function round2(n) {
   return Math.round((Number(n) + Number.EPSILON) * 100) / 100;
@@ -64,11 +71,33 @@ export function tenderTotals(payments, rate) {
 }
 
 /**
- * Work out change for `changeUsdEquivalent`, given back in `currency`.
- * The other currency's field is zero — change is never split.
+ * Work out change for `changeUsdEquivalent`, given back in `currency` — one of
+ * `CHANGE_MODES`. `USD` and `LBP` put the whole amount in that currency and
+ * leave the other field zero; `SPLIT` uses `usdPart` as the dollars handed over
+ * and converts what is left.
  */
-export function changeBreakdown(changeUsdEquivalent, currency, rate, step = 1000) {
+export function changeBreakdown(changeUsdEquivalent, currency, rate, step = 1000, usdPart = null) {
   const due = Math.max(0, Number(changeUsdEquivalent) || 0);
+
+  /*
+   * Split change: hand back some dollars and the rest in pounds.
+   *
+   * A till rarely holds enough of either note to give change cleanly in one
+   * currency — the dollars run out before the day does. The cashier says how
+   * many dollars they are handing over and the remainder converts, rather than
+   * both figures being typed and having to agree.
+   *
+   * The pounds are rounded to a note the shop can actually give, so the change
+   * can be a few hundred pounds off the exact figure. That difference is real:
+   * it is what the customer walked away with, and it shows up honestly in the
+   * drawer at close rather than being hidden in the arithmetic.
+   */
+  if (currency === 'SPLIT') {
+    const dollars = Math.min(Math.max(0, round2(Number(usdPart) || 0)), due);
+    const remainder = round2(due - dollars);
+    return { changeUsd: dollars, changeLbp: usdToLbp(remainder, rate, step) };
+  }
+
   if (currency === 'LBP') {
     return { changeUsd: 0, changeLbp: usdToLbp(due, rate, step) };
   }
