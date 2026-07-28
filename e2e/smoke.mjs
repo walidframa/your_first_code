@@ -211,16 +211,26 @@ try {
 
   await step('cashier can switch the change currency', async () => {
     const dialog = page.locator('[role=dialog]');
-    await dialog.getByRole('button', { name: 'US dollars' }).last().click();
+    await dialog.getByRole('button', { name: 'Dollars', exact: true }).click();
     await page.waitForSelector('text=/Confirm · change \\$/');
-    await dialog.getByRole('button', { name: 'Lebanese pounds' }).last().click();
+    await dialog.getByRole('button', { name: 'Pounds', exact: true }).click();
     await page.waitForSelector('text=/Confirm · change [\\d,]+ LL/');
   });
+
+  await step('change can be split between dollars and pounds', async () => {
+    const dialog = page.locator('[role=dialog]');
+    await dialog.getByRole('button', { name: 'Both', exact: true }).click();
+    // Picking "Both" aims the keypad at the change, so a quick amount sets the
+    // dollar half and the remainder converts on its own.
+    await dialog.getByRole('button', { name: '$5.00', exact: true }).click();
+    await page.waitForSelector('text=/Confirm · change \\$5\\.00 \\+ [\\d,]+ LL/');
+  });
+  await shot('split-change');
 
   await step('confirming payment shows the receipt', async () => {
     await page.click('button:has-text("Confirm · change")');
     await page.waitForSelector('text=Payment complete', { timeout: 15000 });
-    await page.waitForSelector('text=/Give [\\d,]+ LL change/');
+    await page.waitForSelector('text=/Give \\$5\\.00 \\+ [\\d,]+ LL change/');
     await page.waitForSelector('text=Paid in pounds');
   });
   await shot('receipt');

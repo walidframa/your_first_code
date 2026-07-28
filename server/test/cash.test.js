@@ -183,6 +183,34 @@ test('change given in pounds leaves the drawer heavier in one currency and light
   assert.equal(expected.lbp, opening.lbp - sale.change_lbp, 'and the change came out in pounds');
 });
 
+test('change split across currencies comes out of both piles', async () => {
+  const opening = { usd: 100, lbp: 5_000_000 };
+  await req('POST', '/cash/open', { openingUsd: opening.usd, openingLbp: opening.lbp }, adminToken);
+  const item = await product('BEV-001');
+
+  const sale = (
+    await req(
+      'POST',
+      '/orders',
+      {
+        items: [{ productId: item.id, quantity: 2 }],
+        paymentMethod: 'cash',
+        payments: [{ currency: 'USD', amount: 20 }],
+        changeCurrency: 'SPLIT',
+        changeUsd: 5,
+      },
+      cashierToken,
+    )
+  ).json.order;
+
+  assert.equal(sale.change_usd, 5);
+  assert.ok(sale.change_lbp > 0, 'the rest of the change went back as pounds');
+
+  const { expected } = (await req('GET', '/cash/current', null, adminToken)).json;
+  assert.equal(expected.usd, opening.usd + 20 - 5, 'the note went in, five dollars came back out');
+  assert.equal(expected.lbp, opening.lbp - sale.change_lbp, 'and so did the pounds half');
+});
+
 test('refunding a cash sale takes the money back out', async () => {
   await req('POST', '/cash/open', { openingUsd: 100 }, adminToken);
   const item = await product('SNK-001');

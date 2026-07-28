@@ -12,8 +12,9 @@ orders and staff.
 - Cart with quantity steppers capped at available stock
 - Order-level discount, automatic tax, live total
 - **Dual currency (USD + LBP)** — totals shown in both; the customer can pay in
-  dollars, pounds, or a mix of the two in one sale, and the cashier chooses which
-  currency to give change in. The exact amount to hand back is shown for both.
+  dollars, pounds, or a mix of the two in one sale, and change can go back the
+  same way: all dollars, all pounds, or some of each. The exact amounts to hand
+  back are shown as they are entered.
 - Payment sheet: card, or cash with a numeric keypad and quick-cash amounts
 - Change due surfaced prominently, plus a printable receipt
 - Keyboard shortcuts: `/` focuses search, `F2` opens payment
@@ -127,6 +128,14 @@ each morning and the two price lists can never drift apart.
 - Change is given in whichever currency the cashier picks, rounded to the
   configured step (1,000 LL by default — quoting to the single pound is
   meaningless).
+- **Change can also be split across both currencies.** A drawer rarely holds
+  enough of either note to settle up cleanly in one, so "Both" lets the cashier
+  say how many dollars they are handing over and converts the remainder to
+  pounds. Only the dollar half is typed — a second figure would be one more thing
+  to keep in agreement. The pounds are rounded to a giveable note, so the two
+  halves may come to a few hundred pounds either side of the exact change; that
+  difference really did cross the counter and shows up in the drawer at close
+  rather than being smoothed away.
 - **The rate in force is stored on each order.** Changing the rate never
   retroactively alters past sales, so a receipt still reconciles months later.
 
@@ -283,7 +292,8 @@ another: a drawer is right or wrong in each currency independently, and folding
 them together would make yesterday's correct count look short as soon as the rate
 moved. Change given in the other currency is handled properly — a $20 note for a
 $3 sale with change in pounds leaves the drawer twenty dollars heavier and its
-pounds lighter, and both are recorded.
+pounds lighter, and both are recorded. Change split across both currencies comes
+out of both piles for the same reason.
 
 Admin → **Cashbox** lists every sitting with what it was out by, and opens the
 Z-report: the drawer's movements, the sitting's sales by payment method, and

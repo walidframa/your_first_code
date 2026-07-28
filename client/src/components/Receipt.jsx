@@ -8,7 +8,18 @@ export default function Receipt({ receipt, onClose }) {
   // still reconcile after the rate moves.
   const rate = order.exchange_rate || 0;
   const totalLbp = rate ? Math.round((order.total * rate) / 1000) * 1000 : 0;
-  const gaveLbpChange = order.change_currency === 'LBP' && order.change_lbp > 0;
+  /*
+   * Read the change back off the two amounts actually recorded rather than off
+   * the mode that was chosen. Change can be handed back as dollars, as pounds,
+   * or as some of each, and the stored pair says which without a third case to
+   * keep in step.
+   */
+  const changeText =
+    order.change_usd > 0 && order.change_lbp > 0
+      ? `${money(order.change_usd)} + ${lbp(order.change_lbp)}`
+      : order.change_lbp > 0
+        ? lbp(order.change_lbp)
+        : money(order.change_usd || order.change_due);
 
   return (
     <Modal open onClose={onClose} size="sm" className="print:shadow-none print:ring-0">
@@ -19,7 +30,7 @@ export default function Receipt({ receipt, onClose }) {
         <h2 className="text-lg font-semibold text-slate-900">Payment complete</h2>
         {order.payment_method === 'cash' && order.change_due > 0 && (
           <p className="mt-2 inline-block rounded-lg bg-amber-50 px-3 py-1.5 text-sm font-semibold text-amber-900">
-            Give {gaveLbpChange ? lbp(order.change_lbp) : money(order.change_usd || order.change_due)} change
+            Give {changeText} change
           </p>
         )}
         <p className="mt-2 text-xs text-slate-400">{order.order_number}</p>
@@ -78,7 +89,7 @@ export default function Receipt({ receipt, onClose }) {
             <div className="flex justify-between font-medium text-brand-700">
               <dt>Change</dt>
               <dd className="tnum">
-                {gaveLbpChange ? lbp(order.change_lbp) : money(order.change_usd || order.change_due)}
+                {changeText}
               </dd>
             </div>
           </>

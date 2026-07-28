@@ -135,7 +135,7 @@ export default function Checkout() {
   const total = round2(taxableAmount + tax);
   const itemCount = cart.reduce((sum, i) => sum + i.quantity, 0);
 
-  async function handleConfirmPayment({ paymentMethod, payments, changeCurrency }) {
+  async function handleConfirmPayment({ paymentMethod, payments, changeCurrency, changeUsd }) {
     setSubmitting(true);
     try {
       const res = await api.post('/orders', {
@@ -144,6 +144,8 @@ export default function Checkout() {
         paymentMethod,
         payments,
         changeCurrency,
+        // Only meaningful when change is split; the server works the rest out.
+        changeUsd,
         customerId: customer?.id ?? null,
       });
       setReceipt({ order: res.data.order, items: res.data.items });

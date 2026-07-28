@@ -8,8 +8,8 @@ const QUICK_LBP = [100000, 200000, 500000, 1000000, 5000000];
 
 /**
  * Payment step. The customer may hand over USD, LBP, or both; the cashier
- * chooses which currency to give change in and the sheet shows the exact
- * amount to hand back.
+ * chooses how to give change back — all dollars, all pounds, or split between
+ * the two — and the sheet shows the exact amounts to hand over.
  */
 export default function PaymentSheet({ open, total, customer, onClose, onConfirm, submitting }) {
   const { rate, toLbp } = useSettings();
@@ -17,6 +17,9 @@ export default function PaymentSheet({ open, total, customer, onClose, onConfirm
   const [method, setMethod] = useState(null);
   const [usdEntry, setUsdEntry] = useState('');
   const [lbpEntry, setLbpEntry] = useState('');
+  const [changeEntry, setChangeEntry] = useState('');
+  // Which field the keypad is typing into: a tender currency, or — in split
+  // mode — the dollars being handed back.
   const [active, setActive] = useState('USD');
   const [changeCurrency, setChangeCurrency] = useState('LBP');
 
@@ -25,6 +28,7 @@ export default function PaymentSheet({ open, total, customer, onClose, onConfirm
       setMethod(null);
       setUsdEntry('');
       setLbpEntry('');
+      setChangeEntry('');
       setActive('USD');
       setChangeCurrency('LBP');
     }
@@ -37,9 +41,33 @@ export default function PaymentSheet({ open, total, customer, onClose, onConfirm
   const covered = remaining <= 0.0001;
   const changeUsd = Math.max(0, tenderedUsd - total);
 
+  /*
+   * Backspacing the tender until the sale is short hides the change section, and
+   * with it the field the keypad was aimed at. Send the keypad back to the
+   * dollars so the next digit lands somewhere the cashier can see.
+   */
+  useEffect(() => {
+    if (!covered && active === 'CHANGE') setActive('USD');
+  }, [covered, active]);
+
+  /*
+   * Split change: the cashier types only the dollars they are handing over and
+   * the rest converts to pounds. Typing both halves would mean two numbers that
+   * have to agree, and they would not for long.
+   *
+   * The dollar part is capped at the change due, so an overrun becomes "all in
+   * dollars" rather than a negative pile of pounds. The pounds are rounded to a
+   * note the till can actually give, which is why the two parts may not add
+   * back to the exact figure — that small difference really did cross the
+   * counter, and it shows up honestly at close.
+   */
+  const splitUsd = Math.min(Math.max(0, Number(changeEntry || 0)), changeUsd);
+  const splitLbp = toLbp(Math.max(0, changeUsd - splitUsd));
+
   const totalLbp = useMemo(() => toLbp(total), [toLbp, total]);
 
-  const setEntry = active === 'USD' ? setUsdEntry : setLbpEntry;
+  const setEntry =
+    active === 'USD' ? setUsdEntry : active === 'LBP' ? setLbpEntry : setChangeEntry;
 
   function press(key) {
     setEntry((prev) => {
@@ -49,17 +77,48 @@ export default function PaymentSheet({ open, total, customer, onClose, onConfirm
         if (active === 'LBP') return prev; // pounds have no subunit in practice
         return prev.includes('.') ? prev : (prev || '0') + '.';
       }
-      if (active === 'USD' && prev.includes('.') && prev.split('.')[1].length >= 2) return prev;
+      if (active !== 'LBP' && prev.includes('.') && prev.split('.')[1].length >= 2) return prev;
       return prev === '0' ? key : prev + key;
     });
+  }
+
+  /** Switch how change is given, pointing the keypad at the field that matters. */
+  function pickChangeCurrency(mode) {
+    setChangeCurrency(mode);
+    if (mode === 'SPLIT') setActive('CHANGE');
+    else if (active === 'CHANGE') setActive('USD');
   }
 
   function confirm() {
     const payments = [];
     if (paidUsd > 0) payments.push({ currency: 'USD', amount: paidUsd });
     if (paidLbp > 0) payments.push({ currency: 'LBP', amount: paidLbp });
-    onConfirm({ paymentMethod: 'cash', payments, changeCurrency });
+    onConfirm({
+      paymentMethod: 'cash',
+      payments,
+      changeCurrency,
+      changeUsd: changeCurrency === 'SPLIT' ? splitUsd : undefined,
+    });
   }
+
+  /*
+   * Shortcut amounts follow the keypad. Handing back change is capped by what
+   * is owed, so a $50 button next to $4 of change is only a way to fat-finger.
+   */
+  const quickAmounts =
+    active === 'LBP'
+      ? QUICK_LBP
+      : active === 'CHANGE'
+        ? QUICK_USD.filter((a) => a <= changeUsd)
+        : QUICK_USD;
+
+  /** What the confirm button says about the change it is about to hand over. */
+  const changeLabel =
+    changeCurrency === 'SPLIT'
+      ? `${money(splitUsd)} + ${lbp(splitLbp)}`
+      : changeCurrency === 'LBP'
+        ? lbp(toLbp(changeUsd))
+        : money(changeUsd);
 
   return (
     <Modal
@@ -172,14 +231,27 @@ export default function PaymentSheet({ open, total, customer, onClose, onConfirm
             {covered ? (
               <>
                 <p className="text-xs tracking-wide text-slate-500 uppercase">Change to give</p>
-                <p className="mt-0.5 text-3xl font-semibold text-slate-900">
-                  {changeCurrency === 'LBP' ? lbp(toLbp(changeUsd)) : money(changeUsd)}
-                </p>
-                <p className="mt-0.5 text-xs text-slate-500">
-                  {changeCurrency === 'LBP'
-                    ? `≈ ${money(changeUsd)}`
-                    : `≈ ${lbp(toLbp(changeUsd))}`}
-                </p>
+                {changeCurrency === 'SPLIT' ? (
+                  <>
+                    <p className="mt-0.5 flex items-baseline justify-center gap-2 text-3xl font-semibold text-slate-900">
+                      <span>{money(splitUsd)}</span>
+                      <span className="text-xl font-normal text-slate-400">+</span>
+                      <span>{lbp(splitLbp)}</span>
+                    </p>
+                    <p className="mt-0.5 text-xs text-slate-500">together ≈ {money(changeUsd)}</p>
+                  </>
+                ) : (
+                  <>
+                    <p className="mt-0.5 text-3xl font-semibold text-slate-900">
+                      {changeCurrency === 'LBP' ? lbp(toLbp(changeUsd)) : money(changeUsd)}
+                    </p>
+                    <p className="mt-0.5 text-xs text-slate-500">
+                      {changeCurrency === 'LBP'
+                        ? `≈ ${money(changeUsd)}`
+                        : `≈ ${lbp(toLbp(changeUsd))}`}
+                    </p>
+                  </>
+                )}
               </>
             ) : (
               <>
@@ -194,33 +266,64 @@ export default function PaymentSheet({ open, total, customer, onClose, onConfirm
             <div>
               <p className="mb-1.5 text-sm text-slate-600">Give change in</p>
               <div className="flex rounded-lg bg-slate-100 p-0.5 text-sm font-medium">
-                {['LBP', 'USD'].map((c) => (
+                {[
+                  ['LBP', 'Pounds'],
+                  ['USD', 'Dollars'],
+                  ['SPLIT', 'Both'],
+                ].map(([c, label]) => (
                   <button
                     key={c}
-                    onClick={() => setChangeCurrency(c)}
+                    onClick={() => pickChangeCurrency(c)}
                     className={cx(
                       'flex-1 rounded-md px-3 py-1.5 transition',
                       changeCurrency === c ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500',
                     )}
                   >
-                    {c === 'LBP' ? 'Lebanese pounds' : 'US dollars'}
+                    {label}
                   </button>
                 ))}
               </div>
+
+              {changeCurrency === 'SPLIT' && (
+                <button
+                  onClick={() => setActive('CHANGE')}
+                  className={cx(
+                    'mt-2 flex w-full items-baseline justify-between rounded-xl px-3 py-3 text-left ring-1 transition',
+                    active === 'CHANGE' ? 'bg-white ring-2 ring-brand-500' : 'bg-slate-50 ring-slate-200',
+                  )}
+                >
+                  <span>
+                    <span className="block text-xs text-slate-500">Dollars to hand back</span>
+                    <span className="mt-0.5 block text-xs text-slate-400">
+                      the rest goes back as {lbp(splitLbp)}
+                    </span>
+                  </span>
+                  <span
+                    className={cx(
+                      'text-xl font-semibold',
+                      changeEntry ? 'text-slate-900' : 'text-slate-300',
+                    )}
+                  >
+                    {money(splitUsd)}
+                  </span>
+                </button>
+              )}
             </div>
           )}
 
-          <div className="flex flex-wrap gap-2">
-            {(active === 'USD' ? QUICK_USD : QUICK_LBP).map((amount) => (
-              <button
-                key={amount}
-                onClick={() => setEntry(String(amount))}
-                className="flex-1 rounded-lg bg-slate-100 px-2 py-2 text-sm font-medium whitespace-nowrap text-slate-700 transition hover:bg-slate-200"
-              >
-                {active === 'USD' ? money(amount) : `${(amount / 1000).toLocaleString()}k`}
-              </button>
-            ))}
-          </div>
+          {quickAmounts.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {quickAmounts.map((amount) => (
+                <button
+                  key={amount}
+                  onClick={() => setEntry(String(amount))}
+                  className="flex-1 rounded-lg bg-slate-100 px-2 py-2 text-sm font-medium whitespace-nowrap text-slate-700 transition hover:bg-slate-200"
+                >
+                  {active === 'LBP' ? `${(amount / 1000).toLocaleString()}k` : money(amount)}
+                </button>
+              ))}
+            </div>
+          )}
 
           <div className="grid grid-cols-3 gap-2">
             {['1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '0', 'back'].map((key) => (
@@ -247,9 +350,7 @@ export default function PaymentSheet({ open, total, customer, onClose, onConfirm
               loading={submitting}
               onClick={confirm}
             >
-              {covered
-                ? `Confirm · change ${changeCurrency === 'LBP' ? lbp(toLbp(changeUsd)) : money(changeUsd)}`
-                : `${money(remaining)} still due`}
+              {covered ? `Confirm · change ${changeLabel}` : `${money(remaining)} still due`}
             </Button>
           </div>
         </div>
