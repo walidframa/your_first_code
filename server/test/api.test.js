@@ -302,9 +302,33 @@ test('a split USD + LBP tender settles and returns change in USD', async () => {
   assert.equal(order.change_lbp, 0);
 });
 
-test('gives change back in both currencies at once', async () => {
+test('records both halves of split change exactly as handed over', async () => {
   const product = (await req('GET', '/products/lookup?code=SNK-003', null, cashierToken)).json.product;
-  // 4.86 due, $10 handed over → 5.14 change: $3 back in notes, the rest in pounds.
+  // 4.86 due, $10 handed over → 5.14 change, given as $3 plus 190,000 LL.
+  const res = await req(
+    'POST',
+    '/orders',
+    {
+      items: [{ productId: product.id, quantity: 2 }],
+      paymentMethod: 'cash',
+      payments: [{ currency: 'USD', amount: 10 }],
+      changeCurrency: 'SPLIT',
+      changeUsd: 3,
+      changeLbp: 190000,
+    },
+    cashierToken,
+  );
+
+  assert.equal(res.status, 201);
+  const order = res.json.order;
+  assert.equal(order.change_due, 5.14);
+  assert.equal(order.change_usd, 3);
+  assert.equal(order.change_lbp, 190000, 'the pounds are the cashier’s figure, not a conversion');
+  assert.equal(order.change_currency, 'SPLIT');
+});
+
+test('a split with only the dollars named still converts the rest', async () => {
+  const product = (await req('GET', '/products/lookup?code=SNK-003', null, cashierToken)).json.product;
   const res = await req(
     'POST',
     '/orders',
@@ -319,14 +343,11 @@ test('gives change back in both currencies at once', async () => {
   );
 
   assert.equal(res.status, 201);
-  const order = res.json.order;
-  assert.equal(order.change_due, 5.14);
-  assert.equal(order.change_usd, 3);
-  assert.equal(order.change_lbp, 190000, '2.14 USD at 89,000 = 190,460 → 190,000');
-  assert.equal(order.change_currency, 'SPLIT');
+  assert.equal(res.json.order.change_usd, 3);
+  assert.equal(res.json.order.change_lbp, 190000, '2.14 USD at 89,000 = 190,460 → 190,000');
 });
 
-test('rejects a negative dollar part on split change', async () => {
+test('rejects a negative half of split change', async () => {
   const product = (await req('GET', '/products/lookup?code=SNK-003', null, cashierToken)).json.product;
   const res = await req(
     'POST',
@@ -343,6 +364,48 @@ test('rejects a negative dollar part on split change', async () => {
 
   assert.equal(res.status, 400);
   assert.match(res.json.error, /cannot be negative/i);
+});
+
+test('refuses split change worth more than the change owed', async () => {
+  const product = (await req('GET', '/products/lookup?code=SNK-003', null, cashierToken)).json.product;
+  // A slipped digit: 19,000,000 LL where 190,000 was meant, on $5.14 of change.
+  const res = await req(
+    'POST',
+    '/orders',
+    {
+      items: [{ productId: product.id, quantity: 2 }],
+      paymentMethod: 'cash',
+      payments: [{ currency: 'USD', amount: 10 }],
+      changeCurrency: 'SPLIT',
+      changeUsd: 3,
+      changeLbp: 19000000,
+    },
+    cashierToken,
+  );
+
+  assert.equal(res.status, 400);
+  assert.match(res.json.error, /more than the .* owed/i);
+});
+
+test('allows split change a rounding step either side of the exact figure', async () => {
+  const product = (await req('GET', '/products/lookup?code=SNK-003', null, cashierToken)).json.product;
+  // 191,000 LL instead of 190,460 — the cashier rounded up to a note they had.
+  const res = await req(
+    'POST',
+    '/orders',
+    {
+      items: [{ productId: product.id, quantity: 2 }],
+      paymentMethod: 'cash',
+      payments: [{ currency: 'USD', amount: 10 }],
+      changeCurrency: 'SPLIT',
+      changeUsd: 3,
+      changeLbp: 191000,
+    },
+    cashierToken,
+  );
+
+  assert.equal(res.status, 201);
+  assert.equal(res.json.order.change_lbp, 191000);
 });
 
 test('refuses a tender that falls short across both currencies', async () => {

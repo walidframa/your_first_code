@@ -9,6 +9,7 @@ import {
   CHANGE_MODES,
   round2,
   changeBreakdown,
+  combinedUsd,
   tenderTotals,
   validatePayments,
 } from '../lib/currency.js';
@@ -29,6 +30,7 @@ router.post('/', requireAuth, (req, res) => {
     payments,
     changeCurrency = 'LBP',
     changeUsd: requestedChangeUsd = null,
+    changeLbp: requestedChangeLbp = null,
     customerId = null,
   } = req.body || {};
 
@@ -49,8 +51,8 @@ router.post('/', requireAuth, (req, res) => {
   if (!CHANGE_MODES.includes(changeCurrency)) {
     return res.status(400).json({ error: `changeCurrency must be one of: ${CHANGE_MODES.join(', ')}` });
   }
-  if (changeCurrency === 'SPLIT' && Number(requestedChangeUsd) < 0) {
-    return res.status(400).json({ error: 'The dollars given as change cannot be negative' });
+  if (changeCurrency === 'SPLIT' && (Number(requestedChangeUsd) < 0 || Number(requestedChangeLbp) < 0)) {
+    return res.status(400).json({ error: 'Change given cannot be negative in either currency' });
   }
 
   const { exchange_rate: exchangeRate, lbp_rounding: lbpRounding } = getSettings();
@@ -131,9 +133,26 @@ router.post('/', requireAuth, (req, res) => {
           exchangeRate,
           lbpRounding,
           requestedChangeUsd,
+          requestedChangeLbp,
         );
         changeUsd = breakdown.changeUsd;
         changeLbp = breakdown.changeLbp;
+
+        /*
+         * Both halves of a split are the cashier's to name, so the two together
+         * can miss the exact change by whatever rounding to a giveable note
+         * costs. Anything beyond that is a slipped digit — 25,000,000 LL where
+         * 2,500,000 was meant — and the shop should not pay for it silently.
+         */
+        if (changeCurrency === 'SPLIT') {
+          const given = combinedUsd(changeUsd, changeLbp, exchangeRate);
+          const slack = round2(lbpRounding / exchangeRate) + 0.01;
+          if (given > changeDue + slack) {
+            throw new Error(
+              `Change of ${given.toFixed(2)} USD is more than the ${changeDue.toFixed(2)} USD owed`,
+            );
+          }
+        }
       }
 
       const orderNumber = `ORD-${Date.now()}-${crypto.randomBytes(2).toString('hex').toUpperCase()}`;

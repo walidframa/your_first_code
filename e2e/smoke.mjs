@@ -220,9 +220,15 @@ try {
   await step('change can be split between dollars and pounds', async () => {
     const dialog = page.locator('[role=dialog]');
     await dialog.getByRole('button', { name: 'Both', exact: true }).click();
-    // Picking "Both" aims the keypad at the change, so a quick amount sets the
-    // dollar half and the remainder converts on its own.
+
+    // Both piles are the cashier's to name. Setting only the dollars leaves the
+    // change short, and the sheet says so rather than quietly making it up.
     await dialog.getByRole('button', { name: '$5.00', exact: true }).click();
+    await page.waitForSelector('text=/\\$[\\d.]+ of \\$[\\d.]+ — \\$[\\d.]+ short/');
+
+    // Putting the rest in pounds makes the two add up to exactly the change.
+    await dialog.getByRole('button', { name: /\+ rest \([\d,]+ LL\)/ }).click();
+    await page.waitForSelector('text=/that is the change exactly/');
     await page.waitForSelector('text=/Confirm · change \\$5\\.00 \\+ [\\d,]+ LL/');
   });
   await shot('split-change');
