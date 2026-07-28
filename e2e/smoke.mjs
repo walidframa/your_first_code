@@ -117,7 +117,7 @@ try {
     await page.getByLabel('Dollars').fill('100');
     await page.getByLabel('Pounds').fill('2000000');
     await page.click('button:has-text("Open cashbox")');
-    await page.waitForSelector('text=Cashbox open', { timeout: 15000 });
+    await page.waitForSelector('text=Cash on hand', { timeout: 15000 });
   });
 
   await step('scanning a barcode adds the product', async () => {
@@ -660,7 +660,7 @@ try {
 
   await step('the cashbox closes against a blind count', async () => {
     await page.click('a[title="Register"]');
-    await page.waitForSelector('text=Cashbox open', { timeout: 15000 });
+    await page.waitForSelector('text=Cash on hand', { timeout: 15000 });
 
     // Money out of the drawer for an expense.
     await page.click('button:has-text("Cash out")');
@@ -672,7 +672,7 @@ try {
     await page.waitForSelector('text=/taken out of the drawer/i', { timeout: 15000 });
 
     // Counted note by note, with the expected figure withheld until it is in.
-    await page.click('button:has-text("Close")');
+    await page.click('button[aria-label="Close the cashbox"]');
     await page.waitForSelector('text=Count what is in the drawer', { timeout: 10000 });
     if (await page.locator('[role=dialog]').getByText('Expected').count()) {
       throw new Error('the expected figure must not be visible while counting');

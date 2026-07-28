@@ -282,8 +282,9 @@ export default function Products() {
                               variant="ghost"
                               onClick={() => setActivityFor(p.id)}
                               aria-label={`Activity for ${p.name}`}
+                              title="Sales, deliveries and cost changes"
                             >
-                              <History size={14} />
+                              <History size={14} /> History
                             </Button>
                             <Button size="sm" variant="secondary" onClick={() => setEditing(p)}>
                               <Pencil size={13} /> Edit

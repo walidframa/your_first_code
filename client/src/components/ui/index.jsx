@@ -40,7 +40,7 @@ export function Button({
     <button
       disabled={disabled || loading}
       className={cx(
-        'inline-flex select-none items-center justify-center rounded-lg font-medium transition',
+        'inline-flex shrink-0 select-none items-center justify-center rounded-lg font-medium whitespace-nowrap transition',
         'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600',
         'disabled:cursor-not-allowed disabled:opacity-50',
         BUTTON_VARIANTS[variant],

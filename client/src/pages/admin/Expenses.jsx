@@ -196,18 +196,22 @@ export default function Expenses() {
         subtitle="What it costs to keep the doors open"
         actions={
           <div className="flex items-center gap-2">
-            <Select
-              name="preset"
-              value={preset}
-              onChange={(e) => setPreset(e.target.value)}
-              aria-label="Period"
-            >
-              {PRESETS.map(([value, text]) => (
-                <option key={value} value={value}>
-                  {text}
-                </option>
-              ))}
-            </Select>
+            {/* Sized by a wrapper: the Select is w-full by design, and two
+                width utilities on one element is a coin toss. */}
+            <div className="w-40 shrink-0">
+              <Select
+                name="preset"
+                value={preset}
+                onChange={(e) => setPreset(e.target.value)}
+                aria-label="Period"
+              >
+                {PRESETS.map(([value, text]) => (
+                  <option key={value} value={value}>
+                    {text}
+                  </option>
+                ))}
+              </Select>
+            </div>
             <Button onClick={() => setAdding(true)}>
               <Plus size={16} /> Add expense
             </Button>
@@ -220,7 +224,7 @@ export default function Expenses() {
           <Skeleton className="h-64" />
         ) : (
           <>
-            <div className="mb-4 grid grid-cols-4 gap-3">
+            <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
               <Card className="px-4 py-3">
                 <p className="text-xs text-slate-500">Spent</p>
                 <p className="mt-1 text-2xl font-semibold text-slate-900">{money(data.summary.total)}</p>
