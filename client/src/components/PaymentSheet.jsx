@@ -6,20 +6,28 @@ import { useSettings, lbp } from '../context/SettingsContext';
 const QUICK_USD = [5, 10, 20, 50, 100];
 const QUICK_LBP = [100000, 200000, 500000, 1000000, 5000000];
 
+/** The keypad targets that belong to the change, not to the tender. */
+const CHANGE_FIELDS = ['CHANGE_USD', 'CHANGE_LBP'];
+
+function round2(n) {
+  return Math.round((Number(n) + Number.EPSILON) * 100) / 100;
+}
+
 /**
  * Payment step. The customer may hand over USD, LBP, or both; the cashier
  * chooses how to give change back — all dollars, all pounds, or split between
  * the two — and the sheet shows the exact amounts to hand over.
  */
 export default function PaymentSheet({ open, total, customer, onClose, onConfirm, submitting }) {
-  const { rate, toLbp } = useSettings();
+  const { rate, step, toLbp } = useSettings();
 
   const [method, setMethod] = useState(null);
   const [usdEntry, setUsdEntry] = useState('');
   const [lbpEntry, setLbpEntry] = useState('');
-  const [changeEntry, setChangeEntry] = useState('');
+  const [changeUsdEntry, setChangeUsdEntry] = useState('');
+  const [changeLbpEntry, setChangeLbpEntry] = useState('');
   // Which field the keypad is typing into: a tender currency, or — in split
-  // mode — the dollars being handed back.
+  // mode — one of the two piles being handed back.
   const [active, setActive] = useState('USD');
   const [changeCurrency, setChangeCurrency] = useState('LBP');
 
@@ -28,7 +36,8 @@ export default function PaymentSheet({ open, total, customer, onClose, onConfirm
       setMethod(null);
       setUsdEntry('');
       setLbpEntry('');
-      setChangeEntry('');
+      setChangeUsdEntry('');
+      setChangeLbpEntry('');
       setActive('USD');
       setChangeCurrency('LBP');
     }
@@ -47,37 +56,50 @@ export default function PaymentSheet({ open, total, customer, onClose, onConfirm
    * dollars so the next digit lands somewhere the cashier can see.
    */
   useEffect(() => {
-    if (!covered && active === 'CHANGE') setActive('USD');
+    if (!covered && CHANGE_FIELDS.includes(active)) setActive('USD');
   }, [covered, active]);
 
   /*
-   * Split change: the cashier types only the dollars they are handing over and
-   * the rest converts to pounds. Typing both halves would mean two numbers that
-   * have to agree, and they would not for long.
-   *
-   * The dollar part is capped at the change due, so an overrun becomes "all in
-   * dollars" rather than a negative pile of pounds. The pounds are rounded to a
-   * note the till can actually give, which is why the two parts may not add
-   * back to the exact figure — that small difference really did cross the
-   * counter, and it shows up honestly at close.
+   * Split change: the cashier names both piles, because which notes are in the
+   * drawer is something only they can see — 2,500,000 LL may be four notes
+   * where the exact remainder is seven. What is handed back is simply the two
+   * added together, and the sheet says whether that comes to what is owed.
    */
-  const splitUsd = Math.min(Math.max(0, Number(changeEntry || 0)), changeUsd);
-  const splitLbp = toLbp(Math.max(0, changeUsd - splitUsd));
+  const splitUsd = Math.max(0, Number(changeUsdEntry || 0));
+  const splitLbp = Math.max(0, Number(changeLbpEntry || 0));
+  const splitTotal = splitUsd + (rate ? splitLbp / rate : 0);
+  // Under a cent either way is the rate's own rounding, not a real shortfall.
+  const splitLeft = Math.abs(changeUsd - splitTotal) < 0.005 ? 0 : changeUsd - splitTotal;
+
+  /*
+   * Handing back a little more than is owed is just rounding to the notes in
+   * the drawer. Handing back a lot more is a slipped digit, and the server
+   * refuses it — so the button says why rather than letting it fail on submit.
+   */
+  const overGiving =
+    changeCurrency === 'SPLIT' && -splitLeft > round2(step / (rate || 1)) + 0.01;
 
   const totalLbp = useMemo(() => toLbp(total), [toLbp, total]);
 
-  const setEntry =
-    active === 'USD' ? setUsdEntry : active === 'LBP' ? setLbpEntry : setChangeEntry;
+  const SETTERS = {
+    USD: setUsdEntry,
+    LBP: setLbpEntry,
+    CHANGE_USD: setChangeUsdEntry,
+    CHANGE_LBP: setChangeLbpEntry,
+  };
+  const setEntry = SETTERS[active];
+  // Pounds have no subunit in practice, in the drawer or in the change.
+  const wholeNumbersOnly = active === 'LBP' || active === 'CHANGE_LBP';
 
   function press(key) {
     setEntry((prev) => {
       if (key === 'clear') return '';
       if (key === 'back') return prev.slice(0, -1);
       if (key === '.') {
-        if (active === 'LBP') return prev; // pounds have no subunit in practice
+        if (wholeNumbersOnly) return prev;
         return prev.includes('.') ? prev : (prev || '0') + '.';
       }
-      if (active !== 'LBP' && prev.includes('.') && prev.split('.')[1].length >= 2) return prev;
+      if (!wholeNumbersOnly && prev.includes('.') && prev.split('.')[1].length >= 2) return prev;
       return prev === '0' ? key : prev + key;
     });
   }
@@ -85,8 +107,22 @@ export default function PaymentSheet({ open, total, customer, onClose, onConfirm
   /** Switch how change is given, pointing the keypad at the field that matters. */
   function pickChangeCurrency(mode) {
     setChangeCurrency(mode);
-    if (mode === 'SPLIT') setActive('CHANGE');
-    else if (active === 'CHANGE') setActive('USD');
+    if (mode === 'SPLIT') setActive('CHANGE_USD');
+    else if (CHANGE_FIELDS.includes(active)) setActive('USD');
+  }
+
+  /**
+   * Put whatever is still owed into the other pile.
+   *
+   * The usual split is "some dollars, rest in pounds", and making the cashier
+   * work out the rest by hand would be handing them arithmetic the app already
+   * knows. It fills a field they can still overwrite — the app suggests, it
+   * does not decide.
+   */
+  function fillRest(field) {
+    const short = Math.max(0, changeUsd - splitTotal);
+    if (field === 'CHANGE_LBP') setChangeLbpEntry(String(toLbp(short + (rate ? splitLbp / rate : 0))));
+    else setChangeUsdEntry(String(round2(splitUsd + short)));
   }
 
   function confirm() {
@@ -97,20 +133,14 @@ export default function PaymentSheet({ open, total, customer, onClose, onConfirm
       paymentMethod: 'cash',
       payments,
       changeCurrency,
+      // Both halves are the cashier's; the server records exactly these.
       changeUsd: changeCurrency === 'SPLIT' ? splitUsd : undefined,
+      changeLbp: changeCurrency === 'SPLIT' ? splitLbp : undefined,
     });
   }
 
-  /*
-   * Shortcut amounts follow the keypad. Handing back change is capped by what
-   * is owed, so a $50 button next to $4 of change is only a way to fat-finger.
-   */
-  const quickAmounts =
-    active === 'LBP'
-      ? QUICK_LBP
-      : active === 'CHANGE'
-        ? QUICK_USD.filter((a) => a <= changeUsd)
-        : QUICK_USD;
+  /* Shortcut amounts follow whichever field the keypad is pointed at. */
+  const quickAmounts = wholeNumbersOnly ? QUICK_LBP : QUICK_USD;
 
   /** What the confirm button says about the change it is about to hand over. */
   const changeLabel =
@@ -120,6 +150,48 @@ export default function PaymentSheet({ open, total, customer, onClose, onConfirm
         ? lbp(toLbp(changeUsd))
         : money(changeUsd);
 
+  /*
+   * The actions live in the modal's pinned footer rather than at the end of the
+   * body. A cash sheet with both change fields open runs past a short screen,
+   * and a Confirm button you have to scroll to find is one a busy cashier will
+   * miss with a queue waiting.
+   */
+  const footer =
+    method === 'card' ? (
+      <div className="flex gap-2">
+        <Button variant="secondary" size="lg" onClick={() => setMethod(null)} disabled={submitting}>
+          <ArrowLeft size={16} /> Back
+        </Button>
+        <Button
+          size="lg"
+          className="flex-1"
+          loading={submitting}
+          onClick={() => onConfirm({ paymentMethod: 'card' })}
+        >
+          Confirm {money(total)}
+        </Button>
+      </div>
+    ) : method === 'cash' ? (
+      <div className="flex gap-2">
+        <Button variant="secondary" size="lg" onClick={() => setMethod(null)} disabled={submitting}>
+          <ArrowLeft size={16} /> Back
+        </Button>
+        <Button
+          size="lg"
+          className="flex-1"
+          disabled={!covered || overGiving}
+          loading={submitting}
+          onClick={confirm}
+        >
+          {!covered
+            ? `${money(remaining)} still due`
+            : overGiving
+              ? `${money(-splitLeft)} more than the change`
+              : `Confirm · change ${changeLabel}`}
+        </Button>
+      </div>
+    ) : null;
+
   return (
     <Modal
       open={open}
@@ -127,6 +199,7 @@ export default function PaymentSheet({ open, total, customer, onClose, onConfirm
       title={method === null ? 'Take payment' : method === 'cash' ? 'Cash payment' : 'Card payment'}
       subtitle={`${money(total)} · ${lbp(totalLbp)}`}
       size={method === 'cash' ? 'lg' : 'sm'}
+      footer={footer}
     >
       {method === null && (
         <div className="space-y-3">
@@ -177,19 +250,6 @@ export default function PaymentSheet({ open, total, customer, onClose, onConfirm
             This records the sale. No card is actually charged — connect a payment provider to take real
             payments.
           </p>
-          <div className="flex gap-2">
-            <Button variant="secondary" size="lg" onClick={() => setMethod(null)} disabled={submitting}>
-              <ArrowLeft size={16} /> Back
-            </Button>
-            <Button
-              size="lg"
-              className="flex-1"
-              loading={submitting}
-              onClick={() => onConfirm({ paymentMethod: 'card' })}
-            >
-              Confirm {money(total)}
-            </Button>
-          </div>
         </div>
       )}
 
@@ -233,12 +293,8 @@ export default function PaymentSheet({ open, total, customer, onClose, onConfirm
                 <p className="text-xs tracking-wide text-slate-500 uppercase">Change to give</p>
                 {changeCurrency === 'SPLIT' ? (
                   <>
-                    <p className="mt-0.5 flex items-baseline justify-center gap-2 text-3xl font-semibold text-slate-900">
-                      <span>{money(splitUsd)}</span>
-                      <span className="text-xl font-normal text-slate-400">+</span>
-                      <span>{lbp(splitLbp)}</span>
-                    </p>
-                    <p className="mt-0.5 text-xs text-slate-500">together ≈ {money(changeUsd)}</p>
+                    <p className="mt-0.5 text-3xl font-semibold text-slate-900">{money(changeUsd)}</p>
+                    <p className="mt-0.5 text-xs text-slate-500">{lbp(toLbp(changeUsd))}</p>
                   </>
                 ) : (
                   <>
@@ -285,28 +341,77 @@ export default function PaymentSheet({ open, total, customer, onClose, onConfirm
               </div>
 
               {changeCurrency === 'SPLIT' && (
-                <button
-                  onClick={() => setActive('CHANGE')}
-                  className={cx(
-                    'mt-2 flex w-full items-baseline justify-between rounded-xl px-3 py-3 text-left ring-1 transition',
-                    active === 'CHANGE' ? 'bg-white ring-2 ring-brand-500' : 'bg-slate-50 ring-slate-200',
-                  )}
-                >
-                  <span>
-                    <span className="block text-xs text-slate-500">Dollars to hand back</span>
-                    <span className="mt-0.5 block text-xs text-slate-400">
-                      the rest goes back as {lbp(splitLbp)}
-                    </span>
-                  </span>
-                  <span
+                <div className="mt-2 space-y-2">
+                  {/* Both piles are typed. The total is simply the two added up. */}
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      {
+                        field: 'CHANGE_USD',
+                        label: 'Dollars back',
+                        entry: changeUsdEntry,
+                        display: money(splitUsd),
+                        zero: '$0.00',
+                      },
+                      {
+                        field: 'CHANGE_LBP',
+                        label: 'Pounds back',
+                        entry: changeLbpEntry,
+                        display: lbp(splitLbp),
+                        zero: '0 LL',
+                      },
+                    ].map((f) => (
+                      <div key={f.field} className="space-y-1">
+                        <button
+                          onClick={() => setActive(f.field)}
+                          className={cx(
+                            'w-full rounded-xl px-3 py-3 text-left ring-1 transition',
+                            active === f.field ? 'bg-white ring-2 ring-brand-500' : 'bg-slate-50 ring-slate-200',
+                          )}
+                        >
+                          <span className="block text-xs text-slate-500">{f.label}</span>
+                          <span
+                            className={cx(
+                              'mt-0.5 block text-xl font-semibold',
+                              f.entry ? 'text-slate-900' : 'text-slate-300',
+                            )}
+                          >
+                            {f.entry ? f.display : f.zero}
+                          </span>
+                        </button>
+                        {splitLeft > 0.005 && (
+                          <button
+                            onClick={() => fillRest(f.field)}
+                            className="w-full rounded-lg bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-200"
+                          >
+                            + rest ({f.field === 'CHANGE_LBP' ? lbp(toLbp(splitLeft)) : money(splitLeft)})
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  {/*
+                   * Say plainly whether the two piles come to what is owed. A
+                   * cashier rounding to the notes they have will land a little
+                   * either side, and being told so beats being silently corrected.
+                   */}
+                  <p
                     className={cx(
-                      'text-xl font-semibold',
-                      changeEntry ? 'text-slate-900' : 'text-slate-300',
+                      'rounded-lg px-3 py-2 text-center text-sm',
+                      splitLeft === 0
+                        ? 'bg-brand-50 text-brand-800'
+                        : splitLeft > 0
+                          ? 'bg-amber-50 text-amber-800'
+                          : 'bg-red-50 text-red-700',
                     )}
                   >
-                    {money(splitUsd)}
-                  </span>
-                </button>
+                    {splitLeft === 0
+                      ? `${money(splitTotal)} — that is the change exactly`
+                      : splitLeft > 0
+                        ? `${money(splitTotal)} of ${money(changeUsd)} — ${money(splitLeft)} short`
+                        : `${money(splitTotal)} of ${money(changeUsd)} — ${money(-splitLeft)} over`}
+                  </p>
+                </div>
               )}
             </div>
           )}
@@ -319,7 +424,7 @@ export default function PaymentSheet({ open, total, customer, onClose, onConfirm
                   onClick={() => setEntry(String(amount))}
                   className="flex-1 rounded-lg bg-slate-100 px-2 py-2 text-sm font-medium whitespace-nowrap text-slate-700 transition hover:bg-slate-200"
                 >
-                  {active === 'LBP' ? `${(amount / 1000).toLocaleString()}k` : money(amount)}
+                  {wholeNumbersOnly ? `${(amount / 1000).toLocaleString()}k` : money(amount)}
                 </button>
               ))}
             </div>
@@ -330,28 +435,13 @@ export default function PaymentSheet({ open, total, customer, onClose, onConfirm
               <button
                 key={key}
                 onClick={() => press(key)}
-                disabled={key === '.' && active === 'LBP'}
+                disabled={key === '.' && wholeNumbersOnly}
                 aria-label={key === 'back' ? 'Backspace' : key}
                 className="flex h-13 items-center justify-center rounded-xl bg-white py-3 text-lg font-medium text-slate-800 ring-1 ring-slate-200 transition hover:bg-slate-50 active:bg-slate-100 disabled:opacity-30"
               >
                 {key === 'back' ? <Delete size={18} /> : key}
               </button>
             ))}
-          </div>
-
-          <div className="flex gap-2">
-            <Button variant="secondary" size="lg" onClick={() => setMethod(null)} disabled={submitting}>
-              <ArrowLeft size={16} /> Back
-            </Button>
-            <Button
-              size="lg"
-              className="flex-1"
-              disabled={!covered}
-              loading={submitting}
-              onClick={confirm}
-            >
-              {covered ? `Confirm · change ${changeLabel}` : `${money(remaining)} still due`}
-            </Button>
           </div>
         </div>
       )}

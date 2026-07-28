@@ -198,13 +198,14 @@ test('change split across currencies comes out of both piles', async () => {
         payments: [{ currency: 'USD', amount: 20 }],
         changeCurrency: 'SPLIT',
         changeUsd: 5,
+        changeLbp: 500000,
       },
       cashierToken,
     )
   ).json.order;
 
   assert.equal(sale.change_usd, 5);
-  assert.ok(sale.change_lbp > 0, 'the rest of the change went back as pounds');
+  assert.equal(sale.change_lbp, 500000, 'the pounds are the notes the cashier chose');
 
   const { expected } = (await req('GET', '/cash/current', null, adminToken)).json;
   assert.equal(expected.usd, opening.usd + 20 - 5, 'the note went in, five dollars came back out');

@@ -7,6 +7,7 @@ import {
   lbpToUsd,
   tenderTotals,
   changeBreakdown,
+  combinedUsd,
   validatePayments,
 } from '../src/lib/currency.js';
 
@@ -101,39 +102,56 @@ test('never returns negative change', () => {
   assert.equal(c.changeUsd, 0);
 });
 
-test('splits change between dollars and pounds', () => {
-  // $20 handed over for a $10 sale: give back $5 and the rest in pounds.
+test('a split hands back exactly the two piles the cashier named', () => {
+  // $20 for a $10 sale: $5 in notes and 445,000 LL, which together are the $10.
+  const c = changeBreakdown(10, 'SPLIT', RATE, 1000, 5, 445000);
+  assert.equal(c.changeUsd, 5);
+  assert.equal(c.changeLbp, 445000);
+  assert.equal(combinedUsd(c.changeUsd, c.changeLbp, RATE), 10, 'the two add up to the change');
+});
+
+test('the two halves of a split are whatever adds up, not a fixed remainder', () => {
+  // A drawer holding 2,500,000 LL in four notes pays those, and the dollars
+  // make up the difference — the app must not insist on the exact conversion.
+  const c = changeBreakdown(33.38, 'SPLIT', RATE, 1000, 5.29, 2500000);
+  assert.equal(c.changeUsd, 5.29);
+  assert.equal(c.changeLbp, 2500000);
+  assert.equal(combinedUsd(c.changeUsd, c.changeLbp, RATE), 33.38);
+});
+
+test('naming only the dollars still converts the rest', () => {
   const c = changeBreakdown(10, 'SPLIT', RATE, 1000, 5);
   assert.equal(c.changeUsd, 5);
   assert.equal(c.changeLbp, 445000, '$5 at 89,000 = 445,000 LL');
-});
 
-test('a split with no dollars is all pounds, and vice versa', () => {
   const allPounds = changeBreakdown(10, 'SPLIT', RATE, 1000, 0);
   assert.equal(allPounds.changeUsd, 0);
   assert.equal(allPounds.changeLbp, 890000);
 
-  const allDollars = changeBreakdown(10, 'SPLIT', RATE, 1000, 10);
-  assert.equal(allDollars.changeUsd, 10);
-  assert.equal(allDollars.changeLbp, 0);
+  // Only then is the dollar half capped — there is no pounds figure to contradict.
+  const overTyped = changeBreakdown(10, 'SPLIT', RATE, 1000, 50);
+  assert.equal(overTyped.changeUsd, 10);
+  assert.equal(overTyped.changeLbp, 0);
 });
 
-test('a split never hands back more dollars than are owed', () => {
-  // Typing 50 into the dollar field on $10 of change gives $10, not a debt in pounds.
-  const c = changeBreakdown(10, 'SPLIT', RATE, 1000, 50);
-  assert.equal(c.changeUsd, 10);
-  assert.equal(c.changeLbp, 0);
-
-  const negative = changeBreakdown(10, 'SPLIT', RATE, 1000, -5);
-  assert.equal(negative.changeUsd, 0);
-  assert.equal(negative.changeLbp, 890000);
-});
-
-test('the pounds half of a split is rounded to a giveable note', () => {
+test('a derived pounds half is rounded to a giveable note', () => {
   // $3.47 left over ≈ 308,830 LL, which no drawer can pay out to the pound.
   const c = changeBreakdown(8.47, 'SPLIT', RATE, 1000, 5);
   assert.equal(c.changeUsd, 5);
   assert.equal(c.changeLbp, 309000);
+});
+
+test('neither half of a split can go negative', () => {
+  const c = changeBreakdown(10, 'SPLIT', RATE, 1000, -5, -100000);
+  assert.equal(c.changeUsd, 0);
+  assert.equal(c.changeLbp, 0);
+});
+
+test('adds the two currencies up, and only here', () => {
+  assert.equal(combinedUsd(5, 445000, RATE), 10);
+  assert.equal(combinedUsd(0, 890000, RATE), 10);
+  assert.equal(combinedUsd(10, 0, RATE), 10);
+  assert.equal(combinedUsd(5, 445000, 0), 5, 'with no rate the pounds cannot be valued');
 });
 
 test('rejects malformed tender', () => {

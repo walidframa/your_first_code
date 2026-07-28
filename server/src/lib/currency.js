@@ -71,32 +71,65 @@ export function tenderTotals(payments, rate) {
 }
 
 /**
+ * What a pile of dollars and a pile of pounds are worth together, in USD.
+ *
+ * The only place the two currencies are ever added up. Everywhere the money is
+ * counted — the drawer, the Z-report — they stay apart, because a drawer is
+ * right or wrong in each currency on its own. But change handed across the
+ * counter is a single debt settled with two kinds of note, so here they sum.
+ */
+export function combinedUsd(usd, lbp, rate) {
+  const r = Number(rate);
+  return round2((Number(usd) || 0) + (r > 0 ? (Number(lbp) || 0) / r : 0));
+}
+
+/**
+ * Split change: hand back some dollars and some pounds, together worth what is
+ * owed.
+ *
+ * A till rarely holds enough of either note to give change cleanly in one
+ * currency — the dollars run out before the day does. The cashier names both
+ * piles, because which notes are actually in the drawer is something only they
+ * can see: 2,500,000 LL may be four notes while the exact remainder is seven.
+ *
+ * Naming only the dollars still works: leave `lbpPart` out and the rest of the
+ * change converts, rounded to a note the shop can really give. That is the
+ * common case and stays one number to type.
+ *
+ * Neither pile is capped against what is owed. Rounding to a giveable note
+ * means the two halves rarely land on the exact figure, and the cashier is the
+ * one who decides which way to round. The order records what actually crossed
+ * the counter, so the difference shows up in the drawer at close instead of
+ * being hidden in the arithmetic.
+ */
+export function splitChange(changeUsdEquivalent, rate, step = 1000, usdPart = null, lbpPart = null) {
+  const due = Math.max(0, Number(changeUsdEquivalent) || 0);
+  const dollars = Math.max(0, round2(Number(usdPart) || 0));
+
+  if (lbpPart === null || lbpPart === undefined) {
+    const capped = Math.min(dollars, due);
+    return { changeUsd: capped, changeLbp: usdToLbp(round2(due - capped), rate, step) };
+  }
+
+  return { changeUsd: dollars, changeLbp: Math.max(0, Math.round(Number(lbpPart) || 0)) };
+}
+
+/**
  * Work out change for `changeUsdEquivalent`, given back in `currency` — one of
  * `CHANGE_MODES`. `USD` and `LBP` put the whole amount in that currency and
- * leave the other field zero; `SPLIT` uses `usdPart` as the dollars handed over
- * and converts what is left.
+ * leave the other field zero; `SPLIT` hands back both, see `splitChange`.
  */
-export function changeBreakdown(changeUsdEquivalent, currency, rate, step = 1000, usdPart = null) {
+export function changeBreakdown(
+  changeUsdEquivalent,
+  currency,
+  rate,
+  step = 1000,
+  usdPart = null,
+  lbpPart = null,
+) {
   const due = Math.max(0, Number(changeUsdEquivalent) || 0);
 
-  /*
-   * Split change: hand back some dollars and the rest in pounds.
-   *
-   * A till rarely holds enough of either note to give change cleanly in one
-   * currency — the dollars run out before the day does. The cashier says how
-   * many dollars they are handing over and the remainder converts, rather than
-   * both figures being typed and having to agree.
-   *
-   * The pounds are rounded to a note the shop can actually give, so the change
-   * can be a few hundred pounds off the exact figure. That difference is real:
-   * it is what the customer walked away with, and it shows up honestly in the
-   * drawer at close rather than being hidden in the arithmetic.
-   */
-  if (currency === 'SPLIT') {
-    const dollars = Math.min(Math.max(0, round2(Number(usdPart) || 0)), due);
-    const remainder = round2(due - dollars);
-    return { changeUsd: dollars, changeLbp: usdToLbp(remainder, rate, step) };
-  }
+  if (currency === 'SPLIT') return splitChange(due, rate, step, usdPart, lbpPart);
 
   if (currency === 'LBP') {
     return { changeUsd: 0, changeLbp: usdToLbp(due, rate, step) };

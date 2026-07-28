@@ -13,8 +13,8 @@ orders and staff.
 - Order-level discount, automatic tax, live total
 - **Dual currency (USD + LBP)** — totals shown in both; the customer can pay in
   dollars, pounds, or a mix of the two in one sale, and change can go back the
-  same way: all dollars, all pounds, or some of each. The exact amounts to hand
-  back are shown as they are entered.
+  same way: all dollars, all pounds, or some of each. In a split the cashier
+  names both piles and the sheet totals them against what is owed.
 - Payment sheet: card, or cash with a numeric keypad and quick-cash amounts
 - Change due surfaced prominently, plus a printable receipt
 - Keyboard shortcuts: `/` focuses search, `F2` opens payment
@@ -130,12 +130,17 @@ each morning and the two price lists can never drift apart.
   meaningless).
 - **Change can also be split across both currencies.** A drawer rarely holds
   enough of either note to settle up cleanly in one, so "Both" lets the cashier
-  say how many dollars they are handing over and converts the remainder to
-  pounds. Only the dollar half is typed — a second figure would be one more thing
-  to keep in agreement. The pounds are rounded to a giveable note, so the two
-  halves may come to a few hundred pounds either side of the exact change; that
-  difference really did cross the counter and shows up in the drawer at close
-  rather than being smoothed away.
+  name each pile — so many dollars, so many pounds — and the change handed over
+  is simply the two added together. The sheet shows that sum against what is
+  owed and says whether it is exact, short or over.
+- Which notes are actually in the drawer is something only the cashier can see:
+  2,500,000 LL may be four notes where the exact remainder is seven. So neither
+  half is forced to a computed figure. A **+ rest** button fills whichever pile
+  still has a gap, for the common "some dollars, rest in pounds" case, and the
+  cashier can overwrite it. Landing a little either side of the exact change is
+  normal and is recorded as given, so it shows up in the drawer at close rather
+  than being smoothed away. Handing back far more than is owed — a slipped digit
+  — is refused.
 - **The rate in force is stored on each order.** Changing the rate never
   retroactively alters past sales, so a receipt still reconciles months later.
 
