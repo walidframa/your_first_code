@@ -230,6 +230,26 @@ try {
     await page.waitForSelector('text=No items yet');
   });
 
+  await step('the drawer figure follows the sale without a reload', async () => {
+    /*
+     * A cashier counts blind, so the register withholds the figure — but the
+     * panel must still have refreshed. Checking the movement count proves the
+     * reload happened without needing to see the money.
+     */
+    await page.waitForSelector('text=Cash on hand', { timeout: 15000 });
+    await page.waitForSelector('text=Counted at close');
+
+    const drawer = await page.evaluate(async () => {
+      const token = localStorage.getItem('pos_token') || sessionStorage.getItem('pos_token');
+      const res = await fetch('/api/cash/current', { headers: { Authorization: `Bearer ${token}` } });
+      return res.json();
+    });
+    // The opening float and the sale just rung up.
+    if (drawer.movementCount < 1) {
+      throw new Error(`the sale did not reach the drawer (${drawer.movementCount} movements)`);
+    }
+  });
+
   await step('F2 does nothing with an empty cart', async () => {
     await page.keyboard.press('F2');
     await page.waitForTimeout(300);

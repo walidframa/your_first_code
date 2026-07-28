@@ -28,6 +28,12 @@ export default function Checkout() {
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [receipt, setReceipt] = useState(null);
+  /*
+   * Bumped after every completed sale. The cashbox panel watches it, so the
+   * drawer's figure follows the till instead of going stale the moment a
+   * customer pays — which is exactly when it is being read.
+   */
+  const [salesMade, setSalesMade] = useState(0);
   const [customer, setCustomer] = useState(null);
 
   const loadData = useCallback(async () => {
@@ -141,6 +147,7 @@ export default function Checkout() {
         customerId: customer?.id ?? null,
       });
       setReceipt({ order: res.data.order, items: res.data.items });
+      setSalesMade((n) => n + 1);
       setCart([]);
       setDiscountPercent(0);
       setCustomer(null);
@@ -291,7 +298,7 @@ export default function Checkout() {
          * only finds out it is shut when a cash sale is refused has already
          * kept a customer waiting.
          */}
-        <CashBox />
+        <CashBox refreshOn={salesMade} />
 
         <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3.5">
           <div>

@@ -437,7 +437,7 @@ function MoveCash({ direction, onClose, onDone }) {
  * refused until it is open, and the worst moment to learn that is at the
  * counter with a customer waiting.
  */
-export default function CashBox({ onChanged }) {
+export default function CashBox({ onChanged, refreshOn = 0 }) {
   const [state, setState] = useState(null);
   const [dialog, setDialog] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -447,9 +447,11 @@ export default function CashBox({ onChanged }) {
     setState(res.data);
   }, []);
 
+  // `refreshOn` changes when a sale completes, which is the moment the figure
+  // on screen stops being true.
   useEffect(() => {
     load();
-  }, [load]);
+  }, [load, refreshOn]);
 
   const refresh = async () => {
     setBusy(true);
