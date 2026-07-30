@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, Banknote, CreditCard, Delete, Wallet } from 'lucide-react';
 import { Button, Modal, cx, money } from './ui';
 import { useSettings, lbp } from '../context/SettingsContext';
+import { splitStatus } from '../lib/change';
 
 const QUICK_USD = [5, 10, 20, 50, 100];
 const QUICK_LBP = [100000, 200000, 500000, 1000000, 5000000];
@@ -65,19 +66,21 @@ export default function PaymentSheet({ open, total, customer, onClose, onConfirm
    * where the exact remainder is seven. What is handed back is simply the two
    * added together, and the sheet says whether that comes to what is owed.
    */
-  const splitUsd = Math.max(0, Number(changeUsdEntry || 0));
-  const splitLbp = Math.max(0, Number(changeLbpEntry || 0));
-  const splitTotal = splitUsd + (rate ? splitLbp / rate : 0);
-  // Under a cent either way is the rate's own rounding, not a real shortfall.
-  const splitLeft = Math.abs(changeUsd - splitTotal) < 0.005 ? 0 : changeUsd - splitTotal;
+  const split = splitStatus({
+    changeDue: changeUsd,
+    usd: changeUsdEntry,
+    lbp: changeLbpEntry,
+    rate,
+    step,
+  });
+  const { usd: splitUsd, lbp: splitLbp, total: splitTotal, left: splitLeft } = split;
 
   /*
    * Handing back a little more than is owed is just rounding to the notes in
    * the drawer. Handing back a lot more is a slipped digit, and the server
    * refuses it — so the button says why rather than letting it fail on submit.
    */
-  const overGiving =
-    changeCurrency === 'SPLIT' && -splitLeft > round2(step / (rate || 1)) + 0.01;
+  const overGiving = changeCurrency === 'SPLIT' && split.over;
 
   const totalLbp = useMemo(() => toLbp(total), [toLbp, total]);
 
