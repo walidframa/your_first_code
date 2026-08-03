@@ -23,6 +23,12 @@ orders and staff.
 **Back office (admin only)**
 - Dashboard: revenue hero figure, KPI tiles, a continuous daily-revenue column
   chart, top sellers, payment mix and restock alerts — all scoped by one date-range filter
+- **Handsets tracked by IMEI** — tick "Track each one by IMEI" on a product and
+  its stock becomes the individual devices booked in, each with its own cost and
+  condition. The register makes the cashier pick which one is leaving, the sale
+  records it, and `IMEI lookup` answers "did we sell this, when, and to whom"
+  from the number on the box. Accessories stay quantity-tracked; both live in
+  one catalogue.
 - Inventory: stock levels with reorder points, value on hand, stock adjustments
   with reasons (received, damaged, theft, count correction, return, transfer),
   and a full movement ledger per product
@@ -114,6 +120,46 @@ Copy `server/.env.example` to `server/.env` to override defaults:
 refuses to start unless it is set to at least 32 characters. In development an
 ephemeral random secret is generated per process (with a warning), so sessions do
 not survive a restart until you set one.
+
+## Individually identified stock
+
+A phone shop does not sell seven interchangeable iPhone 13s. It sells *this*
+handset — bought at its own price, in its own condition, and traceable to the
+customer who walked out with it. A quantity cannot answer "who has IMEI 35…?"
+or "what did that one actually cost me?".
+
+Tick **Track each one by IMEI** on a product and it changes how it is counted:
+
+- Stock is no longer typed. It is the number of handsets booked in and not yet
+  sold, recounted from the units themselves so the two can never drift apart.
+- **Book in** takes a list of IMEIs, one per line, with a condition and a cost —
+  spaces and dashes are stripped so they can be typed straight off the box. A
+  batch containing an IMEI already known is refused whole rather than half kept.
+- The register will not let a serialised product into the cart as a quantity: it
+  asks which handset, and the cart line shows the IMEI going out of the door.
+- The sale records the unit and **its** cost, so margin is per device rather than
+  a shelf average.
+- Refunding puts the handset back as *returned* rather than *in stock* — one
+  that has been out of the shop and come back is not the same proposition as one
+  still in its box, and whoever sells it next should be told. It is still
+  sellable.
+- `GET /api/units/lookup?imei=…` answers the counter question: did we sell it,
+  when, on which order, and to whom. Any signed-in user can ask, because
+  refusing a cashier the ability to check a warranty would defeat the point.
+
+Accessories, parts and recharge cards stay quantity-tracked — nobody serialises
+a screen protector — so the two kinds of stock sit side by side in one
+catalogue. Switching a product between them is only allowed from zero stock with
+no units booked in; either way round, the shelf and the record would otherwise
+part company.
+
+| Route | Method | Role |
+| ----- | ------ | ---- |
+| `/api/units/lookup?imei=` | GET | any signed-in user |
+| `/api/units/product/:id` | GET | any signed-in user |
+| `/api/units/product/:id` | POST | admin |
+| `/api/units/:id` | PATCH, DELETE | admin |
+
 
 ## Dual currency
 

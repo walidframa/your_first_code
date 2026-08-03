@@ -5,6 +5,7 @@ import { requireAuth, requireRole } from '../middleware/auth.js';
 import { getSettings } from '../lib/settings.js';
 import { addEntry, creditCheck } from '../lib/accounts.js';
 import { currentSession, recordMovement, requiresSession } from '../lib/cash.js';
+import { isAvailable, returnUnitsOfOrder, sellUnit, syncStockFromUnits } from '../lib/units.js';
 import {
   CHANGE_MODES,
   round2,
@@ -67,6 +68,8 @@ router.post('/', requireAuth, (req, res) => {
       const lineItems = [];
       let subtotal = 0;
 
+      const claimedUnits = new Set();
+
       for (const item of items) {
         const product = db.prepare('SELECT * FROM products WHERE id = ? AND active = 1').get(item.productId);
         if (!product) throw new Error(`Product ${item.productId} not found`);
@@ -74,12 +77,44 @@ router.post('/', requireAuth, (req, res) => {
         if (!Number.isInteger(quantity) || quantity <= 0) {
           throw new Error(`Invalid quantity for ${product.name}`);
         }
-        if (product.stock < quantity) {
-          throw new Error(`Not enough stock for ${product.name} (have ${product.stock}, need ${quantity})`);
+
+        /*
+         * A serialised product is sold one identified handset at a time. Two of
+         * "an iPhone 13" is meaningless — it is this IMEI and that IMEI, each
+         * with its own cost, so the cart carries a line per unit.
+         */
+        let unit = null;
+        if (product.tracks_units) {
+          if (!item.unitId) throw new Error(`Pick which ${product.name} — it is tracked by IMEI`);
+          if (quantity !== 1) throw new Error(`${product.name} sells one unit per line`);
+
+          unit = db.prepare('SELECT * FROM product_units WHERE id = ?').get(item.unitId);
+          if (!unit || unit.product_id !== product.id) {
+            throw new Error(`That unit is not a ${product.name}`);
+          }
+          if (!isAvailable(unit.status)) {
+            throw new Error(`${unit.imei} is already ${unit.status.replace('_', ' ')}`);
+          }
+          // Two lines naming one handset would sell it twice and only take it
+          // off the shelf once.
+          if (claimedUnits.has(unit.id)) throw new Error(`${unit.imei} is on this sale twice`);
+          claimedUnits.add(unit.id);
+        } else {
+          /*
+           * A unit named against a product that is not serialised is a caller
+           * bug, and ignoring it would be the worst kind: the sale would go
+           * through, the handset would stay on the shelf, and whoever sent it
+           * would believe otherwise.
+           */
+          if (item.unitId) throw new Error(`${product.name} is not tracked by IMEI`);
+          if (product.stock < quantity) {
+            throw new Error(`Not enough stock for ${product.name} (have ${product.stock}, need ${quantity})`);
+          }
         }
+
         const lineTotal = round2(product.price * quantity);
         subtotal += lineTotal;
-        lineItems.push({ product, quantity, lineTotal });
+        lineItems.push({ product, quantity, lineTotal, unit });
       }
 
       subtotal = round2(subtotal);
@@ -176,17 +211,31 @@ router.post('/', requireAuth, (req, res) => {
       // The cost is copied onto the line, not looked up later: profit for a
       // sale made last month must not change when a supplier puts a price up.
       const insertItem = db.prepare(`
-        INSERT INTO order_items (order_id, product_id, name, price, quantity, line_total, cost)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO order_items (order_id, product_id, name, price, quantity, line_total, cost, unit_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `);
       const decrementStock = db.prepare('UPDATE products SET stock = stock - ? WHERE id = ?');
 
       for (const li of lineItems) {
+        /*
+         * A serialised line carries the cost of the handset that left, not the
+         * product's average — the point of tracking units is that this one's
+         * margin is its own.
+         */
+        const cost = li.unit ? li.unit.cost : (li.product.cost ?? null);
         insertItem.run(
           orderId, li.product.id, li.product.name, li.product.price, li.quantity, li.lineTotal,
-          li.product.cost ?? null,
+          cost, li.unit?.id ?? null,
         );
-        decrementStock.run(li.quantity, li.product.id);
+
+        if (li.unit) {
+          sellUnit(li.unit.id, li.product.id, orderId);
+          // Stock is recounted from the units rather than decremented, so the
+          // two can never drift apart.
+          syncStockFromUnits(li.product.id);
+        } else {
+          decrementStock.run(li.quantity, li.product.id);
+        }
       }
 
       if (paymentMethod === 'account') {
@@ -278,8 +327,11 @@ router.post('/:id/refund', requireAuth, requireRole('admin'), (req, res) => {
     const items = db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(order.id);
     const restock = db.prepare('UPDATE products SET stock = stock + ? WHERE id = ?');
     for (const item of items) {
-      if (item.product_id) restock.run(item.quantity, item.product_id);
+      // Serialised lines are put back by identity below; adding to `stock` here
+      // as well would count the returned handset twice.
+      if (item.product_id && !item.unit_id) restock.run(item.quantity, item.product_id);
     }
+    returnUnitsOfOrder(order.id);
     db.prepare("UPDATE orders SET status = 'refunded' WHERE id = ?").run(order.id);
 
     if (order.payment_method === 'account' && order.customer_id) {

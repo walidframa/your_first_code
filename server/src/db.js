@@ -336,6 +336,53 @@ addColumn('order_items', 'cost', 'REAL');
 addColumn('document_items', 'cost', 'REAL');
 
 /*
+ * Individually identified stock.
+ *
+ * A phone shop does not sell seven interchangeable iPhone 13s. It sells *this*
+ * handset — bought at its own price, in its own condition, carrying its own
+ * warranty, and traceable to the customer who walked out with it. A quantity
+ * cannot answer "who has IMEI 35…?" or "what did that one actually cost me?".
+ *
+ * Accessories and parts stay quantity-tracked: nobody serialises a screen
+ * protector. So `tracks_units` is per product, and the two kinds of stock live
+ * side by side in the same catalogue.
+ */
+addColumn('products', 'tracks_units', 'INTEGER NOT NULL DEFAULT 0');
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS product_units (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id INTEGER NOT NULL REFERENCES products(id),
+    -- The identifier stamped on the device. IMEI for phones, serial for
+    -- everything else; one column, because a unit only ever has one of them.
+    imei TEXT NOT NULL UNIQUE,
+    condition TEXT NOT NULL DEFAULT 'new' CHECK (condition IN ('new', 'used', 'refurbished')),
+    cost REAL NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'in_stock'
+      CHECK (status IN ('in_stock', 'sold', 'returned', 'scrapped')),
+    note TEXT,
+    -- Where it came in and where it went out, so a unit reads as a history.
+    received_document_id INTEGER REFERENCES documents(id),
+    sold_order_id INTEGER REFERENCES orders(id),
+    sold_document_id INTEGER REFERENCES documents(id),
+    sold_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_units_product ON product_units(product_id, status);
+  CREATE INDEX IF NOT EXISTS idx_units_imei ON product_units(imei);
+`);
+
+/*
+ * Which unit left on which sale line.
+ *
+ * The line already keeps the cost that was true when it sold; for a serialised
+ * product that cost belongs to one handset, so the link makes per-device margin
+ * exact rather than averaged.
+ */
+addColumn('order_items', 'unit_id', 'INTEGER REFERENCES product_units(id)');
+
+/*
  * What a product has cost over time.
  *
  * A shopkeeper wanting to know why the margin moved needs to see the cost
