@@ -138,7 +138,7 @@ export default function PaymentSheet({ open, total, customer, onClose, onConfirm
    * following the other one. Better than writing a computed number into it: the
    * field stays live as the other side changes.
    */
-  function useSuggestion(field) {
+  function restoreSuggestion(field) {
     setTouched((t) => ({ ...t, [field]: false }));
     SETTERS[field]('');
   }
@@ -407,7 +407,7 @@ export default function PaymentSheet({ open, total, customer, onClose, onConfirm
                            */}
                           {suggestion.suggested === null && splitLeft !== 0 && (
                             <button
-                              onClick={() => useSuggestion(f.field)}
+                              onClick={() => restoreSuggestion(f.field)}
                               className="w-full rounded-lg bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-200"
                             >
                               let the till fill this
