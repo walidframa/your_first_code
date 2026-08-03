@@ -11,6 +11,51 @@ export function combinedUsd(usd, lbp, rate) {
   return (Number(usd) || 0) + (r > 0 ? (Number(lbp) || 0) / r : 0);
 }
 
+function round2(n) {
+  return Math.round((Number(n) + Number.EPSILON) * 100) / 100;
+}
+
+/** Round pounds to a note the drawer can actually pay out. */
+function toNote(lbp, step) {
+  const s = Number(step);
+  return !Number.isFinite(s) || s <= 1 ? Math.round(lbp) : Math.round(lbp / s) * s;
+}
+
+/**
+ * Fill in whichever pile the cashier has not named.
+ *
+ * The counter conversation is one-sided: "your change is $29.13 — here's $25,
+ * and the rest in pounds." The cashier knows the note they are pulling out;
+ * working out what is left is arithmetic, and arithmetic is the till's job.
+ *
+ * So the untouched field follows the touched one. Type dollars and the pounds
+ * come to meet them; type pounds instead and the dollars do. Touch both and
+ * neither is suggested any more — two deliberate figures are the cashier
+ * rounding to the notes they hold, and the sheet reports the difference rather
+ * than overwriting either one.
+ *
+ * The dollar side is never capped at what is owed. Typing $50 back against
+ * $29.13 of change should read as $20.87 over, not be quietly corrected.
+ */
+export function suggestSplit({ changeDue, usd, lbp, usdTouched, lbpTouched, rate, step = 1000 }) {
+  const due = Math.max(0, Number(changeDue) || 0);
+  const typedUsd = Math.max(0, Number(usd) || 0);
+  const typedLbp = Math.max(0, Number(lbp) || 0);
+  const r = Number(rate) > 0 ? Number(rate) : 0;
+
+  if (!lbpTouched) {
+    const rest = Math.max(0, due - typedUsd);
+    return { usd: typedUsd, lbp: r ? toNote(rest * r, step) : 0, suggested: 'lbp' };
+  }
+
+  if (!usdTouched) {
+    const rest = Math.max(0, due - (r ? typedLbp / r : 0));
+    return { usd: round2(rest), lbp: typedLbp, suggested: 'usd' };
+  }
+
+  return { usd: typedUsd, lbp: typedLbp, suggested: null };
+}
+
 /**
  * How the two piles the cashier named stand against the change owed.
  *

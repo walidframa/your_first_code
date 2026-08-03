@@ -221,15 +221,26 @@ try {
     const dialog = page.locator('[role=dialog]');
     await dialog.getByRole('button', { name: 'Both', exact: true }).click();
 
-    // Both piles are the cashier's to name. Setting only the dollars leaves the
-    // change short, and the sheet says so rather than quietly making it up.
-    await dialog.getByRole('button', { name: '$5.00', exact: true }).click();
-    await page.waitForSelector('text=/\\$[\\d.]+ of \\$[\\d.]+ — \\$[\\d.]+ short/');
+    // With nothing named yet the whole change is suggested in pounds.
+    await dialog.locator('text=suggested').first().waitFor();
+    await page.waitForSelector('text=/that is the change exactly/');
 
-    // Putting the rest in pounds makes the two add up to exactly the change.
-    await dialog.getByRole('button', { name: /\+ rest \([\d,]+ LL\)/ }).click();
+    // Naming the dollars pulls the pounds down to meet them, still exact.
+    await dialog.getByRole('button', { name: '$5.00', exact: true }).click();
     await page.waitForSelector('text=/that is the change exactly/');
     await page.waitForSelector('text=/Confirm · change \\$5\\.00 \\+ [\\d,]+ LL/');
+  });
+
+  await step('typing both figures stops the till overwriting either', async () => {
+    const dialog = page.locator('[role=dialog]');
+    await dialog.getByRole('button', { name: 'Pounds back' }).click();
+    await dialog.getByRole('button', { name: '100k' }).click();
+    // Two deliberate figures that do not cover the change are reported, not fixed.
+    await page.waitForSelector('text=/\\$[\\d.]+ of \\$[\\d.]+ — \\$[\\d.]+ short/');
+
+    // Handing the pounds back to the till restores the suggestion.
+    await dialog.getByRole('button', { name: 'let the till fill this' }).last().click();
+    await page.waitForSelector('text=/that is the change exactly/');
   });
   await shot('split-change');
 
