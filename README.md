@@ -133,14 +133,19 @@ each morning and the two price lists can never drift apart.
   name each pile — so many dollars, so many pounds — and the change handed over
   is simply the two added together. The sheet shows that sum against what is
   owed and says whether it is exact, short or over.
-- Which notes are actually in the drawer is something only the cashier can see:
-  2,500,000 LL may be four notes where the exact remainder is seven. So neither
-  half is forced to a computed figure. A **+ rest** button fills whichever pile
-  still has a gap, for the common "some dollars, rest in pounds" case, and the
-  cashier can overwrite it. Landing a little either side of the exact change is
-  normal and is recorded as given, so it shows up in the drawer at close rather
-  than being smoothed away. Handing back far more than is owed — a slipped digit
-  — is refused.
+- **The pile the cashier has not named follows the one they have**, live. Change
+  of $27.87 with "here's $25" typed into the dollars shows 255,000 LL beside it,
+  updating on every keystroke and marked *suggested* so it is clear which figure
+  is the till's. Type the pounds instead and the dollars follow.
+- Touching both stops the suggestion. Which notes are actually in the drawer is
+  something only the cashier can see — 2,500,000 LL may be four notes where the
+  exact remainder is seven — so two deliberate figures are left alone and the
+  sheet reports the difference instead of overwriting either. **Let the till
+  fill this** hands a field back, and it stays live from then on.
+- Landing a little either side of the exact change is normal when rounding to
+  real notes and is recorded as given, so it shows up in the drawer at close
+  rather than being smoothed away. Handing back far more than is owed — a
+  slipped digit — is refused.
 - **The rate in force is stored on each order.** Changing the rate never
   retroactively alters past sales, so a receipt still reconciles months later.
 

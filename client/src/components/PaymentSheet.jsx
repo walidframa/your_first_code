@@ -2,17 +2,13 @@ import { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, Banknote, CreditCard, Delete, Wallet } from 'lucide-react';
 import { Button, Modal, cx, money } from './ui';
 import { useSettings, lbp } from '../context/SettingsContext';
-import { splitStatus } from '../lib/change';
+import { splitStatus, suggestSplit } from '../lib/change';
 
 const QUICK_USD = [5, 10, 20, 50, 100];
 const QUICK_LBP = [100000, 200000, 500000, 1000000, 5000000];
 
 /** The keypad targets that belong to the change, not to the tender. */
 const CHANGE_FIELDS = ['CHANGE_USD', 'CHANGE_LBP'];
-
-function round2(n) {
-  return Math.round((Number(n) + Number.EPSILON) * 100) / 100;
-}
 
 /**
  * Payment step. The customer may hand over USD, LBP, or both; the cashier
@@ -27,6 +23,11 @@ export default function PaymentSheet({ open, total, customer, onClose, onConfirm
   const [lbpEntry, setLbpEntry] = useState('');
   const [changeUsdEntry, setChangeUsdEntry] = useState('');
   const [changeLbpEntry, setChangeLbpEntry] = useState('');
+  /*
+   * A field is "touched" once the cashier types a figure into it. Until then it
+   * is the till's suggestion, free to follow whatever the other field says.
+   */
+  const [touched, setTouched] = useState({ CHANGE_USD: false, CHANGE_LBP: false });
   // Which field the keypad is typing into: a tender currency, or — in split
   // mode — one of the two piles being handed back.
   const [active, setActive] = useState('USD');
@@ -39,6 +40,7 @@ export default function PaymentSheet({ open, total, customer, onClose, onConfirm
       setLbpEntry('');
       setChangeUsdEntry('');
       setChangeLbpEntry('');
+      setTouched({ CHANGE_USD: false, CHANGE_LBP: false });
       setActive('USD');
       setChangeCurrency('LBP');
     }
@@ -66,10 +68,19 @@ export default function PaymentSheet({ open, total, customer, onClose, onConfirm
    * where the exact remainder is seven. What is handed back is simply the two
    * added together, and the sheet says whether that comes to what is owed.
    */
-  const split = splitStatus({
+  const suggestion = suggestSplit({
     changeDue: changeUsd,
     usd: changeUsdEntry,
     lbp: changeLbpEntry,
+    usdTouched: touched.CHANGE_USD,
+    lbpTouched: touched.CHANGE_LBP,
+    rate,
+    step,
+  });
+  const split = splitStatus({
+    changeDue: changeUsd,
+    usd: suggestion.usd,
+    lbp: suggestion.lbp,
     rate,
     step,
   });
@@ -95,6 +106,7 @@ export default function PaymentSheet({ open, total, customer, onClose, onConfirm
   const wholeNumbersOnly = active === 'LBP' || active === 'CHANGE_LBP';
 
   function press(key) {
+    if (CHANGE_FIELDS.includes(active)) setTouched((t) => ({ ...t, [active]: true }));
     setEntry((prev) => {
       if (key === 'clear') return '';
       if (key === 'back') return prev.slice(0, -1);
@@ -110,22 +122,25 @@ export default function PaymentSheet({ open, total, customer, onClose, onConfirm
   /** Switch how change is given, pointing the keypad at the field that matters. */
   function pickChangeCurrency(mode) {
     setChangeCurrency(mode);
-    if (mode === 'SPLIT') setActive('CHANGE_USD');
+    if (mode === 'SPLIT') {
+      setTouched({ CHANGE_USD: false, CHANGE_LBP: false });
+      setChangeUsdEntry('');
+      setChangeLbpEntry('');
+      setActive('CHANGE_USD');
+    }
     else if (CHANGE_FIELDS.includes(active)) setActive('USD');
   }
 
   /**
-   * Put whatever is still owed into the other pile.
+   * Hand a field back to the till.
    *
-   * The usual split is "some dollars, rest in pounds", and making the cashier
-   * work out the rest by hand would be handing them arithmetic the app already
-   * knows. It fills a field they can still overwrite — the app suggests, it
-   * does not decide.
+   * Clearing what was typed makes the field untouched again, so it goes back to
+   * following the other one. Better than writing a computed number into it: the
+   * field stays live as the other side changes.
    */
-  function fillRest(field) {
-    const short = Math.max(0, changeUsd - splitTotal);
-    if (field === 'CHANGE_LBP') setChangeLbpEntry(String(toLbp(short + (rate ? splitLbp / rate : 0))));
-    else setChangeUsdEntry(String(round2(splitUsd + short)));
+  function useSuggestion(field) {
+    setTouched((t) => ({ ...t, [field]: false }));
+    SETTERS[field]('');
   }
 
   function confirm() {
@@ -345,52 +360,62 @@ export default function PaymentSheet({ open, total, customer, onClose, onConfirm
 
               {changeCurrency === 'SPLIT' && (
                 <div className="mt-2 space-y-2">
-                  {/* Both piles are typed. The total is simply the two added up. */}
+                  {/*
+                   * Whichever pile the cashier has not typed into follows the
+                   * one they have, so saying "here is $25" is enough and the
+                   * pounds appear beside it.
+                   */}
                   <div className="grid grid-cols-2 gap-2">
                     {[
-                      {
-                        field: 'CHANGE_USD',
-                        label: 'Dollars back',
-                        entry: changeUsdEntry,
-                        display: money(splitUsd),
-                        zero: '$0.00',
-                      },
-                      {
-                        field: 'CHANGE_LBP',
-                        label: 'Pounds back',
-                        entry: changeLbpEntry,
-                        display: lbp(splitLbp),
-                        zero: '0 LL',
-                      },
-                    ].map((f) => (
-                      <div key={f.field} className="space-y-1">
-                        <button
-                          onClick={() => setActive(f.field)}
-                          className={cx(
-                            'w-full rounded-xl px-3 py-3 text-left ring-1 transition',
-                            active === f.field ? 'bg-white ring-2 ring-brand-500' : 'bg-slate-50 ring-slate-200',
-                          )}
-                        >
-                          <span className="block text-xs text-slate-500">{f.label}</span>
-                          <span
+                      { field: 'CHANGE_USD', label: 'Dollars back', display: money(splitUsd) },
+                      { field: 'CHANGE_LBP', label: 'Pounds back', display: lbp(splitLbp) },
+                    ].map((f) => {
+                      const isSuggested =
+                        suggestion.suggested === (f.field === 'CHANGE_USD' ? 'usd' : 'lbp');
+                      return (
+                        <div key={f.field} className="space-y-1">
+                          <button
+                            onClick={() => setActive(f.field)}
                             className={cx(
-                              'mt-0.5 block text-xl font-semibold',
-                              f.entry ? 'text-slate-900' : 'text-slate-300',
+                              'w-full rounded-xl px-3 py-3 text-left ring-1 transition',
+                              active === f.field
+                                ? 'bg-white ring-2 ring-brand-500'
+                                : 'bg-slate-50 ring-slate-200',
                             )}
                           >
-                            {f.entry ? f.display : f.zero}
-                          </span>
-                        </button>
-                        {splitLeft > 0.005 && (
-                          <button
-                            onClick={() => fillRest(f.field)}
-                            className="w-full rounded-lg bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-200"
-                          >
-                            + rest ({f.field === 'CHANGE_LBP' ? lbp(toLbp(splitLeft)) : money(splitLeft)})
+                            <span className="flex items-baseline justify-between gap-1">
+                              <span className="text-xs text-slate-500">{f.label}</span>
+                              {isSuggested && (
+                                <span className="text-[10px] tracking-wide text-brand-600 uppercase">
+                                  suggested
+                                </span>
+                              )}
+                            </span>
+                            <span
+                              className={cx(
+                                'mt-0.5 block text-xl font-semibold',
+                                isSuggested ? 'text-brand-700' : 'text-slate-900',
+                              )}
+                            >
+                              {f.display}
+                            </span>
                           </button>
-                        )}
-                      </div>
-                    ))}
+                          {/*
+                           * Only reachable once both figures are the cashier's
+                           * own — it hands the field back to the till rather
+                           * than writing a number they would then have to trust.
+                           */}
+                          {suggestion.suggested === null && splitLeft !== 0 && (
+                            <button
+                              onClick={() => useSuggestion(f.field)}
+                              className="w-full rounded-lg bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-200"
+                            >
+                              let the till fill this
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
 
                   {/*
@@ -424,7 +449,10 @@ export default function PaymentSheet({ open, total, customer, onClose, onConfirm
               {quickAmounts.map((amount) => (
                 <button
                   key={amount}
-                  onClick={() => setEntry(String(amount))}
+                  onClick={() => {
+                    if (CHANGE_FIELDS.includes(active)) setTouched((t) => ({ ...t, [active]: true }));
+                    setEntry(String(amount));
+                  }}
                   className="flex-1 rounded-lg bg-slate-100 px-2 py-2 text-sm font-medium whitespace-nowrap text-slate-700 transition hover:bg-slate-200"
                 >
                   {wholeNumbersOnly ? `${(amount / 1000).toLocaleString()}k` : money(amount)}
