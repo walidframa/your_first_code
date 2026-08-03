@@ -14,7 +14,14 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const serverRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const PORT = 4599;
+/*
+ * Its own port. `node --test` runs these files in parallel, so two suites
+ * sharing one means the second server cannot bind and the first suite's tests
+ * start talking to a stranger — or, worse, still pass locally when the
+ * scheduler happens to keep them apart. Taken: 4596 profit, 4598 cash,
+ * 4599 api.
+ */
+const PORT = 4595;
 const BASE = `http://127.0.0.1:${PORT}/api`;
 
 let child;
