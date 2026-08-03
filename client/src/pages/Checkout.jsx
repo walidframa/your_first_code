@@ -5,6 +5,7 @@ import Receipt from '../components/Receipt';
 import PaymentSheet from '../components/PaymentSheet';
 import CustomerPicker from '../components/CustomerPicker';
 import CashBox from '../components/CashBox';
+import UnitPicker from '../components/UnitPicker';
 import { Button, EmptyState, ProductThumb, Skeleton, cx, money, useToast } from '../components/ui';
 import { useSettings, lbp } from '../context/SettingsContext';
 
@@ -35,6 +36,8 @@ export default function Checkout() {
    */
   const [salesMade, setSalesMade] = useState(0);
   const [customer, setCustomer] = useState(null);
+  // The serialised product waiting for the cashier to say which handset.
+  const [pickingUnitFor, setPickingUnitFor] = useState(null);
 
   const loadData = useCallback(async () => {
     const [productsRes, categoriesRes, taxRes] = await Promise.all([
@@ -53,10 +56,37 @@ export default function Checkout() {
   }, [loadData]);
 
   const addToCart = useCallback(
-    (product, quantity = 1) => {
+    (product, quantity = 1, unit = null) => {
       let outcome = 'added';
       setCart((prev) => {
-        const existing = prev.find((i) => i.productId === product.id);
+        /*
+         * A serialised product never merges: two iPhones are IMEI A and IMEI B,
+         * each with its own line, its own cost and its own row on the receipt.
+         */
+        if (unit) {
+          if (prev.some((i) => i.unitId === unit.id)) {
+            outcome = 'duplicate';
+            return prev;
+          }
+          return [
+            ...prev,
+            {
+              lineKey: `${product.id}:${unit.id}`,
+              productId: product.id,
+              unitId: unit.id,
+              imei: unit.imei,
+              name: product.name,
+              sku: product.sku,
+              price: product.price,
+              stock: 1,
+              image_url: product.image_url,
+              image_emoji: product.image_emoji,
+              quantity: 1,
+            },
+          ];
+        }
+
+        const existing = prev.find((i) => i.productId === product.id && !i.unitId);
         const inCart = existing?.quantity || 0;
         if (inCart + quantity > product.stock) {
           outcome = 'capped';
@@ -64,13 +94,15 @@ export default function Checkout() {
         }
         if (existing) {
           return prev.map((i) =>
-            i.productId === product.id ? { ...i, quantity: i.quantity + quantity } : i,
+            i.productId === product.id && !i.unitId ? { ...i, quantity: i.quantity + quantity } : i,
           );
         }
         return [
           ...prev,
           {
+            lineKey: String(product.id),
             productId: product.id,
+            unitId: null,
             name: product.name,
             sku: product.sku,
             price: product.price,
@@ -84,6 +116,9 @@ export default function Checkout() {
       if (outcome === 'capped') {
         toast(`Only ${product.stock} of ${product.name} in stock`, 'warning');
       }
+      if (outcome === 'duplicate') {
+        toast('That handset is already on this sale', 'warning');
+      }
       return outcome;
     },
     [toast],
@@ -96,6 +131,11 @@ export default function Checkout() {
       const product = res.data.product;
       if (product.stock <= 0) {
         toast(`${product.name} is out of stock`, 'error');
+        return;
+      }
+      if (product.tracks_units) {
+        setPickingUnitFor(product);
+        setSearch('');
         return;
       }
       if (addToCart(product) === 'added') toast(`Added ${product.name}`);
@@ -118,10 +158,10 @@ export default function Checkout() {
     });
   }, [products, activeCategory, search]);
 
-  function updateQuantity(productId, quantity) {
+  function updateQuantity(lineKey, quantity) {
     setCart((prev) =>
       prev.flatMap((i) => {
-        if (i.productId !== productId) return [i];
+        if (i.lineKey !== lineKey) return [i];
         if (quantity <= 0) return [];
         return [{ ...i, quantity: Math.min(quantity, i.stock) }];
       }),
@@ -145,7 +185,7 @@ export default function Checkout() {
     setSubmitting(true);
     try {
       const res = await api.post('/orders', {
-        items: cart.map((i) => ({ productId: i.productId, quantity: i.quantity })),
+        items: cart.map((i) => ({ productId: i.productId, quantity: i.quantity, unitId: i.unitId })),
         discountPercent: Number(discountPercent) || 0,
         paymentMethod,
         payments,
@@ -261,6 +301,10 @@ export default function Checkout() {
                   <button
                     key={p.id}
                     onClick={() => {
+                      if (p.tracks_units) {
+                        setPickingUnitFor(p);
+                        return;
+                      }
                       if (addToCart(p) === 'added') toast(`Added ${p.name}`);
                     }}
                     disabled={soldOut}
@@ -343,7 +387,7 @@ export default function Checkout() {
           ) : (
             <ul className="space-y-1">
               {cart.map((item) => (
-                <li key={item.productId} className="flex items-center gap-3 rounded-xl px-2 py-2 hover:bg-slate-50">
+                <li key={item.lineKey} className="flex items-center gap-3 rounded-xl px-2 py-2 hover:bg-slate-50">
                   <ProductThumb product={item} size="sm" />
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium text-slate-800">{item.name}</p>
@@ -351,10 +395,13 @@ export default function Checkout() {
                       {money(item.price)} each
                       {rate > 0 && <> · {lbp(toLbp(item.price))}</>}
                     </p>
+                    {item.imei && (
+                      <p className="truncate font-mono text-[11px] text-slate-400">{item.imei}</p>
+                    )}
                   </div>
                   <div className="flex items-center gap-1">
                     <button
-                      onClick={() => updateQuantity(item.productId, item.quantity - 1)}
+                      onClick={() => updateQuantity(item.lineKey, item.quantity - 1)}
                       aria-label={`Decrease ${item.name}`}
                       className="flex h-7 w-7 items-center justify-center rounded-lg bg-slate-100 text-slate-600 transition hover:bg-slate-200"
                     >
@@ -362,7 +409,7 @@ export default function Checkout() {
                     </button>
                     <span className="tnum w-6 text-center text-sm font-medium">{item.quantity}</span>
                     <button
-                      onClick={() => updateQuantity(item.productId, item.quantity + 1)}
+                      onClick={() => updateQuantity(item.lineKey, item.quantity + 1)}
                       disabled={item.quantity >= item.stock}
                       aria-label={`Increase ${item.name}`}
                       className="flex h-7 w-7 items-center justify-center rounded-lg bg-slate-100 text-slate-600 transition hover:bg-slate-200 disabled:opacity-40"
@@ -456,6 +503,19 @@ export default function Checkout() {
         onClose={() => setPaymentOpen(false)}
         onConfirm={handleConfirmPayment}
       />
+
+      {pickingUnitFor && (
+        <UnitPicker
+          product={pickingUnitFor}
+          onClose={() => setPickingUnitFor(null)}
+          onPick={(unit) => {
+            if (addToCart(pickingUnitFor, 1, unit) === 'added') {
+              toast(`Added ${pickingUnitFor.name} · ${unit.imei}`);
+            }
+            setPickingUnitFor(null);
+          }}
+        />
+      )}
 
       {receipt && <Receipt receipt={receipt} onClose={() => setReceipt(null)} />}
     </div>

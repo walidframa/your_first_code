@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router';
-import { Archive, ArchiveRestore, History, Package, Pencil, Plus, Search, Upload } from 'lucide-react';
+import { Archive, ArchiveRestore, History, Package, Pencil, Plus, Search, Smartphone, Upload } from 'lucide-react';
 import api from '../../api';
 import PageHeader from '../../components/PageHeader';
 import ItemActivity from '../../components/ItemActivity';
+import UnitsPanel from '../../components/UnitsPanel';
 import { useSettings, lbp } from '../../context/SettingsContext';
 import {
   Badge,
@@ -32,6 +33,7 @@ const emptyForm = {
   category_id: '',
   supplier: '',
   image_url: '',
+  tracks_units: false,
 };
 
 function ProductModal({ product, categories, onClose, onSaved }) {
@@ -49,6 +51,7 @@ function ProductModal({ product, categories, onClose, onSaved }) {
           category_id: product.category_id || '',
           supplier: product.supplier || '',
           image_url: product.image_url || '',
+          tracks_units: Boolean(product.tracks_units),
         }
       : emptyForm,
   );
@@ -68,6 +71,7 @@ function ProductModal({ product, categories, onClose, onSaved }) {
       stock: Number(form.stock) || 0,
       reorder_point: Number(form.reorder_point) || 0,
       category_id: form.category_id || null,
+      tracks_units: form.tracks_units,
     };
     try {
       if (product) await api.put(`/products/${product.id}`, payload);
@@ -90,7 +94,15 @@ function ProductModal({ product, categories, onClose, onSaved }) {
           <Input label="Barcode" value={form.barcode} onChange={set('barcode')} hint="Scannable at the register" />
           <Input label="Price" type="number" step="0.01" min="0" value={form.price} onChange={set('price')} required />
           <Input label="Cost" type="number" step="0.01" min="0" value={form.cost} onChange={set('cost')} />
-          <Input label="Stock on hand" type="number" step="1" value={form.stock} onChange={set('stock')} />
+          <Input
+            label="Stock on hand"
+            type="number"
+            step="1"
+            value={form.tracks_units ? '' : form.stock}
+            onChange={set('stock')}
+            disabled={form.tracks_units}
+            hint={form.tracks_units ? 'Counted from the handsets booked in' : undefined}
+          />
           <Input
             label="Reorder point"
             type="number"
@@ -108,6 +120,27 @@ function ProductModal({ product, categories, onClose, onSaved }) {
               </option>
             ))}
           </Select>
+          {/*
+            * Phones are sold one identified handset at a time; screen
+            * protectors are not. The choice is per product so both live in one
+            * catalogue.
+            */}
+          <label className="col-span-2 flex items-start gap-2.5 rounded-xl bg-slate-50 px-3 py-2.5 ring-1 ring-slate-200">
+            <input
+              type="checkbox"
+              checked={form.tracks_units}
+              onChange={(e) => setForm((f) => ({ ...f, tracks_units: e.target.checked }))}
+              className="mt-0.5 h-4 w-4 rounded border-slate-300 accent-brand-600"
+            />
+            <span>
+              <span className="block text-sm font-medium text-slate-800">Track each one by IMEI</span>
+              <span className="block text-xs text-slate-500">
+                For phones and anything with a serial. Stock is then the handsets booked in, and each
+                carries its own cost.
+              </span>
+            </span>
+          </label>
+
           <Input label="Supplier" value={form.supplier} onChange={set('supplier')} />
           <Input label="Image URL" value={form.image_url} onChange={set('image_url')} className="col-span-2" />
         </div>
@@ -136,6 +169,7 @@ export default function Products() {
   const [showArchived, setShowArchived] = useState(false);
   const [editing, setEditing] = useState(undefined);
   const [activityFor, setActivityFor] = useState(null);
+  const [unitsFor, setUnitsFor] = useState(null);
 
   const load = useCallback(async () => {
     const [productsRes, categoriesRes] = await Promise.all([
@@ -277,6 +311,19 @@ export default function Products() {
                         </td>
                         <td className="px-5 py-2.5">
                           <div className="flex justify-end gap-1">
+                            {/* Serialised products are managed by handset, so the
+                                shortcut goes where the work actually is. */}
+                            {p.tracks_units ? (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => setUnitsFor(p)}
+                                aria-label={`Handsets of ${p.name}`}
+                                title="Book in and track each IMEI"
+                              >
+                                <Smartphone size={14} /> IMEIs
+                              </Button>
+                            ) : null}
                             <Button
                               size="sm"
                               variant="ghost"
@@ -322,6 +369,18 @@ export default function Products() {
       )}
 
       {activityFor && <ItemActivity productId={activityFor} onClose={() => setActivityFor(null)} />}
+
+      {unitsFor && (
+        <Modal
+          open
+          onClose={() => setUnitsFor(null)}
+          title={unitsFor.name}
+          subtitle="Each handset, and what became of it"
+          size="lg"
+        >
+          <UnitsPanel product={unitsFor} onChanged={load} />
+        </Modal>
+      )}
     </div>
   );
 }

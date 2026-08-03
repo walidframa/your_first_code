@@ -350,6 +350,72 @@ try {
     await page.keyboard.press('Escape');
   });
 
+  await step('a product can be set to track each handset by IMEI', async () => {
+    await page.click('a[title="Products"]');
+    await page.waitForSelector('text=New product', { timeout: 15000 });
+    await page.click('button:has-text("New product")');
+    await page.waitForSelector('[role=dialog] >> text=Track each one by IMEI');
+
+    const dialog = page.locator('[role=dialog]');
+    await dialog.getByRole('textbox', { name: 'Name', exact: true }).fill('Galaxy A15');
+    await dialog.getByRole('textbox', { name: 'SKU', exact: true }).fill('PH-A15');
+    await dialog.getByRole('spinbutton', { name: 'Price', exact: true }).fill('189');
+    await dialog.getByRole('spinbutton', { name: 'Cost', exact: true }).fill('150');
+    await dialog.getByRole('checkbox').check();
+    await dialog.getByRole('button', { name: /Create|Save/ }).click();
+    await page.waitForSelector('text=Galaxy A15', { timeout: 15000 });
+  });
+
+  await step('handsets are booked in by IMEI and become the stock', async () => {
+    await page.getByRole('button', { name: 'Handsets of Galaxy A15' }).click();
+    await page.waitForSelector('text=No handsets booked in yet');
+
+    await page.getByRole('button', { name: /^Book in$/ }).click();
+    await page.waitForSelector('#imeis');
+    // Typed off the box, spaces and all.
+    await page.fill('#imeis', '35 9988 7766 5544 1\n359988776655442');
+    await page.getByRole('button', { name: /Book in 2/ }).click();
+
+    await page.waitForSelector('text=/2 on the shelf/', { timeout: 15000 });
+    await page.waitForSelector('text=359988776655441', { timeout: 5000 });
+    await page.keyboard.press('Escape');
+  });
+  await shot('imei-units');
+
+  await step('selling a phone asks which handset, and records it', async () => {
+    await page.click('a[title="Register"]');
+    await page.waitForSelector('text=Current sale', { timeout: 15000 });
+    await page.fill(scanBox, 'Galaxy');
+    await page.waitForTimeout(400);
+    await page.locator('section button', { hasText: 'Galaxy A15' }).first().click();
+
+    // A serialised product cannot go into the cart as a quantity.
+    await page.waitForSelector('text=Which handset?');
+    await page.locator('[role=dialog] span.font-mono').first().click();
+
+    // The cart line carries the IMEI that is leaving the shop.
+    await page.waitForSelector('aside >> text=/3599887766554\\d/', { timeout: 5000 });
+  });
+
+  await step('the sold handset is traceable by IMEI afterwards', async () => {
+    await page.click('button:has-text("Charge $")');
+    await page.click('[role=dialog] button:has-text("Card")');
+    await page.click('[role=dialog] button:has-text("Confirm $")');
+    await page.waitForSelector('text=Payment complete', { timeout: 15000 });
+    await page.click('button:has-text("New sale")');
+
+    const found = await page.evaluate(async () => {
+      const token = localStorage.getItem('pos_token') || sessionStorage.getItem('pos_token');
+      const res = await fetch('/api/units/lookup?imei=359988776655442', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      return res.json();
+    });
+    if (found.unit.status !== 'sold') throw new Error(`unit is ${found.unit.status}, expected sold`);
+    if (!found.unit.order_number) throw new Error('the sold unit does not name its order');
+    if (found.available !== false) throw new Error('a sold handset still reads as available');
+  });
+
   await step('import wizard accepts the sample catalog', async () => {
     await page.click('a[title="Import"]');
     await page.waitForSelector('text=Drop a CSV file here', { timeout: 15000 });

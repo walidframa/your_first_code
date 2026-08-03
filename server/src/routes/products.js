@@ -60,15 +60,17 @@ router.get('/lookup', requireAuth, (req, res) => {
 });
 
 router.post('/', requireAuth, requireRole('admin'), (req, res) => {
-  const { name, sku, price, cost, stock, category_id, image_emoji, barcode, supplier, image_url, reorder_point } =
-    req.body || {};
+  const {
+    name, sku, price, cost, stock, category_id, image_emoji, barcode, supplier, image_url,
+    reorder_point, tracks_units,
+  } = req.body || {};
   if (!name || !sku || price == null) {
     return res.status(400).json({ error: 'name, sku and price are required' });
   }
   try {
     const info = db.prepare(`
-      INSERT INTO products (name, sku, price, cost, stock, category_id, image_emoji, barcode, supplier, image_url, reorder_point)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO products (name, sku, price, cost, stock, category_id, image_emoji, barcode, supplier, image_url, reorder_point, tracks_units)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       name,
       sku,
@@ -80,8 +82,13 @@ router.post('/', requireAuth, requireRole('admin'), (req, res) => {
       barcode || null,
       supplier || null,
       image_url || null,
-      Number.isFinite(Number(reorder_point)) ? Number(reorder_point) : 5
+      Number.isFinite(Number(reorder_point)) ? Number(reorder_point) : 5,
+      // Serialised stock starts empty whatever the form said: the handsets are
+      // booked in by IMEI, and a typed opening quantity would be a number with
+      // no phones behind it.
+      tracks_units ? 1 : 0,
     );
+    if (tracks_units) db.prepare('UPDATE products SET stock = 0 WHERE id = ?').run(info.lastInsertRowid);
     const product = db.prepare('SELECT * FROM products WHERE id = ?').get(info.lastInsertRowid);
     res.status(201).json({ product: serializeProduct(product) });
   } catch (err) {
@@ -89,13 +96,39 @@ router.post('/', requireAuth, requireRole('admin'), (req, res) => {
   }
 });
 
+router.get('/:id', requireAuth, (req, res) => {
+  const product = db.prepare('SELECT * FROM products WHERE id = ?').get(req.params.id);
+  if (!product) return res.status(404).json({ error: 'Product not found' });
+  res.json({ product: serializeProduct(product) });
+});
+
 router.put('/:id', requireAuth, requireRole('admin'), (req, res) => {
   const product = db.prepare('SELECT * FROM products WHERE id = ?').get(req.params.id);
   if (!product) return res.status(404).json({ error: 'Product not found' });
 
+  /*
+   * Switching how a product is counted is only safe from a standing start.
+   * Turning tracking on with stock on hand would claim a number of handsets
+   * with no IMEIs behind them; turning it off with units booked in would strand
+   * them. Either way the shelf and the record would part company.
+   */
+  if (req.body.tracks_units !== undefined && Boolean(req.body.tracks_units) !== Boolean(product.tracks_units)) {
+    const { n } = db
+      .prepare('SELECT COUNT(*) AS n FROM product_units WHERE product_id = ?')
+      .get(product.id);
+    if (n > 0) {
+      return res.status(400).json({ error: 'Remove this product\'s units before changing how it is counted' });
+    }
+    if (product.stock > 0) {
+      return res
+        .status(400)
+        .json({ error: `Bring ${product.name} to zero stock before changing how it is counted` });
+    }
+  }
+
   const fields = [
     'name', 'sku', 'price', 'cost', 'stock', 'category_id', 'image_emoji',
-    'active', 'barcode', 'supplier', 'image_url', 'reorder_point',
+    'active', 'barcode', 'supplier', 'image_url', 'reorder_point', 'tracks_units',
   ];
   const updates = {};
   for (const f of fields) {
@@ -105,7 +138,7 @@ router.put('/:id', requireAuth, requireRole('admin'), (req, res) => {
   const merged = { ...product, ...updates };
   db.prepare(`
     UPDATE products SET name = ?, sku = ?, price = ?, cost = ?, stock = ?, category_id = ?, image_emoji = ?,
-      active = ?, barcode = ?, supplier = ?, image_url = ?, reorder_point = ?
+      active = ?, barcode = ?, supplier = ?, image_url = ?, reorder_point = ?, tracks_units = ?
     WHERE id = ?
   `).run(
     merged.name,
@@ -120,6 +153,7 @@ router.put('/:id', requireAuth, requireRole('admin'), (req, res) => {
     merged.supplier || null,
     merged.image_url || null,
     Number.isFinite(Number(merged.reorder_point)) ? Number(merged.reorder_point) : 5,
+    merged.tracks_units ? 1 : 0,
     req.params.id
   );
 
