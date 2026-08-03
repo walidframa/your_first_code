@@ -31,7 +31,6 @@ export default function PaymentSheet({ open, total, customer, onClose, onConfirm
   // Which field the keypad is typing into: a tender currency, or — in split
   // mode — one of the two piles being handed back.
   const [active, setActive] = useState('USD');
-  const [changeCurrency, setChangeCurrency] = useState('LBP');
 
   useEffect(() => {
     if (open) {
@@ -42,7 +41,6 @@ export default function PaymentSheet({ open, total, customer, onClose, onConfirm
       setChangeLbpEntry('');
       setTouched({ CHANGE_USD: false, CHANGE_LBP: false });
       setActive('USD');
-      setChangeCurrency('LBP');
     }
   }, [open]);
 
@@ -91,7 +89,7 @@ export default function PaymentSheet({ open, total, customer, onClose, onConfirm
    * the drawer. Handing back a lot more is a slipped digit, and the server
    * refuses it — so the button says why rather than letting it fail on submit.
    */
-  const overGiving = changeCurrency === 'SPLIT' && split.over;
+  const overGiving = split.over;
 
   const totalLbp = useMemo(() => toLbp(total), [toLbp, total]);
 
@@ -119,16 +117,25 @@ export default function PaymentSheet({ open, total, customer, onClose, onConfirm
     });
   }
 
-  /** Switch how change is given, pointing the keypad at the field that matters. */
-  function pickChangeCurrency(mode) {
-    setChangeCurrency(mode);
-    if (mode === 'SPLIT') {
-      setTouched({ CHANGE_USD: false, CHANGE_LBP: false });
-      setChangeUsdEntry('');
-      setChangeLbpEntry('');
-      setActive('CHANGE_USD');
-    }
-    else if (CHANGE_FIELDS.includes(active)) setActive('USD');
+  /**
+   * Give the whole change in one currency.
+   *
+   * Naming every dollar of a $27.87 change is five keystrokes for the commonest
+   * case there is, so it gets a button. Pounds need no figure at all — an
+   * untouched pair already suggests the lot in pounds — so "all pounds" is the
+   * same as starting over.
+   */
+  function allInDollars() {
+    setChangeUsdEntry(String(Math.round(changeUsd * 100) / 100));
+    setTouched({ CHANGE_USD: true, CHANGE_LBP: false });
+    setActive('CHANGE_USD');
+  }
+
+  function allInPounds() {
+    setChangeUsdEntry('');
+    setChangeLbpEntry('');
+    setTouched({ CHANGE_USD: false, CHANGE_LBP: false });
+    setActive('CHANGE_LBP');
   }
 
   /**
@@ -150,10 +157,15 @@ export default function PaymentSheet({ open, total, customer, onClose, onConfirm
     onConfirm({
       paymentMethod: 'cash',
       payments,
-      changeCurrency,
-      // Both halves are the cashier's; the server records exactly these.
-      changeUsd: changeCurrency === 'SPLIT' ? splitUsd : undefined,
-      changeLbp: changeCurrency === 'SPLIT' ? splitLbp : undefined,
+      /*
+       * Always the two figures, never a mode. Whether this was dollars, pounds
+       * or a mix is a question the recorded pair answers on its own, and the
+       * server storing exactly what was handed over beats it recomputing a
+       * conversion the cashier had already rounded to real notes.
+       */
+      changeCurrency: 'SPLIT',
+      changeUsd: splitUsd,
+      changeLbp: splitLbp,
     });
   }
 
@@ -162,11 +174,11 @@ export default function PaymentSheet({ open, total, customer, onClose, onConfirm
 
   /** What the confirm button says about the change it is about to hand over. */
   const changeLabel =
-    changeCurrency === 'SPLIT'
+    splitUsd > 0 && splitLbp > 0
       ? `${money(splitUsd)} + ${lbp(splitLbp)}`
-      : changeCurrency === 'LBP'
-        ? lbp(toLbp(changeUsd))
-        : money(changeUsd);
+      : splitLbp > 0
+        ? lbp(splitLbp)
+        : money(splitUsd);
 
   /*
    * The actions live in the modal's pinned footer rather than at the end of the
@@ -309,23 +321,8 @@ export default function PaymentSheet({ open, total, customer, onClose, onConfirm
             {covered ? (
               <>
                 <p className="text-xs tracking-wide text-slate-500 uppercase">Change to give</p>
-                {changeCurrency === 'SPLIT' ? (
-                  <>
-                    <p className="mt-0.5 text-3xl font-semibold text-slate-900">{money(changeUsd)}</p>
-                    <p className="mt-0.5 text-xs text-slate-500">{lbp(toLbp(changeUsd))}</p>
-                  </>
-                ) : (
-                  <>
-                    <p className="mt-0.5 text-3xl font-semibold text-slate-900">
-                      {changeCurrency === 'LBP' ? lbp(toLbp(changeUsd)) : money(changeUsd)}
-                    </p>
-                    <p className="mt-0.5 text-xs text-slate-500">
-                      {changeCurrency === 'LBP'
-                        ? `≈ ${money(changeUsd)}`
-                        : `≈ ${lbp(toLbp(changeUsd))}`}
-                    </p>
-                  </>
-                )}
+                <p className="mt-0.5 text-3xl font-semibold text-slate-900">{money(changeUsd)}</p>
+                <p className="mt-0.5 text-xs text-slate-500">{lbp(toLbp(changeUsd))}</p>
               </>
             ) : (
               <>
@@ -336,30 +333,32 @@ export default function PaymentSheet({ open, total, customer, onClose, onConfirm
             )}
           </div>
 
-          {covered && (
+          {covered && changeUsd > 0.0001 && (
             <div>
-              <p className="mb-1.5 text-sm text-slate-600">Give change in</p>
-              <div className="flex rounded-lg bg-slate-100 p-0.5 text-sm font-medium">
-                {[
-                  ['LBP', 'Pounds'],
-                  ['USD', 'Dollars'],
-                  ['SPLIT', 'Both'],
-                ].map(([c, label]) => (
+              <div className="mb-1.5 flex items-baseline justify-between gap-2">
+                <p className="text-sm text-slate-600">Change I&apos;m giving</p>
+                {/*
+                 * All in one currency is a shortcut, not a mode. Both figures
+                 * stay on screen either way, so there is nothing to switch back
+                 * from when the drawer turns out to be short of one of them.
+                 */}
+                <span className="flex gap-1">
                   <button
-                    key={c}
-                    onClick={() => pickChangeCurrency(c)}
-                    className={cx(
-                      'flex-1 rounded-md px-3 py-1.5 transition',
-                      changeCurrency === c ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500',
-                    )}
+                    onClick={allInDollars}
+                    className="rounded-lg bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-200"
                   >
-                    {label}
+                    All dollars
                   </button>
-                ))}
+                  <button
+                    onClick={allInPounds}
+                    className="rounded-lg bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-200"
+                  >
+                    All pounds
+                  </button>
+                </span>
               </div>
 
-              {changeCurrency === 'SPLIT' && (
-                <div className="mt-2 space-y-2">
+              <div className="space-y-2">
                   {/*
                    * Whichever pile the cashier has not typed into follows the
                    * one they have, so saying "here is $25" is enough and the
@@ -440,7 +439,6 @@ export default function PaymentSheet({ open, total, customer, onClose, onConfirm
                         : `${money(splitTotal)} of ${money(changeUsd)} — ${money(-splitLeft)} over`}
                   </p>
                 </div>
-              )}
             </div>
           )}
 

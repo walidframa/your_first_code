@@ -128,15 +128,18 @@ each morning and the two price lists can never drift apart.
 - Change is given in whichever currency the cashier picks, rounded to the
   configured step (1,000 LL by default — quoting to the single pound is
   meaningless).
-- **Change can also be split across both currencies.** A drawer rarely holds
-  enough of either note to settle up cleanly in one, so "Both" lets the cashier
-  name each pile — so many dollars, so many pounds — and the change handed over
-  is simply the two added together. The sheet shows that sum against what is
-  owed and says whether it is exact, short or over.
+- **Change is always two fields**, dollars and pounds, side by side from the
+  moment there is change to give. There is no currency to choose first: a
+  drawer rarely holds enough of either note to settle up cleanly in one, and
+  which it is short of is not known until the till is open. What the customer
+  gets is simply the two figures added together, shown against what is owed and
+  labelled exact, short or over.
 - **The pile the cashier has not named follows the one they have**, live. Change
   of $27.87 with "here's $25" typed into the dollars shows 255,000 LL beside it,
   updating on every keystroke and marked *suggested* so it is clear which figure
-  is the till's. Type the pounds instead and the dollars follow.
+  is the till's. Type the pounds instead and the dollars follow. **All dollars**
+  and **All pounds** are one-tap shortcuts, not modes — both figures stay on
+  screen either way.
 - Touching both stops the suggestion. Which notes are actually in the drawer is
   something only the cashier can see — 2,500,000 LL may be four notes where the
   exact remainder is seven — so two deliberate figures are left alone and the
