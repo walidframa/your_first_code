@@ -209,23 +209,29 @@ try {
   });
   await shot('split-tender');
 
-  await step('cashier can switch the change currency', async () => {
+  await step('the change fields are there without picking a mode', async () => {
     const dialog = page.locator('[role=dialog]');
-    await dialog.getByRole('button', { name: 'Dollars', exact: true }).click();
-    await page.waitForSelector('text=/Confirm · change \\$/');
-    await dialog.getByRole('button', { name: 'Pounds', exact: true }).click();
+    // No Pounds/Dollars/Both toggle to get past — both figures are on screen,
+    // with the whole change suggested in pounds until the cashier says otherwise.
+    if (await dialog.getByRole('button', { name: 'Both', exact: true }).count()) {
+      throw new Error('the change-currency toggle is still there');
+    }
+    await dialog.locator('text=suggested').first().waitFor();
+    await page.waitForSelector('text=/that is the change exactly/');
     await page.waitForSelector('text=/Confirm · change [\\d,]+ LL/');
   });
 
-  await step('change can be split between dollars and pounds', async () => {
+  await step('all in one currency is one tap', async () => {
     const dialog = page.locator('[role=dialog]');
-    await dialog.getByRole('button', { name: 'Both', exact: true }).click();
+    await dialog.getByRole('button', { name: 'All dollars' }).click();
+    await page.waitForSelector('text=/Confirm · change \\$[\\d.]+$/');
+    await dialog.getByRole('button', { name: 'All pounds' }).click();
+    await page.waitForSelector('text=/Confirm · change [\\d,]+ LL/');
+  });
 
-    // With nothing named yet the whole change is suggested in pounds.
-    await dialog.locator('text=suggested').first().waitFor();
-    await page.waitForSelector('text=/that is the change exactly/');
-
-    // Naming the dollars pulls the pounds down to meet them, still exact.
+  await step('naming the dollars pulls the pounds down to meet them', async () => {
+    const dialog = page.locator('[role=dialog]');
+    await dialog.getByRole('button', { name: 'Dollars back' }).click();
     await dialog.getByRole('button', { name: '$5.00', exact: true }).click();
     await page.waitForSelector('text=/that is the change exactly/');
     await page.waitForSelector('text=/Confirm · change \\$5\\.00 \\+ [\\d,]+ LL/');
