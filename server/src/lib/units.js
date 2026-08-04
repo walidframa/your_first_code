@@ -68,8 +68,29 @@ export function unitsFor(productId, status = null) {
     : db.prepare(sql).all(productId);
 }
 
-/** One unit by IMEI, with everything the counter needs to answer for it. */
+/**
+ * Split a typed line into the one or two numbers on the box.
+ *
+ * A dual-SIM handset has both printed together, so they arrive on one line
+ * separated by a comma or a slash. Spaces cannot be the separator: they appear
+ * *inside* a single IMEI as printed, and `35 1234 5678 9012 3` is one number,
+ * not five.
+ */
+export function parseImeiLine(line) {
+  const [first, second] = String(line ?? '')
+    .split(/[,/;|]/)
+    .map((part) => normaliseImei(part));
+  return { imei: first || '', imei2: second || null };
+}
+
+/**
+ * One unit by either of its IMEIs.
+ *
+ * The customer reads whichever number they can see; asking them which slot it
+ * belongs to would be a strange thing to do at a counter.
+ */
 export function findByImei(imei) {
+  const wanted = normaliseImei(imei);
   return db
     .prepare(
       `SELECT u.*, p.name AS product_name, p.sku, p.price,
@@ -79,9 +100,16 @@ export function findByImei(imei) {
        JOIN products p ON p.id = u.product_id
        LEFT JOIN orders o ON o.id = u.sold_order_id
        LEFT JOIN customers cu ON cu.id = o.customer_id
-       WHERE u.imei = ?`,
+       WHERE u.imei = ? OR u.imei2 = ?`,
     )
-    .get(normaliseImei(imei));
+    .get(wanted, wanted);
+}
+
+/** Is this number already spoken for, on either slot of any handset? */
+function imeiTaken(number) {
+  return db
+    .prepare('SELECT id FROM product_units WHERE imei = ? OR imei2 = ?')
+    .get(number, number);
 }
 
 /**
@@ -100,13 +128,29 @@ export function receiveUnits(productId, units, { documentId = null, defaultCost 
 
   const seen = new Set();
   const rows = units.map((u) => {
-    const imei = normaliseImei(typeof u === 'string' ? u : u?.imei);
-    if (!imei) throw new Error('Every unit needs an IMEI or serial number');
-    if (seen.has(imei)) throw new Error(`${imei} appears twice in this batch`);
-    seen.add(imei);
+    /*
+     * The typed field carries both numbers whether it arrives as a bare string
+     * or as an object's `imei` — the cashier pastes a line either way, and
+     * splitting only one of the two shapes would work in tests and fail at the
+     * counter. An explicit `imei2` wins over anything found in the line.
+     */
+    const parsed = parseImeiLine(typeof u === 'string' ? u : u?.imei);
+    const imei = parsed.imei;
+    const imei2 = (typeof u === 'string' ? null : normaliseImei(u?.imei2) || null) ?? parsed.imei2;
 
-    const existing = db.prepare('SELECT id FROM product_units WHERE imei = ?').get(imei);
-    if (existing) throw new Error(`${imei} is already in stock or sold`);
+    if (!imei) throw new Error('Every unit needs an IMEI or serial number');
+    if (imei2 && imei2 === imei) throw new Error(`${imei} is given twice on the same handset`);
+
+    /*
+     * Both slots are checked against both columns. A number is a number: if it
+     * is IMEI 2 of one phone it cannot also be IMEI 1 of another, and either
+     * way a lookup would have to guess.
+     */
+    for (const number of [imei, imei2].filter(Boolean)) {
+      if (seen.has(number)) throw new Error(`${number} appears twice in this batch`);
+      seen.add(number);
+      if (imeiTaken(number)) throw new Error(`${number} is already in stock or sold`);
+    }
 
     const condition = (typeof u === 'string' ? 'new' : u?.condition) || 'new';
     if (!UNIT_CONDITIONS.includes(condition)) {
@@ -117,14 +161,16 @@ export function receiveUnits(productId, units, { documentId = null, defaultCost 
     const cost = Number(rawCost ?? defaultCost ?? product.cost) || 0;
     if (cost < 0) throw new Error('A unit cannot cost less than nothing');
 
-    return { imei, condition, cost, note: (typeof u === 'string' ? null : u?.note) || null };
+    return { imei, imei2, condition, cost, note: (typeof u === 'string' ? null : u?.note) || null };
   });
 
   const insert = db.prepare(
-    `INSERT INTO product_units (product_id, imei, condition, cost, note, received_document_id)
-     VALUES (?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO product_units (product_id, imei, imei2, condition, cost, note, received_document_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
   );
-  for (const r of rows) insert.run(productId, r.imei, r.condition, r.cost, r.note, documentId);
+  for (const r of rows) {
+    insert.run(productId, r.imei, r.imei2, r.condition, r.cost, r.note, documentId);
+  }
 
   const stock = syncStockFromUnits(productId);
   return { added: rows.length, stock };

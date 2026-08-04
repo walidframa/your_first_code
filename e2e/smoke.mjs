@@ -372,13 +372,32 @@ try {
 
     await page.getByRole('button', { name: /^Book in$/ }).click();
     await page.waitForSelector('#imeis');
-    // Typed off the box, spaces and all.
-    await page.fill('#imeis', '35 9988 7766 5544 1\n359988776655442');
+    /*
+     * Typed off the box, spaces and all. The first is a dual-SIM handset with
+     * both its numbers on one line; the second has a single SIM.
+     */
+    await page.fill('#imeis', '35 9988 7766 5544 1, 359988776655449\n359988776655442');
     await page.getByRole('button', { name: /Book in 2/ }).click();
 
     await page.waitForSelector('text=/2 on the shelf/', { timeout: 15000 });
     await page.waitForSelector('text=359988776655441', { timeout: 5000 });
+    await page.waitForSelector('text=359988776655449', { timeout: 5000 });
     await page.keyboard.press('Escape');
+  });
+
+  await step('a dual-SIM handset is found by either of its numbers', async () => {
+    const both = await page.evaluate(async () => {
+      const token = localStorage.getItem('pos_token') || sessionStorage.getItem('pos_token');
+      const get = (imei) =>
+        fetch(`/api/units/lookup?imei=${imei}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        }).then((r) => r.json());
+      return Promise.all([get('359988776655441'), get('359988776655449')]);
+    });
+    if (both[0].unit.id !== both[1].unit.id) {
+      throw new Error('IMEI 1 and IMEI 2 found different handsets');
+    }
+    if (both[1].unit.imei2 !== '359988776655449') throw new Error('the second number was not stored');
   });
   await shot('imei-units');
 

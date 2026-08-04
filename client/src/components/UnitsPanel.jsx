@@ -37,8 +37,13 @@ function ReceiveModal({ product, onClose, onSaved }) {
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
-  const imeis = text
-    .split(/[\n,]/)
+  /*
+   * One handset per line. A dual-SIM phone has both numbers printed together,
+   * so they go on the same line separated by a comma or slash — the separator
+   * cannot be a space, because spaces appear inside a single IMEI as printed.
+   */
+  const lines = text
+    .split('\n')
     .map((l) => l.trim())
     .filter(Boolean);
 
@@ -48,7 +53,8 @@ function ReceiveModal({ product, onClose, onSaved }) {
     setSaving(true);
     try {
       const res = await api.post(`/units/product/${product.id}`, {
-        units: imeis.map((imei) => ({ imei, condition, cost: Number(cost) || 0 })),
+        // The server splits each line, so a dual-SIM handset arrives whole.
+        units: lines.map((line) => ({ imei: line, condition, cost: Number(cost) || 0 })),
       });
       toast(`${res.data.added} booked in — ${res.data.stock} on the shelf`);
       onSaved();
@@ -72,11 +78,12 @@ function ReceiveModal({ product, onClose, onSaved }) {
             onChange={(e) => setText(e.target.value)}
             rows={7}
             autoFocus
-            placeholder={'351234567890123\n351234567890124'}
+            placeholder={'351234567890123, 351234567890124\n358888777766661'}
             className="w-full rounded-xl px-3 py-2 font-mono text-sm ring-1 ring-slate-300 focus:ring-2 focus:ring-brand-500 focus:outline-none"
           />
           <p className="mt-1 text-xs text-slate-500">
-            One per line. Spaces and dashes are ignored, so you can type them off the box.
+            One handset per line. For a dual-SIM phone put both numbers on the line, separated by a
+            comma. Spaces and dashes are ignored, so you can type them off the box.
           </p>
         </div>
 
@@ -115,8 +122,8 @@ function ReceiveModal({ product, onClose, onSaved }) {
           <Button type="button" variant="secondary" onClick={onClose} disabled={saving}>
             Cancel
           </Button>
-          <Button type="submit" className="flex-1" loading={saving} disabled={imeis.length === 0}>
-            {imeis.length ? `Book in ${imeis.length}` : 'Nothing to book in'}
+          <Button type="submit" className="flex-1" loading={saving} disabled={lines.length === 0}>
+            {lines.length ? `Book in ${lines.length}` : 'Nothing to book in'}
           </Button>
         </div>
       </form>
@@ -186,7 +193,10 @@ export default function UnitsPanel({ product, onChanged }) {
             <tbody className="divide-y divide-slate-100">
               {data.units.map((u) => (
                 <tr key={u.id}>
-                  <td className="px-3 py-2 font-mono text-xs text-slate-800">{u.imei}</td>
+                  <td className="px-3 py-2 font-mono text-xs text-slate-800">
+                    {u.imei}
+                    {u.imei2 && <span className="block text-slate-400">{u.imei2}</span>}
+                  </td>
                   <td className="px-3 py-2 capitalize text-slate-600">{u.condition}</td>
                   <td className="tnum px-3 py-2 text-right text-slate-700">{money(u.cost)}</td>
                   <td className="px-3 py-2">

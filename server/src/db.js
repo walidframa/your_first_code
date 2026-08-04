@@ -374,6 +374,22 @@ db.exec(`
 `);
 
 /*
+ * The second IMEI of a dual-SIM handset.
+ *
+ * Two SIM slots means two numbers, both printed on the box and both valid ways
+ * to identify the phone. The customer at the counter reads whichever one they
+ * can see, so a lookup has to match either — and neither may belong to another
+ * handset.
+ *
+ * Nullable, because single-SIM phones and non-phone serials have only one.
+ */
+addColumn('product_units', 'imei2', 'TEXT');
+db.exec(`
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_units_imei2 ON product_units(imei2)
+    WHERE imei2 IS NOT NULL;
+`);
+
+/*
  * Which unit left on which sale line.
  *
  * The line already keeps the cost that was true when it sold; for a serialised
