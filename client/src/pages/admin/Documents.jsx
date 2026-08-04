@@ -264,6 +264,7 @@ function DocumentForm({ existing, onClose, onSaved }) {
         name: l.product ? undefined : l.name,
         quantity: Number(l.quantity),
         price: Number(l.price),
+        imeis: l.imeis || null,
       })),
     };
 
@@ -390,9 +391,38 @@ function DocumentForm({ existing, onClose, onSaved }) {
                           {l.product ? (
                             <div className="flex items-center gap-2">
                               <ProductThumb product={l.product} size="sm" />
-                              <div className="min-w-0">
+                              <div className="min-w-0 flex-1">
                                 <p className="truncate font-medium text-slate-800">{l.product.name}</p>
                                 <p className="text-xs text-slate-400">{l.product.sku}</p>
+                                {/*
+                                  * A delivery is where the IMEIs actually arrive
+                                  * — off the boxes, in front of the supplier's
+                                  * invoice. Booking them in from another screen
+                                  * afterwards means doing the job twice.
+                                  */}
+                                {docType === 'purchase_invoice' && l.product.tracks_units && (
+                                  <div className="mt-1.5">
+                                    <textarea
+                                      value={l.imeis || ''}
+                                      onChange={(e) => updateLine(l.key, { imeis: e.target.value })}
+                                      rows={Math.max(2, Math.min(Number(l.quantity) || 1, 6))}
+                                      aria-label={`IMEIs for ${l.product.name}`}
+                                      placeholder={'351234567890123, 351234567890124'}
+                                      className="w-full rounded-lg bg-white px-2 py-1.5 font-mono text-xs ring-1 ring-slate-300 focus:ring-2 focus:ring-brand-600 focus:outline-none"
+                                    />
+                                    <p
+                                      className={cx(
+                                        'mt-0.5 text-xs',
+                                        imeiCount(l.imeis) === (Number(l.quantity) || 0)
+                                          ? 'text-brand-700'
+                                          : 'text-amber-700',
+                                      )}
+                                    >
+                                      {imeiCount(l.imeis)} of {Number(l.quantity) || 0} handsets — one per
+                                      line, both numbers of a dual-SIM separated by a comma
+                                    </p>
+                                  </div>
+                                )}
                               </div>
                             </div>
                           ) : (
@@ -916,6 +946,14 @@ function DocumentDetail({ id, onClose, onChanged, onDeleted }) {
 }
 
 /* -------------------------------------------------------------------- list */
+
+/** How many handsets the typed block actually names. */
+function imeiCount(text) {
+  return String(text || '')
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean).length;
+}
 
 export default function Documents() {
   const [documents, setDocuments] = useState(null);

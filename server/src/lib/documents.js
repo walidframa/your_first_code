@@ -3,6 +3,7 @@ import { round2, tenderTotals, validatePayments } from './currency.js';
 import { addEntry, creditCheck } from './accounts.js';
 import { recordMovement } from './cash.js';
 import { recordCostChange } from './costHistory.js';
+import { isAvailable, receiveUnits, syncStockFromUnits } from './units.js';
 
 const TAX_RATE = Number(process.env.TAX_RATE || 0.08);
 
@@ -115,6 +116,9 @@ export function buildLines(items, docType) {
        * so profit is computed from what was true then.
        */
       cost: docType === 'purchase_invoice' ? round2(price) : (product?.cost ?? null),
+      // The IMEIs off the boxes, kept as typed so the delivery can be undone
+      // against exactly the handsets it created.
+      imeis: item.imeis ? String(item.imeis) : null,
     });
   }
   return lines;
@@ -230,6 +234,16 @@ function moveStock(doc, items, userId, direction, note) {
       throw new Error(`Product for line "${item.name}" no longer exists`);
     }
 
+    /*
+     * A serialised product does not move as a quantity. On a delivery the line
+     * carries the IMEIs off the boxes and they become the stock; stock is then
+     * recounted from the units rather than added to, so the two cannot drift.
+     */
+    if (product.tracks_units) {
+      moveUnits({ doc, item, product, direction, userId, note });
+      continue;
+    }
+
     const delta = Math.round(item.quantity) * type.stock * direction;
     const resulting = product.stock + delta;
     if (resulting < 0) {
@@ -268,6 +282,84 @@ function moveStock(doc, items, userId, direction, note) {
       note,
     );
   }
+}
+
+
+/**
+ * Book a delivery's handsets in, or take them back out again.
+ *
+ * Undoing only works while every unit is still on the shelf. Once one has been
+ * sold, deleting the invoice that brought it in would leave a sale pointing at
+ * a handset the shop has no record of receiving — better to refuse and make
+ * someone decide what actually happened.
+ */
+function moveUnits({ doc, item, product, direction, userId, note }) {
+  const wanted = Math.round(item.quantity);
+
+  if (direction < 0) {
+    const received = db
+      .prepare('SELECT * FROM product_units WHERE received_document_id = ? AND product_id = ?')
+      .all(doc.id, product.id);
+
+    const gone = received.filter((u) => !isAvailable(u.status));
+    if (gone.length > 0) {
+      throw new Error(
+        `${gone[0].imei} came in on this document and has already been ${gone[0].status.replace('_', ' ')}`,
+      );
+    }
+    for (const u of received) {
+      db.prepare('DELETE FROM product_units WHERE id = ?').run(u.id);
+    }
+    const left = syncStockFromUnits(product.id);
+    db.prepare(
+      `INSERT INTO stock_adjustments (product_id, user_id, delta, resulting_stock, reason, note)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    ).run(product.id, userId, -received.length, left, 'count_correction', note);
+    return;
+  }
+
+  /*
+   * Only a delivery brings handsets in. A sales invoice for a serialised
+   * product would have to name which ones are leaving, and that belongs at the
+   * register where the customer is standing — so it is refused here rather than
+   * guessing.
+   */
+  if (DOC_TYPES[doc.doc_type].stock < 0) {
+    throw new Error(`${product.name} is tracked by IMEI — sell it from the register, not a document`);
+  }
+
+  const lines = String(item.imeis || '')
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean);
+
+  if (lines.length !== wanted) {
+    throw new Error(
+      `${product.name}: ${wanted} on the line but ${lines.length} IMEI${lines.length === 1 ? '' : 's'} given`,
+    );
+  }
+
+  const cost = item.cost ?? product.cost;
+  receiveUnits(product.id, lines.map((line) => ({ imei: line, cost })), { documentId: doc.id });
+
+  if (cost !== null && cost !== undefined) {
+    db.prepare('UPDATE products SET cost = ? WHERE id = ?').run(cost, product.id);
+    recordCostChange({
+      productId: product.id,
+      cost,
+      previousCost: product.cost,
+      source: 'purchase',
+      note: `Received on ${note}`,
+      documentId: doc.id,
+      userId,
+    });
+  }
+
+  const resulting = syncStockFromUnits(product.id);
+  db.prepare(
+    `INSERT INTO stock_adjustments (product_id, user_id, delta, resulting_stock, reason, note)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+  ).run(product.id, userId, lines.length, resulting, 'received', note);
 }
 
 /** Does this document belong on somebody's account at all? */

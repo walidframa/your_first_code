@@ -6,6 +6,10 @@ import { getSettings } from '../lib/settings.js';
 import { addEntry, creditCheck } from '../lib/accounts.js';
 import { currentSession, recordMovement, requiresSession } from '../lib/cash.js';
 import { isAvailable, returnUnitsOfOrder, sellUnit, syncStockFromUnits } from '../lib/units.js';
+import { encryptSecret } from '../lib/secrets.js';
+
+/** What kind of account the shop set up for the customer. */
+export const ACCOUNT_KINDS = ['icloud', 'gmail', 'other'];
 import {
   CHANGE_MODES,
   round2,
@@ -33,6 +37,9 @@ router.post('/', requireAuth, (req, res) => {
     changeUsd: requestedChangeUsd = null,
     changeLbp: requestedChangeLbp = null,
     customerId = null,
+    buyerName = null,
+    buyerPhone = null,
+    accounts = [],
   } = req.body || {};
 
   if (!Array.isArray(items) || items.length === 0) {
@@ -112,9 +119,15 @@ router.post('/', requireAuth, (req, res) => {
           }
         }
 
-        const lineTotal = round2(product.price * quantity);
+        /*
+         * A gift still leaves the shop, so stock moves — but it is not revenue.
+         * Charging zero and counting it as a sale at full price would flatter
+         * the margin on every handset thrown in with a case.
+         */
+        const isGift = Boolean(item.isGift);
+        const lineTotal = isGift ? 0 : round2(product.price * quantity);
         subtotal += lineTotal;
-        lineItems.push({ product, quantity, lineTotal, unit });
+        lineItems.push({ product, quantity, lineTotal, unit, isGift });
       }
 
       subtotal = round2(subtotal);
@@ -196,14 +209,17 @@ router.post('/', requireAuth, (req, res) => {
         INSERT INTO orders (
           order_number, cashier_id, customer_id, subtotal, discount, tax, total, payment_method,
           amount_tendered, change_due, status,
-          exchange_rate, paid_usd, paid_lbp, change_usd, change_lbp, change_currency
+          exchange_rate, paid_usd, paid_lbp, change_usd, change_lbp, change_currency,
+          buyer_name, buyer_phone
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed', ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed', ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         orderNumber, req.user.id, customerId || null, subtotal, discountAmount, tax, total, paymentMethod,
         amountTenderedValue, changeDue,
         exchangeRate, paidUsd, paidLbp, changeUsd, changeLbp,
         paymentMethod === 'cash' ? changeCurrency : null,
+        buyerName?.trim() || null,
+        buyerPhone?.trim() || null,
       );
 
       const orderId = orderInfo.lastInsertRowid;
@@ -211,8 +227,8 @@ router.post('/', requireAuth, (req, res) => {
       // The cost is copied onto the line, not looked up later: profit for a
       // sale made last month must not change when a supplier puts a price up.
       const insertItem = db.prepare(`
-        INSERT INTO order_items (order_id, product_id, name, price, quantity, line_total, cost, unit_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO order_items (order_id, product_id, name, price, quantity, line_total, cost, unit_id, is_gift)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       const decrementStock = db.prepare('UPDATE products SET stock = stock - ? WHERE id = ?');
 
@@ -224,8 +240,8 @@ router.post('/', requireAuth, (req, res) => {
          */
         const cost = li.unit ? li.unit.cost : (li.product.cost ?? null);
         insertItem.run(
-          orderId, li.product.id, li.product.name, li.product.price, li.quantity, li.lineTotal,
-          cost, li.unit?.id ?? null,
+          orderId, li.product.id, li.product.name, li.isGift ? 0 : li.product.price, li.quantity,
+          li.lineTotal, cost, li.unit?.id ?? null, li.isGift ? 1 : 0,
         );
 
         if (li.unit) {
@@ -249,6 +265,29 @@ router.post('/', requireAuth, (req, res) => {
           note: orderNumber,
           userId: req.user.id,
         });
+      }
+
+      /*
+       * Accounts the shop set up on the customer's behalf. The password is
+       * encrypted before it touches the table; only the username is searchable,
+       * which is what the counter has when someone comes back.
+       */
+      if (Array.isArray(accounts) && accounts.length > 0) {
+        const insertAccount = db.prepare(
+          `INSERT INTO order_accounts (order_id, unit_id, kind, username, password_enc, note)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+        );
+        for (const a of accounts) {
+          const username = String(a?.username ?? '').trim();
+          if (!username) continue;
+          if (!ACCOUNT_KINDS.includes(a?.kind)) {
+            throw new Error(`Account type must be one of: ${ACCOUNT_KINDS.join(', ')}`);
+          }
+          // Only against a handset actually on this sale — an account pinned to
+          // someone else's phone would surface under the wrong IMEI later.
+          const unitId = a.unitId && claimedUnits.has(a.unitId) ? a.unitId : null;
+          insertAccount.run(orderId, unitId, a.kind, username, encryptSecret(a.password), a.note || null);
+        }
       }
 
       /*

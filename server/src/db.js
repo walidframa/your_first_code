@@ -384,6 +384,59 @@ db.exec(`
  * Nullable, because single-SIM phones and non-phone serials have only one.
  */
 addColumn('product_units', 'imei2', 'TEXT');
+
+/*
+ * The IMEIs typed against a purchase invoice line.
+ *
+ * A delivery of handsets is booked in where it actually arrives — on the
+ * supplier's invoice — not afterwards from a separate screen. Keeping the raw
+ * lines on the line item means undoing or editing the invoice can find exactly
+ * the units it created.
+ */
+addColumn('document_items', 'imeis', 'TEXT');
+
+/*
+ * Who bought the phone.
+ *
+ * Not every buyer is a customer account. Most walk in, buy a handset and leave;
+ * what the shop needs later is a name and a number to call about a warranty, so
+ * they sit on the order rather than forcing a customer record for a one-off.
+ */
+addColumn('orders', 'buyer_name', 'TEXT');
+addColumn('orders', 'buyer_phone', 'TEXT');
+
+/*
+ * A line given away with the sale.
+ *
+ * A case thrown in with a phone still leaves the shop, so stock must move — but
+ * it is not revenue, and counting it as such would flatter the margin on every
+ * handset sold with something in the box.
+ */
+addColumn('order_items', 'is_gift', 'INTEGER NOT NULL DEFAULT 0');
+
+/*
+ * Accounts the shop set up for the customer.
+ *
+ * The passwords are encrypted (see lib/secrets.js) because a copy of this file
+ * would otherwise be a list of live logins. The username is not: it is what the
+ * counter searches by when someone comes back having forgotten everything else.
+ */
+db.exec(`
+  CREATE TABLE IF NOT EXISTS order_accounts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id INTEGER NOT NULL REFERENCES orders(id),
+    unit_id INTEGER REFERENCES product_units(id),
+    kind TEXT NOT NULL DEFAULT 'icloud' CHECK (kind IN ('icloud', 'gmail', 'other')),
+    username TEXT NOT NULL,
+    password_enc TEXT,
+    note TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_order_accounts_order ON order_accounts(order_id);
+  CREATE INDEX IF NOT EXISTS idx_order_accounts_unit ON order_accounts(unit_id);
+  CREATE INDEX IF NOT EXISTS idx_order_accounts_user ON order_accounts(username);
+`);
 db.exec(`
   CREATE UNIQUE INDEX IF NOT EXISTS idx_units_imei2 ON product_units(imei2)
     WHERE imei2 IS NOT NULL;

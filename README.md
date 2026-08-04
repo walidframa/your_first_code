@@ -115,11 +115,20 @@ Copy `server/.env.example` to `server/.env` to override defaults:
 | `TAX_RATE`   | `0.08`       | Sales tax applied at checkout  |
 | `DB_PATH`    | `server/data.sqlite` | SQLite file location  |
 | `JWT_SECRET` | —            | Token signing secret          |
+| `ACCOUNT_SECRET` | —        | Encrypts stored customer account passwords |
 
 **`JWT_SECRET` is required in production.** With `NODE_ENV=production` the server
 refuses to start unless it is set to at least 32 characters. In development an
 ephemeral random secret is generated per process (with a warning), so sessions do
 not survive a restart until you set one.
+
+**`ACCOUNT_SECRET` is required to keep customer account passwords** (the iCloud
+or Gmail the shop set up for a buyer). It is deliberately separate from
+`JWT_SECRET`: one is rotated when a session leaks and the other must not be, and
+sharing them would make every stored password unreadable the moment you rotated
+either. Without it, development uses a per-process key so anything saved stops
+being readable on restart — a nuisance on purpose. In production the server
+refuses to start.
 
 ## Individually identified stock
 
@@ -152,6 +161,40 @@ Tick **Track each one by IMEI** on a product and it changes how it is counted:
 - `GET /api/units/lookup?imei=…` answers the counter question: did we sell it,
   when, on which order, and to whom. Any signed-in user can ask, because
   refusing a cashier the ability to check a warranty would defeat the point.
+
+**Handsets are booked in on the supplier's purchase invoice**, which is where a
+delivery actually arrives. A serialised line on a purchase invoice grows an IMEI
+box with a live "3 of 5 handsets" counter; confirming the invoice creates the
+units at the price on the line, and the count must match the quantity or the
+invoice will not confirm. Deleting a delivery removes the handsets it brought in
+— unless one has already sold, in which case it is refused rather than leaving a
+sale pointing at a phone the shop has no record of receiving.
+
+## Selling a phone
+
+A handset sale carries more than a line and a price.
+
+- **The buyer's name and number** sit on the order. Most buyers never become a
+  customer account — they walk in, buy a phone and leave — but months later
+  somebody has to be able to ring them about a warranty.
+- **Gifts.** Any cart line can be marked a gift: it costs the customer nothing
+  and is not revenue, but the stock still moves, because the case really did
+  leave the shop. Counting it at full price would flatter the margin on every
+  handset sold with something in the box.
+- **iCloud / Gmail the shop set up.** Recorded against the sale and the handset,
+  so when the customer comes back having forgotten it, the counter can find it
+  by IMEI, by account name, or by the buyer's own name or number.
+
+Those passwords are **encrypted at rest** (`ACCOUNT_SECRET`, AES-256-GCM). A
+copy of the database file is otherwise a list of live logins — a backup on a
+laptop, a stolen machine. Searching returns the account names only; reading one
+password is a separate, deliberate request and **admin only**, so a screen of
+twenty customers is not twenty passwords on display behind the counter.
+
+| Route | Method | Role |
+| ----- | ------ | ---- |
+| `/api/held-accounts?q=` | GET | any signed-in user |
+| `/api/held-accounts/:id/password` | GET | admin |
 
 Accessories, parts and recharge cards stay quantity-tracked — nobody serialises
 a screen protector — so the two kinds of stock sit side by side in one
