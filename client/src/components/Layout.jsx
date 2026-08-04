@@ -19,6 +19,7 @@ import {
   Upload,
   Users,
   Wallet,
+  Wrench,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { cx } from './ui';
@@ -48,6 +49,7 @@ const ADMIN_NAV = [
     items: [
       { to: '/admin/documents', label: 'Documents', icon: FileText },
       { to: '/admin/orders', label: 'Orders', icon: ScrollText },
+      { to: '/admin/repairs', label: 'Repairs', icon: Wrench },
       { to: '/admin/customers', label: 'Customers', icon: Contact },
       { to: '/admin/suppliers', label: 'Suppliers', icon: Building2 },
     ],

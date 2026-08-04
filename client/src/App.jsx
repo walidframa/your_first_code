@@ -17,6 +17,7 @@ import AdminLabels from './pages/admin/Labels';
 import AdminShopify from './pages/admin/Shopify';
 import AdminCashSessions from './pages/admin/CashSessions';
 import AdminExpenses from './pages/admin/Expenses';
+import AdminRepairs from './pages/admin/Repairs';
 import AdminProfit from './pages/admin/Profit';
 
 export default function App() {
@@ -79,6 +80,14 @@ export default function App() {
           element={
             <ProtectedRoute roles={['admin']}>
               <AdminLabels />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/repairs"
+          element={
+            <ProtectedRoute roles={['admin']}>
+              <AdminRepairs />
             </ProtectedRoute>
           }
         />

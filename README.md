@@ -196,6 +196,59 @@ twenty customers is not twenty passwords on display behind the counter.
 | `/api/held-accounts?q=` | GET | any signed-in user |
 | `/api/held-accounts/:id/password` | GET | admin |
 
+## Warranty, repairs and trade-ins
+
+**Warranty** is the shop's own promise, not the manufacturer's. A product carries
+the policy ("all our phones, six months") and the figure is **copied onto the
+handset when it sells**, so shortening the policy tomorrow cannot quietly shorten
+cover somebody is already holding. Months, not days: a shop says six months, and
+adding 180 days would end the cover on a different date than the customer was
+told. No warranty and an expired one are different answers, and the lookup gives
+both.
+
+**Repairs.** A device comes in, and the ticket is the record of it: what it was,
+in what state, what was wrong, what was done and what it cost.
+
+- Typing the IMEI at intake links the ticket to the handset if the shop sold it,
+  and answers the warranty question **before** the price conversation starts.
+  A phone the shop never sold is still taken in, described in words.
+- **The condition it arrived in** is written down in the customer's presence and
+  printed on their ticket. The scratch that was already there is only "already
+  there" if it was recorded before the phone went behind the counter.
+- The passcode is encrypted like any other credential the shop is trusted with;
+  a technician can be given it, but a screen listing every phone in the shop
+  does not also list how to unlock them.
+- **Parts come out of stock when they are fitted**, not when the job is invoiced
+  — the screen has left the drawer either way, and waiting would let the shop
+  sell one it no longer has. Taking a part back off returns it.
+- Statuses are not a strict pipeline; a job goes back to *awaiting parts* as
+  often as it goes forward. Every move is on the ticket's history, so "when did
+  you say it was ready?" has an answer.
+- **Collection happens at the register**, not by editing a status, so the money
+  reaches the drawer and the close still balances. A warranty job collects at
+  nothing to pay — which is the whole point of having recorded the warranty.
+
+**The ticket prints on the receipt printer.** One narrow column of plain text at
+72mm, no rules or shading, sized to thermal roll and left to run as long as the
+job needs.
+
+**Trade-ins** are the mirror of a sale: money out of the drawer, a handset onto
+the shelf at the grade and price agreed across the counter. It becomes an
+ordinary unit from that moment — it sells, costs and reports like any other, with
+its margin against what the shop actually paid. The cash-out is recorded, because
+a trade-in paid from the register and not recorded is a shortfall nobody can
+explain at close.
+
+| Route | Method | Role |
+| ----- | ------ | ---- |
+| `/api/repairs` | GET, POST | any signed-in user |
+| `/api/repairs/:id` | GET, PATCH | any signed-in user |
+| `/api/repairs/:id/parts` | POST | any signed-in user |
+| `/api/repairs/:id/collect` | POST | any signed-in user |
+| `/api/repairs/:id/passcode` | GET | admin |
+| `/api/repairs/warranty/:imei` | GET | any signed-in user |
+| `/api/repairs/trade-ins` | POST | any signed-in user |
+
 Accessories, parts and recharge cards stay quantity-tracked — nobody serialises
 a screen protector — so the two kinds of stock sit side by side in one
 catalogue. Switching a product between them is only allowed from zero stock with
