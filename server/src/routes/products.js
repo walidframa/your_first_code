@@ -112,17 +112,54 @@ router.put('/:id', requireAuth, requireRole('admin'), (req, res) => {
    * with no IMEIs behind them; turning it off with units booked in would strand
    * them. Either way the shelf and the record would part company.
    */
-  if (req.body.tracks_units !== undefined && Boolean(req.body.tracks_units) !== Boolean(product.tracks_units)) {
+  const switchingTracking =
+    req.body.tracks_units !== undefined &&
+    Boolean(req.body.tracks_units) !== Boolean(product.tracks_units);
+
+  if (switchingTracking) {
     const { n } = db
       .prepare('SELECT COUNT(*) AS n FROM product_units WHERE product_id = ?')
       .get(product.id);
     if (n > 0) {
       return res.status(400).json({ error: 'Remove this product\'s units before changing how it is counted' });
     }
+
+    /*
+     * Turning tracking on for a product that already has stock.
+     *
+     * The quantity on hand is a number with no handsets behind it, so it cannot
+     * simply carry over — but refusing outright leaves a shop that already has
+     * phones in its catalogue unable to start tracking them at all, which is
+     * exactly when they want to. So the count is cleared, loudly and on the
+     * record, and the handsets are booked in by IMEI afterwards.
+     *
+     * `convertStock` is required rather than assumed: silently zeroing stock
+     * because a checkbox moved would be a stock count destroyed by a click.
+     */
     if (product.stock > 0) {
-      return res
-        .status(400)
-        .json({ error: `Bring ${product.name} to zero stock before changing how it is counted` });
+      if (!req.body.convertStock) {
+        return res.status(409).json({
+          error:
+            `${product.name} has ${product.stock} in stock. Switching to IMEI tracking clears that ` +
+            'count so the handsets can be booked in by their numbers.',
+          needsConvert: true,
+          stock: product.stock,
+        });
+      }
+
+      db.prepare('UPDATE products SET stock = 0 WHERE id = ?').run(product.id);
+      db.prepare(
+        `INSERT INTO stock_adjustments (product_id, user_id, delta, resulting_stock, reason, note)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      ).run(
+        product.id,
+        req.user.id,
+        -product.stock,
+        0,
+        'count_correction',
+        'Switched to IMEI tracking — book the handsets in by their numbers',
+      );
+      product.stock = 0;
     }
   }
 
@@ -135,7 +172,10 @@ router.put('/:id', requireAuth, requireRole('admin'), (req, res) => {
     if (req.body[f] !== undefined) updates[f] = req.body[f];
   }
 
+  // `product` is re-read above when the stock was cleared, so the merge cannot
+  // put the old count back.
   const merged = { ...product, ...updates };
+  if (switchingTracking && updates.tracks_units) merged.stock = 0;
   db.prepare(`
     UPDATE products SET name = ?, sku = ?, price = ?, cost = ?, stock = ?, category_id = ?, image_emoji = ?,
       active = ?, barcode = ?, supplier = ?, image_url = ?, reorder_point = ?, tracks_units = ?

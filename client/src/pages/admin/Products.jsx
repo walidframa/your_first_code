@@ -57,6 +57,29 @@ function ProductModal({ product, categories, onClose, onSaved }) {
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [confirmConvert, setConfirmConvert] = useState(null);
+
+  async function convertAndSave() {
+    setConfirmConvert(null);
+    setSaving(true);
+    try {
+      await api.put(`/products/${product.id}`, {
+        ...form,
+        price: Number(form.price),
+        cost: Number(form.cost) || 0,
+        reorder_point: Number(form.reorder_point) || 0,
+        category_id: form.category_id || null,
+        tracks_units: true,
+        convertStock: true,
+      });
+      toast('Now tracked by IMEI — book the handsets in next');
+      onSaved();
+    } catch (err) {
+      setError(err.response?.data?.error || 'Save failed');
+    } finally {
+      setSaving(false);
+    }
+  }
 
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
 
@@ -79,7 +102,16 @@ function ProductModal({ product, categories, onClose, onSaved }) {
       toast(product ? 'Product updated' : 'Product created');
       onSaved();
     } catch (err) {
-      setError(err.response?.data?.error || 'Save failed');
+      /*
+       * Switching an existing product to IMEI tracking clears its stock count,
+       * because a quantity has no handsets behind it. The server refuses until
+       * that is confirmed rather than destroying a count on a click.
+       */
+      if (err.response?.data?.needsConvert) {
+        setConfirmConvert(err.response.data);
+      } else {
+        setError(err.response?.data?.error || 'Save failed');
+      }
     } finally {
       setSaving(false);
     }
@@ -87,6 +119,25 @@ function ProductModal({ product, categories, onClose, onSaved }) {
 
   return (
     <Modal open onClose={onClose} title={product ? 'Edit product' : 'New product'} size="lg">
+      {confirmConvert && (
+        <div className="mb-3 rounded-xl bg-amber-50 px-4 py-3 ring-1 ring-amber-200">
+          <p className="text-sm font-medium text-amber-900">
+            {confirmConvert.stock} in stock — that count will be cleared
+          </p>
+          <p className="mt-1 text-sm text-amber-800">
+            A quantity has no handsets behind it. Clear it, then book the phones in by their IMEIs so
+            the stock is the actual devices on the shelf.
+          </p>
+          <div className="mt-2.5 flex gap-2">
+            <Button size="sm" variant="secondary" onClick={() => setConfirmConvert(null)}>
+              Keep it as a quantity
+            </Button>
+            <Button size="sm" onClick={convertAndSave} loading={saving}>
+              Clear it and track by IMEI
+            </Button>
+          </div>
+        </div>
+      )}
       <form onSubmit={submit} className="space-y-4">
         <div className="grid grid-cols-2 gap-3">
           <Input label="Name" value={form.name} onChange={set('name')} required autoFocus className="col-span-2" />
