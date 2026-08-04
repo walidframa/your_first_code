@@ -386,6 +386,110 @@ db.exec(`
 addColumn('product_units', 'imei2', 'TEXT');
 
 /*
+ * Warranty.
+ *
+ * The shop's own promise, not the manufacturer's: how many months it will fix
+ * this handset for free. The default lives on the product because it is a
+ * policy ("all our phones, six months"), and the figure is copied onto the unit
+ * when it sells so changing the policy tomorrow cannot quietly shorten a
+ * warranty somebody is already holding.
+ */
+addColumn('products', 'warranty_months', 'INTEGER NOT NULL DEFAULT 0');
+addColumn('product_units', 'warranty_months', 'INTEGER');
+addColumn('product_units', 'warranty_starts', 'TEXT');
+
+/*
+ * Repair jobs.
+ *
+ * A phone comes in broken and leaves fixed, and in between it is the shop's
+ * responsibility. The ticket is the record of that: what came in, in what
+ * state, what was wrong, what was done, what it cost — and the number the
+ * customer holds when they come back for it.
+ *
+ * `unit_id` is set only when the handset is one the shop sold. Most repairs are
+ * somebody else's phone, so the device is described in words and the IMEI kept
+ * as typed.
+ */
+db.exec(`
+  CREATE TABLE IF NOT EXISTS repair_tickets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticket_number TEXT UNIQUE NOT NULL,
+    unit_id INTEGER REFERENCES product_units(id),
+    customer_id INTEGER REFERENCES customers(id),
+    customer_name TEXT NOT NULL,
+    customer_phone TEXT,
+    device TEXT NOT NULL,
+    imei TEXT,
+    fault TEXT NOT NULL,
+    condition_note TEXT,
+    -- Often handed over so the phone can be tested. Encrypted like any other
+    -- credential the shop is trusted with.
+    passcode_enc TEXT,
+    status TEXT NOT NULL DEFAULT 'received'
+      CHECK (status IN ('received', 'diagnosed', 'awaiting_parts', 'repairing', 'ready', 'collected', 'cancelled')),
+    under_warranty INTEGER NOT NULL DEFAULT 0,
+    quoted REAL,
+    charged REAL,
+    order_id INTEGER REFERENCES orders(id),
+    taken_by INTEGER REFERENCES users(id),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    collected_at TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS repair_parts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticket_id INTEGER NOT NULL REFERENCES repair_tickets(id),
+    product_id INTEGER REFERENCES products(id),
+    name TEXT NOT NULL,
+    quantity INTEGER NOT NULL DEFAULT 1,
+    cost REAL NOT NULL DEFAULT 0,
+    price REAL NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  -- Every status change, so "when did you say it was ready?" has an answer.
+  CREATE TABLE IF NOT EXISTS repair_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticket_id INTEGER NOT NULL REFERENCES repair_tickets(id),
+    status TEXT NOT NULL,
+    note TEXT,
+    user_id INTEGER REFERENCES users(id),
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_repairs_status ON repair_tickets(status, created_at);
+  CREATE INDEX IF NOT EXISTS idx_repairs_imei ON repair_tickets(imei);
+  CREATE INDEX IF NOT EXISTS idx_repair_parts_ticket ON repair_parts(ticket_id);
+  CREATE INDEX IF NOT EXISTS idx_repair_events_ticket ON repair_events(ticket_id);
+`);
+
+/*
+ * Handsets bought back from a customer.
+ *
+ * The mirror of a sale: money leaves the drawer and a phone joins the shelf, at
+ * whatever grade and price were agreed across the counter. It becomes an
+ * ordinary unit from that moment, so it sells and reports like any other — the
+ * trade-in row is only the record of where it came from.
+ */
+db.exec(`
+  CREATE TABLE IF NOT EXISTS trade_ins (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    unit_id INTEGER NOT NULL REFERENCES product_units(id),
+    customer_id INTEGER REFERENCES customers(id),
+    seller_name TEXT,
+    seller_phone TEXT,
+    paid_usd REAL NOT NULL DEFAULT 0,
+    paid_lbp REAL NOT NULL DEFAULT 0,
+    note TEXT,
+    user_id INTEGER REFERENCES users(id),
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_trade_ins_unit ON trade_ins(unit_id);
+`);
+
+/*
  * The IMEIs typed against a purchase invoice line.
  *
  * A delivery of handsets is booked in where it actually arrives — on the

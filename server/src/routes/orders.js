@@ -7,9 +7,6 @@ import { addEntry, creditCheck } from '../lib/accounts.js';
 import { currentSession, recordMovement, requiresSession } from '../lib/cash.js';
 import { isAvailable, returnUnitsOfOrder, sellUnit, syncStockFromUnits } from '../lib/units.js';
 import { encryptSecret } from '../lib/secrets.js';
-
-/** What kind of account the shop set up for the customer. */
-export const ACCOUNT_KINDS = ['icloud', 'gmail', 'other'];
 import {
   CHANGE_MODES,
   round2,
@@ -18,6 +15,9 @@ import {
   tenderTotals,
   validatePayments,
 } from '../lib/currency.js';
+
+/** What kind of account the shop set up for the customer. */
+export const ACCOUNT_KINDS = ['icloud', 'gmail', 'other'];
 
 const router = Router();
 const TAX_RATE = Number(process.env.TAX_RATE || 0.08);
@@ -246,6 +246,14 @@ router.post('/', requireAuth, (req, res) => {
 
         if (li.unit) {
           sellUnit(li.unit.id, li.product.id, orderId);
+          /*
+           * The warranty is copied onto the handset as it leaves, not read from
+           * the product later. Shortening the shop's policy tomorrow must not
+           * shorten the cover somebody is already holding.
+           */
+          db.prepare(
+            `UPDATE product_units SET warranty_months = ?, warranty_starts = date('now') WHERE id = ?`,
+          ).run(li.product.warranty_months ?? 0, li.unit.id);
           // Stock is recounted from the units rather than decremented, so the
           // two can never drift apart.
           syncStockFromUnits(li.product.id);

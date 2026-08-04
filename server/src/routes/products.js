@@ -62,15 +62,15 @@ router.get('/lookup', requireAuth, (req, res) => {
 router.post('/', requireAuth, requireRole('admin'), (req, res) => {
   const {
     name, sku, price, cost, stock, category_id, image_emoji, barcode, supplier, image_url,
-    reorder_point, tracks_units,
+    reorder_point, tracks_units, warranty_months,
   } = req.body || {};
   if (!name || !sku || price == null) {
     return res.status(400).json({ error: 'name, sku and price are required' });
   }
   try {
     const info = db.prepare(`
-      INSERT INTO products (name, sku, price, cost, stock, category_id, image_emoji, barcode, supplier, image_url, reorder_point, tracks_units)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO products (name, sku, price, cost, stock, category_id, image_emoji, barcode, supplier, image_url, reorder_point, tracks_units, warranty_months)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       name,
       sku,
@@ -87,6 +87,7 @@ router.post('/', requireAuth, requireRole('admin'), (req, res) => {
       // booked in by IMEI, and a typed opening quantity would be a number with
       // no phones behind it.
       tracks_units ? 1 : 0,
+      Math.max(0, Math.round(Number(warranty_months) || 0)),
     );
     if (tracks_units) db.prepare('UPDATE products SET stock = 0 WHERE id = ?').run(info.lastInsertRowid);
     const product = db.prepare('SELECT * FROM products WHERE id = ?').get(info.lastInsertRowid);
@@ -166,6 +167,7 @@ router.put('/:id', requireAuth, requireRole('admin'), (req, res) => {
   const fields = [
     'name', 'sku', 'price', 'cost', 'stock', 'category_id', 'image_emoji',
     'active', 'barcode', 'supplier', 'image_url', 'reorder_point', 'tracks_units',
+    'warranty_months',
   ];
   const updates = {};
   for (const f of fields) {
@@ -178,7 +180,8 @@ router.put('/:id', requireAuth, requireRole('admin'), (req, res) => {
   if (switchingTracking && updates.tracks_units) merged.stock = 0;
   db.prepare(`
     UPDATE products SET name = ?, sku = ?, price = ?, cost = ?, stock = ?, category_id = ?, image_emoji = ?,
-      active = ?, barcode = ?, supplier = ?, image_url = ?, reorder_point = ?, tracks_units = ?
+      active = ?, barcode = ?, supplier = ?, image_url = ?, reorder_point = ?, tracks_units = ?,
+      warranty_months = ?
     WHERE id = ?
   `).run(
     merged.name,
@@ -194,6 +197,7 @@ router.put('/:id', requireAuth, requireRole('admin'), (req, res) => {
     merged.image_url || null,
     Number.isFinite(Number(merged.reorder_point)) ? Number(merged.reorder_point) : 5,
     merged.tracks_units ? 1 : 0,
+    Math.max(0, Math.round(Number(merged.warranty_months) || 0)),
     req.params.id
   );
 

@@ -171,3 +171,43 @@ body {
     border: none !important;
   }
 }
+
+/*
+ * Repair tickets on a receipt printer.
+ *
+ * Thermal rolls are 58 or 80mm wide with no fixed height, so the page is sized
+ * to the paper and left to run as long as the ticket needs. Same isolation
+ * trick as the label sheet: hide the app, show only the slip.
+ */
+@media print {
+  body:has(.repair-slip) * {
+    visibility: hidden;
+  }
+
+  body:has(.repair-slip) .repair-slip,
+  body:has(.repair-slip) .repair-slip * {
+    visibility: visible;
+  }
+
+  body:has(.repair-slip) .repair-slip {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    /*
+     * Thermal paper is cheap and the print head is not sharp. Pure black on
+     * white at a plain weight survives it; the app's greys come out as mush.
+     */
+    color: #000;
+    background: #fff;
+    font-family: ui-monospace, 'SFMono-Regular', 'Menlo', monospace;
+  }
+
+  @page {
+    /* 80mm roll less the printer's own margins; auto height lets it run on. */
+    size: 72mm auto;
+    margin: 3mm;
+  }
+}
