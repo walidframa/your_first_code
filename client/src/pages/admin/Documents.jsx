@@ -400,6 +400,19 @@ function DocumentForm({ existing, onClose, onSaved }) {
                                   * invoice. Booking them in from another screen
                                   * afterwards means doing the job twice.
                                   */}
+                                {/*
+                                  * Silence is the worst answer here. A phone
+                                  * that was never flagged as serialised simply
+                                  * showed no IMEI box and no reason, which
+                                  * reads as the feature being broken.
+                                  */}
+                                {docType === 'purchase_invoice' && !l.product.tracks_units && (
+                                  <p className="mt-1 text-xs text-slate-400">
+                                    Counted as a quantity. To enter IMEIs, tick{' '}
+                                    <span className="text-slate-500">Track each one by IMEI</span> on this
+                                    product first.
+                                  </p>
+                                )}
                                 {docType === 'purchase_invoice' && l.product.tracks_units && (
                                   <div className="mt-1.5">
                                     <textarea

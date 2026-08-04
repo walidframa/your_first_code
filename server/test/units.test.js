@@ -576,3 +576,59 @@ test('an account of an unknown kind is refused', async () => {
   assert.equal(res.status, 400);
   assert.match(res.json.error, /Account type must be one of/i);
 });
+
+/* ------------------------------- turning tracking on for an existing product */
+
+test('a product with stock is not silently converted to IMEI tracking', async () => {
+  const made = await req(
+    'POST',
+    '/products',
+    { name: 'Nokia 110', sku: 'PH-N110', price: 30, cost: 22, stock: 5 },
+    adminToken,
+  );
+  const p = made.json.product;
+  assert.equal(p.tracks_units, 0);
+
+  const res = await req('PUT', `/products/${p.id}`, { tracks_units: true }, adminToken);
+  assert.equal(res.status, 409, 'a stock count is not destroyed by a checkbox');
+  assert.equal(res.json.needsConvert, true);
+  assert.equal(res.json.stock, 5);
+  assert.equal(await stockOf(p.id), 5, 'and nothing changed');
+});
+
+test('confirming the conversion clears the count and records why', async () => {
+  const p = (await req('GET', '/products/lookup?code=PH-N110', null, adminToken)).json.product;
+
+  const res = await req(
+    'PUT',
+    `/products/${p.id}`,
+    { tracks_units: true, convertStock: true },
+    adminToken,
+  );
+  assert.equal(res.status, 200);
+  assert.equal(res.json.product.tracks_units, 1);
+  assert.equal(await stockOf(p.id), 0, 'a quantity had no handsets behind it');
+
+  const moves = await req('GET', `/inventory/movements?productId=${p.id}`, null, adminToken);
+  assert.match(moves.json.movements[0].note, /IMEI tracking/i, 'the clearing is on the record');
+  assert.equal(moves.json.movements[0].delta, -5);
+});
+
+test('once converted, handsets book in and the stock is the real devices', async () => {
+  const p = (await req('GET', '/products/lookup?code=PH-N110', null, adminToken)).json.product;
+  const res = await req(
+    'POST',
+    `/units/product/${p.id}`,
+    { units: [{ imei: '359500000000011' }, { imei: '359500000000021' }] },
+    adminToken,
+  );
+  assert.equal(res.status, 201);
+  assert.equal(await stockOf(p.id), 2);
+});
+
+test('tracking cannot be switched off once handsets are booked in', async () => {
+  const p = (await req('GET', '/products/lookup?code=PH-N110', null, adminToken)).json.product;
+  const res = await req('PUT', `/products/${p.id}`, { tracks_units: false }, adminToken);
+  assert.equal(res.status, 400);
+  assert.match(res.json.error, /Remove this product's units/i);
+});
