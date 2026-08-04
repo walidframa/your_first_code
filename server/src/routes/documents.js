@@ -135,12 +135,13 @@ router.post('/', requireAuth, requireRole('admin'), (req, res) => {
         );
 
       const insertItem = db.prepare(
-        `INSERT INTO document_items (document_id, product_id, name, sku, price, quantity, line_total, cost)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO document_items (document_id, product_id, name, sku, price, quantity, line_total, cost, imeis)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       );
       for (const l of lines) {
         insertItem.run(
           info.lastInsertRowid, l.productId, l.name, l.sku, l.price, l.quantity, l.lineTotal, l.cost ?? null,
+          l.imeis ?? null,
         );
       }
       return info.lastInsertRowid;
@@ -245,8 +246,8 @@ router.put('/:id', requireAuth, requireRole('admin'), (req, res) => {
 
       db.prepare('DELETE FROM document_items WHERE document_id = ?').run(doc.id);
       const insertItem = db.prepare(
-        `INSERT INTO document_items (document_id, product_id, name, sku, price, quantity, line_total, cost)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO document_items (document_id, product_id, name, sku, price, quantity, line_total, cost, imeis)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       );
       for (const l of lines) {
         insertItem.run(doc.id, l.productId, l.name, l.sku, l.price, l.quantity, l.lineTotal, l.cost ?? null);
@@ -364,12 +365,15 @@ router.post('/:id/convert', requireAuth, requireRole('admin'), (req, res) => {
         );
 
       const insertItem = db.prepare(
-        `INSERT INTO document_items (document_id, product_id, name, sku, price, quantity, line_total, cost)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO document_items (document_id, product_id, name, sku, price, quantity, line_total, cost, imeis)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       );
       for (const i of items) {
         insertItem.run(
           info.lastInsertRowid, i.product_id, i.name, i.sku, i.price, i.quantity, i.line_total, i.cost,
+          // A conversion carries the quotation's lines forward; the IMEIs are
+          // typed when the goods actually arrive, not when they were quoted.
+          null,
         );
       }
       return info.lastInsertRowid;

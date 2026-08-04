@@ -6,6 +6,7 @@ import PaymentSheet from '../components/PaymentSheet';
 import CustomerPicker from '../components/CustomerPicker';
 import CashBox from '../components/CashBox';
 import UnitPicker from '../components/UnitPicker';
+import PhoneSaleDetails from '../components/PhoneSaleDetails';
 import { Button, EmptyState, ProductThumb, Skeleton, cx, money, useToast } from '../components/ui';
 import { useSettings, lbp } from '../context/SettingsContext';
 
@@ -38,6 +39,13 @@ export default function Checkout() {
   const [customer, setCustomer] = useState(null);
   // The serialised product waiting for the cashier to say which handset.
   const [pickingUnitFor, setPickingUnitFor] = useState(null);
+  /*
+   * Who walked out with the phone, and what the shop set up for them. Most
+   * buyers never become a customer account — what is needed months later is a
+   * name, a number, and the iCloud they have forgotten.
+   */
+  const [buyer, setBuyer] = useState({ name: '', phone: '' });
+  const [accounts, setAccounts] = useState([]);
 
   const loadData = useCallback(async () => {
     const [productsRes, categoriesRes, taxRes] = await Promise.all([
@@ -158,6 +166,11 @@ export default function Checkout() {
     });
   }, [products, activeCategory, search]);
 
+  /** Give a line away: no money, but the stock still moves. */
+  function toggleGift(lineKey) {
+    setCart((prev) => prev.map((i) => (i.lineKey === lineKey ? { ...i, isGift: !i.isGift } : i)));
+  }
+
   function updateQuantity(lineKey, quantity) {
     setCart((prev) =>
       prev.flatMap((i) => {
@@ -168,7 +181,9 @@ export default function Checkout() {
     );
   }
 
-  const subtotal = round2(cart.reduce((sum, i) => sum + i.price * i.quantity, 0));
+  const subtotal = round2(
+    cart.reduce((sum, i) => sum + (i.isGift ? 0 : i.price * i.quantity), 0),
+  );
   const discountAmount = round2(subtotal * (Number(discountPercent) / 100));
   const taxableAmount = round2(subtotal - discountAmount);
   const tax = round2(taxableAmount * taxRate);
@@ -185,7 +200,12 @@ export default function Checkout() {
     setSubmitting(true);
     try {
       const res = await api.post('/orders', {
-        items: cart.map((i) => ({ productId: i.productId, quantity: i.quantity, unitId: i.unitId })),
+        items: cart.map((i) => ({
+          productId: i.productId,
+          quantity: i.quantity,
+          unitId: i.unitId,
+          isGift: Boolean(i.isGift),
+        })),
         discountPercent: Number(discountPercent) || 0,
         paymentMethod,
         payments,
@@ -195,12 +215,17 @@ export default function Checkout() {
         changeUsd,
         changeLbp,
         customerId: customer?.id ?? null,
+        buyerName: buyer.name || null,
+        buyerPhone: buyer.phone || null,
+        accounts: accounts.filter((a) => a.username.trim()),
       });
       setReceipt({ order: res.data.order, items: res.data.items });
       setSalesMade((n) => n + 1);
       setCart([]);
       setDiscountPercent(0);
       setCustomer(null);
+      setBuyer({ name: '', phone: '' });
+      setAccounts([]);
       setPaymentOpen(false);
       await loadData();
     } catch (err) {
@@ -377,6 +402,17 @@ export default function Checkout() {
           <CustomerPicker customer={customer} onChange={setCustomer} />
         </div>
 
+        {/* Only when a handset is going out — none of it applies to a bag of crisps. */}
+        {cart.some((i) => i.unitId) && (
+          <PhoneSaleDetails
+            buyer={buyer}
+            onBuyerChange={setBuyer}
+            accounts={accounts}
+            onAccountsChange={setAccounts}
+            units={cart.filter((i) => i.unitId)}
+          />
+        )}
+
         <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
           {cart.length === 0 ? (
             <EmptyState
@@ -398,6 +434,17 @@ export default function Checkout() {
                     {item.imei && (
                       <p className="truncate font-mono text-[11px] text-slate-400">{item.imei}</p>
                     )}
+                    <button
+                      onClick={() => toggleGift(item.lineKey)}
+                      className={cx(
+                        'mt-0.5 rounded px-1.5 py-0.5 text-[11px] font-medium transition',
+                        item.isGift
+                          ? 'bg-brand-50 text-brand-700'
+                          : 'text-slate-400 hover:bg-slate-100 hover:text-slate-600',
+                      )}
+                    >
+                      {item.isGift ? '★ Gift — free' : 'Make it a gift'}
+                    </button>
                   </div>
                   <div className="flex items-center gap-1">
                     <button
@@ -418,7 +465,12 @@ export default function Checkout() {
                     </button>
                   </div>
                   <div className="w-24 shrink-0 text-right">
-                    <span className="tnum block text-sm font-semibold text-slate-900">
+                    <span
+                      className={cx(
+                        'tnum block text-sm font-semibold',
+                        item.isGift ? 'text-slate-300 line-through' : 'text-slate-900',
+                      )}
+                    >
                       {money(item.price * item.quantity)}
                     </span>
                     {rate > 0 && (

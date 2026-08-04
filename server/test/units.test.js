@@ -410,3 +410,169 @@ test('a dual-SIM handset sells and stays findable by both numbers', async () => 
     assert.equal(found.unit.order_number, sale.json.order.order_number);
   }
 });
+
+/* ------------------------------------- booking in from a supplier's invoice */
+
+async function supplier() {
+  const list = await req('GET', '/suppliers', null, adminToken);
+  if (list.json.parties?.length) return list.json.parties[0];
+  return (await req('POST', '/suppliers', { name: 'Beirut Mobile Co' }, adminToken)).json.party;
+}
+
+test('a purchase invoice books the handsets in', async () => {
+  const sup = await supplier();
+  const before = await stockOf(phone.id);
+
+  const doc = await req(
+    'POST',
+    '/documents',
+    {
+      docType: 'purchase_invoice',
+      partyId: sup.id,
+      items: [
+        {
+          productId: phone.id,
+          quantity: 2,
+          price: 380,
+          imeis: '35 6001 0001 0001 1, 356001000100019\n356001000100021',
+        },
+      ],
+    },
+    adminToken,
+  );
+  assert.equal(doc.status, 201, JSON.stringify(doc.json));
+
+  const confirmed = await req('POST', `/documents/${doc.json.document.id}/confirm`, null, adminToken);
+  assert.equal(confirmed.status, 200, JSON.stringify(confirmed.json));
+
+  assert.equal(await stockOf(phone.id), before + 2, 'the delivery is on the shelf');
+  const found = await req('GET', '/units/lookup?imei=356001000100019', null, adminToken);
+  assert.equal(found.json.unit.imei, '356001000100011', 'the dual-SIM pair came through');
+  assert.equal(found.json.unit.cost, 380, 'each handset carries what the invoice paid');
+});
+
+test('a delivery whose IMEIs do not match the quantity is refused', async () => {
+  const sup = await supplier();
+  const before = await stockOf(phone.id);
+
+  const doc = await req(
+    'POST',
+    '/documents',
+    {
+      docType: 'purchase_invoice',
+      partyId: sup.id,
+      items: [{ productId: phone.id, quantity: 3, price: 380, imeis: '356001000100031' }],
+    },
+    adminToken,
+  );
+  const confirmed = await req('POST', `/documents/${doc.json.document.id}/confirm`, null, adminToken);
+
+  assert.equal(confirmed.status, 400);
+  assert.match(confirmed.json.error, /3 on the line but 1 IMEI/i);
+  assert.equal(await stockOf(phone.id), before, 'nothing was booked in');
+});
+
+test('a delivery cannot be undone once one of its handsets has sold', async () => {
+  const sup = await supplier();
+  const doc = await req(
+    'POST',
+    '/documents',
+    {
+      docType: 'purchase_invoice',
+      partyId: sup.id,
+      items: [{ productId: phone.id, quantity: 1, price: 380, imeis: '356001000100041' }],
+    },
+    adminToken,
+  );
+  const docId = doc.json.document.id;
+  await req('POST', `/documents/${docId}/confirm`, null, adminToken);
+
+  const unit = (await req('GET', '/units/lookup?imei=356001000100041', null, adminToken)).json.unit;
+  await req(
+    'POST',
+    '/orders',
+    { items: [{ productId: phone.id, quantity: 1, unitId: unit.id }], paymentMethod: 'card' },
+    cashierToken,
+  );
+
+  const deleted = await req('DELETE', `/documents/${docId}`, null, adminToken);
+  assert.equal(deleted.status, 400);
+  assert.match(deleted.json.error, /already been sold/i);
+});
+
+/* ------------------------------------------ buyer, gifts and held accounts */
+
+test('a phone sale records the buyer, a gift and the account handed over', async () => {
+  const unit = await freshUnit();
+  const gift = (await req('GET', '/products/lookup?code=SNK-001', null, adminToken)).json.product;
+
+  const sale = await req(
+    'POST',
+    '/orders',
+    {
+      items: [
+        { productId: phone.id, quantity: 1, unitId: unit.id },
+        { productId: gift.id, quantity: 1, isGift: true },
+      ],
+      paymentMethod: 'card',
+      buyerName: 'Rami Haddad',
+      buyerPhone: '03 456 789',
+      accounts: [
+        { kind: 'icloud', unitId: unit.id, username: 'rami@icloud.com', password: 'hunter2', note: 'set up in shop' },
+      ],
+    },
+    cashierToken,
+  );
+
+  assert.equal(sale.status, 201, JSON.stringify(sale.json));
+  assert.equal(sale.json.order.buyer_name, 'Rami Haddad');
+  assert.equal(sale.json.order.buyer_phone, '03 456 789');
+
+  const giftLine = sale.json.items.find((i) => i.product_id === gift.id);
+  assert.equal(giftLine.is_gift, 1);
+  assert.equal(giftLine.line_total, 0, 'a gift is not revenue');
+  assert.equal(sale.json.order.subtotal, phone.price, 'only the handset was charged for');
+
+  // ...but it still left the shop.
+  const after = (await req('GET', `/products/${gift.id}`, null, adminToken)).json.product;
+  assert.equal(after.stock, gift.stock - 1, 'the gift came out of stock');
+});
+
+test('a held account is found by the phone’s IMEI', async () => {
+  const unit = (await req('GET', '/units/lookup?imei=860000000000004', null, adminToken)).json.unit;
+  const byImei = await req(`GET`, `/held-accounts?q=${unit?.imei ?? ''}`, null, cashierToken);
+  const byName = await req('GET', '/held-accounts?q=rami', null, cashierToken);
+
+  assert.ok(byName.json.accounts.length >= 1, 'found by the buyer’s name');
+  assert.equal(byName.json.accounts[0].username, 'rami@icloud.com');
+  assert.equal(byName.json.accounts[0].kind, 'icloud');
+  assert.equal(byName.json.accounts[0].password_enc, undefined, 'a list never carries passwords');
+  assert.equal(byImei.status, 200);
+});
+
+test('the password is revealed only on a deliberate request, and only to an admin', async () => {
+  const account = (await req('GET', '/held-accounts?q=rami', null, adminToken)).json.accounts[0];
+
+  const asCashier = await req('GET', `/held-accounts/${account.id}/password`, null, cashierToken);
+  assert.equal(asCashier.status, 403, 'a cashier cannot page through every password in the shop');
+
+  const asAdmin = await req('GET', `/held-accounts/${account.id}/password`, null, adminToken);
+  assert.equal(asAdmin.status, 200);
+  assert.equal(asAdmin.json.password, 'hunter2');
+});
+
+test('an account of an unknown kind is refused', async () => {
+  const unit = await freshUnit();
+  const res = await req(
+    'POST',
+    '/orders',
+    {
+      items: [{ productId: phone.id, quantity: 1, unitId: unit.id }],
+      paymentMethod: 'card',
+      accounts: [{ kind: 'facebook', username: 'x@y.z', password: 'p' }],
+    },
+    cashierToken,
+  );
+  assert.equal(res.status, 400);
+  assert.match(res.json.error, /Account type must be one of/i);
+});
