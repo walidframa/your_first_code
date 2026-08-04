@@ -34,7 +34,7 @@ export default function UnitPicker({ product, onPick, onClose }) {
   const shown = useMemo(() => {
     if (!units) return [];
     const t = term.replace(/[\s-]/g, '').toUpperCase();
-    return t ? units.filter((u) => u.imei.includes(t)) : units;
+    return t ? units.filter((u) => u.imei.includes(t) || (u.imei2 || '').includes(t)) : units;
   }, [units, term]);
 
   return (
@@ -70,7 +70,10 @@ export default function UnitPicker({ product, onPick, onClose }) {
                   onClick={() => onPick(u)}
                   className="flex w-full items-center gap-3 rounded-xl bg-white px-3 py-2.5 text-left ring-1 ring-slate-200 transition hover:bg-slate-50 hover:ring-brand-400"
                 >
-                  <span className="flex-1 font-mono text-sm text-slate-800">{u.imei}</span>
+                  <span className="flex-1 font-mono text-sm text-slate-800">
+                    {u.imei}
+                    {u.imei2 && <span className="block text-xs text-slate-400">{u.imei2}</span>}
+                  </span>
                   <span
                     className={cx(
                       'rounded-full px-2 py-0.5 text-xs font-medium capitalize',

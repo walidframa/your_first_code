@@ -132,9 +132,15 @@ Tick **Track each one by IMEI** on a product and it changes how it is counted:
 
 - Stock is no longer typed. It is the number of handsets booked in and not yet
   sold, recounted from the units themselves so the two can never drift apart.
-- **Book in** takes a list of IMEIs, one per line, with a condition and a cost —
-  spaces and dashes are stripped so they can be typed straight off the box. A
-  batch containing an IMEI already known is refused whole rather than half kept.
+- **Book in** takes a list of handsets, one per line, with a condition and a cost
+  — spaces and dashes are stripped so they can be typed straight off the box. A
+  batch containing a number already known is refused whole rather than half kept.
+- **Dual-SIM phones carry two IMEIs.** Put both on the line separated by a comma
+  or a slash (`3599…441, 3599…449`); a space cannot be the separator because
+  spaces appear *inside* a single IMEI as printed. Either number finds the
+  handset — at a counter the customer reads whichever one they can see, and
+  asking which SIM slot it belongs to would be a strange question. A number is a
+  number: it cannot be IMEI 1 of one phone and IMEI 2 of another.
 - The register will not let a serialised product into the cart as a quantity: it
   asks which handset, and the cart line shows the IMEI going out of the door.
 - The sale records the unit and **its** cost, so margin is per device rather than

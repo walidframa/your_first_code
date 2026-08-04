@@ -321,3 +321,92 @@ test('quantity-tracked products are untouched by any of this', async () => {
   assert.equal(res.json.items[0].unit_id, null);
   assert.equal(await stockOf(snack.id), snack.stock - 2);
 });
+
+/* ------------------------------------------------- dual-SIM: two IMEIs each */
+
+test('a dual-SIM handset is booked in with both numbers', async () => {
+  const res = await req(
+    'POST',
+    `/units/product/${phone.id}`,
+    { units: [{ imei: '35 7777 1111 2222 1, 357777111122229', cost: 430 }] },
+    adminToken,
+  );
+  assert.equal(res.status, 201);
+
+  const unit = (await req('GET', '/units/lookup?imei=357777111122221', null, adminToken)).json.unit;
+  assert.equal(unit.imei, '357777111122221');
+  assert.equal(unit.imei2, '357777111122229');
+});
+
+test('either number finds the same handset', async () => {
+  const first = (await req('GET', '/units/lookup?imei=357777111122221', null, cashierToken)).json.unit;
+  const second = (await req('GET', '/units/lookup?imei=357777111122229', null, cashierToken)).json.unit;
+  assert.equal(first.id, second.id, 'the customer reads whichever number they can see');
+});
+
+test('a second IMEI can be given as its own field', async () => {
+  const res = await req(
+    'POST',
+    `/units/product/${phone.id}`,
+    { units: [{ imei: '357777111133331', imei2: '357777111133339' }] },
+    adminToken,
+  );
+  assert.equal(res.status, 201);
+  assert.equal(
+    (await req('GET', '/units/lookup?imei=357777111133339', null, adminToken)).json.unit.imei,
+    '357777111133331',
+  );
+});
+
+test('a number already used as another handset’s second IMEI is refused', async () => {
+  const res = await req(
+    'POST',
+    `/units/product/${phone.id}`,
+    { units: [{ imei: '357777111122229' }] },
+    adminToken,
+  );
+  assert.equal(res.status, 400);
+  assert.match(res.json.error, /already in stock or sold/i);
+});
+
+test('the same number cannot fill both slots of one handset', async () => {
+  const res = await req(
+    'POST',
+    `/units/product/${phone.id}`,
+    { units: [{ imei: '357777111144441', imei2: '357777111144441' }] },
+    adminToken,
+  );
+  assert.equal(res.status, 400);
+  assert.match(res.json.error, /twice on the same handset/i);
+});
+
+test('a single-SIM handset still books in with one number', async () => {
+  const res = await req(
+    'POST',
+    `/units/product/${phone.id}`,
+    { units: [{ imei: '357777111155551' }] },
+    adminToken,
+  );
+  assert.equal(res.status, 201);
+  assert.equal(
+    (await req('GET', '/units/lookup?imei=357777111155551', null, adminToken)).json.unit.imei2,
+    null,
+  );
+});
+
+test('a dual-SIM handset sells and stays findable by both numbers', async () => {
+  const unit = (await req('GET', '/units/lookup?imei=357777111133331', null, adminToken)).json.unit;
+  const sale = await req(
+    'POST',
+    '/orders',
+    { items: [{ productId: phone.id, quantity: 1, unitId: unit.id }], paymentMethod: 'card' },
+    cashierToken,
+  );
+  assert.equal(sale.status, 201);
+
+  for (const number of ['357777111133331', '357777111133339']) {
+    const found = (await req('GET', `/units/lookup?imei=${number}`, null, cashierToken)).json;
+    assert.equal(found.unit.status, 'sold');
+    assert.equal(found.unit.order_number, sale.json.order.order_number);
+  }
+});
