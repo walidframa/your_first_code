@@ -18,6 +18,8 @@ import AdminShopify from './pages/admin/Shopify';
 import AdminCashSessions from './pages/admin/CashSessions';
 import AdminExpenses from './pages/admin/Expenses';
 import AdminRepairs from './pages/admin/Repairs';
+import AdminTradeIns from './pages/admin/TradeIns';
+import HeldAccounts from './pages/admin/HeldAccounts';
 import AdminProfit from './pages/admin/Profit';
 
 export default function App() {
@@ -34,6 +36,7 @@ export default function App() {
       >
         <Route path="/" element={<Checkout />} />
         <Route path="/orders" element={<MyOrders />} />
+        <Route path="/accounts" element={<HeldAccounts />} />
 
         <Route
           path="/admin"
@@ -88,6 +91,14 @@ export default function App() {
           element={
             <ProtectedRoute roles={['admin']}>
               <AdminRepairs />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/trade-ins"
+          element={
+            <ProtectedRoute roles={['admin']}>
+              <AdminTradeIns />
             </ProtectedRoute>
           }
         />

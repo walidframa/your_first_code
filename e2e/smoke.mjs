@@ -416,6 +416,17 @@ try {
     await page.waitForSelector('aside >> text=/3599887766554\\d/', { timeout: 5000 });
   });
 
+  await step('a phone sale records the buyer and the account set up for them', async () => {
+    // The section only appears once a handset is on the sale.
+    await page.click('text=Buyer & accounts');
+    await page.fill('input[aria-label="Buyer\'s name"]', 'Rami Haddad');
+    await page.fill('input[aria-label="Buyer\'s phone number"]', '03 456 789');
+
+    await page.getByRole('button', { name: 'Add an account' }).click();
+    await page.fill('input[aria-label="Account name"]', 'rami@icloud.com');
+    await page.fill('input[aria-label="Account password"]', 'hunter2');
+  });
+
   await step('the sold handset is traceable by IMEI afterwards', async () => {
     await page.click('button:has-text("Charge $")');
     await page.click('[role=dialog] button:has-text("Card")');
@@ -433,6 +444,43 @@ try {
     if (found.unit.status !== 'sold') throw new Error(`unit is ${found.unit.status}, expected sold`);
     if (!found.unit.order_number) throw new Error('the sold unit does not name its order');
     if (found.available !== false) throw new Error('a sold handset still reads as available');
+  });
+
+  await step('a handset can be bought in over the counter', async () => {
+    await page.click('a[title="Trade-ins"]');
+    await page.waitForSelector('text=Buy a handset', { timeout: 15000 });
+    await page.click('button:has-text("Buy a handset")');
+    await page.waitForSelector('[role=dialog] >> text=Which model will you sell it as?');
+
+    const dialog = page.locator('[role=dialog]');
+    await dialog.locator('#model').selectOption({ index: 1 });
+    await dialog.getByRole('textbox', { name: 'IMEI', exact: true }).fill('35 7700 5566 4433 1');
+    /*
+     * Small on purpose. The drawer opened with $100 and the later steps take
+     * more out of it; a realistic trade-in price here would empty the till and
+     * fail the cash-out two steps down, which would look like a cashbox bug.
+     */
+    await dialog.getByRole('spinbutton', { name: 'Paid in dollars', exact: true }).fill('20');
+    await dialog.getByRole('textbox', { name: "Seller's name", exact: true }).fill('Karim Aoun');
+
+    // What it costs the shop, worked out before the money leaves the drawer.
+    await page.waitForSelector('text=/Costs the shop/');
+    await dialog.getByRole('button', { name: 'Buy it in' }).click();
+
+    await page.waitForSelector('text=357700556644331', { timeout: 15000 });
+    await page.waitForSelector('text=On the shelf');
+  });
+
+  await step('a held account is found and its password revealed to an admin', async () => {
+    await page.click('a[title="Accounts"]');
+    await page.waitForSelector('text=Search for a customer', { timeout: 15000 });
+
+    // Whatever the customer remembers: here, the number they called from.
+    await page.fill('input[aria-label="Find a held account"]', '03 456');
+    await page.waitForSelector('text=rami@icloud.com', { timeout: 10000 });
+
+    await page.getByRole('button', { name: 'Show password' }).first().click();
+    await page.waitForSelector('text=hunter2', { timeout: 10000 });
   });
 
   await step('import wizard accepts the sample catalog', async () => {

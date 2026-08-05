@@ -81,6 +81,7 @@ export default function PhoneSaleDetails({ buyer, onBuyerChange, accounts, onAcc
               </span>
               <button
                 onClick={addAccount}
+                aria-label="Add an account"
                 className="flex items-center gap-1 rounded-lg bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-200"
               >
                 <Plus size={12} /> Add

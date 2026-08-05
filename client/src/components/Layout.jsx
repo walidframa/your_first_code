@@ -20,6 +20,8 @@ import {
   Users,
   Wallet,
   Wrench,
+  HandCoins,
+  KeyRound,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { cx } from './ui';
@@ -27,6 +29,12 @@ import { cx } from './ui';
 const REGISTER_NAV = [
   { to: '/', label: 'Register', icon: ScanLine, end: true },
   { to: '/orders', label: 'My sales', icon: Receipt },
+  /*
+   * Not an admin screen. Handing a customer back the iCloud the shop set up for
+   * them is counter work, so whoever is at the counter can find it — the
+   * password itself still takes an admin.
+   */
+  { to: '/accounts', label: 'Accounts', icon: KeyRound },
 ];
 
 /*
@@ -50,6 +58,7 @@ const ADMIN_NAV = [
       { to: '/admin/documents', label: 'Documents', icon: FileText },
       { to: '/admin/orders', label: 'Orders', icon: ScrollText },
       { to: '/admin/repairs', label: 'Repairs', icon: Wrench },
+      { to: '/admin/trade-ins', label: 'Trade-ins', icon: HandCoins },
       { to: '/admin/customers', label: 'Customers', icon: Contact },
       { to: '/admin/suppliers', label: 'Suppliers', icon: Building2 },
     ],
