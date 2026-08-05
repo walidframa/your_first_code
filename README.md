@@ -232,7 +232,7 @@ in what state, what was wrong, what was done and what it cost.
 72mm, no rules or shading, sized to thermal roll and left to run as long as the
 job needs.
 
-**Trade-ins** are the mirror of a sale: money out of the drawer, a handset onto
+**Trade-ins** (admin → Trade-ins) are the mirror of a sale: money out of the drawer, a handset onto
 the shelf at the grade and price agreed across the counter. It becomes an
 ordinary unit from that moment — it sells, costs and reports like any other, with
 its margin against what the shop actually paid. The cash-out is recorded, because
@@ -248,6 +248,14 @@ explain at close.
 | `/api/repairs/:id/passcode` | GET | admin |
 | `/api/repairs/warranty/:imei` | GET | any signed-in user |
 | `/api/repairs/trade-ins` | POST | any signed-in user |
+| `/api/repairs/trade-ins/list` | GET | admin |
+
+**Customer accounts** has its own screen, and it is *not* an admin one: handing
+somebody back the iCloud the shop set up for them is counter work, so whoever is
+at the counter can search. One box takes whatever the customer remembers — the
+IMEI off the phone, the account name, their own name, the number they called
+from. The password still takes an admin, and a cashier is told so rather than
+shown a dead button.
 
 Accessories, parts and recharge cards stay quantity-tracked — nobody serialises
 a screen protector — so the two kinds of stock sit side by side in one
