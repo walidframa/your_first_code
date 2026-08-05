@@ -19,6 +19,7 @@ import importRoutes from './routes/imports.js';
 import shopifyRoutes from './routes/shopify.js';
 import cashRoutes from './routes/cash.js';
 import expenseRoutes from './routes/expenses.js';
+import walletRoutes from './routes/wallets.js';
 import { startShopifyWorker } from './lib/shopifyWorker.js';
 
 const app = express();
@@ -55,6 +56,7 @@ app.use('/api/documents', documentRoutes);
 app.use('/api/shopify', shopifyRoutes);
 app.use('/api/cash', cashRoutes);
 app.use('/api/expenses', expenseRoutes);
+app.use('/api/wallets', walletRoutes);
 app.use('/api/customers', partyRouter('customer'));
 app.use('/api/suppliers', partyRouter('supplier'));
 

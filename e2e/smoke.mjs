@@ -169,7 +169,7 @@ try {
   });
 
   await step('payment sheet opens', async () => {
-    await page.click('button:has-text("Charge $")');
+    await page.click('aside button:has-text("Charge $")');
     await page.waitForSelector('text=Take payment');
   });
   await shot('payment');
@@ -445,7 +445,7 @@ try {
   });
 
   await step('the sold handset is traceable by IMEI afterwards', async () => {
-    await page.click('button:has-text("Charge $")');
+    await page.click('aside button:has-text("Charge $")');
     await page.click('[role=dialog] button:has-text("Card")');
     await page.click('[role=dialog] button:has-text("Confirm $")');
     await page.waitForSelector('text=Payment complete', { timeout: 15000 });
@@ -488,6 +488,63 @@ try {
 
     await page.waitForSelector('text=357700556644331', { timeout: 15000 });
     await page.waitForSelector('text=On the shelf');
+  });
+
+  await step('the starter card catalogue loads and a wallet is topped up', async () => {
+    await page.click('a[title="Cards"]');
+    await page.waitForSelector('text=/sold from credit/', { timeout: 15000 });
+
+    await page.click('button:has-text("Load the Lebanese starter set")');
+    await page.waitForSelector('text=/Added \\d+ cards/', { timeout: 15000 });
+    await page.waitForSelector('text=ALFA 7.58 · 1 month', { timeout: 15000 });
+    await page.waitForSelector('text=Whole Recharge');
+    await page.waitForSelector('text=Gift Cards');
+
+    // Seeded at cost = price, so every margin reads as "set the cost" until
+    // the shop puts its dealer price in.
+    await page.waitForSelector('text=Set the cost');
+
+    await page.getByRole('button', { name: 'Top up Mobile recharge' }).click();
+    await page.waitForSelector('[role=dialog] >> text=What happened', { timeout: 10000 });
+    await page.locator('[role=dialog] #amount').fill('500');
+    await page.locator('[role=dialog]').getByRole('button', { name: 'Record it' }).click();
+    await page.waitForSelector('text=/is now \\$/', { timeout: 15000 });
+    await page.waitForSelector('text=$500.00', { timeout: 15000 });
+  });
+  await shot('cards');
+
+  await step('a card sells from the wallet and never runs out of stock', async () => {
+    await page.click('a[title="Cards"]');
+    await page.waitForSelector('text=Mobile recharge', { timeout: 15000 });
+    // What the card costs the shop, so the wallet moves by a real figure.
+    await page.getByRole('button', { name: 'Edit ALFA 10 · 1 month' }).click();
+    await page.locator('[role=dialog] #cost').fill('2.75');
+    await page.locator('[role=dialog]').getByRole('button', { name: 'Save' }).click();
+    await page.waitForSelector('text=Card updated', { timeout: 15000 });
+
+    await page.click('a[title="Register"]');
+    await page.waitForSelector('text=Current sale', { timeout: 15000 });
+    // Exact: "recharge" also appears inside several of the card names.
+    await page.getByRole('button', { name: 'Recharge', exact: true }).click();
+    await page.waitForSelector('text=ALFA 10 · 1 month', { timeout: 15000 });
+
+    // Four of a card the shop has none of on any shelf. Not anchored: the
+    // tile's accessible name starts with the card's emoji, not its name.
+    const tile = page.getByRole('button', { name: /ALFA 10 · 1 month/ }).first();
+    for (let i = 0; i < 4; i += 1) await tile.click();
+    await page.waitForSelector('aside >> text=ALFA 10 · 1 month', { timeout: 10000 });
+    if (!(await page.locator('aside >> text=4').count())) throw new Error('four did not reach the cart');
+
+    await page.click('aside button:has-text("Charge $")');
+    await page.waitForSelector('[role=dialog] >> text=Take payment', { timeout: 15000 });
+    await page.click('[role=dialog] button:has-text("Card")');
+    await page.click('[role=dialog] button:has-text("Confirm $")');
+    await page.waitForSelector('text=Payment complete', { timeout: 15000 });
+    await page.click('button:has-text("New sale")');
+
+    // $500 less four at $2.75.
+    await page.click('a[title="Cards"]');
+    await page.waitForSelector('text=$489.00', { timeout: 15000 });
   });
 
   await step('a held account is found and its password revealed to an admin', async () => {
@@ -985,7 +1042,7 @@ try {
     await page.click('button:has-text("Rami Haddad")');
     await page.waitForSelector('text=owes');
 
-    await page.click('button:has-text("Charge $")');
+    await page.click('aside button:has-text("Charge $")');
     await page.waitForSelector("text=Put on Rami Haddad's account");
     await page.click("button:has-text(\"Put on Rami Haddad's account\")");
     await page.waitForSelector('text=Payment complete', { timeout: 15000 });

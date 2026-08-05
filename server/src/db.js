@@ -668,6 +668,71 @@ db.exec(`
 `);
 
 /*
+ * Float accounts, for the things the shop sells that were never on a shelf.
+ *
+ * A recharge card is not stock. Nothing is counted out of a box when one is
+ * sold — the shop holds credit with Alfa, with touch, with whoever supplies its
+ * iTunes codes, and every sale spends a little of it. So the balance *is* the
+ * stock, and it falls by what the card cost rather than by one.
+ *
+ * One currency per wallet, unlike the drawer: a drawer physically holds dollar
+ * notes and pound notes side by side, while a credit account is a single figure
+ * denominated in whatever the supplier bills in.
+ */
+db.exec(`
+  CREATE TABLE IF NOT EXISTS wallets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    kind TEXT NOT NULL DEFAULT 'other'
+      CHECK (kind IN ('recharge', 'gift_card', 'app', 'other')),
+    currency TEXT NOT NULL DEFAULT 'USD' CHECK (currency IN ('USD', 'LBP')),
+    /* Warn at the counter before the shop finds out by failing to sell. */
+    low_balance REAL NOT NULL DEFAULT 0,
+    note TEXT,
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  /*
+   * Every movement of that credit: topped up when the shop pays its supplier,
+   * spent a card at a time. The balance is the sum, so it can be reconciled
+   * against the supplier's own statement rather than trusted.
+   */
+  CREATE TABLE IF NOT EXISTS wallet_movements (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    wallet_id INTEGER NOT NULL REFERENCES wallets(id),
+    kind TEXT NOT NULL CHECK (kind IN ('top_up', 'withdrawal', 'sale', 'refund', 'adjustment')),
+    /* Signed, in the wallet's own currency: positive in, negative out. */
+    amount REAL NOT NULL,
+    /* The same movement in USD, so margin reports never depend on the rate
+       that happens to be set today. */
+    amount_usd REAL NOT NULL DEFAULT 0,
+    exchange_rate REAL,
+    order_id INTEGER REFERENCES orders(id),
+    document_id INTEGER REFERENCES documents(id),
+    product_id INTEGER REFERENCES products(id),
+    note TEXT,
+    user_id INTEGER REFERENCES users(id),
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_wallet_movements_wallet
+    ON wallet_movements(wallet_id, created_at);
+  CREATE INDEX IF NOT EXISTS idx_wallet_movements_order ON wallet_movements(order_id);
+`);
+
+/*
+ * What funds this product, and by implication what kind of thing it is.
+ *
+ * A product pointing at a wallet is sold from credit rather than from a shelf:
+ * there is no quantity to run out of, and its cost comes off the wallet when it
+ * sells. One column rather than a separate "is digital" flag, because the two
+ * always travel together — an unlimited product whose cost came from nowhere
+ * would report infinite profit.
+ */
+addColumn('products', 'wallet_id', 'INTEGER REFERENCES wallets(id)');
+
+/*
  * Shopify inventory sync.
  *
  * `shopify_links` ties a local product to one Shopify variant, and remembers

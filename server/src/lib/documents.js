@@ -4,6 +4,7 @@ import { addEntry, creditCheck } from './accounts.js';
 import { recordMovement } from './cash.js';
 import { recordCostChange } from './costHistory.js';
 import { isAvailable, receiveUnits, syncStockFromUnits } from './units.js';
+import { costOfLine } from './wallets.js';
 
 const TAX_RATE = Number(process.env.TAX_RATE || 0.08);
 
@@ -244,6 +245,16 @@ function moveStock(doc, items, userId, direction, note) {
       continue;
     }
 
+    /*
+     * A card has no stock to move — buying more of it means buying credit. So a
+     * delivery tops the wallet up by what was paid and a sale spends it, which
+     * is the same thing the register does, just arriving on an invoice.
+     */
+    if (product.wallet_id) {
+      moveWalletCredit({ doc, item, product, direction, userId, note, sign: type.stock });
+      continue;
+    }
+
     const delta = Math.round(item.quantity) * type.stock * direction;
     const resulting = product.stock + delta;
     if (resulting < 0) {
@@ -284,6 +295,47 @@ function moveStock(doc, items, userId, direction, note) {
   }
 }
 
+
+/**
+ * Move a card line's credit instead of its stock.
+ *
+ * `sign` is the document type's stock direction: +1 for a delivery, −1 for a
+ * sale. A delivery of cards is a top-up — the shop paid the dealer and its
+ * balance with them went up — and a sale spends what the card cost. `direction`
+ * flips both when the document is undone.
+ *
+ * A reversal is recorded as an adjustment rather than as a negative top-up, so
+ * the statement reads as what happened rather than as money that arrived owing.
+ */
+function moveWalletCredit({ doc, item, product, direction, userId, note, sign }) {
+  const wallet = db.prepare('SELECT * FROM wallets WHERE id = ?').get(product.wallet_id);
+  if (!wallet) throw new Error(`${product.name} is funded by a wallet that no longer exists`);
+
+  // On a delivery the price on the line is what was actually paid for the
+  // credit; on a sale the cost is the product's own.
+  const each = sign > 0 ? (item.cost ?? item.price ?? product.cost) : product.cost;
+  const { usd, amount } = costOfLine(wallet, each, Math.round(item.quantity), doc.exchange_rate ?? null);
+  if (amount === 0) return;
+
+  const movement = sign * direction;
+  const kind = direction < 0 ? 'adjustment' : sign > 0 ? 'top_up' : 'sale';
+
+  db.prepare(
+    `INSERT INTO wallet_movements
+       (wallet_id, kind, amount, amount_usd, exchange_rate, document_id, product_id, note, user_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    wallet.id,
+    kind,
+    movement * amount,
+    round2(movement * usd),
+    doc.exchange_rate || null,
+    doc.id,
+    product.id,
+    note,
+    userId,
+  );
+}
 
 /**
  * Book a delivery's handsets in, or take them back out again.

@@ -358,7 +358,14 @@ export default function Products() {
                         </td>
                         <td className="tnum px-3 py-2.5 text-right text-slate-500">{margin.toFixed(0)}%</td>
                         <td className="px-3 py-2.5">
-                          <StockBadge stock={p.stock} reorderPoint={p.reorder_point} />
+                          {/* A card cannot be out of stock, and saying so on
+                              every one of them would bury the products that
+                              genuinely are. */}
+                          {p.wallet_id ? (
+                            <Badge tone="brand">Card · {p.wallet_name}</Badge>
+                          ) : (
+                            <StockBadge stock={p.stock} reorderPoint={p.reorder_point} />
+                          )}
                         </td>
                         <td className="px-5 py-2.5">
                           <div className="flex justify-end gap-1">

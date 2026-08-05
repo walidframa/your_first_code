@@ -5,6 +5,7 @@ import {
   Boxes,
   Building2,
   Contact,
+  CreditCard,
   FileText,
   LogOut,
   Package,
@@ -48,6 +49,7 @@ const ADMIN_NAV = [
     items: [
       { to: '/admin/products', label: 'Products', icon: Package },
       { to: '/admin/inventory', label: 'Inventory', icon: Boxes },
+      { to: '/admin/cards', label: 'Cards', icon: CreditCard },
       { to: '/admin/labels', label: 'Labels', icon: Tag },
       { to: '/admin/import', label: 'Import', icon: Upload },
     ],

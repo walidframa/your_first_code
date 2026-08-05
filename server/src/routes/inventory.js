@@ -15,7 +15,10 @@ router.get('/', requireAuth, requireRole('admin'), (req, res) => {
       `SELECT p.*, c.name AS category_name
        FROM products p
        LEFT JOIN categories c ON c.id = p.category_id
-       WHERE p.active = 1
+       /* Cards are sold from a wallet, not off a shelf. Listing them here would
+          add a screenful of permanent "out of stock" to the one screen whose
+          job is to show what genuinely needs reordering. */
+       WHERE p.active = 1 AND p.wallet_id IS NULL
        ORDER BY (p.stock <= p.reorder_point) DESC, p.stock ASC, p.name`,
     )
     .all();
@@ -88,6 +91,9 @@ router.post('/adjust', requireAuth, requireRole('admin'), (req, res) => {
     const result = transaction(() => {
       const product = db.prepare('SELECT * FROM products WHERE id = ?').get(productId);
       if (!product) throw new Error('Product not found');
+      if (product.wallet_id) {
+        throw new Error(`${product.name} is sold from a wallet — top the wallet up instead`);
+      }
 
       const resulting = product.stock + change;
       if (resulting < 0) {

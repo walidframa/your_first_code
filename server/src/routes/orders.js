@@ -6,6 +6,7 @@ import { getSettings } from '../lib/settings.js';
 import { addEntry, creditCheck } from '../lib/accounts.js';
 import { currentSession, recordMovement, requiresSession } from '../lib/cash.js';
 import { isAvailable, returnUnitsOfOrder, sellUnit, syncStockFromUnits } from '../lib/units.js';
+import { chargeSale, refundOrder as refundWallets } from '../lib/wallets.js';
 import { encryptSecret } from '../lib/secrets.js';
 import {
   CHANGE_MODES,
@@ -114,7 +115,13 @@ router.post('/', requireAuth, (req, res) => {
            * would believe otherwise.
            */
           if (item.unitId) throw new Error(`${product.name} is not tracked by IMEI`);
-          if (product.stock < quantity) {
+          /*
+           * A card has no shelf to run out of. What limits it is the credit
+           * behind it, and that is spent below rather than counted here — an
+           * empty wallet is a bill to settle with the supplier, not a customer
+           * to turn away at the counter.
+           */
+          if (!product.wallet_id && product.stock < quantity) {
             throw new Error(`Not enough stock for ${product.name} (have ${product.stock}, need ${quantity})`);
           }
         }
@@ -275,6 +282,19 @@ router.post('/', requireAuth, (req, res) => {
           // Stock is recounted from the units rather than decremented, so the
           // two can never drift apart.
           syncStockFromUnits(li.product.id);
+        } else if (li.product.wallet_id) {
+          /*
+           * The wallet is this product's stock, so selling a card spends it.
+           * A gift is spent too: giving a recharge away still uses the credit
+           * the shop paid for, even though nothing is charged for it.
+           */
+          chargeSale({
+            walletId: li.product.wallet_id,
+            product: li.product,
+            quantity: li.quantity,
+            orderId,
+            userId: req.user.id,
+          });
         } else {
           decrementStock.run(li.quantity, li.product.id);
         }
@@ -391,12 +411,29 @@ router.post('/:id/refund', requireAuth, requireRole('admin'), (req, res) => {
   transaction(() => {
     const items = db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(order.id);
     const restock = db.prepare('UPDATE products SET stock = stock + ? WHERE id = ?');
+
+    /*
+     * Cards never came off a shelf, so nothing goes back on one — the credit is
+     * returned to the wallet instead. Read from what was actually spent rather
+     * than from the product as it stands today, in case it has since been
+     * pointed at a different wallet.
+     */
+    const fromWallet = new Set(
+      db
+        .prepare("SELECT DISTINCT product_id FROM wallet_movements WHERE order_id = ? AND kind = 'sale'")
+        .all(order.id)
+        .map((r) => r.product_id),
+    );
+
     for (const item of items) {
       // Serialised lines are put back by identity below; adding to `stock` here
       // as well would count the returned handset twice.
-      if (item.product_id && !item.unit_id) restock.run(item.quantity, item.product_id);
+      if (item.product_id && !item.unit_id && !fromWallet.has(item.product_id)) {
+        restock.run(item.quantity, item.product_id);
+      }
     }
     returnUnitsOfOrder(order.id);
+    refundWallets(order.id, req.user.id);
     db.prepare("UPDATE orders SET status = 'refunded' WHERE id = ?").run(order.id);
 
     if (order.payment_method === 'account' && order.customer_id) {
