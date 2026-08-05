@@ -9,7 +9,15 @@ import { Button, Input, Modal, Select, useToast } from './ui';
  * because a purchase invoice is usually what brings the first units in, and a
  * sales document should not be inventing stock.
  */
-export default function ProductQuickCreate({ open, initialName = '', onClose, onCreated }) {
+export default function ProductQuickCreate({
+  open,
+  initialName = '',
+  // A model created while buying a used phone in has to be serialised, or the
+  // handset that prompted it cannot be booked against it.
+  trackUnits = false,
+  onClose,
+  onCreated,
+}) {
   const toast = useToast();
   const [categories, setCategories] = useState([]);
   const [form, setForm] = useState({
@@ -57,6 +65,7 @@ export default function ProductQuickCreate({ open, initialName = '', onClose, on
         stock: 0,
         reorder_point: Number(form.reorder_point) || 0,
         category_id: form.category_id || null,
+        tracks_units: trackUnits,
       });
       toast(`${res.data.product.name} created`);
       onCreated(res.data.product);

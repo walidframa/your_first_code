@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Minus, Plus, Search, ShoppingCart, Trash2, X } from 'lucide-react';
+import { HandCoins, Minus, Plus, Search, ShoppingCart, Trash2, UserRound, X } from 'lucide-react';
 import api from '../api';
 import Receipt from '../components/Receipt';
 import PaymentSheet from '../components/PaymentSheet';
 import CustomerPicker from '../components/CustomerPicker';
 import CashBox from '../components/CashBox';
 import UnitPicker from '../components/UnitPicker';
-import PhoneSaleDetails from '../components/PhoneSaleDetails';
+import PhoneSaleDialog from '../components/PhoneSaleDialog';
+import BuyHandsetModal from '../components/BuyHandsetModal';
 import { Button, EmptyState, ProductThumb, Skeleton, cx, money, useToast } from '../components/ui';
 import { useSettings, lbp } from '../context/SettingsContext';
 
@@ -39,6 +40,10 @@ export default function Checkout() {
   const [customer, setCustomer] = useState(null);
   // The serialised product waiting for the cashier to say which handset.
   const [pickingUnitFor, setPickingUnitFor] = useState(null);
+  // The handset picked, waiting on its price, gifts and accounts.
+  const [sellingUnit, setSellingUnit] = useState(null);
+  // Buying a phone happens at the counter too, not only in the back office.
+  const [buyingHandset, setBuyingHandset] = useState(false);
   /*
    * Who walked out with the phone, and what the shop set up for them. Most
    * buyers never become a customer account — what is needed months later is a
@@ -166,6 +171,62 @@ export default function Checkout() {
     });
   }, [products, activeCategory, search]);
 
+  /**
+   * Everything settled in the sale dialog, put into the cart at once.
+   *
+   * The gifts are ordinary lines marked as gifts rather than something attached
+   * to the phone: each one leaves stock in its own right, and the receipt has
+   * to show what the customer actually walked out with.
+   */
+  function addPhoneToCart(product, unit, details) {
+    setCart((prev) => {
+      if (prev.some((i) => i.unitId === unit.id)) return prev;
+
+      const lines = [
+        {
+          lineKey: `${product.id}:${unit.id}`,
+          productId: product.id,
+          unitId: unit.id,
+          imei: unit.imei,
+          name: product.name,
+          sku: product.sku,
+          price: details.price,
+          discount: details.discount,
+          stock: 1,
+          image_url: product.image_url,
+          image_emoji: product.image_emoji,
+          quantity: 1,
+        },
+      ];
+
+      for (const g of details.gifts) {
+        // Keyed to the handset so two phones can each carry the same freebie.
+        if (prev.some((i) => i.lineKey === `gift:${unit.id}:${g.productId}`)) continue;
+        lines.push({
+          lineKey: `gift:${unit.id}:${g.productId}`,
+          productId: g.productId,
+          unitId: null,
+          name: g.name,
+          price: 0,
+          stock: g.stock,
+          quantity: 1,
+          isGift: true,
+        });
+      }
+
+      return [...prev, ...lines];
+    });
+
+    // The buyer belongs to the sale, not the line — the last one named wins,
+    // which is what a counter would expect when two phones go out together.
+    if (details.buyerName || details.buyerPhone) {
+      setBuyer({ name: details.buyerName, phone: details.buyerPhone });
+    }
+    if (details.accounts.length) setAccounts((a) => [...a, ...details.accounts]);
+
+    toast(`Added ${product.name} · ${unit.imei}`);
+  }
+
   /** Give a line away: no money, but the stock still moves. */
   function toggleGift(lineKey) {
     setCart((prev) => prev.map((i) => (i.lineKey === lineKey ? { ...i, isGift: !i.isGift } : i)));
@@ -182,7 +243,10 @@ export default function Checkout() {
   }
 
   const subtotal = round2(
-    cart.reduce((sum, i) => sum + (i.isGift ? 0 : i.price * i.quantity), 0),
+    cart.reduce(
+      (sum, i) => sum + (i.isGift ? 0 : i.price * i.quantity - (i.discount || 0)),
+      0,
+    ),
   );
   const discountAmount = round2(subtotal * (Number(discountPercent) / 100));
   const taxableAmount = round2(subtotal - discountAmount);
@@ -205,6 +269,10 @@ export default function Checkout() {
           quantity: i.quantity,
           unitId: i.unitId,
           isGift: Boolean(i.isGift),
+          // Undefined leaves the catalogue price alone; a handset carries what
+          // was actually agreed at the counter.
+          price: i.price,
+          discount: i.discount,
         })),
         discountPercent: Number(discountPercent) || 0,
         paymentMethod,
@@ -398,19 +466,38 @@ export default function Checkout() {
           )}
         </div>
 
-        <div className="border-b border-slate-100 px-3 py-2">
-          <CustomerPicker customer={customer} onChange={setCustomer} />
+        <div className="flex items-center gap-2 border-b border-slate-100 px-3 py-2">
+          <div className="min-w-0 flex-1">
+            <CustomerPicker customer={customer} onChange={setCustomer} />
+          </div>
+          {/* Buying a used phone is counter work, so it starts at the counter. */}
+          <button
+            onClick={() => setBuyingHandset(true)}
+            title="Buy a used handset from a customer"
+            className="flex shrink-0 items-center gap-1 rounded-lg bg-slate-100 px-2 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-200"
+          >
+            <HandCoins size={14} /> Buy in
+          </button>
         </div>
 
-        {/* Only when a handset is going out — none of it applies to a bag of crisps. */}
-        {cart.some((i) => i.unitId) && (
-          <PhoneSaleDetails
-            buyer={buyer}
-            onBuyerChange={setBuyer}
-            accounts={accounts}
-            onAccountsChange={setAccounts}
-            units={cart.filter((i) => i.unitId)}
-          />
+        {/*
+          * Buyer and accounts are collected in the sale dialog on the way in,
+          * so a handset cannot reach the cart without them being asked for.
+          * Shown here only as a reminder of what was captured.
+          */}
+        {(buyer.name || accounts.length > 0) && (
+          <div className="flex items-center gap-2 border-b border-slate-100 px-3 py-2 text-xs text-slate-500">
+            <UserRound size={13} className="text-slate-400" />
+            <span className="truncate">
+              {buyer.name || 'no name'}
+              {buyer.phone ? ` · ${buyer.phone}` : ''}
+            </span>
+            {accounts.length > 0 && (
+              <span className="ml-auto rounded-full bg-brand-50 px-1.5 py-0.5 font-medium text-brand-700">
+                {accounts.length} account{accounts.length === 1 ? '' : 's'}
+              </span>
+            )}
+          </div>
         )}
 
         <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
@@ -561,10 +648,31 @@ export default function Checkout() {
           product={pickingUnitFor}
           onClose={() => setPickingUnitFor(null)}
           onPick={(unit) => {
-            if (addToCart(pickingUnitFor, 1, unit) === 'added') {
-              toast(`Added ${pickingUnitFor.name} · ${unit.imei}`);
-            }
+            setSellingUnit({ product: pickingUnitFor, unit });
             setPickingUnitFor(null);
+          }}
+        />
+      )}
+
+      {buyingHandset && (
+        <BuyHandsetModal
+          onClose={() => setBuyingHandset(false)}
+          onSaved={async () => {
+            setBuyingHandset(false);
+            await loadData();
+            setSalesMade((n) => n + 1);
+          }}
+        />
+      )}
+
+      {sellingUnit && (
+        <PhoneSaleDialog
+          product={sellingUnit.product}
+          unit={sellingUnit.unit}
+          onCancel={() => setSellingUnit(null)}
+          onAdd={(details) => {
+            addPhoneToCart(sellingUnit.product, sellingUnit.unit, details);
+            setSellingUnit(null);
           }}
         />
       )}

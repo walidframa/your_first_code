@@ -125,9 +125,27 @@ router.post('/', requireAuth, (req, res) => {
          * the margin on every handset thrown in with a case.
          */
         const isGift = Boolean(item.isGift);
-        const lineTotal = isGift ? 0 : round2(product.price * quantity);
+
+        /*
+         * The price is haggled over at the counter, so the line carries what
+         * was actually agreed rather than the catalogue figure. An override of
+         * zero is meaningful — a phone given away is not the same as one at
+         * list — so only `undefined` falls back.
+         */
+        const agreed =
+          item.price === undefined || item.price === null ? product.price : Number(item.price);
+        if (!Number.isFinite(agreed) || agreed < 0) {
+          throw new Error(`${product.name} needs a price of zero or more`);
+        }
+
+        const lineDiscount = Math.max(0, Number(item.discount) || 0);
+        if (lineDiscount > agreed * quantity) {
+          throw new Error(`The discount on ${product.name} is more than the line comes to`);
+        }
+
+        const lineTotal = isGift ? 0 : round2(agreed * quantity - lineDiscount);
         subtotal += lineTotal;
-        lineItems.push({ product, quantity, lineTotal, unit, isGift });
+        lineItems.push({ product, quantity, lineTotal, unit, isGift, price: agreed });
       }
 
       subtotal = round2(subtotal);
@@ -240,7 +258,7 @@ router.post('/', requireAuth, (req, res) => {
          */
         const cost = li.unit ? li.unit.cost : (li.product.cost ?? null);
         insertItem.run(
-          orderId, li.product.id, li.product.name, li.isGift ? 0 : li.product.price, li.quantity,
+          orderId, li.product.id, li.product.name, li.isGift ? 0 : li.price, li.quantity,
           li.lineTotal, cost, li.unit?.id ?? null, li.isGift ? 1 : 0,
         );
 

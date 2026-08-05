@@ -411,20 +411,37 @@ try {
     // A serialised product cannot go into the cart as a quantity.
     await page.waitForSelector('text=Which handset?');
     await page.locator('[role=dialog] span.font-mono').first().click();
-
-    // The cart line carries the IMEI that is leaving the shop.
-    await page.waitForSelector('aside >> text=/3599887766554\\d/', { timeout: 5000 });
   });
 
-  await step('a phone sale records the buyer and the account set up for them', async () => {
-    // The section only appears once a handset is on the sale.
-    await page.click('text=Buyer & accounts');
-    await page.fill('input[aria-label="Buyer\'s name"]', 'Rami Haddad');
-    await page.fill('input[aria-label="Buyer\'s phone number"]', '03 456 789');
+  await step('the sale dialog asks for buyer, gifts and accounts before the cart', async () => {
+    /*
+     * Everything a phone sale needs is settled on the way in. It is a dialog
+     * rather than a side panel because a panel is something a busy cashier can
+     * finish a sale without ever opening.
+     */
+    const dialog = page.locator('[role=dialog]');
+    await page.waitForSelector('text=Account setup', { timeout: 10000 });
 
-    await page.getByRole('button', { name: 'Add an account' }).click();
-    await page.fill('input[aria-label="Account name"]', 'rami@icloud.com');
-    await page.fill('input[aria-label="Account password"]', 'hunter2');
+    await dialog.locator('#buyer-name').fill('Rami Haddad');
+    await dialog.locator('#buyer-phone').fill('03 456 789');
+    await dialog.locator('#price-usd').fill('280');
+    await dialog.locator('#line-discount').fill('10');
+    await page.waitForSelector('text=/\\$270\\.00/');
+
+    await dialog.getByRole('button', { name: /^Gifts/ }).click();
+    await dialog.getByRole('textbox', { name: 'Search a product to give away' }).fill('Espresso');
+    await dialog.locator('button', { hasText: 'Espresso' }).first().click();
+
+    await dialog.getByRole('button', { name: /^Account setup/ }).click();
+    await dialog.locator('#acct-appleId').fill('rami@icloud.com');
+    await dialog.locator('#acct-applePassword').fill('hunter2');
+
+    await dialog.getByRole('button', { name: 'Add to cart' }).click();
+
+    // The handset and its gift arrive together, the IMEI on the phone's line.
+    await page.waitForSelector('aside >> text=/3599887766554\\d/', { timeout: 10000 });
+    await page.waitForSelector('aside >> text=Espresso');
+    await page.waitForSelector('aside >> text=Gift — free');
   });
 
   await step('the sold handset is traceable by IMEI afterwards', async () => {
@@ -452,8 +469,10 @@ try {
     await page.click('button:has-text("Buy a handset")');
     await page.waitForSelector('[role=dialog] >> text=Which model will you sell it as?');
 
+    // The model is searched, not picked from a list that may not hold it yet.
     const dialog = page.locator('[role=dialog]');
-    await dialog.locator('#model').selectOption({ index: 1 });
+    await dialog.locator('#model').fill('Galaxy');
+    await dialog.locator('button', { hasText: 'Galaxy A15' }).first().click();
     await dialog.getByRole('textbox', { name: 'IMEI', exact: true }).fill('35 7700 5566 4433 1');
     /*
      * Small on purpose. The drawer opened with $100 and the later steps take

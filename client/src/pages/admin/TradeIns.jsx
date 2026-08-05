@@ -1,168 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import { HandCoins, Plus } from 'lucide-react';
+import BuyHandsetModal from '../../components/BuyHandsetModal';
 import api from '../../api';
 import PageHeader from '../../components/PageHeader';
 import { useSettings, lbp } from '../../context/SettingsContext';
 import { Button, Card, EmptyState, Input, Modal, Select, Skeleton, cx, money, useToast } from '../../components/ui';
-
-const CONDITIONS = [
-  ['used', 'Used'],
-  ['refurbished', 'Refurbished'],
-  ['new', 'New — sealed'],
-];
-
-/**
- * Buy a handset over the counter.
- *
- * The mirror of a sale, and the form says so: money leaves the drawer, a phone
- * joins the shelf. The two figures the shop will care about later are what it
- * paid and which model it will be sold as, so those come first.
- */
-function BuyModal({ products, onClose, onSaved }) {
-  const toast = useToast();
-  const { rate, toLbp } = useSettings();
-  const [form, setForm] = useState({
-    productId: '',
-    imei: '',
-    condition: 'used',
-    paidUsd: '',
-    paidLbp: '',
-    sellerName: '',
-    sellerPhone: '',
-    note: '',
-  });
-  const [error, setError] = useState('');
-  const [saving, setSaving] = useState(false);
-
-  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
-
-  // What the handset will have cost the shop, however the money went out.
-  const cost =
-    (Number(form.paidUsd) || 0) + (rate > 0 ? (Number(form.paidLbp) || 0) / rate : 0);
-  const model = products.find((p) => p.id === Number(form.productId));
-
-  async function submit(e) {
-    e.preventDefault();
-    setError('');
-    setSaving(true);
-    try {
-      const res = await api.post('/repairs/trade-ins', {
-        ...form,
-        productId: Number(form.productId),
-        paidUsd: Number(form.paidUsd) || 0,
-        paidLbp: Number(form.paidLbp) || 0,
-      });
-      toast(`${res.data.unit.imei} bought in at ${money(res.data.cost)}`);
-      onSaved();
-    } catch (err) {
-      setError(err.response?.data?.error || 'Could not take it in');
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <Modal open onClose={saving ? undefined : onClose} title="Buy a handset" size="lg">
-      <form onSubmit={submit} className="grid grid-cols-2 gap-3">
-        <div className="col-span-2">
-          <label htmlFor="model" className="mb-1 block text-sm font-medium text-slate-700">
-            Which model will you sell it as?
-          </label>
-          <Select id="model" value={form.productId} onChange={set('productId')} required>
-            <option value="">Choose a product…</option>
-            {products.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name} · sells at {money(p.price)}
-              </option>
-            ))}
-          </Select>
-          <p className="mt-1 text-xs text-slate-500">
-            Only products tracked by IMEI can be bought in — a used phone is a specific device.
-          </p>
-        </div>
-
-        <Input
-          label="IMEI"
-          value={form.imei}
-          onChange={set('imei')}
-          required
-          className="font-mono"
-          hint="Both numbers of a dual-SIM, separated by a comma"
-        />
-        <div>
-          <label htmlFor="cond" className="mb-1 block text-sm font-medium text-slate-700">
-            Condition
-          </label>
-          <Select id="cond" value={form.condition} onChange={set('condition')}>
-            {CONDITIONS.map(([v, l]) => (
-              <option key={v} value={v}>
-                {l}
-              </option>
-            ))}
-          </Select>
-        </div>
-
-        <Input
-          label="Paid in dollars"
-          type="number"
-          step="0.01"
-          min="0"
-          value={form.paidUsd}
-          onChange={set('paidUsd')}
-        />
-        <Input
-          label="Paid in pounds"
-          type="number"
-          step="1000"
-          min="0"
-          value={form.paidLbp}
-          onChange={set('paidLbp')}
-        />
-
-        {cost > 0 && (
-          <p className="col-span-2 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">
-            Costs the shop <span className="font-semibold">{money(cost)}</span>
-            {rate > 0 && <span className="text-slate-400"> · {lbp(toLbp(cost))}</span>}
-            {model && (
-              <span className={cx('ml-1', model.price > cost ? 'text-brand-700' : 'text-red-600')}>
-                {'— '}
-                {model.price > cost ? `${money(model.price - cost)} margin` : 'above what it sells for'}
-              </span>
-            )}
-          </p>
-        )}
-
-        <Input label="Seller's name" value={form.sellerName} onChange={set('sellerName')} />
-        <Input label="Phone number" value={form.sellerPhone} onChange={set('sellerPhone')} />
-
-        <Input
-          label="Note"
-          value={form.note}
-          onChange={set('note')}
-          className="col-span-2"
-          placeholder="Battery health, scratches, what came with it…"
-        />
-
-        {error && (
-          <p className="col-span-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
-        )}
-
-        <p className="col-span-2 text-xs text-slate-500">
-          The money comes out of the open cashbox, so the count at close still balances.
-        </p>
-
-        <div className="col-span-2 flex gap-2">
-          <Button type="button" variant="secondary" onClick={onClose} disabled={saving}>
-            Cancel
-          </Button>
-          <Button type="submit" className="flex-1" loading={saving} disabled={!form.productId || !form.imei}>
-            Buy it in
-          </Button>
-        </div>
-      </form>
-    </Modal>
-  );
-}
 
 export default function TradeIns() {
   const [rows, setRows] = useState(null);
@@ -263,7 +105,7 @@ export default function TradeIns() {
       </div>
 
       {buying && (
-        <BuyModal
+        <BuyHandsetModal
           products={products}
           onClose={() => setBuying(false)}
           onSaved={() => {
