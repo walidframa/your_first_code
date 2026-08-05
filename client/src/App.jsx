@@ -21,6 +21,7 @@ import AdminRepairs from './pages/admin/Repairs';
 import AdminTradeIns from './pages/admin/TradeIns';
 import HeldAccounts from './pages/admin/HeldAccounts';
 import AdminProfit from './pages/admin/Profit';
+import AdminCards from './pages/admin/Cards';
 
 export default function App() {
   return (
@@ -59,6 +60,14 @@ export default function App() {
           element={
             <ProtectedRoute roles={['admin']}>
               <AdminInventory />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/cards"
+          element={
+            <ProtectedRoute roles={['admin']}>
+              <AdminCards />
             </ProtectedRoute>
           }
         />

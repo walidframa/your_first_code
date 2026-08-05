@@ -40,6 +40,11 @@ orders and staff.
 - **Labels**: printable barcode and price labels for roll or A4 stock, in five
   built-in sizes or any size you type in, preloaded from a purchase invoice's
   received quantities
+- **Cards**: recharge, validity and gift cards sold from a **wallet** instead of
+  from stock — they never run out, and each sale spends what the card cost out
+  of the credit the shop holds with that supplier. One press loads a ready-made
+  Lebanese catalogue (Alfa and touch validity, whole recharge, iTunes, Google
+  Play, PlayStation, Roblox, Steam)
 - **Documents**: quotations, sales orders, sales invoices and purchase invoices —
   a purchase invoice receives stock, a sales invoice issues it, and quotations
   convert through to invoices
@@ -270,6 +275,41 @@ part company.
 | `/api/units/product/:id` | POST | admin |
 | `/api/units/:id` | PATCH, DELETE | admin |
 
+
+## Recharge and gift cards
+
+A recharge card is not stock. Nothing comes out of a box when one sells: the
+shop holds credit with Alfa, with touch, with whoever supplies its iTunes codes,
+and every sale spends a little of it. So these products are sold from a
+**wallet** rather than from a shelf.
+
+Set up in Admin → **Cards**:
+
+- A **wallet** is credit held with one supplier — its balance is the sum of
+  every movement against it, so it can be checked against the supplier's own
+  statement rather than trusted. Top it up when you pay them.
+- A **card** is a product pointed at a wallet. That one link is what makes it a
+  card: it has no stock to run out of, and its cost comes off the wallet each
+  time it sells. Margin still reaches the books the ordinary way, because the
+  line keeps the cost that was true when it sold.
+
+**Load the Lebanese starter set** fills the catalogue in one press: Alfa and
+touch validity at the usual counter prices, whole recharge, and the common gift
+cards, split into `Recharge`, `Whole Recharge` and `Gift Cards` sections that
+show up as tabs on the register. It is idempotent — press it twice and nothing
+duplicates. Each card is seeded with **cost equal to price**, so every margin
+reads "Set the cost" until you put your dealer price in; a guessed discount
+would report a margin nobody earned.
+
+Buying credit on a **purchase invoice** works too: a card line on a delivery
+tops its wallet up by what was paid instead of adding a meaningless quantity,
+and cancelling the invoice takes it back off.
+
+One deliberate choice: **a wallet is allowed to go negative.** A cashier facing
+a customer cannot fix a supplier balance, and a card that has been handed over
+is sold whatever the ledger says — so the sale goes through and the overdraft is
+shown in red on the wallet and on the register tile. It is a bill to settle, not
+a sale to lose.
 
 ## Dual currency
 
@@ -631,6 +671,8 @@ All routes except `POST /api/auth/login` require a `Bearer` token.
 - Payments are **recorded, not processed** — there is no card gateway integration,
   so this cannot take real money without connecting a provider such as Stripe.
 - Refunds are full-order only; partial refunds are not implemented.
+- A card wallet can go **negative** — see above; that is deliberate, but nothing
+  stops it, so the balances need reading rather than assuming.
 - Tax is a single store-wide rate, not per-product or per-jurisdiction.
 - SQLite suits a single register well. Multi-location or high concurrency would
   want Postgres and a real payment provider.

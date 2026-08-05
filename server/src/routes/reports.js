@@ -52,8 +52,10 @@ router.get('/summary', requireAuth, requireRole('admin'), (req, res) => {
 
   const lowStock = db
     .prepare(
+      /* Cards have no stock to reorder — what runs low is their wallet, which
+         says so on its own screen and on the register tile. */
       `SELECT id, name, sku, stock, reorder_point FROM products
-       WHERE active = 1 AND stock <= reorder_point
+       WHERE active = 1 AND wallet_id IS NULL AND stock <= reorder_point
        ORDER BY stock ASC, name LIMIT 12`,
     )
     .all();

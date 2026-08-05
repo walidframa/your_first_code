@@ -9,6 +9,22 @@ function serializeProduct(p) {
   return { ...p, active: !!p.active };
 }
 
+/**
+ * Check a proposed wallet before it is written.
+ *
+ * Two things a product cannot be at once: sold from credit and counted by IMEI.
+ * One has no quantity at all, the other has a quantity of exactly one with a
+ * number stamped on it, and a product claiming both would satisfy neither.
+ */
+function walletProblem(walletId, tracksUnits) {
+  if (walletId === undefined || walletId === null || walletId === '') return null;
+  const wallet = db.prepare('SELECT * FROM wallets WHERE id = ?').get(walletId);
+  if (!wallet) return 'That wallet does not exist';
+  if (!wallet.active) return `${wallet.name} is closed — pick another wallet`;
+  if (tracksUnits) return 'A card is sold from credit, so it cannot also be tracked by IMEI';
+  return null;
+}
+
 router.get('/categories', requireAuth, (req, res) => {
   const categories = db.prepare('SELECT * FROM categories ORDER BY name').all();
   res.json({ categories });
@@ -29,13 +45,15 @@ router.get('/', requireAuth, (req, res) => {
   const { activeOnly } = req.query;
   const rows = activeOnly === 'true'
     ? db.prepare(`
-        SELECT p.*, c.name AS category_name FROM products p
+        SELECT p.*, c.name AS category_name, w.name AS wallet_name FROM products p
         LEFT JOIN categories c ON c.id = p.category_id
+        LEFT JOIN wallets w ON w.id = p.wallet_id
         WHERE p.active = 1 ORDER BY p.name
       `).all()
     : db.prepare(`
-        SELECT p.*, c.name AS category_name FROM products p
+        SELECT p.*, c.name AS category_name, w.name AS wallet_name FROM products p
         LEFT JOIN categories c ON c.id = p.category_id
+        LEFT JOIN wallets w ON w.id = p.wallet_id
         ORDER BY p.name
       `).all();
   res.json({ products: rows.map(serializeProduct) });
@@ -48,8 +66,9 @@ router.get('/lookup', requireAuth, (req, res) => {
 
   const product = db
     .prepare(
-      `SELECT p.*, c.name AS category_name FROM products p
+      `SELECT p.*, c.name AS category_name, w.name AS wallet_name FROM products p
        LEFT JOIN categories c ON c.id = p.category_id
+       LEFT JOIN wallets w ON w.id = p.wallet_id
        WHERE p.active = 1 AND (lower(p.sku) = lower(?) OR p.barcode = ?)
        LIMIT 1`,
     )
@@ -62,15 +81,17 @@ router.get('/lookup', requireAuth, (req, res) => {
 router.post('/', requireAuth, requireRole('admin'), (req, res) => {
   const {
     name, sku, price, cost, stock, category_id, image_emoji, barcode, supplier, image_url,
-    reorder_point, tracks_units, warranty_months,
+    reorder_point, tracks_units, warranty_months, wallet_id,
   } = req.body || {};
   if (!name || !sku || price == null) {
     return res.status(400).json({ error: 'name, sku and price are required' });
   }
+  const problem = walletProblem(wallet_id, tracks_units);
+  if (problem) return res.status(400).json({ error: problem });
   try {
     const info = db.prepare(`
-      INSERT INTO products (name, sku, price, cost, stock, category_id, image_emoji, barcode, supplier, image_url, reorder_point, tracks_units, warranty_months)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO products (name, sku, price, cost, stock, category_id, image_emoji, barcode, supplier, image_url, reorder_point, tracks_units, warranty_months, wallet_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       name,
       sku,
@@ -88,6 +109,7 @@ router.post('/', requireAuth, requireRole('admin'), (req, res) => {
       // no phones behind it.
       tracks_units ? 1 : 0,
       Math.max(0, Math.round(Number(warranty_months) || 0)),
+      wallet_id || null,
     );
     if (tracks_units) db.prepare('UPDATE products SET stock = 0 WHERE id = ?').run(info.lastInsertRowid);
     const product = db.prepare('SELECT * FROM products WHERE id = ?').get(info.lastInsertRowid);
@@ -167,12 +189,24 @@ router.put('/:id', requireAuth, requireRole('admin'), (req, res) => {
   const fields = [
     'name', 'sku', 'price', 'cost', 'stock', 'category_id', 'image_emoji',
     'active', 'barcode', 'supplier', 'image_url', 'reorder_point', 'tracks_units',
-    'warranty_months',
+    'warranty_months', 'wallet_id',
   ];
   const updates = {};
   for (const f of fields) {
     if (req.body[f] !== undefined) updates[f] = req.body[f];
   }
+
+  const walletId = updates.wallet_id === undefined ? product.wallet_id : updates.wallet_id || null;
+  const tracksUnits =
+    updates.tracks_units === undefined ? product.tracks_units : updates.tracks_units;
+  const walletIssue = walletProblem(walletId, tracksUnits);
+  if (walletIssue) return res.status(400).json({ error: walletIssue });
+
+  /*
+   * A count on a product now sold from credit is a leftover, and would keep
+   * showing "12 left" beside something that cannot run out.
+   */
+  if (walletId && !product.wallet_id) updates.stock = 0;
 
   // `product` is re-read above when the stock was cleared, so the merge cannot
   // put the old count back.
@@ -181,7 +215,7 @@ router.put('/:id', requireAuth, requireRole('admin'), (req, res) => {
   db.prepare(`
     UPDATE products SET name = ?, sku = ?, price = ?, cost = ?, stock = ?, category_id = ?, image_emoji = ?,
       active = ?, barcode = ?, supplier = ?, image_url = ?, reorder_point = ?, tracks_units = ?,
-      warranty_months = ?
+      warranty_months = ?, wallet_id = ?
     WHERE id = ?
   `).run(
     merged.name,
@@ -198,6 +232,7 @@ router.put('/:id', requireAuth, requireRole('admin'), (req, res) => {
     Number.isFinite(Number(merged.reorder_point)) ? Number(merged.reorder_point) : 5,
     merged.tracks_units ? 1 : 0,
     Math.max(0, Math.round(Number(merged.warranty_months) || 0)),
+    walletId || null,
     req.params.id
   );
 

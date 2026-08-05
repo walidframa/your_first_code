@@ -20,6 +20,12 @@ export default function Checkout() {
 
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
+  /*
+   * The credit behind the cards. A cashier selling recharge needs to see the
+   * wallet running out before a customer is standing there waiting for a code
+   * the shop cannot produce.
+   */
+  const [wallets, setWallets] = useState([]);
   const [taxRate, setTaxRate] = useState(0);
   const [loading, setLoading] = useState(true);
 
@@ -53,14 +59,16 @@ export default function Checkout() {
   const [accounts, setAccounts] = useState([]);
 
   const loadData = useCallback(async () => {
-    const [productsRes, categoriesRes, taxRes] = await Promise.all([
+    const [productsRes, categoriesRes, taxRes, walletsRes] = await Promise.all([
       api.get('/products', { params: { activeOnly: 'true' } }),
       api.get('/products/categories'),
       api.get('/orders/tax-rate'),
+      api.get('/wallets', { params: { activeOnly: 'true' } }),
     ]);
     setProducts(productsRes.data.products);
     setCategories(categoriesRes.data.categories);
     setTaxRate(taxRes.data.taxRate);
+    setWallets(walletsRes.data.wallets);
     setLoading(false);
   }, []);
 
@@ -99,9 +107,16 @@ export default function Checkout() {
           ];
         }
 
+        /*
+         * A card has no shelf behind it — what it spends is the wallet's
+         * credit, which is settled with the supplier rather than at the
+         * counter. So there is no quantity to cap it against.
+         */
+        const unlimited = Boolean(product.wallet_id);
+
         const existing = prev.find((i) => i.productId === product.id && !i.unitId);
         const inCart = existing?.quantity || 0;
-        if (inCart + quantity > product.stock) {
+        if (!unlimited && inCart + quantity > product.stock) {
           outcome = 'capped';
           return prev;
         }
@@ -120,6 +135,7 @@ export default function Checkout() {
             sku: product.sku,
             price: product.price,
             stock: product.stock,
+            unlimited,
             image_url: product.image_url,
             image_emoji: product.image_emoji,
             quantity,
@@ -142,7 +158,7 @@ export default function Checkout() {
     try {
       const res = await api.get('/products/lookup', { params: { code } });
       const product = res.data.product;
-      if (product.stock <= 0) {
+      if (!product.wallet_id && product.stock <= 0) {
         toast(`${product.name} is out of stock`, 'error');
         return;
       }
@@ -157,6 +173,8 @@ export default function Checkout() {
       toast(err.response?.data?.error || 'Product not found', 'error');
     }
   }
+
+  const walletById = useMemo(() => new Map(wallets.map((w) => [w.id, w])), [wallets]);
 
   const filteredProducts = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -237,7 +255,7 @@ export default function Checkout() {
       prev.flatMap((i) => {
         if (i.lineKey !== lineKey) return [i];
         if (quantity <= 0) return [];
-        return [{ ...i, quantity: Math.min(quantity, i.stock) }];
+        return [{ ...i, quantity: i.unlimited ? quantity : Math.min(quantity, i.stock) }];
       }),
     );
   }
@@ -388,8 +406,15 @@ export default function Checkout() {
           ) : (
             <div className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-3">
               {filteredProducts.map((p) => {
-                const soldOut = p.stock <= 0;
-                const low = !soldOut && p.stock <= p.reorder_point;
+                /*
+                 * A card is never sold out. What it can be is unfunded — the
+                 * wallet behind it empty — which is worth saying on the tile
+                 * without refusing the sale: the customer is here, the code can
+                 * still be given, and the supplier is settled with later.
+                 */
+                const wallet = p.wallet_id ? walletById.get(p.wallet_id) : null;
+                const soldOut = !p.wallet_id && p.stock <= 0;
+                const low = !p.wallet_id && !soldOut && p.stock <= p.reorder_point;
                 return (
                   <button
                     key={p.id}
@@ -418,10 +443,20 @@ export default function Checkout() {
                         <span
                           className={cx(
                             'tnum text-xs',
-                            soldOut ? 'text-red-600' : low ? 'text-amber-700' : 'text-slate-400',
+                            soldOut || (wallet && wallet.balance <= 0)
+                              ? 'text-red-600'
+                              : low
+                                ? 'text-amber-700'
+                                : 'text-slate-400',
                           )}
                         >
-                          {soldOut ? 'Sold out' : `${p.stock} left`}
+                          {wallet
+                            ? wallet.balance <= 0
+                              ? 'no credit'
+                              : 'card'
+                            : soldOut
+                              ? 'Sold out'
+                              : `${p.stock} left`}
                         </span>
                       </div>
                       {rate > 0 && (
@@ -544,7 +579,7 @@ export default function Checkout() {
                     <span className="tnum w-6 text-center text-sm font-medium">{item.quantity}</span>
                     <button
                       onClick={() => updateQuantity(item.lineKey, item.quantity + 1)}
-                      disabled={item.quantity >= item.stock}
+                      disabled={!item.unlimited && item.quantity >= item.stock}
                       aria-label={`Increase ${item.name}`}
                       className="flex h-7 w-7 items-center justify-center rounded-lg bg-slate-100 text-slate-600 transition hover:bg-slate-200 disabled:opacity-40"
                     >

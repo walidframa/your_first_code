@@ -3,8 +3,8 @@ import { HandCoins, Plus } from 'lucide-react';
 import BuyHandsetModal from '../../components/BuyHandsetModal';
 import api from '../../api';
 import PageHeader from '../../components/PageHeader';
-import { useSettings, lbp } from '../../context/SettingsContext';
-import { Button, Card, EmptyState, Input, Modal, Select, Skeleton, cx, money, useToast } from '../../components/ui';
+import { lbp } from '../../context/SettingsContext';
+import { Button, Card, EmptyState, Skeleton, cx, money } from '../../components/ui';
 
 export default function TradeIns() {
   const [rows, setRows] = useState(null);

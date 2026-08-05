@@ -3,7 +3,7 @@ import { Eye, KeyRound, Search } from 'lucide-react';
 import api from '../../api';
 import PageHeader from '../../components/PageHeader';
 import { useAuth } from '../../context/AuthContext';
-import { Button, Card, EmptyState, Skeleton, cx, useToast } from '../../components/ui';
+import { Button, Card, EmptyState, cx, useToast } from '../../components/ui';
 
 const KIND_STYLE = {
   icloud: 'bg-sky-50 text-sky-700',
