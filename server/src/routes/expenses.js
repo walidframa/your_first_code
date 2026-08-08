@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { requireAuth, requireRole } from '../middleware/auth.js';
+import { requireAuth, requirePermission } from '../middleware/auth.js';
 import {
   EXPENSE_CATEGORIES,
   PAID_WITH,
@@ -11,13 +11,19 @@ import {
 import { presetRange, profitForSession, profitReport } from '../lib/profit.js';
 
 const router = Router();
-const admin = [requireAuth, requireRole('admin')];
+/*
+ * Recording what the shop spends and reading what it made are different jobs.
+ * A transfer operator paying for the water needs the first and has no business
+ * with the second.
+ */
+const spending = [requireAuth, requirePermission('expenses')];
+const reporting = [requireAuth, requirePermission('reports')];
 
 router.get('/categories', requireAuth, (req, res) => {
   res.json({ categories: EXPENSE_CATEGORIES, paidWith: PAID_WITH });
 });
 
-router.get('/', ...admin, (req, res) => {
+router.get('/', ...spending, (req, res) => {
   const { from, to, category, preset } = req.query;
   const range = preset ? presetRange(preset) : { from, to };
 
@@ -28,7 +34,7 @@ router.get('/', ...admin, (req, res) => {
   });
 });
 
-router.post('/', ...admin, (req, res) => {
+router.post('/', ...spending, (req, res) => {
   const { spentOn, category, amountUsd, amountLbp, paidWith, supplierId, note } = req.body || {};
   try {
     const expense = addExpense({
@@ -47,7 +53,7 @@ router.post('/', ...admin, (req, res) => {
   }
 });
 
-router.delete('/:id', ...admin, (req, res) => {
+router.delete('/:id', ...spending, (req, res) => {
   try {
     res.json(deleteExpense(Number(req.params.id), req.user.id));
   } catch (err) {
@@ -62,7 +68,7 @@ router.delete('/:id', ...admin, (req, res) => {
  * works, before the cost of keeping the doors open — so it is a choice rather
  * than a different report.
  */
-router.get('/profit', ...admin, (req, res) => {
+router.get('/profit', ...reporting, (req, res) => {
   const { from, to, preset, sessionId, includeExpenses } = req.query;
   const withExpenses = includeExpenses !== 'false';
 

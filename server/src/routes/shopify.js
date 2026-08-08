@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import crypto from 'node:crypto';
 import { db } from '../db.js';
-import { requireAuth, requireRole } from '../middleware/auth.js';
+import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { setSetting } from '../lib/settings.js';
 import { createClient, normaliseShopDomain } from '../lib/shopify.js';
 import {
@@ -21,15 +21,15 @@ import {
 } from '../lib/shopifySync.js';
 
 const router = Router();
-const admin = [requireAuth, requireRole('admin')];
+const connected = [requireAuth, requirePermission('imports')];
 
 /* ------------------------------------------------------------ connection */
 
-router.get('/status', ...admin, (req, res) => {
+router.get('/status', ...connected, (req, res) => {
   res.json(syncStatus());
 });
 
-router.get('/log', ...admin, (req, res) => {
+router.get('/log', ...connected, (req, res) => {
   res.json({ log: recentLog(req.query.limit) });
 });
 
@@ -39,7 +39,7 @@ router.get('/log', ...admin, (req, res) => {
  * Checking first means a typo is reported as a typo, rather than saved and then
  * failing silently on every sync afterwards.
  */
-router.post('/connect', ...admin, async (req, res) => {
+router.post('/connect', ...connected, async (req, res) => {
   const { shopDomain, accessToken, baseUrl } = req.body || {};
 
   if (!baseUrl && !normaliseShopDomain(shopDomain)) {
@@ -65,7 +65,7 @@ router.post('/connect', ...admin, async (req, res) => {
 });
 
 /** Which location's stock this shop's counter represents. */
-router.post('/location', ...admin, async (req, res) => {
+router.post('/location', ...connected, async (req, res) => {
   const { locationId, locationName } = req.body || {};
   if (!locationId) return res.status(400).json({ error: 'Choose a location' });
 
@@ -74,7 +74,7 @@ router.post('/location', ...admin, async (req, res) => {
   res.json(syncStatus());
 });
 
-router.post('/enabled', ...admin, (req, res) => {
+router.post('/enabled', ...connected, (req, res) => {
   const enabled = !!req.body?.enabled;
   if (enabled && !isConfigured()) {
     return res.status(400).json({ error: 'Connect a shop and choose a location first' });
@@ -83,7 +83,7 @@ router.post('/enabled', ...admin, (req, res) => {
   res.json(syncStatus());
 });
 
-router.post('/disconnect', ...admin, (req, res) => {
+router.post('/disconnect', ...connected, (req, res) => {
   for (const key of [
     'shopify_enabled',
     'shopify_domain',
@@ -101,7 +101,7 @@ router.post('/disconnect', ...admin, (req, res) => {
 /* ---------------------------------------------------------------- linking */
 
 /** Preview the matches without committing them. */
-router.get('/match', ...admin, async (req, res) => {
+router.get('/match', ...connected, async (req, res) => {
   try {
     res.json(await matchProducts({ apply: false }));
   } catch (err) {
@@ -109,7 +109,7 @@ router.get('/match', ...admin, async (req, res) => {
   }
 });
 
-router.post('/match', ...admin, async (req, res) => {
+router.post('/match', ...connected, async (req, res) => {
   try {
     const result = await matchProducts({ apply: true });
     res.json({ ...result, status: syncStatus() });
@@ -119,7 +119,7 @@ router.post('/match', ...admin, async (req, res) => {
 });
 
 /** Link one product by hand, for stock whose SKUs never matched. */
-router.post('/links', ...admin, async (req, res) => {
+router.post('/links', ...connected, async (req, res) => {
   const { productId, variantId } = req.body || {};
   const product = db.prepare('SELECT * FROM products WHERE id = ?').get(productId);
   if (!product) return res.status(404).json({ error: 'Product not found' });
@@ -146,13 +146,13 @@ router.post('/links', ...admin, async (req, res) => {
   }
 });
 
-router.delete('/links/:productId', ...admin, (req, res) => {
+router.delete('/links/:productId', ...connected, (req, res) => {
   unlinkProduct(Number(req.params.productId));
   res.json(syncStatus());
 });
 
 /** Every variant in the shop, for the manual link picker. */
-router.get('/variants', ...admin, async (req, res) => {
+router.get('/variants', ...connected, async (req, res) => {
   try {
     const config = shopifyConfig();
     const client = clientFor(config);
@@ -171,7 +171,7 @@ router.get('/variants', ...admin, async (req, res) => {
 
 /* ------------------------------------------------------------------ sync */
 
-router.post('/sync', ...admin, async (req, res) => {
+router.post('/sync', ...connected, async (req, res) => {
   try {
     const result = await syncNow({ userId: req.user.id });
     res.json({ ...result, status: syncStatus() });
@@ -181,7 +181,7 @@ router.post('/sync', ...admin, async (req, res) => {
 });
 
 /** Adopt one side's figure where the two disagree, for one product or all. */
-router.post('/reconcile', ...admin, async (req, res) => {
+router.post('/reconcile', ...connected, async (req, res) => {
   const { productId, keep } = req.body || {};
   if (!['local', 'shopify'].includes(keep)) {
     return res.status(400).json({ error: 'Say which side to keep: local or shopify' });

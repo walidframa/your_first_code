@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { db, transaction, ADJUSTMENT_REASONS } from '../db.js';
-import { requireAuth, requireRole } from '../middleware/auth.js';
+import { requireAuth, requirePermission } from '../middleware/auth.js';
 
 const router = Router();
 
@@ -9,7 +9,7 @@ router.get('/reasons', requireAuth, (req, res) => {
 });
 
 /** Inventory overview: stock levels with derived status and value on hand. */
-router.get('/', requireAuth, requireRole('admin'), (req, res) => {
+router.get('/', requireAuth, requirePermission('inventory'), (req, res) => {
   const products = db
     .prepare(
       `SELECT p.*, c.name AS category_name
@@ -47,7 +47,7 @@ router.get('/', requireAuth, requireRole('admin'), (req, res) => {
 });
 
 /** Recent stock movements across all products. */
-router.get('/movements', requireAuth, requireRole('admin'), (req, res) => {
+router.get('/movements', requireAuth, requirePermission('inventory'), (req, res) => {
   const { productId, limit } = req.query;
   const max = Math.min(Number(limit) || 100, 500);
 
@@ -76,7 +76,7 @@ router.get('/movements', requireAuth, requireRole('admin'), (req, res) => {
 });
 
 /** Apply a stock adjustment and record it in the ledger. */
-router.post('/adjust', requireAuth, requireRole('admin'), (req, res) => {
+router.post('/adjust', requireAuth, requirePermission('inventory'), (req, res) => {
   const { productId, delta, reason, note } = req.body || {};
 
   const change = Number(delta);

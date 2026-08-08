@@ -20,7 +20,16 @@ import shopifyRoutes from './routes/shopify.js';
 import cashRoutes from './routes/cash.js';
 import expenseRoutes from './routes/expenses.js';
 import walletRoutes from './routes/wallets.js';
+import transferRoutes from './routes/transfers.js';
 import { startShopifyWorker } from './lib/shopifyWorker.js';
+import { seedMissingPermissions } from './lib/permissions.js';
+
+/*
+ * Accounts that existed before permissions did have none, and an empty set
+ * means "allowed nothing". Give each one its role's defaults once, at startup,
+ * so an upgrade does not lock the staff out of the register on Monday morning.
+ */
+seedMissingPermissions();
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -57,6 +66,7 @@ app.use('/api/shopify', shopifyRoutes);
 app.use('/api/cash', cashRoutes);
 app.use('/api/expenses', expenseRoutes);
 app.use('/api/wallets', walletRoutes);
+app.use('/api/transfers', transferRoutes);
 app.use('/api/customers', partyRouter('customer'));
 app.use('/api/suppliers', partyRouter('supplier'));
 

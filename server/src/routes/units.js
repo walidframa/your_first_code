@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { db, transaction } from '../db.js';
-import { requireAuth, requireRole } from '../middleware/auth.js';
+import { requireAuth, requirePermission } from '../middleware/auth.js';
 import {
   UNIT_CONDITIONS,
   UNIT_STATUSES,
@@ -55,7 +55,7 @@ router.get('/product/:productId', requireAuth, (req, res) => {
 });
 
 /** Book handsets in against a product. */
-router.post('/product/:productId', requireAuth, requireRole('admin'), (req, res) => {
+router.post('/product/:productId', requireAuth, requirePermission('inventory'), (req, res) => {
   const { units, documentId = null } = req.body || {};
   try {
     const result = transaction(() => receiveUnits(req.params.productId, units, { documentId }))();
@@ -66,7 +66,7 @@ router.post('/product/:productId', requireAuth, requireRole('admin'), (req, res)
 });
 
 /** Correct a unit's condition, cost or note. */
-router.patch('/:id', requireAuth, requireRole('admin'), (req, res) => {
+router.patch('/:id', requireAuth, requirePermission('inventory'), (req, res) => {
   const unit = db.prepare('SELECT * FROM product_units WHERE id = ?').get(req.params.id);
   if (!unit) return res.status(404).json({ error: 'Unit not found' });
 
@@ -111,7 +111,7 @@ router.patch('/:id', requireAuth, requireRole('admin'), (req, res) => {
  * Only one that never left: a sold handset is part of a sale's history, and
  * deleting it would leave the order pointing at nothing.
  */
-router.delete('/:id', requireAuth, requireRole('admin'), (req, res) => {
+router.delete('/:id', requireAuth, requirePermission('inventory'), (req, res) => {
   const unit = db.prepare('SELECT * FROM product_units WHERE id = ?').get(req.params.id);
   if (!unit) return res.status(404).json({ error: 'Unit not found' });
   if (unit.sold_order_id || unit.status === 'sold') {

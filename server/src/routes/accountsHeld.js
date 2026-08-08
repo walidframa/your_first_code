@@ -13,7 +13,7 @@
 
 import { Router } from 'express';
 import { db } from '../db.js';
-import { requireAuth, requireRole } from '../middleware/auth.js';
+import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { decryptSecret } from '../lib/secrets.js';
 import { ACCOUNT_KINDS } from './orders.js';
 import { normaliseImei } from '../lib/units.js';
@@ -72,7 +72,7 @@ router.get('/', requireAuth, (req, res) => {
  * account back is the point of storing it; a cashier being able to page through
  * every password in the shop is not.
  */
-router.get('/:id/password', requireAuth, requireRole('admin'), (req, res) => {
+router.get('/:id/password', requireAuth, requirePermission('secrets'), (req, res) => {
   const row = db.prepare('SELECT * FROM order_accounts WHERE id = ?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'Account not found' });
 

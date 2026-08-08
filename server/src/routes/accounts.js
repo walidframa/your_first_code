@@ -1,16 +1,16 @@
 import { Router } from 'express';
 import { db } from '../db.js';
-import { requireAuth, requireRole } from '../middleware/auth.js';
+import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { accountsSummary } from '../lib/accounts.js';
 
 const router = Router();
 
-router.get('/summary', requireAuth, requireRole('admin'), (req, res) => {
+router.get('/summary', requireAuth, requirePermission('parties'), (req, res) => {
   res.json(accountsSummary());
 });
 
 /** Recent movement across both sides of the book — the cash-flow feed. */
-router.get('/entries', requireAuth, requireRole('admin'), (req, res) => {
+router.get('/entries', requireAuth, requirePermission('parties'), (req, res) => {
   const limit = Math.min(Number(req.query.limit) || 50, 500);
 
   const entries = db

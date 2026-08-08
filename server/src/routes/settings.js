@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { requireAuth, requireRole } from '../middleware/auth.js';
+import { requireAuth, requirePermission } from '../middleware/auth.js';
 import {
   getSettings,
   publicSettings,
@@ -15,11 +15,11 @@ router.get('/', requireAuth, (req, res) => {
   res.json({ settings: publicSettings() });
 });
 
-router.get('/rate-history', requireAuth, requireRole('admin'), (req, res) => {
+router.get('/rate-history', requireAuth, requirePermission('settings'), (req, res) => {
   res.json({ history: getRateHistory(req.query.limit) });
 });
 
-router.put('/', requireAuth, requireRole('admin'), (req, res) => {
+router.put('/', requireAuth, requirePermission('settings'), (req, res) => {
   const { exchange_rate: exchangeRate, lbp_rounding: lbpRounding } = req.body || {};
   const current = getSettings();
 

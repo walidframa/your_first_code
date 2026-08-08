@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
+import { can } from '../lib/permissions.js';
 
 const isProduction = process.env.NODE_ENV === 'production';
 
@@ -44,6 +45,22 @@ export function requireAuth(req, res, next) {
   } catch {
     return res.status(401).json({ error: 'Invalid or expired token' });
   }
+}
+
+/**
+ * Guard a route by what someone is allowed to do rather than what they are
+ * called. An admin passes everything; anyone else needs the grant.
+ *
+ * Read from the database on each request, not from the token: taking a
+ * permission away has to take effect now, not whenever the session expires.
+ */
+export function requirePermission(permission) {
+  return (req, res, next) => {
+    if (!can(req.user, permission)) {
+      return res.status(403).json({ error: 'Insufficient permissions' });
+    }
+    next();
+  };
 }
 
 export function requireRole(...roles) {

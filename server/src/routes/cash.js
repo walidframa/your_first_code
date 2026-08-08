@@ -1,5 +1,6 @@
 import { Router } from 'express';
-import { requireAuth, requireRole } from '../middleware/auth.js';
+import { requireAuth, requirePermission } from '../middleware/auth.js';
+import { can } from '../lib/permissions.js';
 import {
   CASH_IN_REASONS,
   CASH_OUT_REASONS,
@@ -30,15 +31,21 @@ router.get('/current', requireAuth, (req, res) => {
   }
 
   const movements = movementsFor(session.id);
+  const seesTheTill = can(req.user, 'cashbox');
   res.json({
     session,
     required: requiresSession(),
     denominations: DENOMINATIONS,
     reasons: { in: CASH_IN_REASONS, out: CASH_OUT_REASONS },
     movementCount: movements.length,
-    // Admins run the shop and may see it; a cashier counts blind.
-    expected: req.user.role === 'admin' ? expectedIn(session.id) : null,
-    movements: req.user.role === 'admin' ? movements : movements.filter((m) => m.kind !== 'opening_float'),
+    /*
+     * Whoever is trusted with the till's history may see what should be in it;
+     * everyone else counts blind, so the figure at close means something. Tied
+     * to the permission rather than the role, so a shop that wants its transfer
+     * operator to see the drawer can simply grant it.
+     */
+    expected: seesTheTill ? expectedIn(session.id) : null,
+    movements: seesTheTill ? movements : movements.filter((m) => m.kind !== 'opening_float'),
   });
 });
 
@@ -129,11 +136,11 @@ router.post('/close', requireAuth, (req, res) => {
   }
 });
 
-router.get('/sessions', requireAuth, requireRole('admin'), (req, res) => {
+router.get('/sessions', requireAuth, requirePermission('cashbox'), (req, res) => {
   res.json({ sessions: listSessions(req.query.limit) });
 });
 
-router.get('/sessions/:id', requireAuth, requireRole('admin'), (req, res) => {
+router.get('/sessions/:id', requireAuth, requirePermission('cashbox'), (req, res) => {
   const summary = sessionSummary(Number(req.params.id));
   if (!summary) return res.status(404).json({ error: 'Session not found' });
   res.json(summary);

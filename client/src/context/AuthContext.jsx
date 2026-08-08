@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import api, { setAuthToken } from '../api';
 
 const AuthContext = createContext(null);
@@ -40,8 +40,22 @@ export function AuthProvider({ children }) {
     setUser(null);
   }
 
+  /*
+   * What this person may do, asked as a question rather than read as a list.
+   * An admin is the owner of the shop and passes everything — the server takes
+   * the same view, so the two cannot drift.
+   */
+  const can = useCallback(
+    (permission) => {
+      if (!user) return false;
+      if (user.role === 'admin') return true;
+      return (user.permissions || []).includes(permission);
+    },
+    [user],
+  );
+
   return (
-    <AuthContext.Provider value={{ user, token, loading, login, logout }}>
+    <AuthContext.Provider value={{ user, token, loading, login, logout, can }}>
       {children}
     </AuthContext.Provider>
   );

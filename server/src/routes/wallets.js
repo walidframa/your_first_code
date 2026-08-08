@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { db, transaction } from '../db.js';
-import { requireAuth, requireRole } from '../middleware/auth.js';
+import { requireAuth, requirePermission } from '../middleware/auth.js';
 import {
   WALLET_CURRENCIES,
   WALLET_KINDS,
@@ -23,7 +23,7 @@ router.get('/', requireAuth, (req, res) => {
   res.json({ wallets: listWallets({ activeOnly: req.query.activeOnly === 'true' }) });
 });
 
-router.post('/', requireAuth, requireRole('admin'), (req, res) => {
+router.post('/', requireAuth, requirePermission('cards'), (req, res) => {
   const { name, kind = 'other', currency = 'USD', lowBalance = 0, note = null, opening = 0 } = req.body || {};
 
   if (!name || !String(name).trim()) return res.status(400).json({ error: 'A wallet needs a name' });
@@ -62,7 +62,7 @@ router.post('/', requireAuth, requireRole('admin'), (req, res) => {
   }
 });
 
-router.put('/:id', requireAuth, requireRole('admin'), (req, res) => {
+router.put('/:id', requireAuth, requirePermission('cards'), (req, res) => {
   const wallet = db.prepare('SELECT * FROM wallets WHERE id = ?').get(req.params.id);
   if (!wallet) return res.status(404).json({ error: 'Wallet not found' });
 
@@ -100,7 +100,7 @@ router.put('/:id', requireAuth, requireRole('admin'), (req, res) => {
   res.json({ wallet: walletById(wallet.id) });
 });
 
-router.delete('/:id', requireAuth, requireRole('admin'), (req, res) => {
+router.delete('/:id', requireAuth, requirePermission('cards'), (req, res) => {
   const wallet = db.prepare('SELECT * FROM wallets WHERE id = ?').get(req.params.id);
   if (!wallet) return res.status(404).json({ error: 'Wallet not found' });
 
@@ -120,7 +120,7 @@ router.delete('/:id', requireAuth, requireRole('admin'), (req, res) => {
   res.json({ ok: true });
 });
 
-router.get('/:id/movements', requireAuth, requireRole('admin'), (req, res) => {
+router.get('/:id/movements', requireAuth, requirePermission('cards'), (req, res) => {
   const wallet = walletById(req.params.id);
   if (!wallet) return res.status(404).json({ error: 'Wallet not found' });
   res.json({ wallet, movements: movementsFor(wallet.id, req.query.limit) });
@@ -133,7 +133,7 @@ router.get('/:id/movements', requireAuth, requireRole('admin'), (req, res) => {
  * with the supplier's statement. Both are the same row with a different name on
  * it, which is what makes the balance a single sum.
  */
-router.post('/:id/movements', requireAuth, requireRole('admin'), (req, res) => {
+router.post('/:id/movements', requireAuth, requirePermission('cards'), (req, res) => {
   const wallet = db.prepare('SELECT * FROM wallets WHERE id = ?').get(req.params.id);
   if (!wallet) return res.status(404).json({ error: 'Wallet not found' });
 
@@ -164,7 +164,7 @@ router.post('/:id/movements', requireAuth, requireRole('admin'), (req, res) => {
  * Nobody wants to type ninety products before selling their first recharge, and
  * these prices are the same in every shop on the street.
  */
-router.post('/starter-catalogue', requireAuth, requireRole('admin'), (req, res) => {
+router.post('/starter-catalogue', requireAuth, requirePermission('cards'), (req, res) => {
   const result = transaction(() => installStarterCatalogue({ userId: req.user.id }))();
   res.status(201).json({ ...result, total: STARTER_CARD_COUNT, wallets: listWallets() });
 });

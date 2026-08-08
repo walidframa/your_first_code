@@ -1066,6 +1066,117 @@ try {
     await page.waitForSelector('text=1 USD = 95,000 LL', { timeout: 15000 });
   });
 
+  await step('an admin can widen what one member of staff may do', async () => {
+    await page.click('a[title="Staff"]');
+    await page.waitForSelector('text=Who works here', { timeout: 15000 });
+
+    // The register is all a cashier starts with.
+    await page.waitForSelector('td:has-text("Use the register")');
+
+    await page.getByRole('button', { name: 'Permissions for Front Register' }).click();
+    await page.waitForSelector('[role=dialog] >> text=What Front Register can do', { timeout: 10000 });
+    await page.locator('[role=dialog]').getByLabel('Money transfer counter').check();
+    // The desk pays for things out of its own drawer, so it needs both.
+    await page.locator('[role=dialog]').getByLabel('Record expenses').check();
+    await page.click('[role=dialog] button:has-text("Save access")');
+
+    await page.waitForSelector("text=Front Register's access updated", { timeout: 15000 });
+    await page.waitForSelector('td:has-text("Money transfer counter")');
+  });
+  await shot('permissions');
+
+  console.log('\nThe transfer counter');
+
+  await step('the desk appears for the operator it was granted to', async () => {
+    await page.click('button[aria-label="Log out"]');
+    await page.waitForSelector('text=Demo accounts');
+    await page.click('button:has-text("Cashier")');
+    await page.waitForSelector('text=Current sale', { timeout: 15000 });
+
+    await page.click('a[title="Transfers"]');
+    await page.waitForSelector('text=/Money sent and paid out/', { timeout: 15000 });
+  });
+
+  await step('a transfer moves the drawer with it', async () => {
+    // The desk takes real money, so the drawer has to be open to take it into.
+    await page.click('button:has-text("Open the cashbox")');
+    await page.waitForSelector('text=What is in the drawer to start with?', { timeout: 10000 });
+    await page.getByLabel('Dollars').fill('100');
+    await page.click('button:has-text("Open cashbox")');
+    await page.waitForSelector('text=Cash on hand', { timeout: 15000 });
+
+    await page.click('button:has-text("New transfer")');
+    await page.waitForSelector('[role=dialog] >> text=Send a transfer', { timeout: 10000 });
+    const dialog = page.locator('[role=dialog]');
+    await dialog.locator('#reference').fill('OMT-4821');
+    await dialog.locator('#customerName').fill('Hassan Aoun');
+    await dialog.locator('#amountUsd').fill('150');
+    await dialog.locator('#feeUsd').fill('3');
+
+    // What physically moves is spelled out before the money is taken.
+    await dialog.locator('text=Into the drawer').waitFor();
+    await dialog.locator('text=$153.00').waitFor();
+
+    await dialog.getByRole('button', { name: 'Take the money' }).click();
+    await page.waitForSelector('text=Transfer sent', { timeout: 15000 });
+
+    await page.waitForSelector('text=OMT-4821', { timeout: 15000 });
+    await page.waitForSelector('text=$150.00');
+    // The fee is the shop's, counted apart from the money being sent.
+    await page.waitForSelector('text=$3.00');
+  });
+  await shot('transfers');
+
+  await step('paying one out takes the money back off the drawer', async () => {
+    await page.click('button:has-text("New transfer")');
+    await page.waitForSelector('[role=dialog] >> text=Send a transfer', { timeout: 10000 });
+    const dialog = page.locator('[role=dialog]');
+    await dialog.getByRole('button', { name: /Paying out/ }).click();
+    await page.waitForSelector('[role=dialog] >> text=Pay a transfer out');
+    await dialog.getByLabel('Company').selectOption('Whish');
+    await dialog.locator('#amountUsd').fill('50');
+    await dialog.locator('#feeUsd').fill('1');
+    await dialog.locator('text=Out of the drawer').waitFor();
+    await dialog.getByRole('button', { name: 'Pay it out' }).click();
+    await page.waitForSelector('text=Paid out', { timeout: 15000 });
+    await page.waitForSelector('text=$50.00', { timeout: 15000 });
+  });
+
+  await step('an expense out of the same drawer is recorded, not absorbed', async () => {
+    await page.click('button:has-text("Expense")');
+    await page.waitForSelector('[role=dialog] >> text=Money spent running the shop', { timeout: 10000 });
+    await page.locator('[role=dialog] #amountUsd').fill('4');
+    await page.locator('[role=dialog] #note').fill('Water for the counter');
+    await page.click('[role=dialog] button:has-text("Record it")');
+    await page.waitForSelector('text=Expense recorded', { timeout: 15000 });
+  });
+
+  await step('the drawer carries every one of them', async () => {
+    /*
+     * Checked from the back office, because the operator counts blind: the
+     * expected figure is withheld at the counter so the closing count means
+     * something. It is the till ledger that has to be right, and it is.
+     */
+    await page.click('button[aria-label="Log out"]');
+    await page.waitForSelector('text=Demo accounts');
+    await page.click('button:has-text("Admin")');
+    await page.waitForSelector('text=Current sale', { timeout: 15000 });
+
+    await page.click('a[title="Cashbox"]');
+    await page.waitForSelector('text=Every sitting of the till', { timeout: 15000 });
+    await page.click('tbody tr >> nth=0');
+    await page.waitForSelector('[role=dialog] >> text=Every movement', { timeout: 15000 });
+
+    const dialog = page.locator('[role=dialog]');
+    // $100 float + $153 in − $49 out − $4 spent.
+    await dialog.locator('text=$200.00').first().waitFor();
+    await dialog.locator('text=OMT send').first().waitFor();
+    await dialog.locator('text=Whish payout').first().waitFor();
+
+    // The next step logs out, and the backdrop would swallow the click.
+    await closeDialog();
+  });
+
   console.log('\nAuthorization');
 
   await step('a cashier cannot reach an admin route by URL', async () => {

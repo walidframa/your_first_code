@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { db, transaction } from '../db.js';
-import { requireAuth, requireRole } from '../middleware/auth.js';
+import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { recordMovement } from '../lib/cash.js';
 import { round2 } from '../lib/currency.js';
 import {
@@ -55,7 +55,7 @@ export function partyRouter(partyType) {
     });
   });
 
-  router.post('/', requireAuth, requireRole('admin'), (req, res) => {
+  router.post('/', requireAuth, requirePermission('parties'), (req, res) => {
     const { name, phone, email, address, notes, credit_limit: creditLimit, opening_balance: opening } =
       req.body || {};
 
@@ -107,7 +107,7 @@ export function partyRouter(partyType) {
     }
   });
 
-  router.put('/:id', requireAuth, requireRole('admin'), (req, res) => {
+  router.put('/:id', requireAuth, requirePermission('parties'), (req, res) => {
     const party = db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(req.params.id);
     if (!party) return res.status(404).json({ error: 'Not found' });
 
@@ -147,7 +147,7 @@ export function partyRouter(partyType) {
   });
 
   /** Archive rather than delete — the ledger must stay intact. */
-  router.delete('/:id', requireAuth, requireRole('admin'), (req, res) => {
+  router.delete('/:id', requireAuth, requirePermission('parties'), (req, res) => {
     const party = db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(req.params.id);
     if (!party) return res.status(404).json({ error: 'Not found' });
 
@@ -163,7 +163,7 @@ export function partyRouter(partyType) {
   });
 
   /** Money received from a customer, or paid out to a supplier. */
-  router.post('/:id/payments', requireAuth, requireRole('admin'), (req, res) => {
+  router.post('/:id/payments', requireAuth, requirePermission('parties'), (req, res) => {
     const party = db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(req.params.id);
     if (!party) return res.status(404).json({ error: 'Not found' });
 
@@ -200,7 +200,7 @@ export function partyRouter(partyType) {
   });
 
   /** A supplier bill, or a manual charge on a customer account. */
-  router.post('/:id/charges', requireAuth, requireRole('admin'), (req, res) => {
+  router.post('/:id/charges', requireAuth, requirePermission('parties'), (req, res) => {
     const party = db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(req.params.id);
     if (!party) return res.status(404).json({ error: 'Not found' });
 

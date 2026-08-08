@@ -1,10 +1,10 @@
 import { Router } from 'express';
 import { db } from '../db.js';
-import { requireAuth, requireRole } from '../middleware/auth.js';
+import { requireAuth, requirePermission } from '../middleware/auth.js';
 
 const router = Router();
 
-router.get('/summary', requireAuth, requireRole('admin'), (req, res) => {
+router.get('/summary', requireAuth, requirePermission('reports'), (req, res) => {
   const { from, to } = req.query;
   let where = "WHERE status = 'completed'";
   let whereJoined = "WHERE o.status = 'completed'";

@@ -651,7 +651,7 @@ db.exec(`
     session_id INTEGER NOT NULL REFERENCES cash_sessions(id),
     kind TEXT NOT NULL CHECK (kind IN (
       'opening_float', 'sale', 'refund', 'customer_payment', 'supplier_payment',
-      'document', 'cash_in', 'cash_out', 'bank_drop', 'correction'
+      'document', 'transfer', 'cash_in', 'cash_out', 'bank_drop', 'correction'
     )),
     /* Signed: positive is money in, negative is money out. */
     amount_usd REAL NOT NULL DEFAULT 0,
@@ -666,6 +666,126 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_cash_movements_session ON cash_movements(session_id, created_at);
 `);
+
+/*
+ * What each member of staff may do.
+ *
+ * A row is a grant; no row is no. An admin has none of these and can do
+ * everything, because the role is what makes someone the owner — see
+ * lib/permissions.js.
+ */
+db.exec(`
+  CREATE TABLE IF NOT EXISTS user_permissions (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    permission TEXT NOT NULL,
+    granted_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (user_id, permission)
+  );
+`);
+
+/*
+ * The money transfer counter.
+ *
+ * A phone shop in Lebanon is usually an OMT or Whish agent as well, and that is
+ * a different trade running out of the same drawer: somebody hands over cash to
+ * send, somebody else collects cash that was sent to them, and the shop keeps a
+ * fee. None of it is stock and none of it is a sale — but every one of them
+ * moves money in or out of the till, which is why the drawer stops adding up
+ * the moment they are kept on paper instead.
+ *
+ * Both currencies are held separately, like the drawer itself: a transfer is
+ * sent in dollars or in pounds, not in a converted figure.
+ */
+db.exec(`
+  CREATE TABLE IF NOT EXISTS transfers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- The number the company gives the customer, and the only thing either side
+    -- can search by when something goes wrong.
+    reference TEXT,
+    company TEXT NOT NULL,
+    direction TEXT NOT NULL CHECK (direction IN ('send', 'payout')),
+    customer_name TEXT,
+    customer_phone TEXT,
+    customer_id_no TEXT,
+    -- Who it is going to, or who sent it.
+    counterparty TEXT,
+    destination TEXT,
+    amount_usd REAL NOT NULL DEFAULT 0,
+    amount_lbp REAL NOT NULL DEFAULT 0,
+    /* The shop's cut, charged on top of a send or taken off a payout. */
+    fee_usd REAL NOT NULL DEFAULT 0,
+    fee_lbp REAL NOT NULL DEFAULT 0,
+    exchange_rate REAL,
+    note TEXT,
+    status TEXT NOT NULL DEFAULT 'completed' CHECK (status IN ('completed', 'cancelled')),
+    cash_movement_id INTEGER REFERENCES cash_movements(id),
+    operator_id INTEGER REFERENCES users(id),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    cancelled_at TEXT
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_transfers_created ON transfers(created_at);
+  CREATE INDEX IF NOT EXISTS idx_transfers_reference ON transfers(reference);
+`);
+
+/*
+ * Transfers move real money through the drawer, so they need their own kind on
+ * the cash ledger — lumped in with petty cash they would make the end-of-day
+ * report unreadable, which is the one thing it exists to be.
+ *
+ * SQLite cannot alter a CHECK constraint, so the table is rebuilt. Detected
+ * from the stored DDL so it runs exactly once, and copied by column name so
+ * anything added since comes across intact.
+ */
+function migrateCashMovementKinds() {
+  const row = db
+    .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'cash_movements'")
+    .get();
+  if (!row?.sql || row.sql.includes("'transfer'")) return;
+
+  const columns = db
+    .prepare('PRAGMA table_info(cash_movements)')
+    .all()
+    .map((c) => c.name)
+    .join(', ');
+
+  db.exec('PRAGMA foreign_keys = OFF');
+  db.exec('BEGIN');
+  try {
+    db.exec(`
+      CREATE TABLE cash_movements_migrated (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id INTEGER NOT NULL REFERENCES cash_sessions(id),
+        kind TEXT NOT NULL CHECK (kind IN (
+          'opening_float', 'sale', 'refund', 'customer_payment', 'supplier_payment',
+          'document', 'transfer', 'cash_in', 'cash_out', 'bank_drop', 'correction'
+        )),
+        amount_usd REAL NOT NULL DEFAULT 0,
+        amount_lbp REAL NOT NULL DEFAULT 0,
+        reason TEXT,
+        note TEXT,
+        order_id INTEGER REFERENCES orders(id),
+        document_id INTEGER REFERENCES documents(id),
+        user_id INTEGER REFERENCES users(id),
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      )
+    `);
+    db.exec(`INSERT INTO cash_movements_migrated (${columns}) SELECT ${columns} FROM cash_movements`);
+    db.exec('DROP TABLE cash_movements');
+    db.exec('ALTER TABLE cash_movements_migrated RENAME TO cash_movements');
+    db.exec(
+      'CREATE INDEX IF NOT EXISTS idx_cash_movements_session ON cash_movements(session_id, created_at)',
+    );
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  } finally {
+    db.exec('PRAGMA foreign_keys = ON');
+  }
+}
+
+migrateCashMovementKinds();
 
 /*
  * Float accounts, for the things the shop sells that were never on a shelf.
