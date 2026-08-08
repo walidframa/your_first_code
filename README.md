@@ -20,7 +20,15 @@ orders and staff.
 - Keyboard shortcuts: `/` focuses search, `F2` opens payment
 - Stock decrements atomically as part of the sale, so it can't oversell
 
-**Back office (admin only)**
+**The transfer counter** (needs the `transfers` permission)
+- Send and pay out money for OMT, Whish, Western Union and the rest, with the
+  reference, both sides' names and the fee kept — and **every one of them moving
+  the drawer** so the till still counts right at the end of the day
+- Expenses paid out of the same drawer, recorded from the same screen
+- The day's takings split into money in, money out and fees earned, with the
+  cashbox panel beside the work that moves it
+
+**Back office**
 - Dashboard: revenue hero figure, KPI tiles, a continuous daily-revenue column
   chart, top sellers, payment mix and restock alerts — all scoped by one date-range filter
 - **Handsets tracked by IMEI** — tick "Track each one by IMEI" on a product and
@@ -51,12 +59,14 @@ orders and staff.
 - **Customers**: contacts with credit limits, running balances, a full ledger and
   recorded payments — sell on account straight from the register
 - **Suppliers**: bills and payments made, so you can see what you owe
-- Staff: `admin` / `cashier` accounts
+- Staff: accounts with **per-person permissions** — sixteen sections that can be
+  granted one by one, so somebody hired to run the transfer desk gets the
+  transfer desk and nothing else
 - Settings: the USD→LBP exchange rate, the pound rounding step, a live preview
   and a full history of who changed the rate and when
 
-Cashiers only see their own sales; admin routes are enforced server-side, not just
-hidden in the UI.
+Cashiers only see their own sales; permissions are enforced server-side on every
+request, not just hidden in the UI.
 
 ## Stack
 
@@ -193,13 +203,14 @@ A handset sale carries more than a line and a price.
 Those passwords are **encrypted at rest** (`ACCOUNT_SECRET`, AES-256-GCM). A
 copy of the database file is otherwise a list of live logins — a backup on a
 laptop, a stolen machine. Searching returns the account names only; reading one
-password is a separate, deliberate request and **admin only**, so a screen of
-twenty customers is not twenty passwords on display behind the counter.
+password is a separate, deliberate request needing the **`secrets`** permission,
+so a screen of twenty customers is not twenty passwords on display behind the
+counter.
 
-| Route | Method | Role |
-| ----- | ------ | ---- |
+| Route | Method | Needs |
+| ----- | ------ | ----- |
 | `/api/held-accounts?q=` | GET | any signed-in user |
-| `/api/held-accounts/:id/password` | GET | admin |
+| `/api/held-accounts/:id/password` | GET | `secrets` |
 
 ## Warranty, repairs and trade-ins
 
@@ -250,10 +261,10 @@ explain at close.
 | `/api/repairs/:id` | GET, PATCH | any signed-in user |
 | `/api/repairs/:id/parts` | POST | any signed-in user |
 | `/api/repairs/:id/collect` | POST | any signed-in user |
-| `/api/repairs/:id/passcode` | GET | admin |
+| `/api/repairs/:id/passcode` | GET | `secrets` |
 | `/api/repairs/warranty/:imei` | GET | any signed-in user |
 | `/api/repairs/trade-ins` | POST | any signed-in user |
-| `/api/repairs/trade-ins/list` | GET | admin |
+| `/api/repairs/trade-ins/list` | GET | `repairs` |
 
 **Customer accounts** has its own screen, and it is *not* an admin one: handing
 somebody back the iCloud the shop set up for them is counter work, so whoever is
@@ -272,9 +283,70 @@ part company.
 | ----- | ------ | ---- |
 | `/api/units/lookup?imei=` | GET | any signed-in user |
 | `/api/units/product/:id` | GET | any signed-in user |
-| `/api/units/product/:id` | POST | admin |
-| `/api/units/:id` | PATCH, DELETE | admin |
+| `/api/units/product/:id` | POST | `inventory` |
+| `/api/units/:id` | PATCH, DELETE | `inventory` |
 
+
+## Who can do what
+
+Two roles were enough while the shop was one counter. They stop being enough the
+moment somebody is hired to run one part of it, because "cashier" then means
+either too little to do the job or the run of the whole back office.
+
+So the role is the coarse answer and permissions are the fine one:
+
+- **Admin** is the owner. They pass every check by definition — there are no
+  boxes to tick, and none to accidentally untick.
+- **Staff** hold exactly what they have been given, in Admin → **Staff** →
+  **Access**: sixteen permissions grouped as Selling, Money, Stock and Setup.
+
+The same list drives both sides. The navigation rail only shows the sections
+someone can reach, and the server refuses everything else whether or not they
+find the address — a cashier typing `/admin/inventory` lands back on the
+register.
+
+Permissions are read from the database on every request rather than carried in
+the session token, so **taking one away takes effect on the next click**, not
+whenever the login happens to expire.
+
+New accounts start with their role's defaults — a cashier gets the register and
+nothing more. It is easier to hand somebody the transfer desk on their first
+morning than to discover a month later that everyone hired since could edit
+prices.
+
+## The money transfer counter
+
+Most phone shops in Lebanon are an OMT or Whish agent as well, and that is a
+different trade running out of the same drawer. It is not selling: nothing
+leaves the shelf, and the money handed over is not the shop's. What the shop
+keeps is the fee.
+
+Which is exactly why it belongs in the app rather than in a notebook. Every one
+of these moves cash in or out of the till, and a drawer counted at the end of a
+day with thirty unrecorded transfers in it will never agree with anything.
+
+**Transfers** (in the rail, for anyone with the permission) records:
+
+- a **send** — the customer hands over the amount and the fee, so the drawer
+  goes **up** by both
+- a **payout** — the shop counts the amount out, keeping any fee, so the drawer
+  goes **down** by the difference
+
+with the company, the reference number, both sides' names, the phone and ID
+number, and a note. Dollars and pounds move separately and are never converted:
+a transfer is sent in one currency or the other, not in a rate-dependent figure.
+
+The drawer sits on the same screen, because an operator who has to go and look
+somewhere else for the till figure will not look — and that is the one number
+this screen exists to protect. **Expenses** paid out of the counter go through
+the same button, so the water, the generator subscription and the delivery come
+off the till like everything else instead of turning into a shortfall somebody
+gets blamed for.
+
+Cancelling a transfer puts the money back with an opposite movement and keeps
+the row: a drawer that was briefly wrong is part of what happened, and a
+cancelled transfer somebody has to explain to the company is exactly the one
+worth keeping.
 
 ## Recharge and gift cards
 
@@ -351,8 +423,8 @@ each morning and the two price lists can never drift apart.
 | Route | Method | Role |
 | ----- | ------ | ---- |
 | `/api/settings` | GET | any (the register needs the live rate) |
-| `/api/settings` | PUT | admin |
-| `/api/settings/rate-history` | GET | admin |
+| `/api/settings` | PUT | `settings` |
+| `/api/settings/rate-history` | GET | `settings` |
 
 ## Documents
 
@@ -453,10 +525,10 @@ a party's entries, and the same query serves receivables and payables.
 | ----- | ------ | ---- |
 | `/api/customers`, `/api/suppliers` | GET | any (the register picks customers) |
 | `/api/customers/:id` | GET | any |
-| `/api/customers`, `/api/suppliers` | POST / PUT / DELETE | admin |
-| `/api/customers/:id/payments` | POST | admin |
-| `/api/customers/:id/charges` | POST | admin |
-| `/api/accounts/summary`, `/api/accounts/entries` | GET | admin |
+| `/api/customers`, `/api/suppliers` | POST / PUT / DELETE | `parties` |
+| `/api/customers/:id/payments` | POST | `parties` |
+| `/api/customers/:id/charges` | POST | `parties` |
+| `/api/accounts/summary`, `/api/accounts/entries` | GET | `parties` |
 
 ## Importing an existing catalog
 
@@ -624,7 +696,9 @@ server/
     seed.js               demo users, categories, products
     lib/csv.js            RFC 4180 CSV parser
     lib/importFormats.js  ERP column presets + number parsing
-    middleware/auth.js    JWT verification and role guards
+    lib/permissions.js    what each member of staff may do
+    lib/transfers.js      the money transfer counter
+    middleware/auth.js    JWT verification, role and permission guards
     routes/               auth, products, orders, reports, users, inventory, imports
 client/
   src/
@@ -639,30 +713,41 @@ client/
 
 All routes except `POST /api/auth/login` require a `Bearer` token.
 
-| Method | Route                        | Role    |
-| ------ | ---------------------------- | ------- |
-| POST   | `/api/auth/login`            | public  |
-| GET    | `/api/auth/me`               | any     |
-| GET    | `/api/products`              | any     |
-| GET    | `/api/products/lookup?code=` | any     |
-| POST   | `/api/products`              | admin   |
-| PUT    | `/api/products/:id`          | admin   |
-| DELETE | `/api/products/:id`          | admin   |
-| GET    | `/api/products/categories`   | any     |
-| POST   | `/api/orders`                | any     |
-| GET    | `/api/orders`                | any\*   |
-| GET    | `/api/orders/:id`            | any\*   |
-| POST   | `/api/orders/:id/refund`     | admin   |
-| GET    | `/api/reports/summary`       | admin   |
-| GET    | `/api/inventory`             | admin   |
-| GET    | `/api/inventory/movements`   | admin   |
-| POST   | `/api/inventory/adjust`      | admin   |
-| GET    | `/api/imports/formats`       | admin   |
-| POST   | `/api/imports/preview`       | admin   |
-| POST   | `/api/imports/commit`        | admin   |
-| GET    | `/api/users`                 | admin   |
-| POST   | `/api/users`                 | admin   |
-| DELETE | `/api/users/:id`             | admin   |
+Routes are guarded by **permission**, not by role — an admin holds all of them.
+
+| Method | Route                          | Needs        |
+| ------ | ------------------------------ | ------------ |
+| POST   | `/api/auth/login`              | public       |
+| GET    | `/api/auth/me`                 | any          |
+| GET    | `/api/products`                | any          |
+| GET    | `/api/products/lookup?code=`   | any          |
+| POST   | `/api/products`                | `catalogue`  |
+| PUT    | `/api/products/:id`            | `catalogue`  |
+| DELETE | `/api/products/:id`            | `catalogue`  |
+| GET    | `/api/products/categories`     | any          |
+| POST   | `/api/orders`                  | `register`   |
+| GET    | `/api/orders`                  | any\*        |
+| GET    | `/api/orders/:id`              | any\*        |
+| POST   | `/api/orders/:id/refund`       | `refunds`    |
+| GET    | `/api/transfers`               | `transfers`  |
+| POST   | `/api/transfers`               | `transfers`  |
+| POST   | `/api/transfers/:id/cancel`    | `transfers`  |
+| GET    | `/api/expenses`                | `expenses`   |
+| POST   | `/api/expenses`                | `expenses`   |
+| GET    | `/api/cash/current`            | any          |
+| POST   | `/api/cash/open`, `/close`     | any          |
+| GET    | `/api/cash/sessions`           | `cashbox`    |
+| GET    | `/api/reports/summary`         | `reports`    |
+| GET    | `/api/inventory`               | `inventory`  |
+| POST   | `/api/inventory/adjust`        | `inventory`  |
+| GET    | `/api/wallets`                 | any          |
+| POST   | `/api/wallets`, `/:id/…`       | `cards`      |
+| POST   | `/api/imports/preview`,`commit`| `imports`    |
+| GET    | `/api/users`                   | `users`      |
+| GET    | `/api/users/permissions`       | `users`      |
+| POST   | `/api/users`                   | `users`      |
+| PUT    | `/api/users/:id/permissions`   | `users`      |
+| DELETE | `/api/users/:id`               | `users`      |
 
 \* Cashiers are scoped to their own orders.
 
@@ -671,6 +756,8 @@ All routes except `POST /api/auth/login` require a `Bearer` token.
 - Payments are **recorded, not processed** — there is no card gateway integration,
   so this cannot take real money without connecting a provider such as Stripe.
 - Refunds are full-order only; partial refunds are not implemented.
+- Transfer fees are counted on the transfer screen but are not yet folded into
+  the Profit page, which still reports margin on goods sold.
 - A card wallet can go **negative** — see above; that is deliberate, but nothing
   stops it, so the balances need reading rather than assuming.
 - Tax is a single store-wide rate, not per-product or per-jurisdiction.

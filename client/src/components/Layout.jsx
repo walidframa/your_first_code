@@ -23,19 +23,25 @@ import {
   Wrench,
   HandCoins,
   KeyRound,
+  ArrowLeftRight,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { cx } from './ui';
 
 const REGISTER_NAV = [
-  { to: '/', label: 'Register', icon: ScanLine, end: true },
+  { to: '/', label: 'Register', icon: ScanLine, end: true, permission: 'register' },
   { to: '/orders', label: 'My sales', icon: Receipt },
   /*
    * Not an admin screen. Handing a customer back the iCloud the shop set up for
    * them is counter work, so whoever is at the counter can find it — the
-   * password itself still takes an admin.
+   * password itself still takes the right permission.
    */
   { to: '/accounts', label: 'Accounts', icon: KeyRound },
+  /*
+   * The transfer desk sits with the register rather than in the back office:
+   * it is counter work, often done by somebody who does nothing else.
+   */
+  { to: '/transfers', label: 'Transfers', icon: ArrowLeftRight, permission: 'transfers' },
 ];
 
 /*
@@ -47,39 +53,39 @@ const ADMIN_NAV = [
   {
     heading: 'Stock',
     items: [
-      { to: '/admin/products', label: 'Products', icon: Package },
-      { to: '/admin/inventory', label: 'Inventory', icon: Boxes },
-      { to: '/admin/cards', label: 'Cards', icon: CreditCard },
-      { to: '/admin/labels', label: 'Labels', icon: Tag },
-      { to: '/admin/import', label: 'Import', icon: Upload },
+      { to: '/admin/products', label: 'Products', icon: Package, permission: 'catalogue' },
+      { to: '/admin/inventory', label: 'Inventory', icon: Boxes, permission: 'inventory' },
+      { to: '/admin/cards', label: 'Cards', icon: CreditCard, permission: 'cards' },
+      { to: '/admin/labels', label: 'Labels', icon: Tag, permission: 'catalogue' },
+      { to: '/admin/import', label: 'Import', icon: Upload, permission: 'imports' },
     ],
   },
   {
     heading: 'Selling',
     items: [
-      { to: '/admin/documents', label: 'Documents', icon: FileText },
-      { to: '/admin/orders', label: 'Orders', icon: ScrollText },
-      { to: '/admin/repairs', label: 'Repairs', icon: Wrench },
-      { to: '/admin/trade-ins', label: 'Trade-ins', icon: HandCoins },
-      { to: '/admin/customers', label: 'Customers', icon: Contact },
-      { to: '/admin/suppliers', label: 'Suppliers', icon: Building2 },
+      { to: '/admin/documents', label: 'Documents', icon: FileText, permission: 'documents' },
+      { to: '/admin/orders', label: 'Orders', icon: ScrollText, permission: 'reports' },
+      { to: '/admin/repairs', label: 'Repairs', icon: Wrench, permission: 'repairs' },
+      { to: '/admin/trade-ins', label: 'Trade-ins', icon: HandCoins, permission: 'repairs' },
+      { to: '/admin/customers', label: 'Customers', icon: Contact, permission: 'parties' },
+      { to: '/admin/suppliers', label: 'Suppliers', icon: Building2, permission: 'parties' },
     ],
   },
   {
     heading: 'Money',
     items: [
-      { to: '/admin', label: 'Dashboard', icon: BarChart3, end: true },
-      { to: '/admin/cashbox', label: 'Cashbox', icon: Banknote },
-      { to: '/admin/expenses', label: 'Expenses', icon: Wallet },
-      { to: '/admin/profit', label: 'Profit', icon: TrendingUp },
+      { to: '/admin', label: 'Dashboard', icon: BarChart3, end: true, permission: 'reports' },
+      { to: '/admin/cashbox', label: 'Cashbox', icon: Banknote, permission: 'cashbox' },
+      { to: '/admin/expenses', label: 'Expenses', icon: Wallet, permission: 'expenses' },
+      { to: '/admin/profit', label: 'Profit', icon: TrendingUp, permission: 'reports' },
     ],
   },
   {
     heading: 'Setup',
     items: [
-      { to: '/admin/shopify', label: 'Shopify', icon: ShoppingBag },
-      { to: '/admin/users', label: 'Staff', icon: Users },
-      { to: '/admin/settings', label: 'Settings', icon: SettingsIcon },
+      { to: '/admin/shopify', label: 'Shopify', icon: ShoppingBag, permission: 'imports' },
+      { to: '/admin/users', label: 'Staff', icon: Users, permission: 'users' },
+      { to: '/admin/settings', label: 'Settings', icon: SettingsIcon, permission: 'settings' },
     ],
   },
 ];
@@ -104,7 +110,17 @@ function NavItem({ to, label, icon: Icon, end }) {
 }
 
 export default function Layout() {
-  const { user, logout } = useAuth();
+  const { user, logout, can } = useAuth();
+
+  /*
+   * The rail shows what this person can actually reach. A menu full of doors
+   * that bounce you back to the register is worse than a short menu — it reads
+   * as the app being broken rather than as the job being narrower.
+   */
+  const allowed = (items) => items.filter((item) => !item.permission || can(item.permission));
+  const groups = ADMIN_NAV.map((g) => ({ ...g, items: allowed(g.items) })).filter(
+    (g) => g.items.length > 0,
+  );
 
   const initials = user.name
     .split(/\s+/)
@@ -121,17 +137,17 @@ export default function Layout() {
         </div>
 
         <nav className="flex w-full flex-col gap-1">
-          {REGISTER_NAV.map((item) => (
+          {allowed(REGISTER_NAV).map((item) => (
             <NavItem key={item.to} {...item} />
           ))}
         </nav>
 
         {/* The rail scrolls rather than squashing: a shorter screen must not
             cut the last group off with no way to reach it. */}
-        {user.role === 'admin' && (
+        {groups.length > 0 && (
           <div className="relative min-h-0 w-full flex-1">
             <div className="h-full space-y-2 overflow-y-auto pt-2 pb-4">
-              {ADMIN_NAV.map((group) => (
+              {groups.map((group) => (
                 <nav key={group.heading} className="flex w-full flex-col gap-1">
                   <p className="px-1 pb-0.5 text-[9px] font-semibold tracking-wider text-slate-400 uppercase">
                     {group.heading}

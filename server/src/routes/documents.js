@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { db, transaction } from '../db.js';
-import { requireAuth, requireRole } from '../middleware/auth.js';
+import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { getSettings } from '../lib/settings.js';
 import {
   DOC_TYPES,
@@ -36,7 +36,7 @@ router.get('/types', requireAuth, (req, res) => {
   });
 });
 
-router.get('/', requireAuth, requireRole('admin'), (req, res) => {
+router.get('/', requireAuth, requirePermission('documents'), (req, res) => {
   const { type, status, partyId } = req.query;
 
   let sql = `
@@ -70,13 +70,13 @@ router.get('/', requireAuth, requireRole('admin'), (req, res) => {
   res.json({ documents });
 });
 
-router.get('/:id', requireAuth, requireRole('admin'), (req, res) => {
+router.get('/:id', requireAuth, requirePermission('documents'), (req, res) => {
   const found = getDocument(req.params.id);
   if (!found) return res.status(404).json({ error: 'Document not found' });
   res.json(found);
 });
 
-router.post('/', requireAuth, requireRole('admin'), (req, res) => {
+router.post('/', requireAuth, requirePermission('documents'), (req, res) => {
   const {
     docType,
     partyId,
@@ -166,7 +166,7 @@ router.post('/', requireAuth, requireRole('admin'), (req, res) => {
  * A cancelled document is already reversed, so editing it only changes the
  * paperwork.
  */
-router.put('/:id', requireAuth, requireRole('admin'), (req, res) => {
+router.put('/:id', requireAuth, requirePermission('documents'), (req, res) => {
   const doc = db.prepare('SELECT * FROM documents WHERE id = ?').get(req.params.id);
   if (!doc) return res.status(404).json({ error: 'Document not found' });
 
@@ -270,7 +270,7 @@ router.put('/:id', requireAuth, requireRole('admin'), (req, res) => {
  * Confirming is the moment a document becomes real: stock moves and, for
  * invoices, the party's balance changes. Everything happens in one transaction.
  */
-router.post('/:id/confirm', requireAuth, requireRole('admin'), (req, res) => {
+router.post('/:id/confirm', requireAuth, requirePermission('documents'), (req, res) => {
   const doc = db.prepare('SELECT * FROM documents WHERE id = ?').get(req.params.id);
   if (!doc) return res.status(404).json({ error: 'Document not found' });
   if (doc.status !== 'draft') {
@@ -292,7 +292,7 @@ router.post('/:id/confirm', requireAuth, requireRole('admin'), (req, res) => {
 });
 
 /** Cancelling a confirmed document reverses whatever confirming it did. */
-router.post('/:id/cancel', requireAuth, requireRole('admin'), (req, res) => {
+router.post('/:id/cancel', requireAuth, requirePermission('documents'), (req, res) => {
   const doc = db.prepare('SELECT * FROM documents WHERE id = ?').get(req.params.id);
   if (!doc) return res.status(404).json({ error: 'Document not found' });
   if (doc.status === 'cancelled') {
@@ -314,7 +314,7 @@ router.post('/:id/cancel', requireAuth, requireRole('admin'), (req, res) => {
 });
 
 /** Turn a quotation into an order, or either into an invoice. */
-router.post('/:id/convert', requireAuth, requireRole('admin'), (req, res) => {
+router.post('/:id/convert', requireAuth, requirePermission('documents'), (req, res) => {
   const doc = db.prepare('SELECT * FROM documents WHERE id = ?').get(req.params.id);
   if (!doc) return res.status(404).json({ error: 'Document not found' });
   if (doc.status === 'cancelled') {
@@ -396,7 +396,7 @@ router.post('/:id/convert', requireAuth, requireRole('admin'), (req, res) => {
  * A document another was created from is kept until that successor is dealt
  * with, so nothing is left pointing at a deleted row.
  */
-router.delete('/:id', requireAuth, requireRole('admin'), (req, res) => {
+router.delete('/:id', requireAuth, requirePermission('documents'), (req, res) => {
   const doc = db.prepare('SELECT * FROM documents WHERE id = ?').get(req.params.id);
   if (!doc) return res.status(404).json({ error: 'Document not found' });
 

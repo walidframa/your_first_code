@@ -1,13 +1,13 @@
 import { Router } from 'express';
 import { db, transaction } from '../db.js';
-import { requireAuth, requireRole } from '../middleware/auth.js';
+import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { parseCsvToRecords } from '../lib/csv.js';
 import { CANONICAL_FIELDS, PRESETS, detectFormat, buildMapping, parseNumber } from '../lib/importFormats.js';
 
 const router = Router();
 const MAX_CSV_BYTES = 5 * 1024 * 1024;
 
-router.get('/formats', requireAuth, requireRole('admin'), (req, res) => {
+router.get('/formats', requireAuth, requirePermission('imports'), (req, res) => {
   res.json({
     formats: Object.entries(PRESETS).map(([key, preset]) => ({ key, label: preset.label })),
     fields: CANONICAL_FIELDS,
@@ -111,7 +111,7 @@ function analyze(csv, requestedFormat, requestedMapping) {
   };
 }
 
-router.post('/preview', requireAuth, requireRole('admin'), (req, res) => {
+router.post('/preview', requireAuth, requirePermission('imports'), (req, res) => {
   const { csv, format, mapping } = req.body || {};
   if (typeof csv !== 'string' || !csv.trim()) {
     return res.status(400).json({ error: 'csv content is required' });
@@ -127,7 +127,7 @@ router.post('/preview', requireAuth, requireRole('admin'), (req, res) => {
   res.json({ ...result, rows: result.rows.slice(0, 100), truncated: result.rows.length > 100 });
 });
 
-router.post('/commit', requireAuth, requireRole('admin'), (req, res) => {
+router.post('/commit', requireAuth, requirePermission('imports'), (req, res) => {
   const { csv, format, mapping, updateExisting = true, createCategories = true } = req.body || {};
   if (typeof csv !== 'string' || !csv.trim()) {
     return res.status(400).json({ error: 'csv content is required' });

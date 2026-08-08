@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { db } from '../db.js';
-import { requireAuth, requireRole } from '../middleware/auth.js';
+import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { activityFor, costHistoryFor, recordCostChange } from '../lib/costHistory.js';
 
 const router = Router();
@@ -30,7 +30,7 @@ router.get('/categories', requireAuth, (req, res) => {
   res.json({ categories });
 });
 
-router.post('/categories', requireAuth, requireRole('admin'), (req, res) => {
+router.post('/categories', requireAuth, requirePermission('catalogue'), (req, res) => {
   const { name } = req.body || {};
   if (!name || !name.trim()) return res.status(400).json({ error: 'Name is required' });
   try {
@@ -78,7 +78,7 @@ router.get('/lookup', requireAuth, (req, res) => {
   res.json({ product: serializeProduct(product) });
 });
 
-router.post('/', requireAuth, requireRole('admin'), (req, res) => {
+router.post('/', requireAuth, requirePermission('catalogue'), (req, res) => {
   const {
     name, sku, price, cost, stock, category_id, image_emoji, barcode, supplier, image_url,
     reorder_point, tracks_units, warranty_months, wallet_id,
@@ -125,7 +125,7 @@ router.get('/:id', requireAuth, (req, res) => {
   res.json({ product: serializeProduct(product) });
 });
 
-router.put('/:id', requireAuth, requireRole('admin'), (req, res) => {
+router.put('/:id', requireAuth, requirePermission('catalogue'), (req, res) => {
   const product = db.prepare('SELECT * FROM products WHERE id = ?').get(req.params.id);
   if (!product) return res.status(404).json({ error: 'Product not found' });
 
@@ -249,7 +249,7 @@ router.put('/:id', requireAuth, requireRole('admin'), (req, res) => {
   res.json({ product: serializeProduct(updated) });
 });
 
-router.delete('/:id', requireAuth, requireRole('admin'), (req, res) => {
+router.delete('/:id', requireAuth, requirePermission('catalogue'), (req, res) => {
   const product = db.prepare('SELECT * FROM products WHERE id = ?').get(req.params.id);
   if (!product) return res.status(404).json({ error: 'Product not found' });
   db.prepare('UPDATE products SET active = 0 WHERE id = ?').run(req.params.id);
@@ -263,7 +263,7 @@ router.delete('/:id', requireAuth, requireRole('admin'), (req, res) => {
  * a shopkeeper asking what happened to an item wants them in order, not in
  * four places.
  */
-router.get('/:id/activity', requireAuth, requireRole('admin'), (req, res) => {
+router.get('/:id/activity', requireAuth, requirePermission('catalogue'), (req, res) => {
   const product = db.prepare('SELECT * FROM products WHERE id = ?').get(req.params.id);
   if (!product) return res.status(404).json({ error: 'Product not found' });
 

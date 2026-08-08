@@ -1,5 +1,7 @@
-import { Routes, Route } from 'react-router';
+import { Navigate, Routes, Route } from 'react-router';
 import Login from './pages/Login';
+import Transfers from './pages/Transfers';
+import { useAuth } from './context/AuthContext';
 import Layout from './components/Layout';
 import ProtectedRoute from './components/ProtectedRoute';
 import Checkout from './pages/Checkout';
@@ -23,6 +25,41 @@ import HeldAccounts from './pages/admin/HeldAccounts';
 import AdminProfit from './pages/admin/Profit';
 import AdminCards from './pages/admin/Cards';
 
+/*
+ * Where signing in actually lands you.
+ *
+ * The register is the front door for almost everyone, but somebody hired to run
+ * only the transfer desk would arrive at a till they are not allowed to use and
+ * conclude the app was broken. So the first screen is the first one they can
+ * work on.
+ */
+const HOME_ORDER = [
+  ['register', '/'],
+  ['transfers', '/transfers'],
+  ['repairs', '/admin/repairs'],
+  ['reports', '/admin'],
+  ['documents', '/admin/documents'],
+  ['catalogue', '/admin/products'],
+  ['inventory', '/admin/inventory'],
+  ['users', '/admin/users'],
+];
+
+function Landing() {
+  const { can } = useAuth();
+  if (can('register')) return <Checkout />;
+
+  const target = HOME_ORDER.find(([permission]) => permission !== 'register' && can(permission));
+  if (target) return <Navigate to={target[1]} replace />;
+
+  return (
+    <div className="flex h-full items-center justify-center p-8 text-center text-slate-500">
+      <p className="max-w-sm text-sm">
+        Your account has no sections assigned yet. Ask whoever runs the shop to give you access.
+      </p>
+    </div>
+  );
+}
+
 export default function App() {
   return (
     <Routes>
@@ -35,14 +72,22 @@ export default function App() {
           </ProtectedRoute>
         }
       >
-        <Route path="/" element={<Checkout />} />
+        <Route path="/" element={<Landing />} />
         <Route path="/orders" element={<MyOrders />} />
         <Route path="/accounts" element={<HeldAccounts />} />
+        <Route
+          path="/transfers"
+          element={
+            <ProtectedRoute permission="transfers">
+              <Transfers />
+            </ProtectedRoute>
+          }
+        />
 
         <Route
           path="/admin"
           element={
-            <ProtectedRoute roles={['admin']}>
+            <ProtectedRoute permission="reports">
               <AdminDashboard />
             </ProtectedRoute>
           }
@@ -50,7 +95,7 @@ export default function App() {
         <Route
           path="/admin/products"
           element={
-            <ProtectedRoute roles={['admin']}>
+            <ProtectedRoute permission="catalogue">
               <AdminProducts />
             </ProtectedRoute>
           }
@@ -58,7 +103,7 @@ export default function App() {
         <Route
           path="/admin/inventory"
           element={
-            <ProtectedRoute roles={['admin']}>
+            <ProtectedRoute permission="inventory">
               <AdminInventory />
             </ProtectedRoute>
           }
@@ -66,7 +111,7 @@ export default function App() {
         <Route
           path="/admin/cards"
           element={
-            <ProtectedRoute roles={['admin']}>
+            <ProtectedRoute permission="cards">
               <AdminCards />
             </ProtectedRoute>
           }
@@ -74,7 +119,7 @@ export default function App() {
         <Route
           path="/admin/import"
           element={
-            <ProtectedRoute roles={['admin']}>
+            <ProtectedRoute permission="imports">
               <AdminImport />
             </ProtectedRoute>
           }
@@ -82,7 +127,7 @@ export default function App() {
         <Route
           path="/admin/documents"
           element={
-            <ProtectedRoute roles={['admin']}>
+            <ProtectedRoute permission="documents">
               <AdminDocuments />
             </ProtectedRoute>
           }
@@ -90,7 +135,7 @@ export default function App() {
         <Route
           path="/admin/labels"
           element={
-            <ProtectedRoute roles={['admin']}>
+            <ProtectedRoute permission="catalogue">
               <AdminLabels />
             </ProtectedRoute>
           }
@@ -98,7 +143,7 @@ export default function App() {
         <Route
           path="/admin/repairs"
           element={
-            <ProtectedRoute roles={['admin']}>
+            <ProtectedRoute permission="repairs">
               <AdminRepairs />
             </ProtectedRoute>
           }
@@ -106,7 +151,7 @@ export default function App() {
         <Route
           path="/admin/trade-ins"
           element={
-            <ProtectedRoute roles={['admin']}>
+            <ProtectedRoute permission="repairs">
               <AdminTradeIns />
             </ProtectedRoute>
           }
@@ -114,7 +159,7 @@ export default function App() {
         <Route
           path="/admin/expenses"
           element={
-            <ProtectedRoute roles={['admin']}>
+            <ProtectedRoute permission="expenses">
               <AdminExpenses />
             </ProtectedRoute>
           }
@@ -122,7 +167,7 @@ export default function App() {
         <Route
           path="/admin/profit"
           element={
-            <ProtectedRoute roles={['admin']}>
+            <ProtectedRoute permission="reports">
               <AdminProfit />
             </ProtectedRoute>
           }
@@ -130,7 +175,7 @@ export default function App() {
         <Route
           path="/admin/cashbox"
           element={
-            <ProtectedRoute roles={['admin']}>
+            <ProtectedRoute permission="cashbox">
               <AdminCashSessions />
             </ProtectedRoute>
           }
@@ -138,7 +183,7 @@ export default function App() {
         <Route
           path="/admin/shopify"
           element={
-            <ProtectedRoute roles={['admin']}>
+            <ProtectedRoute permission="imports">
               <AdminShopify />
             </ProtectedRoute>
           }
@@ -146,7 +191,7 @@ export default function App() {
         <Route
           path="/admin/customers"
           element={
-            <ProtectedRoute roles={['admin']}>
+            <ProtectedRoute permission="parties">
               <AdminParties type="customer" />
             </ProtectedRoute>
           }
@@ -154,7 +199,7 @@ export default function App() {
         <Route
           path="/admin/suppliers"
           element={
-            <ProtectedRoute roles={['admin']}>
+            <ProtectedRoute permission="parties">
               <AdminParties type="supplier" />
             </ProtectedRoute>
           }
@@ -162,7 +207,7 @@ export default function App() {
         <Route
           path="/admin/orders"
           element={
-            <ProtectedRoute roles={['admin']}>
+            <ProtectedRoute permission="reports">
               <AdminOrders />
             </ProtectedRoute>
           }
@@ -170,7 +215,7 @@ export default function App() {
         <Route
           path="/admin/settings"
           element={
-            <ProtectedRoute roles={['admin']}>
+            <ProtectedRoute permission="settings">
               <AdminSettings />
             </ProtectedRoute>
           }
@@ -178,7 +223,7 @@ export default function App() {
         <Route
           path="/admin/users"
           element={
-            <ProtectedRoute roles={['admin']}>
+            <ProtectedRoute permission="users">
               <AdminUsers />
             </ProtectedRoute>
           }

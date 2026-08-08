@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import crypto from 'crypto';
 import { db, transaction } from '../db.js';
-import { requireAuth, requireRole } from '../middleware/auth.js';
+import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { getSettings } from '../lib/settings.js';
 import { addEntry, creditCheck } from '../lib/accounts.js';
 import { currentSession, recordMovement, requiresSession } from '../lib/cash.js';
@@ -27,7 +27,7 @@ router.get('/tax-rate', requireAuth, (req, res) => {
   res.json({ taxRate: TAX_RATE });
 });
 
-router.post('/', requireAuth, (req, res) => {
+router.post('/', requireAuth, requirePermission('register'), (req, res) => {
   const {
     items,
     discountPercent = 0,
@@ -403,7 +403,7 @@ router.get('/:id', requireAuth, (req, res) => {
   res.json({ order, items });
 });
 
-router.post('/:id/refund', requireAuth, requireRole('admin'), (req, res) => {
+router.post('/:id/refund', requireAuth, requirePermission('refunds'), (req, res) => {
   const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(req.params.id);
   if (!order) return res.status(404).json({ error: 'Order not found' });
   if (order.status === 'refunded') return res.status(400).json({ error: 'Order already refunded' });

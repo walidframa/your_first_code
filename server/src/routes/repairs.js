@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { db, transaction } from '../db.js';
-import { requireAuth, requireRole } from '../middleware/auth.js';
+import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { decryptSecret } from '../lib/secrets.js';
 import { normaliseImei } from '../lib/units.js';
 import { getSettings } from '../lib/settings.js';
@@ -78,7 +78,7 @@ router.get('/:id', requireAuth, (req, res) => {
  * technician who needs it can be given it; a screen listing every phone in the
  * shop should not also list how to unlock them.
  */
-router.get('/:id/passcode', requireAuth, requireRole('admin'), (req, res) => {
+router.get('/:id/passcode', requireAuth, requirePermission('secrets'), (req, res) => {
   const ticket = db.prepare('SELECT * FROM repair_tickets WHERE id = ?').get(req.params.id);
   if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
   res.json({ passcode: decryptSecret(ticket.passcode_enc) });
@@ -229,7 +229,7 @@ router.post('/trade-ins', requireAuth, (req, res) => {
   }
 });
 
-router.get('/trade-ins/list', requireAuth, requireRole('admin'), (req, res) => {
+router.get('/trade-ins/list', requireAuth, requirePermission('repairs'), (req, res) => {
   const rows = db
     .prepare(
       `SELECT ti.*, u.imei, u.imei2, u.status AS unit_status, p.name AS product_name, us.name AS user_name
