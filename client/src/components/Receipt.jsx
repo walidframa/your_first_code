@@ -68,7 +68,7 @@ export default function Receipt({ receipt, onClose }) {
         </div>
         {rate > 0 && (
           <div className="flex justify-between text-xs">
-            <dt className="text-slate-400">Total in pounds</dt>
+            <dt className="text-slate-400">Total in LBP</dt>
             <dd className="tnum text-slate-500">{lbp(totalLbp)}</dd>
           </div>
         )}
@@ -82,7 +82,7 @@ export default function Receipt({ receipt, onClose }) {
             )}
             {order.paid_lbp > 0 && (
               <div className="flex justify-between">
-                <dt className="text-slate-500">Paid in pounds</dt>
+                <dt className="text-slate-500">Paid in LBP</dt>
                 <dd className="tnum text-slate-700">{lbp(order.paid_lbp)}</dd>
               </div>
             )}

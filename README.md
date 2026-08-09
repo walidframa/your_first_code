@@ -647,11 +647,18 @@ in cash, and **Cash in / Cash out** by hand with a reason — petty cash, an
 expense, wages, the owner taking money out, a run to the bank. Reasons come from
 a fixed list so a month's spending can actually be added up.
 
-**Closing is a blind count.** The drawer is counted note by note, and only then
-is the expected figure shown. Told the answer first, a tired cashier writes it
-down whether the money is there or not, and the one number the exercise exists
-to produce means nothing. Whatever is not left as tomorrow's float is recorded as
-going to the bank.
+**Closing counts the drawer against the app.** Count it note by note, or type
+the total straight in — plenty of shopkeepers counted it on the counter before
+opening the app, and making them enter it again a denomination at a time is how
+a count gets rushed. Either way it is the same figure, and counting notes fills
+the total in.
+
+For a cashier it is a **blind count**: the expected figure is withheld until the
+count is submitted, because told the answer first a tired cashier writes it down
+whether the money is there or not. Anyone with the `cashbox` permission already
+sees that figure on the panel behind the dialog, so for them the difference —
+matching, over or short, per currency — is shown **as they type**. Whatever is
+not left as tomorrow's float is recorded as going to the bank.
 
 Dollars and pounds are counted side by side and never converted into one
 another: a drawer is right or wrong in each currency independently, and folding

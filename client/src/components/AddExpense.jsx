@@ -102,7 +102,7 @@ export default function AddExpense({ onClose, onSaved }) {
             onChange={(e) => setUsd(e.target.value)}
           />
           <Input
-            label="Pounds"
+            label="Lebanese pounds (LBP)"
             name="amountLbp"
             type="number"
             min="0"

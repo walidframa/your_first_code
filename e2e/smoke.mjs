@@ -115,7 +115,7 @@ try {
     await page.click('button:has-text("Open the cashbox")');
     await page.waitForSelector('text=What is in the drawer to start with?', { timeout: 10000 });
     await page.getByLabel('Dollars').fill('100');
-    await page.getByLabel('Pounds').fill('2000000');
+    await page.getByLabel('Lebanese pounds (LBP)').fill('2000000');
     await page.click('button:has-text("Open cashbox")');
     await page.waitForSelector('text=Cash on hand', { timeout: 15000 });
   });
@@ -175,7 +175,7 @@ try {
   await shot('payment');
 
   await step('register shows the pound equivalent of the total', async () => {
-    await page.waitForSelector('text=In pounds');
+    await page.waitForSelector('text=In LBP');
     await page.waitForSelector('text=/1 USD = [\\d,]+ LL/');
   });
 
@@ -225,7 +225,7 @@ try {
     const dialog = page.locator('[role=dialog]');
     await dialog.getByRole('button', { name: 'All dollars' }).click();
     await page.waitForSelector('text=/Confirm · change \\$[\\d.]+$/');
-    await dialog.getByRole('button', { name: 'All pounds' }).click();
+    await dialog.getByRole('button', { name: 'All LBP' }).click();
     await page.waitForSelector('text=/Confirm · change [\\d,]+ LL/');
   });
 
@@ -239,7 +239,7 @@ try {
 
   await step('typing both figures stops the till overwriting either', async () => {
     const dialog = page.locator('[role=dialog]');
-    await dialog.getByRole('button', { name: 'Pounds back' }).click();
+    await dialog.getByRole('button', { name: 'LBP back' }).click();
     await dialog.getByRole('button', { name: '100k' }).click();
     // Two deliberate figures that do not cover the change are reported, not fixed.
     await page.waitForSelector('text=/\\$[\\d.]+ of \\$[\\d.]+ — \\$[\\d.]+ short/');
@@ -254,7 +254,7 @@ try {
     await page.click('button:has-text("Confirm · change")');
     await page.waitForSelector('text=Payment complete', { timeout: 15000 });
     await page.waitForSelector('text=/Give \\$5\\.00 \\+ [\\d,]+ LL change/');
-    await page.waitForSelector('text=Paid in pounds');
+    await page.waitForSelector('text=Paid in LBP');
   });
   await shot('receipt');
 
@@ -694,7 +694,7 @@ try {
   await step('label size and currency options change the sheet', async () => {
     await page.getByLabel('Label size').selectOption('small');
     await page.waitForTimeout(400);
-    await page.getByLabel('Show the price in pounds too').uncheck();
+    await page.getByLabel('Show the price in LBP too').uncheck();
     await page.waitForTimeout(300);
     if (await page.locator('.label-sheet').first().locator('text=/ LL/').count()) {
       throw new Error('pound prices still shown after unticking');
@@ -933,15 +933,24 @@ try {
     await page.click('button:has-text("Take out")');
     await page.waitForSelector('text=/taken out of the drawer/i', { timeout: 15000 });
 
-    // Counted note by note, with the expected figure withheld until it is in.
     await page.click('button[aria-label="Close the cashbox"]');
     await page.waitForSelector('text=Count what is in the drawer', { timeout: 10000 });
-    if (await page.locator('[role=dialog]').getByText('Expected').count()) {
-      throw new Error('the expected figure must not be visible while counting');
-    }
+
+    // Counting note by note fills the total in.
     await page.getByLabel('USD 100 notes').fill('1');
     await page.waitForSelector('[role=dialog] >> text=$100.00');
 
+    /*
+     * And the total can be typed straight in, which is what a shopkeeper who
+     * counted on the counter before opening the app actually wants. Whoever is
+     * trusted with the till's history sees the difference as they type.
+     */
+    const dialog = page.locator('[role=dialog]');
+    await dialog.locator('#countedUsd').fill('120');
+    await dialog.locator('text=Against the app').waitFor();
+    await dialog.locator('text=/over|short|matches/').first().waitFor();
+
+    await dialog.locator('#countedUsd').fill('100');
     await page.click('button:has-text("Close and check")');
     await page.waitForSelector('text=How the drawer came out', { timeout: 15000 });
     await page.waitForSelector('[role=dialog] >> text=Expected');
@@ -1098,6 +1107,7 @@ try {
     await page.waitForSelector('text=/Money sent and paid out/', { timeout: 15000 });
   });
 
+
   await step('a transfer moves the drawer with it', async () => {
     // The desk takes real money, so the drawer has to be open to take it into.
     await page.click('button:has-text("Open the cashbox")');
@@ -1105,6 +1115,8 @@ try {
     await page.getByLabel('Dollars').fill('100');
     await page.click('button:has-text("Open cashbox")');
     await page.waitForSelector('text=Cash on hand', { timeout: 15000 });
+    // An operator counts blind: the figure is withheld until the close.
+    await page.waitForSelector('text=Counted at close');
 
     await page.click('button:has-text("New transfer")');
     await page.waitForSelector('[role=dialog] >> text=Send a transfer', { timeout: 10000 });

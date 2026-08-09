@@ -649,7 +649,7 @@ export default function Checkout() {
             </div>
             {rate > 0 && (
               <div className="flex items-baseline justify-between">
-                <dt className="text-xs text-slate-400">In pounds</dt>
+                <dt className="text-xs text-slate-400">In LBP</dt>
                 <dd className="tnum text-base font-medium text-slate-600">{lbp(toLbp(total))}</dd>
               </div>
             )}

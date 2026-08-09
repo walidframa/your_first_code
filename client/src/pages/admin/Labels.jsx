@@ -265,7 +265,7 @@ export default function Labels() {
                   onChange={(e) => setShowLbp(e.target.checked)}
                   className="h-4 w-4 rounded border-slate-300 accent-brand-600"
                 />
-                Show the price in pounds too
+                Show the price in LBP too
               </label>
             </Card>
 

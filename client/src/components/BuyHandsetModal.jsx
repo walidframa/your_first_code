@@ -188,7 +188,7 @@ export default function BuyHandsetModal({ onClose, onSaved }) {
           onChange={set('paidUsd')}
         />
         <Input
-          label="Paid in pounds"
+          label="Paid in LBP"
           type="number"
           step="1000"
           min="0"

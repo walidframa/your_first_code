@@ -353,7 +353,7 @@ export default function PaymentSheet({ open, total, customer, onClose, onConfirm
                     onClick={allInPounds}
                     className="rounded-lg bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-200"
                   >
-                    All pounds
+                    All LBP
                   </button>
                 </span>
               </div>
@@ -367,7 +367,7 @@ export default function PaymentSheet({ open, total, customer, onClose, onConfirm
                   <div className="grid grid-cols-2 gap-2">
                     {[
                       { field: 'CHANGE_USD', label: 'Dollars back', display: money(splitUsd) },
-                      { field: 'CHANGE_LBP', label: 'Pounds back', display: lbp(splitLbp) },
+                      { field: 'CHANGE_LBP', label: 'LBP back', display: lbp(splitLbp) },
                     ].map((f) => {
                       const isSuggested =
                         suggestion.suggested === (f.field === 'CHANGE_USD' ? 'usd' : 'lbp');
