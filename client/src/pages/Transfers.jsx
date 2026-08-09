@@ -214,7 +214,7 @@ function TransferDialog({ companies, tillId, tillName, onClose, onSaved }) {
               onChange={(e) => setAmountUsd(e.target.value)}
             />
             <Input
-              label="Pounds"
+              label="Lebanese pounds (LBP)"
               name="amountLbp"
               type="number"
               min="0"
@@ -240,7 +240,7 @@ function TransferDialog({ companies, tillId, tillName, onClose, onSaved }) {
               onChange={(e) => setFeeUsd(e.target.value)}
             />
             <Input
-              label="Pounds"
+              label="Lebanese pounds (LBP)"
               name="feeLbp"
               type="number"
               min="0"

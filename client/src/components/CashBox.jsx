@@ -33,7 +33,7 @@ function DenominationCounter({ currency, notes, counts, onChange, total }) {
     <div className="rounded-xl p-3 ring-1 ring-slate-200">
       {/* Named, because side by side the two grids otherwise read as one. */}
       <p className="mb-2 text-xs font-medium tracking-wide text-slate-500 uppercase">
-        {currency === 'USD' ? 'Dollars' : 'Pounds'}
+        {currency === 'USD' ? 'Dollars' : 'LBP'}
       </p>
       <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
         {notes.map((note) => (
@@ -66,6 +66,10 @@ function DenominationCounter({ currency, notes, counts, onChange, total }) {
 
 const sumNotes = (counts) =>
   Object.entries(counts).reduce((sum, [note, n]) => sum + Number(note) * (Number(n) || 0), 0);
+
+/* Cents, not floating-point dust: $20.10 counted against $20.10 must read as
+   matching rather than as three ten-thousandths over. */
+const round2 = (n) => Math.round(n * 100) / 100;
 
 /* ------------------------------------------------------------------- open */
 
@@ -116,7 +120,7 @@ function OpenDrawer({ denominations, accountId, onClose, onOpened }) {
             onChange={(e) => setUsd(e.target.value)}
           />
           <Input
-            label="Pounds"
+            label="Lebanese pounds (LBP)"
             name="openingLbp"
             type="number"
             min="0"
@@ -153,14 +157,33 @@ function OpenDrawer({ denominations, accountId, onClose, onOpened }) {
 /* ------------------------------------------------------------------ close */
 
 /**
- * Closing is a blind count: the drawer is counted first, and only then is the
- * expected figure shown. Told the answer first, the count stops being a check
- * on anything.
+ * Closing a till.
+ *
+ * The drawer can be counted note by note or the total typed straight in —
+ * plenty of shopkeepers counted it on the counter before opening the app, and
+ * making them enter it again a denomination at a time is how a count gets
+ * rushed. Either way it is the same figure, and counting notes fills the total
+ * in.
+ *
+ * For a cashier it is a **blind** count: told what the drawer should hold, the
+ * count stops being a check on anything and becomes a number to copy. Whoever
+ * is trusted with the till's history already sees that figure on the panel
+ * behind this dialog, so for them the difference is shown as they type — which
+ * is the question they opened the dialog to answer.
  */
-function CloseDrawer({ denominations, accountId, onClose, onClosed }) {
+function CloseDrawer({ denominations, accountId, expected, onClose, onClosed }) {
   const toast = useToast();
   const [usdNotes, setUsdNotes] = useState({});
   const [lbpNotes, setLbpNotes] = useState({});
+  /*
+   * What is actually in the drawer, as one figure per currency.
+   *
+   * Counting note by note fills these in, but plenty of shopkeepers already
+   * know their total — they counted it on the counter before opening the app —
+   * and making them re-enter it note by note is how a count gets rushed.
+   */
+  const [totalUsd, setTotalUsd] = useState('');
+  const [totalLbp, setTotalLbp] = useState('');
   const [carryUsd, setCarryUsd] = useState('');
   const [carryLbp, setCarryLbp] = useState('');
   const [note, setNote] = useState('');
@@ -168,8 +191,27 @@ function CloseDrawer({ denominations, accountId, onClose, onClosed }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
-  const countedUsd = sumNotes(usdNotes);
-  const countedLbp = sumNotes(lbpNotes);
+  const countedUsd = Number(totalUsd) || 0;
+  const countedLbp = Number(totalLbp) || 0;
+
+  /* Counting notes writes the total; the total stays editable on its own. */
+  function countUsdNotes(next) {
+    setUsdNotes(next);
+    setTotalUsd(String(sumNotes(next)));
+  }
+  function countLbpNotes(next) {
+    setLbpNotes(next);
+    setTotalLbp(String(sumNotes(next)));
+  }
+
+  /*
+   * The difference, live — but only for somebody who is already allowed to see
+   * what the till should hold. A cashier counts blind, because a figure shown
+   * before the count is a figure that gets copied rather than counted.
+   */
+  const difference = expected
+    ? { usd: round2(countedUsd - expected.usd), lbp: Math.round(countedLbp - expected.lbp) }
+    : null;
 
   async function submit(e) {
     e.preventDefault();
@@ -197,7 +239,7 @@ function CloseDrawer({ denominations, accountId, onClose, onClosed }) {
     const { session } = result;
     const rows = [
       ['Dollars', session.expected_usd, session.counted_usd, session.over_short_usd, money],
-      ['Pounds', session.expected_lbp, session.counted_lbp, session.over_short_lbp, lbp],
+      ['Lebanese pounds', session.expected_lbp, session.counted_lbp, session.over_short_lbp, lbp],
     ];
 
     return (
@@ -252,26 +294,92 @@ function CloseDrawer({ denominations, accountId, onClose, onClosed }) {
       size="lg"
     >
       <form onSubmit={submit} className="space-y-4">
-        <p className="rounded-xl bg-slate-50 px-3 py-2.5 text-sm text-slate-600">
-          Count the drawer before you see what it should hold — that is the only way the difference tells
-          you anything.
-        </p>
+        {!expected && (
+          <p className="rounded-xl bg-slate-50 px-3 py-2.5 text-sm text-slate-600">
+            Count the drawer before you see what it should hold — that is the only way the difference
+            tells you anything.
+          </p>
+        )}
 
         <div className="grid grid-cols-2 gap-6">
           <DenominationCounter
             currency="USD"
             notes={denominations?.USD || []}
             counts={usdNotes}
-            onChange={setUsdNotes}
-            total={countedUsd}
+            onChange={countUsdNotes}
+            total={sumNotes(usdNotes)}
           />
           <DenominationCounter
             currency="LBP"
             notes={denominations?.LBP || []}
             counts={lbpNotes}
-            onChange={setLbpNotes}
-            total={countedLbp}
+            onChange={countLbpNotes}
+            total={sumNotes(lbpNotes)}
           />
+        </div>
+
+        <div>
+          <p className="mb-1.5 text-sm font-medium text-slate-700">
+            What is actually in the drawer
+          </p>
+          <div className="grid grid-cols-2 gap-3">
+            <Input
+              label="Dollars"
+              name="countedUsd"
+              type="number"
+              min="0"
+              step="0.01"
+              placeholder="0.00"
+              value={totalUsd}
+              onChange={(e) => setTotalUsd(e.target.value)}
+              hint="Counted above, or type it straight in"
+            />
+            <Input
+              label="Lebanese pounds (LBP)"
+              name="countedLbp"
+              type="number"
+              min="0"
+              step="1000"
+              placeholder="0"
+              value={totalLbp}
+              onChange={(e) => setTotalLbp(e.target.value)}
+              hint="Counted above, or type it straight in"
+            />
+          </div>
+
+          {/* Whether the drawer agrees with the app, before it is committed. */}
+          {difference && (
+            <div className="mt-3 rounded-xl bg-slate-50 p-3">
+              <p className="mb-2 text-xs font-medium tracking-wide text-slate-500 uppercase">
+                Against the app
+              </p>
+              <dl className="space-y-1.5 text-sm">
+                {[
+                  ['Dollars', expected.usd, countedUsd, difference.usd, money],
+                  ['Lebanese pounds', expected.lbp, countedLbp, difference.lbp, lbp],
+                ].map(([text, should, have, diff, format]) => (
+                  <div key={text} className="flex items-baseline justify-between gap-3">
+                    <dt className="text-slate-500">
+                      {text}
+                      <span className="ml-2 text-xs text-slate-400">
+                        app says {format(should)}, you counted {format(have)}
+                      </span>
+                    </dt>
+                    <dd
+                      className={cx(
+                        'tnum shrink-0 font-semibold',
+                        diff === 0 ? 'text-brand-700' : diff < 0 ? 'text-red-600' : 'text-amber-600',
+                      )}
+                    >
+                      {diff === 0
+                        ? 'matches'
+                        : `${diff > 0 ? '+' : ''}${format(diff)} ${diff > 0 ? 'over' : 'short'}`}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
+          )}
         </div>
 
         <div>
@@ -288,7 +396,7 @@ function CloseDrawer({ denominations, accountId, onClose, onClosed }) {
               onChange={(e) => setCarryUsd(e.target.value)}
             />
             <Input
-              label="Pounds"
+              label="Lebanese pounds (LBP)"
               name="carryLbp"
               type="number"
               min="0"
@@ -387,7 +495,7 @@ function MoveCash({ direction, accountId, onClose, onDone }) {
             onChange={(e) => setUsd(e.target.value)}
           />
           <Input
-            label="Pounds"
+            label="Lebanese pounds (LBP)"
             name="amountLbp"
             type="number"
             min="0"
@@ -588,6 +696,7 @@ export default function CashBox({ onChanged, refreshOn = 0, accountId = null }) 
         <CloseDrawer
           denominations={denominations}
           accountId={accountId}
+          expected={state?.expected ?? null}
           onClose={() => setDialog(null)}
           onClosed={done}
         />

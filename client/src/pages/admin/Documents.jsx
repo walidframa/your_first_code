@@ -536,7 +536,7 @@ function DocumentForm({ existing, onClose, onSaved }) {
               </div>
               {rate > 0 && (
                 <div className="flex justify-between text-xs">
-                  <dt className="text-slate-400">In pounds</dt>
+                  <dt className="text-slate-400">In LBP</dt>
                   <dd className="tnum text-slate-500">{lbp(toLbp(total))}</dd>
                 </div>
               )}
@@ -857,7 +857,7 @@ function DocumentDetail({ id, onClose, onChanged, onDeleted }) {
         </div>
         {rate > 0 && (
           <div className="flex justify-between text-xs">
-            <dt className="text-slate-400">In pounds</dt>
+            <dt className="text-slate-400">In LBP</dt>
             <dd className="tnum text-slate-500">{lbp(toLbp(doc.total))}</dd>
           </div>
         )}
@@ -867,7 +867,7 @@ function DocumentDetail({ id, onClose, onChanged, onDeleted }) {
             <div className="flex justify-between border-t border-slate-100 pt-1">
               <dt className="text-slate-500">
                 Paid {doc.payment_method}
-                {doc.paid_lbp > 0 && doc.paid_usd > 0 && ' (part in pounds)'}
+                {doc.paid_lbp > 0 && doc.paid_usd > 0 && ' (part in LBP)'}
               </dt>
               <dd className="tnum text-slate-700">−{money(doc.paid_total)}</dd>
             </div>

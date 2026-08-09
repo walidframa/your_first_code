@@ -250,7 +250,7 @@ function VoucherDialog({ meta, onClose, onSaved }) {
             autoFocus
           />
           <Input
-            label="Pounds"
+            label="Lebanese pounds (LBP)"
             name="amountLbp"
             type="number"
             min="0"
