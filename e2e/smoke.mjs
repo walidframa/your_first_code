@@ -548,7 +548,7 @@ try {
   });
 
   await step('a held account is found and its password revealed to an admin', async () => {
-    await page.click('a[title="Accounts"]');
+    await page.click('a[title="Logins"]');
     await page.waitForSelector('text=Search for a customer', { timeout: 15000 });
 
     // Whatever the customer remembers: here, the number they called from.
@@ -1157,17 +1157,20 @@ try {
     await page.waitForSelector('text=/Money paid out and taken in/', { timeout: 15000 });
 
     await page.click('button:has-text("New voucher")');
-    await page.waitForSelector('[role=dialog] >> text=Payment voucher', { timeout: 10000 });
+    await page.waitForSelector('[role=dialog] >> text=New voucher', { timeout: 10000 });
     const dialog = page.locator('[role=dialog]');
 
-    await dialog.getByLabel('Paying what kind of account').selectOption('other');
-    await dialog.locator('#accountName').fill('Abu Khalil the landlord');
+    // From the shop's own till, to somebody who is on no list.
+    await dialog.getByLabel('To — what kind').selectOption('other');
+    await dialog.getByLabel('To — name').fill('Abu Khalil the landlord');
     await dialog.locator('#amountUsd').fill('300');
     await dialog.getByLabel('What for').selectOption('rent');
     await dialog.locator('#note').fill('August rent');
 
-    await dialog.locator('text=Out of the drawer').waitFor();
-    await dialog.getByRole('button', { name: 'Pay it out' }).click();
+    // The sentence it amounts to, before it is written.
+    await dialog.locator('text=Paid out').waitFor();
+    await dialog.locator('text=/Main drawer → Abu Khalil/').waitFor();
+    await dialog.getByRole('button', { name: 'Record it' }).click();
 
     // Straight to the slip, because a voucher exists to be signed.
     await page.waitForSelector('text=PV-0001', { timeout: 15000 });
@@ -1179,16 +1182,29 @@ try {
 
   await step('a receipt voucher takes money in, on its own numbering', async () => {
     await page.click('button:has-text("New voucher")');
-    await page.waitForSelector('[role=dialog] >> text=Payment voucher', { timeout: 10000 });
+    await page.waitForSelector('[role=dialog] >> text=New voucher', { timeout: 10000 });
     const dialog = page.locator('[role=dialog]');
 
-    await dialog.getByRole('button', { name: /Receiving/ }).click();
-    await page.waitForSelector('[role=dialog] >> text=Receipt voucher');
-    await dialog.getByLabel('Received from').selectOption('customer');
-    await dialog.getByLabel('Which one').selectOption({ label: 'Rami Haddad' });
+    /*
+     * Picked by value rather than by label: each option carries the account's
+     * balance after its name, so the visible text is not a fixed string.
+     */
+    const optionValue = async (label, name) => {
+      const option = dialog.locator(`select[aria-label="${label}"] option`, { hasText: name });
+      return option.first().getAttribute('value');
+    };
+
+    await dialog.getByLabel('From — what kind').selectOption('customer');
+    await dialog
+      .getByLabel('From — which one')
+      .selectOption(await optionValue('From — which one', 'Rami Haddad'));
+    await dialog.getByLabel('To — what kind').selectOption('cash');
+    await dialog
+      .getByLabel('To — which one')
+      .selectOption(await optionValue('To — which one', 'Main drawer'));
     await dialog.locator('#amountUsd').fill('25');
-    await dialog.locator('text=Into the drawer').waitFor();
-    await dialog.getByRole('button', { name: 'Take it in' }).click();
+    await dialog.locator('text=Taken in').waitFor();
+    await dialog.getByRole('button', { name: 'Record it' }).click();
 
     await page.waitForSelector('text=RV-0001', { timeout: 15000 });
     await closeDialog();
@@ -1198,17 +1214,39 @@ try {
     await page.waitForSelector('text=Taken in');
   });
 
+  await step('the accounts screen answers who owes what, and names the tills', async () => {
+    await page.click('button[aria-label="Log out"]');
+    await page.waitForSelector('text=Demo accounts');
+    await page.click('button:has-text("Admin")');
+    await page.waitForSelector('text=Current sale', { timeout: 15000 });
+
+    await page.click('a[title="Accounts"]');
+    await page.waitForSelector('text=/everything owed to it/', { timeout: 15000 });
+    await page.waitForSelector('text=In the tills');
+    await page.waitForSelector('text=Owed to you');
+    await page.waitForSelector('text=You owe');
+
+    // The four kinds, with the one that has no screen of its own managed here.
+    await page.waitForSelector('text=Cash accounts');
+    await page.waitForSelector('text=Main drawer');
+    await page.waitForSelector('text=Wallets');
+
+    await page.getByRole('button', { name: 'New cash account' }).click();
+    await page.waitForSelector('[role=dialog] >> text=New cash account', { timeout: 10000 });
+    await page.locator('[role=dialog] #name').fill('Back safe');
+    await page.locator('[role=dialog]').getByLabel('What it is').selectOption('safe');
+    await page.locator('[role=dialog]').getByRole('button', { name: 'Add account' }).click();
+    await page.waitForSelector('text=Back safe added', { timeout: 15000 });
+    await page.waitForSelector('td:has-text("Back safe")');
+  });
+  await shot('accounts');
+
   await step('the drawer carries every one of them', async () => {
     /*
      * Checked from the back office, because the operator counts blind: the
      * expected figure is withheld at the counter so the closing count means
      * something. It is the till ledger that has to be right, and it is.
      */
-    await page.click('button[aria-label="Log out"]');
-    await page.waitForSelector('text=Demo accounts');
-    await page.click('button:has-text("Admin")');
-    await page.waitForSelector('text=Current sale', { timeout: 15000 });
-
     await page.click('a[title="Cashbox"]');
     await page.waitForSelector('text=Every sitting of the till', { timeout: 15000 });
     await page.click('tbody tr >> nth=0');

@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
+import { listAccounts as listCashAccounts } from '../lib/cashAccounts.js';
 import {
   TRANSFER_COMPANIES,
   TRANSFER_DIRECTIONS,
@@ -16,7 +17,13 @@ const router = Router();
 const desk = [requireAuth, requirePermission('transfers')];
 
 router.get('/meta', ...desk, (req, res) => {
-  res.json({ companies: TRANSFER_COMPANIES, directions: TRANSFER_DIRECTIONS });
+  // The desk's own till is picked here rather than assumed: a transfer counter
+  // with its own float is the whole reason tills are named.
+  res.json({
+    companies: TRANSFER_COMPANIES,
+    directions: TRANSFER_DIRECTIONS,
+    tills: listCashAccounts({ activeOnly: true }),
+  });
 });
 
 /**

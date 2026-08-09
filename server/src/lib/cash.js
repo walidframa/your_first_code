@@ -1,10 +1,14 @@
 /**
- * The cash drawer.
+ * The cash drawers.
  *
- * One open session at a time. Everything that moves physical money records a
- * movement against it, so at any moment the till's expected contents is the
- * opening float plus the movements — a figure that can be checked against a
- * count rather than trusted.
+ * One open session at a time *per till*. A shop with a register, a transfer
+ * desk and a safe has three piles of money, counted by different people at
+ * different times; one figure covering all of them is a figure nobody can
+ * check. So a sitting belongs to a till, and so does every movement.
+ *
+ * Everything that moves physical money records a movement, so at any moment a
+ * till's expected contents is its opening float plus its movements — a figure
+ * that can be checked against a count rather than trusted.
  *
  * Dollars and pounds are tracked side by side, never converted into one
  * another. A drawer holding $100 and 2,000,000 LL is right or wrong in each
@@ -37,23 +41,38 @@ export const DENOMINATIONS = {
   LBP: [100000, 50000, 20000, 10000, 5000, 1000],
 };
 
-export function currentSession() {
+/**
+ * The till everything falls back to.
+ *
+ * Every caller that does not care which drawer — a sale at the register, a
+ * supplier paid from the back office — gets this one, which is what lets tills
+ * be added without touching any of them.
+ */
+export function defaultAccountId() {
+  return db.prepare('SELECT id FROM cash_accounts WHERE is_default = 1').get()?.id ?? null;
+}
+
+export function currentSession(accountId = null) {
+  const id = accountId ?? defaultAccountId();
   return db
     .prepare(
-      `SELECT s.*, u.name AS opened_by_name
-       FROM cash_sessions s LEFT JOIN users u ON u.id = s.opened_by
-       WHERE s.status = 'open' ORDER BY s.id DESC LIMIT 1`,
+      `SELECT s.*, u.name AS opened_by_name, a.name AS account_name
+       FROM cash_sessions s
+       LEFT JOIN users u ON u.id = s.opened_by
+       LEFT JOIN cash_accounts a ON a.id = s.account_id
+       WHERE s.status = 'open' AND s.account_id = ? ORDER BY s.id DESC LIMIT 1`,
     )
-    .get();
+    .get(id);
 }
 
 export function sessionById(id) {
   return db
     .prepare(
-      `SELECT s.*, u.name AS opened_by_name, c.name AS closed_by_name
+      `SELECT s.*, u.name AS opened_by_name, c.name AS closed_by_name, a.name AS account_name
        FROM cash_sessions s
        LEFT JOIN users u ON u.id = s.opened_by
        LEFT JOIN users c ON c.id = s.closed_by
+       LEFT JOIN cash_accounts a ON a.id = s.account_id
        WHERE s.id = ?`,
     )
     .get(id);
@@ -70,8 +89,9 @@ export function requiresSession() {
  * petty cash put in now. Recording it as a movement rather than only a column
  * means the drawer's contents is one sum from one place.
  */
-export function openSession({ userId, openingUsd = 0, openingLbp = 0, note = null }) {
-  if (currentSession()) throw new Error('The cashbox is already open');
+export function openSession({ userId, openingUsd = 0, openingLbp = 0, note = null, accountId = null }) {
+  const account = accountId ?? defaultAccountId();
+  if (currentSession(account)) throw new Error('That cashbox is already open');
 
   const usd = round2(Number(openingUsd) || 0);
   const lbp = Math.round(Number(openingLbp) || 0);
@@ -82,16 +102,16 @@ export function openSession({ userId, openingUsd = 0, openingLbp = 0, note = nul
   return transaction(() => {
     const info = db
       .prepare(
-        `INSERT INTO cash_sessions (opened_by, opening_usd, opening_lbp, opening_note, exchange_rate)
-         VALUES (?, ?, ?, ?, ?)`,
+        `INSERT INTO cash_sessions (account_id, opened_by, opening_usd, opening_lbp, opening_note, exchange_rate)
+         VALUES (?, ?, ?, ?, ?, ?)`,
       )
-      .run(userId, usd, lbp, note || null, rate);
+      .run(account, userId, usd, lbp, note || null, rate);
 
     if (usd > 0 || lbp > 0) {
       db.prepare(
-        `INSERT INTO cash_movements (session_id, kind, amount_usd, amount_lbp, reason, note, user_id)
-         VALUES (?, 'opening_float', ?, ?, 'petty_cash', ?, ?)`,
-      ).run(info.lastInsertRowid, usd, lbp, note || 'Opening float', userId);
+        `INSERT INTO cash_movements (session_id, account_id, kind, amount_usd, amount_lbp, reason, note, user_id)
+         VALUES (?, ?, 'opening_float', ?, ?, 'petty_cash', ?, ?)`,
+      ).run(info.lastInsertRowid, account, usd, lbp, note || 'Opening float', userId);
     }
 
     return sessionById(info.lastInsertRowid);
@@ -116,21 +136,23 @@ export function recordMovement({
   documentId = null,
   userId = null,
   sessionId = null,
+  accountId = null,
 }) {
   const usd = round2(Number(amountUsd) || 0);
   const lbp = Math.round(Number(amountLbp) || 0);
   if (usd === 0 && lbp === 0) return null;
 
-  const session = sessionId ? { id: sessionId } : currentSession();
+  const account = accountId ?? defaultAccountId();
+  const session = sessionId ? sessionById(sessionId) : currentSession(account);
   if (!session) return null;
 
   const info = db
     .prepare(
       `INSERT INTO cash_movements
-         (session_id, kind, amount_usd, amount_lbp, reason, note, order_id, document_id, user_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (session_id, account_id, kind, amount_usd, amount_lbp, reason, note, order_id, document_id, user_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
-    .run(session.id, kind, usd, lbp, reason, note, orderId, documentId, userId);
+    .run(session.id, session.account_id ?? account, kind, usd, lbp, reason, note, orderId, documentId, userId);
 
   return info.lastInsertRowid;
 }
@@ -304,17 +326,19 @@ export function closeSession({
   })();
 }
 
-export function listSessions(limit = 50) {
+export function listSessions(limit = 50, accountId = null) {
   return db
     .prepare(
-      `SELECT s.*, u.name AS opened_by_name, c.name AS closed_by_name,
+      `SELECT s.*, u.name AS opened_by_name, c.name AS closed_by_name, a.name AS account_name,
               (SELECT COUNT(*) FROM cash_movements m WHERE m.session_id = s.id) AS movement_count
        FROM cash_sessions s
        LEFT JOIN users u ON u.id = s.opened_by
        LEFT JOIN users c ON c.id = s.closed_by
+       LEFT JOIN cash_accounts a ON a.id = s.account_id
+       WHERE (? IS NULL OR s.account_id = ?)
        ORDER BY s.opened_at DESC, s.id DESC LIMIT ?`,
     )
-    .all(Math.min(Number(limit) || 50, 200));
+    .all(accountId, accountId, Math.min(Number(limit) || 50, 200));
 }
 
 /** Total a count entered note by note, e.g. { "50000": 3, "10000": 2 }. */

@@ -792,6 +792,152 @@ function migrateCashMovementKinds() {
 migrateCashMovementKinds();
 
 /*
+ * The shop's own cash accounts.
+ *
+ * One drawer was enough while there was one counter. It stops being enough the
+ * moment a transfer desk runs out of its own float and a safe sits in the back:
+ * three piles of money, counted by different people at different times, and a
+ * single figure covering all of them is a figure nobody can check.
+ *
+ * So a till is a named account. Sessions and movements belong to one, which is
+ * what lets the transfer desk close and count at six while the register is
+ * still trading.
+ */
+db.exec(`
+  CREATE TABLE IF NOT EXISTS cash_accounts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    kind TEXT NOT NULL DEFAULT 'drawer' CHECK (kind IN ('drawer', 'desk', 'safe', 'bank', 'other')),
+    /* The one every screen falls back to, and the one an upgrade puts the
+       existing drawer's history into. Exactly one row carries it. */
+    is_default INTEGER NOT NULL DEFAULT 0,
+    note TEXT,
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+`);
+
+/*
+ * Which till a sitting and a movement belong to.
+ *
+ * Nullable on the way in and then backfilled: everything recorded before there
+ * were several tills happened at the one there was.
+ */
+addColumn('cash_sessions', 'account_id', 'INTEGER REFERENCES cash_accounts(id)');
+addColumn('cash_movements', 'account_id', 'INTEGER REFERENCES cash_accounts(id)');
+
+function seedDefaultCashAccount() {
+  const existing = db.prepare('SELECT id FROM cash_accounts WHERE is_default = 1').get();
+  const id =
+    existing?.id ??
+    db
+      .prepare("INSERT INTO cash_accounts (name, kind, is_default) VALUES ('Main drawer', 'drawer', 1)")
+      .run().lastInsertRowid;
+
+  // Everything that happened before tills were named happened at this one.
+  db.prepare('UPDATE cash_sessions SET account_id = ? WHERE account_id IS NULL').run(id);
+  db.prepare('UPDATE cash_movements SET account_id = ? WHERE account_id IS NULL').run(id);
+  return id;
+}
+
+seedDefaultCashAccount();
+
+db.exec(`
+  CREATE INDEX IF NOT EXISTS idx_cash_sessions_account ON cash_sessions(account_id, status);
+  CREATE INDEX IF NOT EXISTS idx_cash_movements_account ON cash_movements(account_id, created_at);
+`);
+
+/*
+ * Vouchers written before both ends were named.
+ *
+ * They recorded one account and a direction, which is the same fact expressed
+ * with the shop's own till left implicit. Rebuilt with both sides spelled out,
+ * putting the till on whichever end the money came from or went to.
+ */
+function migrateVouchersToTwoSides() {
+  const row = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'vouchers'").get();
+  if (!row?.sql || row.sql.includes('from_type')) return;
+
+  const till = db.prepare('SELECT id, name FROM cash_accounts WHERE is_default = 1').get();
+
+  db.exec('PRAGMA foreign_keys = OFF');
+  db.exec('BEGIN');
+  try {
+    db.exec('ALTER TABLE vouchers RENAME TO vouchers_old');
+    db.exec(`
+      CREATE TABLE vouchers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        voucher_number TEXT UNIQUE NOT NULL,
+        kind TEXT NOT NULL CHECK (kind IN ('payment', 'receipt', 'transfer')),
+        from_type TEXT NOT NULL CHECK (from_type IN ('cash', 'wallet', 'customer', 'supplier', 'other')),
+        from_id INTEGER,
+        from_name TEXT NOT NULL,
+        to_type TEXT NOT NULL CHECK (to_type IN ('cash', 'wallet', 'customer', 'supplier', 'other')),
+        to_id INTEGER,
+        to_name TEXT NOT NULL,
+        amount_usd REAL NOT NULL DEFAULT 0,
+        amount_lbp REAL NOT NULL DEFAULT 0,
+        exchange_rate REAL,
+        reason TEXT,
+        note TEXT,
+        reference TEXT,
+        status TEXT NOT NULL DEFAULT 'posted' CHECK (status IN ('posted', 'cancelled')),
+        cash_movement_id INTEGER REFERENCES cash_movements(id),
+        entry_id INTEGER REFERENCES account_entries(id),
+        user_id INTEGER REFERENCES users(id),
+        issued_on TEXT NOT NULL DEFAULT (date('now')),
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        cancelled_at TEXT
+      )
+    `);
+
+    /*
+     * A payment left the till and went to the account named; a receipt came
+     * from it. A voucher settled by bank had no till behind it, and is
+     * recorded as coming from or going to a named "Bank" instead of pretending
+     * the drawer moved.
+     */
+    db.prepare(
+      `INSERT INTO vouchers (
+         id, voucher_number, kind, from_type, from_id, from_name, to_type, to_id, to_name,
+         amount_usd, amount_lbp, exchange_rate, reason, note, reference, status,
+         cash_movement_id, entry_id, user_id, issued_on, created_at, cancelled_at
+       )
+       SELECT
+         id, voucher_number, kind,
+         CASE WHEN kind = 'payment' THEN (CASE WHEN method = 'cash' THEN 'cash' ELSE 'other' END)
+              ELSE account_type END,
+         CASE WHEN kind = 'payment' THEN (CASE WHEN method = 'cash' THEN ? ELSE NULL END)
+              ELSE account_id END,
+         CASE WHEN kind = 'payment' THEN (CASE WHEN method = 'cash' THEN ? ELSE method END)
+              ELSE account_name END,
+         CASE WHEN kind = 'payment' THEN account_type
+              ELSE (CASE WHEN method = 'cash' THEN 'cash' ELSE 'other' END) END,
+         CASE WHEN kind = 'payment' THEN account_id
+              ELSE (CASE WHEN method = 'cash' THEN ? ELSE NULL END) END,
+         CASE WHEN kind = 'payment' THEN account_name
+              ELSE (CASE WHEN method = 'cash' THEN ? ELSE method END) END,
+         amount_usd, amount_lbp, exchange_rate, reason, note, reference, status,
+         cash_movement_id, entry_id, user_id, issued_on, created_at, cancelled_at
+       FROM vouchers_old`,
+    ).run(till.id, till.name, till.id, till.name);
+
+    db.exec('DROP TABLE vouchers_old');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_vouchers_created ON vouchers(created_at)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_vouchers_from ON vouchers(from_type, from_id)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_vouchers_to ON vouchers(to_type, to_id)');
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  } finally {
+    db.exec('PRAGMA foreign_keys = ON');
+  }
+}
+
+migrateVouchersToTwoSides();
+
+/*
  * Payment and receipt vouchers.
  *
  * The two movements of money that are not a sale and not a purchase: the shop
@@ -815,16 +961,22 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS vouchers (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     voucher_number TEXT UNIQUE NOT NULL,
-    kind TEXT NOT NULL CHECK (kind IN ('payment', 'receipt')),
-    account_type TEXT NOT NULL CHECK (account_type IN ('customer', 'supplier', 'wallet', 'other')),
-    account_id INTEGER,
-    /* Copied, not joined: the slip printed today must still read the same after
-       the contact is renamed or archived. */
-    account_name TEXT NOT NULL,
+    /* Derived from the two sides rather than chosen: money leaving one of the
+       shop's own accounts for somebody else is a payment, the reverse is a
+       receipt, and between two of its own it is neither. */
+    kind TEXT NOT NULL CHECK (kind IN ('payment', 'receipt', 'transfer')),
+    /* Where the money came from and where it went. Either side may be one of
+       the shop's own accounts (a till, a wallet) or somebody else's (a
+       customer, a supplier, a name typed in words). */
+    from_type TEXT NOT NULL CHECK (from_type IN ('cash', 'wallet', 'customer', 'supplier', 'other')),
+    from_id INTEGER,
+    from_name TEXT NOT NULL,
+    to_type TEXT NOT NULL CHECK (to_type IN ('cash', 'wallet', 'customer', 'supplier', 'other')),
+    to_id INTEGER,
+    to_name TEXT NOT NULL,
     amount_usd REAL NOT NULL DEFAULT 0,
     amount_lbp REAL NOT NULL DEFAULT 0,
     exchange_rate REAL,
-    method TEXT NOT NULL DEFAULT 'cash' CHECK (method IN ('cash', 'bank', 'card', 'other')),
     reason TEXT,
     note TEXT,
     reference TEXT,
@@ -838,8 +990,16 @@ db.exec(`
   );
 
   CREATE INDEX IF NOT EXISTS idx_vouchers_created ON vouchers(created_at);
-  CREATE INDEX IF NOT EXISTS idx_vouchers_account ON vouchers(account_type, account_id);
+  CREATE INDEX IF NOT EXISTS idx_vouchers_from ON vouchers(from_type, from_id);
+  CREATE INDEX IF NOT EXISTS idx_vouchers_to ON vouchers(to_type, to_id);
 `);
+
+
+/* Which till a transfer's money passed through. */
+addColumn('transfers', 'account_id', 'INTEGER REFERENCES cash_accounts(id)');
+db.prepare(
+  'UPDATE transfers SET account_id = (SELECT id FROM cash_accounts WHERE is_default = 1) WHERE account_id IS NULL',
+).run();
 
 /*
  * Float accounts, for the things the shop sells that were never on a shelf.

@@ -1,13 +1,10 @@
 import { Router } from 'express';
-import { db } from '../db.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
-import { listWallets } from '../lib/wallets.js';
+import { accountRegistry } from '../lib/registry.js';
 import {
   ACCOUNT_TYPES,
-  PAYMENT_REASONS,
-  RECEIPT_REASONS,
   VOUCHER_KINDS,
-  VOUCHER_METHODS,
+  VOUCHER_REASONS,
   cancelVoucher,
   listVouchers,
   recordVoucher,
@@ -19,31 +16,18 @@ const router = Router();
 const desk = [requireAuth, requirePermission('vouchers')];
 
 /**
- * Everything the form needs to be filled in, in one request.
+ * Everything the form needs, in one request.
  *
- * The accounts come back together because "which account?" is one question at
- * the counter, not three — and three round trips to answer it is three chances
- * for the list to be half-loaded when somebody is waiting to be paid.
+ * "Which account?" is one question at the counter, not five — and five round
+ * trips to answer it is five chances for a list to be half-loaded while
+ * somebody waits to be paid.
  */
 router.get('/meta', ...desk, (req, res) => {
-  const parties = (table) =>
-    db.prepare(`SELECT id, name, phone FROM ${table} WHERE active = 1 ORDER BY name`).all();
-
   res.json({
     kinds: VOUCHER_KINDS,
     accountTypes: ACCOUNT_TYPES,
-    methods: VOUCHER_METHODS,
-    reasons: { payment: PAYMENT_REASONS, receipt: RECEIPT_REASONS },
-    accounts: {
-      customer: parties('customers'),
-      supplier: parties('suppliers'),
-      wallet: listWallets({ activeOnly: true }).map((w) => ({
-        id: w.id,
-        name: w.name,
-        balance: w.balance,
-        currency: w.currency,
-      })),
-    },
+    reasons: VOUCHER_REASONS,
+    accounts: accountRegistry({ activeOnly: true }),
   });
 });
 

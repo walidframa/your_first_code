@@ -4,6 +4,7 @@ import { can } from '../lib/permissions.js';
 import {
   CASH_IN_REASONS,
   CASH_OUT_REASONS,
+  defaultAccountId,
   DENOMINATIONS,
   closeSession,
   currentSession,
@@ -25,15 +26,24 @@ const router = Router();
  * it, and the close would tell nobody anything.
  */
 router.get('/current', requireAuth, (req, res) => {
-  const session = currentSession();
+  // Which till is being asked about; every screen names its own, and anything
+  // that does not care gets the default one.
+  const accountId = Number(req.query.accountId) || null;
+  const session = currentSession(accountId);
   if (!session) {
-    return res.json({ session: null, required: requiresSession(), denominations: DENOMINATIONS });
+    return res.json({
+      session: null,
+      required: requiresSession(),
+      denominations: DENOMINATIONS,
+      accountId: accountId ?? defaultAccountId(),
+    });
   }
 
   const movements = movementsFor(session.id);
   const seesTheTill = can(req.user, 'cashbox');
   res.json({
     session,
+    accountId: session.account_id,
     required: requiresSession(),
     denominations: DENOMINATIONS,
     reasons: { in: CASH_IN_REASONS, out: CASH_OUT_REASONS },
@@ -50,10 +60,11 @@ router.get('/current', requireAuth, (req, res) => {
 });
 
 router.post('/open', requireAuth, (req, res) => {
-  const { openingUsd = 0, openingLbp = 0, note } = req.body || {};
+  const { openingUsd = 0, openingLbp = 0, note, accountId = null } = req.body || {};
   try {
     const session = openSession({
       userId: req.user.id,
+      accountId,
       openingUsd,
       openingLbp,
       note,
@@ -69,8 +80,8 @@ router.post('/open', requireAuth, (req, res) => {
  * from the till, the day's takings run to the bank.
  */
 router.post('/movements', requireAuth, (req, res) => {
-  const { direction, amountUsd = 0, amountLbp = 0, reason, note } = req.body || {};
-  const session = currentSession();
+  const { direction, amountUsd = 0, amountLbp = 0, reason, note, accountId = null } = req.body || {};
+  const session = currentSession(accountId);
   if (!session) return res.status(400).json({ error: 'Open the cashbox first' });
 
   if (!['in', 'out'].includes(direction)) {
@@ -100,6 +111,7 @@ router.post('/movements', requireAuth, (req, res) => {
 
   const sign = direction === 'in' ? 1 : -1;
   recordMovement({
+    sessionId: session.id,
     kind: direction === 'in' ? 'cash_in' : 'cash_out',
     amountUsd: sign * usd,
     amountLbp: sign * lbp,
@@ -116,10 +128,10 @@ router.post('/movements', requireAuth, (req, res) => {
 
 /** Closing is a count, so the drawer's expected contents comes back with it. */
 router.post('/close', requireAuth, (req, res) => {
-  const session = currentSession();
+  const { countedUsd = 0, countedLbp = 0, carriedUsd = null, carriedLbp = null, note, accountId = null } =
+    req.body || {};
+  const session = currentSession(accountId);
   if (!session) return res.status(400).json({ error: 'The cashbox is not open' });
-
-  const { countedUsd = 0, countedLbp = 0, carriedUsd = null, carriedLbp = null, note } = req.body || {};
   try {
     const summary = closeSession({
       sessionId: session.id,
@@ -137,7 +149,7 @@ router.post('/close', requireAuth, (req, res) => {
 });
 
 router.get('/sessions', requireAuth, requirePermission('cashbox'), (req, res) => {
-  res.json({ sessions: listSessions(req.query.limit) });
+  res.json({ sessions: listSessions(req.query.limit, Number(req.query.accountId) || null) });
 });
 
 router.get('/sessions/:id', requireAuth, requirePermission('cashbox'), (req, res) => {

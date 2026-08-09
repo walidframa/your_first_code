@@ -29,11 +29,11 @@ orders and staff.
   cashbox panel beside the work that moves it
 
 **Vouchers** (needs the `vouchers` permission)
-- **Payment vouchers** — money out to any account: a supplier, a customer, a
-  wallet, or somebody named in words like the landlord
-- **Receipt vouchers** — money in from any of the same
-- Each one moves the drawer, posts to that account's ledger, and prints a
-  numbered slip with two signature lines
+- Money moving **from one account to another**, both ends named: a till, a
+  wallet, a customer, a supplier, or somebody typed in words like the landlord
+- Out of the shop's own account is a **payment**, into one is a **receipt**, and
+  between two of its own it is just money **moved**
+- Each posts to both accounts and prints a numbered slip with two signature lines
 
 **Back office**
 - Dashboard: revenue hero figure, KPI tiles, a continuous daily-revenue column
@@ -66,6 +66,8 @@ orders and staff.
 - **Customers**: contacts with credit limits, running balances, a full ledger and
   recorded payments — sell on account straight from the register
 - **Suppliers**: bills and payments made, so you can see what you owe
+- **Accounts**: cash accounts, wallets, customers and suppliers in one place,
+  with who owes you and who you owe
 - Staff: accounts with **per-person permissions** — seventeen sections that can be
   granted one by one, so somebody hired to run the transfer desk gets the
   transfer desk and nothing else
@@ -355,6 +357,41 @@ the row: a drawer that was briefly wrong is part of what happened, and a
 cancelled transfer somebody has to explain to the company is exactly the one
 worth keeping.
 
+## Accounts
+
+Four kinds of account, and what a balance means is different for each:
+
+| Type | The balance is |
+| --- | --- |
+| **Cash accounts** | what is actually in that till, dollars and pounds apart |
+| **Wallets** | credit held with a supplier, in that wallet's own currency |
+| **Customers** | what they owe the shop |
+| **Suppliers** | what the shop owes them |
+
+**Admin → Accounts** lists all four with their balances, and answers the two
+questions the balances exist for — **who owes you** and **who you owe** —
+without opening anything. Customers, suppliers and wallets are managed on their
+own screens; a **cash account** has no screen of its own, so it is created,
+renamed and put away here.
+
+The registry is deliberately a view rather than a table. Each kind keeps the
+storage that suits it — a customer has a credit limit and a ledger, a till has
+sittings and a count — and one shape is laid over the top so a picker can offer
+all four.
+
+### More than one till
+
+One drawer was enough while there was one counter. It stops being enough the
+moment the transfer desk runs its own float and a safe sits in the back: three
+piles of money, counted by different people at different times.
+
+So a till is a named account, and **sittings and movements belong to one**. The
+transfer desk can close and count at six while the register is still trading,
+and each drawer is right or wrong on its own. The **Transfers** screen picks
+which till it works from and remembers it; a voucher names the till on each end;
+everything else — sales, expenses, documents — uses the default one, which is
+the drawer that was always there.
+
 ## Payment and receipt vouchers
 
 Every movement of money that is neither a sale nor a purchase order: wages,
@@ -362,19 +399,25 @@ rent, an owner putting money in, a supplier settled in cash, a customer paying
 off what they owe, credit bought for a wallet. A shop that only records selling
 ends the day with a drawer nobody can explain.
 
-There are exactly two, and the difference is which way the money went:
+A voucher names **both ends**. That is the whole idea: money never simply
+appears or vanishes, it leaves one account and arrives at another, and until
+both are written down somebody has to remember which drawer it came out of.
 
-| | Money | The account named |
+Either end can be one of the shop's own accounts (a till, a wallet) or somebody
+else's (a customer, a supplier, a name typed in words — creating a contact
+record for the man who fixes the generator is not worth anybody's time). Which
+makes the kind of voucher a consequence rather than a choice:
+
+| From | To | It is a |
 | --- | --- | --- |
-| **Payment voucher** | leaves the shop | is paid |
-| **Receipt voucher** | comes in | is paying |
+| the shop's own | somebody else's | **payment** — `PV-0001` |
+| somebody else's | the shop's own | **receipt** — `RV-0001` |
+| the shop's own | the shop's own | **transfer** — `TV-0001` |
 
-The account can be a **customer**, a **supplier**, a **wallet**, or **someone
-else** typed in words — creating a contact record for the man who fixes the
-generator is not worth anybody's time.
+A transfer counts in neither total: the money did not leave, and showing it as
+both would double the day.
 
-Which way that lands on the books depends on who the account is, and one rule
-covers all four combinations:
+Which way a party's balance moves follows one rule:
 
 - A customer's balance is what they owe the shop. Paying them makes them owe
   more; being paid makes them owe less.
@@ -383,13 +426,12 @@ covers all four combinations:
 - A wallet is credit, so paying one buys credit and being paid by one takes it
   back out.
 
-Cash vouchers move the drawer; a bank transfer is recorded without touching it.
-Each one is numbered in its own series — `PV-0001`, `RV-0001` — and **prints a
-slip with two signature lines**, because a voucher is a piece of paper before it
-is a row: the person handed the money signs to say they took it.
+Each one **prints a slip with two signature lines**, because a voucher is a
+piece of paper before it is a row: the person handed the money signs to say they
+took it.
 
-Cancelling reverses the cash, the ledger entry and the wallet credit, and keeps
-the row. The number was on something somebody signed, so it is never reused.
+Cancelling reverses both ends at once and keeps the row. The number was on
+something somebody signed, so it is never reused.
 
 ## Recharge and gift cards
 
@@ -741,7 +783,9 @@ server/
     lib/importFormats.js  ERP column presets + number parsing
     lib/permissions.js    what each member of staff may do
     lib/transfers.js      the money transfer counter
-    lib/vouchers.js       payment and receipt vouchers
+    lib/vouchers.js       money moving between two accounts
+    lib/cashAccounts.js   the shop's tills
+    lib/registry.js       all four kinds of account in one shape
     middleware/auth.js    JWT verification, role and permission guards
     routes/               auth, products, orders, reports, users, inventory, imports
 client/
@@ -773,6 +817,10 @@ Routes are guarded by **permission**, not by role — an admin holds all of them
 | GET    | `/api/orders`                  | any\*        |
 | GET    | `/api/orders/:id`              | any\*        |
 | POST   | `/api/orders/:id/refund`       | `refunds`    |
+| GET    | `/api/accounts/registry`       | any          |
+| POST   | `/api/accounts/cash`           | `cashbox`    |
+| PUT    | `/api/accounts/cash/:id`       | `cashbox`    |
+| DELETE | `/api/accounts/cash/:id`       | `cashbox`    |
 | GET    | `/api/vouchers`                | `vouchers`   |
 | GET    | `/api/vouchers/meta`           | `vouchers`   |
 | POST   | `/api/vouchers`                | `vouchers`   |

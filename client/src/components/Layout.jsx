@@ -28,6 +28,7 @@ import {
   Wrench,
   HandCoins,
   KeyRound,
+  Landmark,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { cx } from './ui';
@@ -48,7 +49,9 @@ const COUNTER_NAV = [
    * up for them is counter work, so whoever is at the counter can find it — the
    * password itself still takes the right permission.
    */
-  { to: '/accounts', label: 'Accounts', icon: KeyRound },
+  /* "Logins", not "Accounts": the money accounts are a different thing with a
+     better claim on the word. */
+  { to: '/accounts', label: 'Logins', icon: KeyRound },
 ];
 
 /*
@@ -72,6 +75,7 @@ const ADMIN_NAV = [
     heading: 'Money',
     items: [
       { to: '/admin', label: 'Dashboard', icon: BarChart3, end: true, permission: 'reports' },
+      { to: '/admin/accounts', label: 'Accounts', icon: Landmark, permission: 'cashbox' },
       { to: '/admin/cashbox', label: 'Cashbox', icon: Banknote, permission: 'cashbox' },
       { to: '/admin/expenses', label: 'Expenses', icon: Wallet, permission: 'expenses' },
       { to: '/admin/profit', label: 'Profit', icon: TrendingUp, permission: 'reports' },

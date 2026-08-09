@@ -1,12 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  ArrowDownLeft,
-  ArrowUpRight,
-  Ban,
-  Printer,
-  ReceiptText,
-  Search,
-} from 'lucide-react';
+import { ArrowLeftRight, Ban, Printer, ReceiptText, Search } from 'lucide-react';
 import api from '../api';
 import PageHeader from '../components/PageHeader';
 import CashBox from '../components/CashBox';
@@ -32,81 +25,148 @@ const PRESETS = [
   ['month', 'This month'],
   ['', 'Everything'],
 ];
-
-const ACCOUNT_LABELS = {
+const TYPE_LABELS = {
+  cash: 'Cash account',
+  wallet: 'Wallet',
   customer: 'Customer',
   supplier: 'Supplier',
-  wallet: 'Wallet',
   other: 'Someone else',
 };
 
 const REASON_LABELS = {
   supplier: 'Paying a supplier',
+  customer: 'Customer paying',
   wages: 'Wages',
   rent: 'Rent',
   utilities: 'Utilities',
   owner_draw: 'Owner took money out',
-  refund: 'Refund',
-  wallet_top_up: 'Buying credit',
-  other: 'Other',
-  customer: 'Customer paying',
   owner_funds: "Owner's money in",
+  refund: 'Refund',
   deposit: 'Deposit',
-  wallet_withdrawal: 'Credit taken back',
+  wallet_top_up: 'Buying credit',
+  bank_drop: 'Moved to another till',
+  other: 'Other',
 };
 
-const METHOD_LABELS = {
-  cash: 'Cash — from the till',
-  bank: 'Bank transfer',
-  card: 'Card',
-  other: 'Other',
-};
+const KIND_LABELS = { payment: 'Paid out', receipt: 'Taken in', transfer: 'Moved' };
+
+const SIDE_TYPES = ['cash', 'wallet', 'customer', 'supplier', 'other'];
 
 const label = (map, value) => map[value] || value;
+
+/** The chosen account's name, for the running summary. */
+function accountName(accounts, side) {
+  if (side.type === 'other') return side.name.trim() || 'someone';
+  const found = (accounts[side.type] || []).find((a) => String(a.id) === String(side.id));
+  return found?.name || 'choose one';
+}
+
+/**
+ * One end of a voucher.
+ *
+ * Two controls in the same order every time: what kind of account, then which
+ * one. Naming somebody who is on no list is a kind too — the landlord and the
+ * electrician are not each worth a contact record.
+ */
+function SidePicker({ legend, hint, accounts, value, onChange }) {
+  const options = accounts[value.type] || [];
+
+  return (
+    <fieldset className="rounded-xl bg-slate-50 p-3">
+      <legend className="px-1 text-xs font-semibold tracking-wide text-slate-500 uppercase">
+        {legend}
+      </legend>
+      <p className="mb-2 text-xs text-slate-500">{hint}</p>
+
+      <div className="space-y-2">
+        <Select
+          aria-label={`${legend} — what kind`}
+          value={value.type}
+          onChange={(e) => onChange({ type: e.target.value, id: '', name: '' })}
+        >
+          {SIDE_TYPES.map((t) => (
+            <option key={t} value={t}>
+              {TYPE_LABELS[t]}
+            </option>
+          ))}
+        </Select>
+
+        {value.type === 'other' ? (
+          <Input
+            aria-label={`${legend} — name`}
+            value={value.name}
+            onChange={(e) => onChange({ ...value, name: e.target.value })}
+            placeholder="The landlord, the electrician…"
+          />
+        ) : (
+          <Select
+            aria-label={`${legend} — which one`}
+            value={value.id}
+            onChange={(e) => onChange({ ...value, id: e.target.value })}
+          >
+            <option value="">Choose…</option>
+            {options.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name}
+                {a.balance === undefined
+                  ? ''
+                  : ` — ${a.currency === 'LBP' ? lbp(a.balance) : money(a.balance)}`}
+              </option>
+            ))}
+          </Select>
+        )}
+      </div>
+    </fieldset>
+  );
+}
 
 /**
  * Writing one voucher.
  *
- * Paying and receiving are the same piece of paper with the arrow reversed, so
- * they are one dialog with the direction on top. Everything below it is worded
- * from the operator's side — "who are you paying" against "who paid you" —
- * because that is the question actually being answered.
+ * Both ends are named and the kind falls out of them: out of one of the shop's
+ * own accounts into somebody else's is a payment, the reverse is a receipt, and
+ * between two of its own it is neither — the money never left.
  */
 function VoucherDialog({ meta, onClose, onSaved }) {
   const toast = useToast();
   const { rate, toLbp } = useSettings();
 
-  const [kind, setKind] = useState('payment');
-  const [accountType, setAccountType] = useState('supplier');
-  const [accountId, setAccountId] = useState('');
-  const [accountName, setAccountName] = useState('');
+  const tills = meta.accounts.cash || [];
+  const defaultTill = tills.find((t) => t.isDefault) || tills[0];
+
+  const [from, setFrom] = useState({ type: 'cash', id: defaultTill?.id ?? '', name: '' });
+  const [to, setTo] = useState({ type: 'other', id: '', name: '' });
   const [amountUsd, setAmountUsd] = useState('');
   const [amountLbp, setAmountLbp] = useState('');
-  const [method, setMethod] = useState('cash');
-  const [reason, setReason] = useState('supplier');
+  const [reason, setReason] = useState('rent');
   const [reference, setReference] = useState('');
   const [note, setNote] = useState('');
   const [issuedOn, setIssuedOn] = useState(new Date().toISOString().slice(0, 10));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
-  const paying = kind === 'payment';
-  const accounts = meta.accounts[accountType] || [];
-  const reasons = meta.reasons[kind];
-
-  /* Switching direction changes what the sensible default account is. */
-  function switchKind(next) {
-    setKind(next);
-    setReason(meta.reasons[next][0]);
-    const type = next === 'payment' ? 'supplier' : 'customer';
-    setAccountType(type);
-    setAccountId('');
-  }
-
   const usd = Number(amountUsd) || 0;
   const lbpAmount = Number(amountLbp) || 0;
-  const combined = usd + (rate > 0 ? lbpAmount / rate : 0);
-  const selected = accounts.find((a) => String(a.id) === String(accountId));
+
+  const ours = (type) => type === 'cash' || type === 'wallet';
+  const kind =
+    ours(from.type) && ours(to.type)
+      ? 'transfer'
+      : ours(from.type)
+        ? 'payment'
+        : ours(to.type)
+          ? 'receipt'
+          : null;
+
+  const named = (side) => (side.type === 'other' ? side.name.trim() : String(side.id || ''));
+  const ready = Boolean((usd > 0 || lbpAmount > 0) && named(from) && named(to) && kind);
+
+  /* Swapping is one press: half of these get written the wrong way round first,
+     and retyping both ends is how a queue forms. */
+  function swap() {
+    setFrom(to);
+    setTo(from);
+  }
 
   async function submit(e) {
     e.preventDefault();
@@ -114,13 +174,14 @@ function VoucherDialog({ meta, onClose, onSaved }) {
     setBusy(true);
     try {
       const res = await api.post('/vouchers', {
-        kind,
-        accountType,
-        accountId: accountType === 'other' ? null : Number(accountId) || null,
-        accountName: accountType === 'other' ? accountName : null,
+        fromType: from.type,
+        fromId: from.type === 'other' ? null : Number(from.id) || null,
+        fromName: from.type === 'other' ? from.name : null,
+        toType: to.type,
+        toId: to.type === 'other' ? null : Number(to.id) || null,
+        toName: to.type === 'other' ? to.name : null,
         amountUsd: usd,
         amountLbp: lbpAmount,
-        method,
         reason,
         reference,
         note,
@@ -135,94 +196,44 @@ function VoucherDialog({ meta, onClose, onSaved }) {
     }
   }
 
-  const ready =
-    (usd > 0 || lbpAmount > 0) &&
-    (accountType === 'other' ? accountName.trim().length > 0 : Boolean(accountId));
-
   return (
     <Modal
       open
       onClose={onClose}
       size="lg"
-      title={paying ? 'Payment voucher' : 'Receipt voucher'}
-      subtitle={
-        paying ? 'Money leaving the shop, and who it went to' : 'Money coming in, and who it came from'
-      }
+      title="New voucher"
+      subtitle="Money never appears or vanishes — name the account it left and the one it reached"
     >
       <form onSubmit={submit} className="space-y-3">
-        <div className="grid grid-cols-2 gap-2">
-          {[
-            ['payment', 'Paying out', 'Money leaves the shop', ArrowUpRight],
-            ['receipt', 'Receiving', 'Money comes in', ArrowDownLeft],
-          ].map(([value, text, hint, Icon]) => (
-            <button
-              key={value}
-              type="button"
-              onClick={() => switchKind(value)}
-              className={cx(
-                'flex items-center gap-3 rounded-xl px-4 py-3 text-left ring-1 transition',
-                kind === value
-                  ? 'bg-brand-50 ring-2 ring-brand-600'
-                  : 'bg-white ring-slate-200 hover:bg-slate-50',
-              )}
-            >
-              <Icon size={18} className={kind === value ? 'text-brand-600' : 'text-slate-400'} />
-              <span>
-                <span className="block text-sm font-semibold text-slate-900">{text}</span>
-                <span className="block text-xs text-slate-500">{hint}</span>
-              </span>
-            </button>
-          ))}
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <Select
-            label={paying ? 'Paying what kind of account' : 'Received from'}
-            name="accountType"
-            value={accountType}
-            onChange={(e) => {
-              setAccountType(e.target.value);
-              setAccountId('');
-            }}
+        <div className="grid grid-cols-[1fr_auto_1fr] items-start gap-2">
+          <SidePicker
+            legend="From"
+            hint="Where the money left"
+            accounts={meta.accounts}
+            value={from}
+            onChange={setFrom}
+          />
+          <button
+            type="button"
+            onClick={swap}
+            aria-label="Swap the two accounts"
+            title="Swap"
+            className="mt-12 rounded-lg p-2 text-slate-400 ring-1 ring-slate-200 transition hover:bg-slate-50 hover:text-slate-700"
           >
-            {meta.accountTypes.map((t) => (
-              <option key={t} value={t}>
-                {ACCOUNT_LABELS[t]}
-              </option>
-            ))}
-          </Select>
-
-          {accountType === 'other' ? (
-            <Input
-              label="Name"
-              name="accountName"
-              value={accountName}
-              onChange={(e) => setAccountName(e.target.value)}
-              placeholder="The landlord, the electrician…"
-            />
-          ) : (
-            <Select
-              label="Which one"
-              name="accountId"
-              value={accountId}
-              onChange={(e) => setAccountId(e.target.value)}
-            >
-              <option value="">Choose…</option>
-              {accounts.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.name}
-                </option>
-              ))}
-            </Select>
-          )}
+            <ArrowLeftRight size={16} />
+          </button>
+          <SidePicker
+            legend="To"
+            hint="Where it arrived"
+            accounts={meta.accounts}
+            value={to}
+            onChange={setTo}
+          />
         </div>
 
-        {/* What this does to the account, before it is done. */}
-        {selected && accountType === 'wallet' && (
-          <p className="-mt-1 text-xs text-slate-500">
-            {selected.name} holds{' '}
-            {selected.currency === 'LBP' ? lbp(selected.balance) : money(selected.balance)} —{' '}
-            {paying ? 'this buys more credit' : 'this takes credit back out'}.
+        {!kind && (
+          <p className="text-xs text-amber-700">
+            One end has to be the shop — a cash account or a wallet.
           </p>
         )}
 
@@ -252,19 +263,19 @@ function VoucherDialog({ meta, onClose, onSaved }) {
 
         <div className="grid grid-cols-3 gap-3">
           <Select label="What for" name="reason" value={reason} onChange={(e) => setReason(e.target.value)}>
-            {reasons.map((r) => (
+            {meta.reasons.map((r) => (
               <option key={r} value={r}>
                 {label(REASON_LABELS, r)}
               </option>
             ))}
           </Select>
-          <Select label="Paid with" name="method" value={method} onChange={(e) => setMethod(e.target.value)}>
-            {meta.methods.map((m) => (
-              <option key={m} value={m}>
-                {label(METHOD_LABELS, m)}
-              </option>
-            ))}
-          </Select>
+          <Input
+            label="Reference"
+            name="reference"
+            value={reference}
+            onChange={(e) => setReference(e.target.value)}
+            placeholder="Invoice or cheque no."
+          />
           <Input
             label="Date"
             name="issuedOn"
@@ -274,46 +285,35 @@ function VoucherDialog({ meta, onClose, onSaved }) {
           />
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <Input
-            label="Reference"
-            name="reference"
-            value={reference}
-            onChange={(e) => setReference(e.target.value)}
-            placeholder="Invoice or cheque number"
-          />
-          <Input
-            label="Note"
-            name="note"
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            placeholder="e.g. August rent"
-          />
-        </div>
+        <Input
+          label="Note"
+          name="note"
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder="e.g. August rent"
+        />
 
-        {/* The drawer figure, because that is what has to be counted after. */}
-        <div className="flex items-baseline justify-between rounded-xl bg-slate-900 px-4 py-3 text-white">
-          <span className="text-sm font-medium">
-            {method === 'cash'
-              ? paying
-                ? 'Out of the drawer'
-                : 'Into the drawer'
-              : `${paying ? 'Paid' : 'Received'} by ${method}`}
+        {/* The sentence the voucher amounts to, before it is written. */}
+        <div className="flex items-baseline justify-between gap-3 rounded-xl bg-slate-900 px-4 py-3 text-white">
+          <span className="min-w-0 text-sm font-medium">
+            {kind ? KIND_LABELS[kind] : 'Nowhere yet'}
+            {kind && (
+              <span className="block truncate text-xs font-normal text-slate-300">
+                {accountName(meta.accounts, from)} → {accountName(meta.accounts, to)}
+              </span>
+            )}
           </span>
-          <span className="tnum text-right font-semibold">
+          <span className="tnum shrink-0 text-right font-semibold">
             <span className="block">{money(usd)}</span>
             {lbpAmount > 0 && (
               <span className="block text-sm font-normal text-slate-300">{lbp(lbpAmount)}</span>
             )}
           </span>
         </div>
-        {rate > 0 && lbpAmount > 0 && usd > 0 && (
-          <p className="-mt-1 text-xs text-slate-500">
-            {money(combined)} altogether at today's rate.
-          </p>
-        )}
         {rate > 0 && usd > 0 && lbpAmount === 0 && (
-          <p className="-mt-1 text-xs text-slate-500">{money(usd)} is about {lbp(toLbp(usd))} today.</p>
+          <p className="-mt-1 text-xs text-slate-500">
+            {money(usd)} is about {lbp(toLbp(usd))} today.
+          </p>
         )}
 
         {error && <p className="text-sm text-red-600">{error}</p>}
@@ -323,7 +323,7 @@ function VoucherDialog({ meta, onClose, onSaved }) {
             Cancel
           </Button>
           <Button type="submit" className="flex-1" loading={busy} disabled={!ready}>
-            {paying ? 'Pay it out' : 'Take it in'}
+            Record it
           </Button>
         </div>
       </form>
@@ -450,9 +450,10 @@ export default function Vouchers() {
                 </div>
                 <div className="w-36 shrink-0">
                   <Select name="kind" value={kind} onChange={(e) => setKind(e.target.value)} aria-label="Kind">
-                    <option value="">Both kinds</option>
+                    <option value="">Every kind</option>
                     <option value="payment">Payments</option>
                     <option value="receipt">Receipts</option>
+                    <option value="transfer">Between own accounts</option>
                   </Select>
                 </div>
                 <div className="w-36 shrink-0">
@@ -484,7 +485,7 @@ export default function Vouchers() {
                       <tr>
                         <th className="px-5 py-2.5 font-medium">Number</th>
                         <th className="px-3 py-2.5 font-medium">Date</th>
-                        <th className="px-3 py-2.5 font-medium">Account</th>
+                        <th className="px-3 py-2.5 font-medium">From → to</th>
                         <th className="px-3 py-2.5 font-medium">What for</th>
                         <th className="px-3 py-2.5 text-right font-medium">Amount</th>
                         <th className="hidden px-3 py-2.5 font-medium lg:table-cell">By</th>
@@ -495,6 +496,7 @@ export default function Vouchers() {
                       {data.vouchers.map((v) => {
                         const cancelled = v.status === 'cancelled';
                         const out = v.kind === 'payment';
+
                         return (
                           <tr key={v.id} className={cx('hover:bg-slate-50/60', cancelled && 'opacity-50')}>
                             {/* A number that wraps stops being a number you can
@@ -503,12 +505,13 @@ export default function Vouchers() {
                               {v.voucher_number}
                             </td>
                             <td className="px-3 py-2.5 whitespace-nowrap text-slate-500">{v.issued_on}</td>
-                            <td className="max-w-[16rem] truncate px-3 py-2.5">
-                              <Badge tone={out ? 'warning' : 'good'}>{out ? 'Out' : 'In'}</Badge>
-                              <span className="ml-2 text-slate-800">{v.account_name}</span>
-                              <span className="ml-1 text-xs text-slate-400">
-                                {ACCOUNT_LABELS[v.account_type]}
-                              </span>
+                            <td className="max-w-[20rem] truncate px-3 py-2.5">
+                              <Badge tone={v.kind === 'payment' ? 'warning' : v.kind === 'receipt' ? 'good' : 'neutral'}>
+                                {KIND_LABELS[v.kind]}
+                              </Badge>
+                              <span className="ml-2 text-slate-800">{v.from_name}</span>
+                              <span className="mx-1 text-slate-300">→</span>
+                              <span className="text-slate-800">{v.to_name}</span>
                             </td>
                             <td className="max-w-[12rem] truncate px-3 py-2.5 text-slate-600">
                               {label(REASON_LABELS, v.reason) || '—'}
@@ -526,11 +529,7 @@ export default function Vouchers() {
                                   {lbp(v.amount_lbp)}
                                 </span>
                               )}
-                              {v.method !== 'cash' && (
-                                <span className="block text-[11px] font-normal text-slate-400">
-                                  {v.method}
-                                </span>
-                              )}
+
                             </td>
                             <td className="hidden px-3 py-2.5 whitespace-nowrap text-slate-500 lg:table-cell">
                               {v.user_name || '—'}
