@@ -76,13 +76,14 @@ export function buildCashReport(sessionId, { includeProfit = false } = {}) {
 
   const { session, movements, expected, byKind, sales, salesTotal, refunds } = summary;
   const closed = session.status === 'closed';
+  const settings = getSettings();
 
   /*
    * The sitting's own rate, not today's. A report read back next month should
    * say what it said on the night; re-converting at a rate that has since moved
    * would rewrite a count that was correct.
    */
-  const rate = session.exchange_rate || getSettings().exchange_rate;
+  const rate = session.exchange_rate || settings.exchange_rate;
 
   const counted = closed ? { usd: session.counted_usd, lbp: session.counted_lbp } : null;
   const difference = closed ? { usd: session.over_short_usd, lbp: session.over_short_lbp } : null;
@@ -90,6 +91,13 @@ export function buildCashReport(sessionId, { includeProfit = false } = {}) {
   return {
     session,
     account: { id: session.account_id, name: session.account_name || 'Cashbox' },
+    /* Whose shop it is, so a filed or forwarded report can be placed. */
+    company: {
+      name: settings.company_name,
+      address: settings.company_address,
+      phones: [settings.company_phone, settings.company_phone2].filter(Boolean).join(' · '),
+      taxNumber: settings.company_tax_number,
+    },
     closed,
     rate,
     expected,
@@ -172,6 +180,20 @@ export function renderCashReportPdf(report, { generatedBy = null } = {}) {
     d.text(`${title} · sitting #${session.id}`, { size: 8, color: MUTED });
     d.rule({ above: 2, below: 8 });
   };
+
+  /*
+   * Whose shop this is. The report is a file that gets emailed and filed, and a
+   * page of figures with no name on it is a page nobody can place a month later.
+   */
+  const shop = report.company;
+  if (shop?.name) {
+    doc.text(shop.name, { size: 11, bold: true, color: INK });
+    const details = [shop.address?.replace(/\s*\n\s*/g, ', '), shop.phones, shop.taxNumber && `VAT / MOF: ${shop.taxNumber}`]
+      .filter(Boolean)
+      .join(' · ');
+    if (details) doc.text(details, { size: 8, color: MUTED });
+    doc.gap(4);
+  }
 
   doc.text(title, { size: 18, bold: true, color: INK });
   doc.text(`Sitting #${session.id} · ${report.closed ? 'closed' : 'open now'}`, { size: 10, color: MUTED });

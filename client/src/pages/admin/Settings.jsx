@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { ArrowRight, History, Save } from 'lucide-react';
 import api from '../../api';
 import PageHeader from '../../components/PageHeader';
+import CompanySettings from '../../components/CompanySettings';
 import { useSettings, lbp } from '../../context/SettingsContext';
 import { Button, Card, CardHeader, EmptyState, Input, Skeleton, money, useToast } from '../../components/ui';
 
@@ -64,10 +65,16 @@ export default function Settings() {
     <div className="flex h-full flex-col">
       <PageHeader
         title="Settings"
-        subtitle="Exchange rate and currency display used across the register"
+        subtitle="Your company, the exchange rate, and how currency is shown"
       />
 
       <div className="min-h-0 flex-1 overflow-y-auto p-6">
+        {/* Who the shop is comes first: it is on every piece of paper that
+            leaves the counter, and it is set once and then forgotten. */}
+        <div className="mb-4 max-w-4xl">
+          <CompanySettings />
+        </div>
+
         <div className="grid max-w-4xl grid-cols-2 gap-4">
           <Card className="p-5">
             <h2 className="text-sm font-semibold text-slate-900">Exchange rate</h2>

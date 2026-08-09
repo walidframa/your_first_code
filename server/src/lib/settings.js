@@ -10,6 +10,28 @@ export const SETTING_DEFAULTS = {
   secondary_currency: 'LBP',
 
   /*
+   * Who the shop is, as it appears on anything a customer keeps.
+   *
+   * A receipt with no name on it is a scrap of paper: it cannot be brought back
+   * for a warranty claim, and it is not a document anybody would accept. These
+   * are settings rather than a table because there is exactly one shop — the
+   * branches under it are a separate thing, and they are the ones that vary.
+   */
+  company_name: 'Front Desk POS',
+  company_tagline: '',
+  company_phone: '',
+  company_phone2: '',
+  company_address: '',
+  company_email: '',
+  company_website: '',
+  /* The registration number a Lebanese invoice is expected to carry. */
+  company_tax_number: '',
+  /* A URL, or a data: URI for a logo pasted straight in. */
+  company_logo_url: '',
+  /* The line at the foot of a receipt: returns policy, thank you, opening hours. */
+  receipt_footer: '',
+
+  /*
    * Whether a cash sale needs an open drawer. On by default: a till that can
    * take money with nothing to put it in cannot be counted at the end of the
    * day, which is the whole point of a cashbox.
