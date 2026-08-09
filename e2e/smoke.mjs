@@ -621,6 +621,54 @@ try {
   });
   await shot('products');
 
+  /*
+   * One product, several barcodes: the maker's on the box, the distributor's
+   * label over it, the shop's own. Whichever is facing up has to find it.
+   */
+  await step('a product takes as many barcodes as you scan into it', async () => {
+    await page.click('button:has-text("New product")');
+    await page.waitForSelector('[role=dialog] >> text=Barcodes', { timeout: 10000 });
+    const dialog = page.locator('[role=dialog]');
+
+    await dialog.getByLabel('Name').fill('Braided cable');
+    await dialog.getByLabel('SKU').fill('CBL-BRAID');
+    await dialog.getByLabel('Price').fill('7.50');
+    // Stock, or the register refuses it at the scan and this proves nothing.
+    await dialog.getByLabel('Stock on hand').fill('10');
+
+    // A scanner is a keyboard that types fast and presses Enter.
+    const scan = dialog.getByLabel('Add a barcode');
+    for (const code of ['6291000000017', '0712345678900', 'SHOP-CBL-1']) {
+      await scan.fill(code);
+      await scan.press('Enter');
+      await dialog.locator(`text=${code}`).waitFor({ timeout: 5000 });
+    }
+
+    // Enter must commit the code, never submit the half-filled form.
+    if (!(await dialog.count())) throw new Error('the scanner’s Enter submitted the form');
+
+    await dialog.getByRole('button', { name: 'Create product' }).click();
+    await page.waitForSelector('text=Braided cable', { timeout: 15000 });
+  });
+
+  await step('and any one of them finds it at the register', async () => {
+    await page.click('a[title="Register"]');
+    await page.waitForSelector(scanBox, { timeout: 15000 });
+
+    for (const code of ['6291000000017', '0712345678900', 'SHOP-CBL-1']) {
+      await page.fill(scanBox, code);
+      await page.press(scanBox, 'Enter');
+      await page.waitForSelector('text=Added Braided cable', { timeout: 10000 });
+      await page.waitForTimeout(250);
+    }
+
+    // Three scans of the same product is one line of three, not three products.
+    const lines = await page.locator('aside li:has-text("Braided cable")').count();
+    if (lines !== 1) throw new Error(`three barcodes made ${lines} cart lines — they are one product`);
+    await page.click('aside button:has-text("Clear")');
+    await page.waitForSelector('text=No items yet');
+  });
+
   await step('refunding an order works', async () => {
     await page.click('a[title="Orders"]');
     await page.waitForSelector('text=ORD-', { timeout: 15000 });

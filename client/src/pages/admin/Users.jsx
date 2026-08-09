@@ -3,7 +3,18 @@ import { KeyRound, ShieldCheck, Trash2, UserPlus } from 'lucide-react';
 import api from '../../api';
 import PageHeader from '../../components/PageHeader';
 import { useAuth } from '../../context/AuthContext';
-import { Badge, Button, Card, Input, Modal, Select, Skeleton, cx, useToast } from '../../components/ui';
+import {
+  Badge,
+  Button,
+  Card,
+  Input,
+  Modal,
+  ModalActions,
+  Select,
+  Skeleton,
+  cx,
+  useToast,
+} from '../../components/ui';
 
 const emptyForm = { name: '', username: '', password: '', role: 'cashier' };
 
@@ -151,14 +162,14 @@ function StaffModal({ groups, defaults, onClose, onSaved }) {
 
         {error && <p className="text-sm text-red-600">{error}</p>}
 
-        <div className="flex gap-2 pt-1">
+        <ModalActions>
           <Button type="button" variant="secondary" onClick={onClose} className="flex-1">
             Cancel
           </Button>
           <Button type="submit" className="flex-1" loading={saving}>
             Add staff member
           </Button>
-        </div>
+        </ModalActions>
       </form>
     </Modal>
   );
@@ -193,7 +204,7 @@ function PermissionsModal({ user, groups, onClose, onSaved }) {
       title={`What ${user.name} can do`}
       subtitle={isAdmin ? 'An admin has every permission by definition' : user.username}
       footer={
-        <div className="flex gap-2">
+        <ModalActions>
           <Button variant="secondary" className="flex-1" onClick={onClose}>
             {isAdmin ? 'Close' : 'Cancel'}
           </Button>
@@ -202,7 +213,7 @@ function PermissionsModal({ user, groups, onClose, onSaved }) {
               Save access
             </Button>
           )}
-        </div>
+        </ModalActions>
       }
     >
       {isAdmin && (

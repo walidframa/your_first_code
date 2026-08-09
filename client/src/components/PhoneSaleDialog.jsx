@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { ChevronDown, Gift, KeyRound, Search, Trash2 } from 'lucide-react';
 import api from '../api';
 import { useSettings, lbp } from '../context/SettingsContext';
-import { Button, Modal, cx, money } from './ui';
+import { Button, Modal, ModalActions, cx, money } from './ui';
 
 const field =
   'h-10 w-full rounded-xl bg-slate-50 px-3 text-sm ring-1 ring-slate-200 focus:bg-white focus:ring-2 focus:ring-brand-600 focus:outline-none';
@@ -324,14 +324,14 @@ export default function PhoneSaleDialog({ product, unit, onCancel, onAdd }) {
           </p>
         </Section>
 
-        <div className="flex gap-2 pt-1">
+        <ModalActions>
           <Button type="button" variant="secondary" onClick={onCancel}>
             Cancel
           </Button>
           <Button type="submit" className="flex-1">
             Add to cart
           </Button>
-        </div>
+        </ModalActions>
       </form>
     </Modal>
   );

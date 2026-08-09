@@ -2,11 +2,16 @@ import { Router } from 'express';
 import { db } from '../db.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { activityFor, costHistoryFor, recordCostChange } from '../lib/costHistory.js';
+import { barcodeMap, barcodesFor, barcodesFromBody, setBarcodes } from '../lib/barcodes.js';
 
 const router = Router();
 
-function serializeProduct(p) {
-  return { ...p, active: !!p.active };
+/*
+ * `barcode` stays on every product as the primary one, because labels, Shopify
+ * and the importer all read it. `barcodes` is the full list, primary first.
+ */
+function serializeProduct(p, codes = undefined) {
+  return { ...p, active: !!p.active, barcodes: codes ?? barcodesFor(p.id) };
 }
 
 /**
@@ -56,10 +61,19 @@ router.get('/', requireAuth, (req, res) => {
         LEFT JOIN wallets w ON w.id = p.wallet_id
         ORDER BY p.name
       `).all();
-  res.json({ products: rows.map(serializeProduct) });
+  // One query for every product's barcodes rather than one per product: the
+  // register loads this list on every visit.
+  const codes = barcodeMap();
+  res.json({ products: rows.map((p) => serializeProduct(p, codes.get(p.id) || [])) });
 });
 
-/** Look up a single product by scanned barcode or exact SKU. */
+/**
+ * Look up a single product by scanned barcode or exact SKU.
+ *
+ * Any of the product's barcodes finds it, not just the primary — which is the
+ * whole point of keeping more than one. The scanner's trailing newline is
+ * stripped, because a code that arrives with whitespace matches nothing.
+ */
 router.get('/lookup', requireAuth, (req, res) => {
   const code = String(req.query.code || '').trim();
   if (!code) return res.status(400).json({ error: 'code is required' });
@@ -69,10 +83,13 @@ router.get('/lookup', requireAuth, (req, res) => {
       `SELECT p.*, c.name AS category_name, w.name AS wallet_name FROM products p
        LEFT JOIN categories c ON c.id = p.category_id
        LEFT JOIN wallets w ON w.id = p.wallet_id
-       WHERE p.active = 1 AND (lower(p.sku) = lower(?) OR p.barcode = ?)
+       WHERE p.active = 1 AND (
+         lower(p.sku) = lower(?)
+         OR EXISTS (SELECT 1 FROM product_barcodes b WHERE b.product_id = p.id AND b.barcode = ?)
+       )
        LIMIT 1`,
     )
-    .get(code, code);
+    .get(code, code.replace(/\s+/g, ''));
 
   if (!product) return res.status(404).json({ error: `No product matches "${code}"` });
   res.json({ product: serializeProduct(product) });
@@ -112,6 +129,20 @@ router.post('/', requireAuth, requirePermission('catalogue'), (req, res) => {
       wallet_id || null,
     );
     if (tracks_units) db.prepare('UPDATE products SET stock = 0 WHERE id = ?').run(info.lastInsertRowid);
+
+    /*
+     * Written after the insert rather than in it, so `products.barcode` and the
+     * table are set by the one function that keeps them in step. A barcode
+     * already on something else is refused here, and the half-made product goes
+     * with it — better than a product that exists with the wrong numbers on it.
+     */
+    try {
+      setBarcodes(info.lastInsertRowid, barcodesFromBody(req.body) ?? []);
+    } catch (err) {
+      db.prepare('DELETE FROM products WHERE id = ?').run(info.lastInsertRowid);
+      return res.status(409).json({ error: err.message });
+    }
+
     const product = db.prepare('SELECT * FROM products WHERE id = ?').get(info.lastInsertRowid);
     res.status(201).json({ product: serializeProduct(product) });
   } catch (err) {
@@ -208,9 +239,25 @@ router.put('/:id', requireAuth, requirePermission('catalogue'), (req, res) => {
    */
   if (walletId && !product.wallet_id) updates.stock = 0;
 
+  /*
+   * The barcodes go in first, because that is the write that can be refused —
+   * one of them belonging to another product. Better to stop before the rest of
+   * the edit lands than to save the product and report the barcode failure
+   * afterwards, leaving the screen disagreeing with the database.
+   */
+  const wantedBarcodes = barcodesFromBody(req.body, { existing: barcodesFor(product.id) });
+  try {
+    setBarcodes(product.id, wantedBarcodes);
+  } catch (err) {
+    return res.status(409).json({ error: err.message });
+  }
+  // Already written by setBarcodes, and writing it again below from a stale
+  // merge would undo it.
+  delete updates.barcode;
+
   // `product` is re-read above when the stock was cleared, so the merge cannot
   // put the old count back.
-  const merged = { ...product, ...updates };
+  const merged = { ...product, ...updates, barcode: barcodesFor(product.id)[0] ?? null };
   if (switchingTracking && updates.tracks_units) merged.stock = 0;
   db.prepare(`
     UPDATE products SET name = ?, sku = ?, price = ?, cost = ?, stock = ?, category_id = ?, image_emoji = ?,

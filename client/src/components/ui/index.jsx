@@ -226,6 +226,31 @@ export function Modal({ open, onClose, title, subtitle, children, footer, size =
   );
 }
 
+/**
+ * A dialog's buttons, pinned to the bottom of it.
+ *
+ * A long form scrolls, and buttons that scroll with it end up half off the
+ * bottom edge — which is exactly where somebody looks for "Save". Sticky rather
+ * than in the modal's own footer slot, because it lives inside the scrolling
+ * area and so needs no restructuring of the form above it: the fields keep
+ * their order, and the buttons simply stop at the bottom of the frame.
+ *
+ * The negative margins pull it out to the dialog's full width so the content
+ * scrolling underneath is covered rather than showing through at the edges.
+ */
+export function ModalActions({ children, className }) {
+  return (
+    <div
+      className={cx(
+        'sticky bottom-0 z-10 -mx-5 -mb-4 mt-5 flex items-center gap-2 border-t border-slate-100 bg-white px-5 py-3',
+        className,
+      )}
+    >
+      {children}
+    </div>
+  );
+}
+
 /* ------------------------------------------------------------ Empty state */
 
 export function EmptyState({ icon: Icon, title, description, action, className }) {

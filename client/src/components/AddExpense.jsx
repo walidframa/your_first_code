@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Plus } from 'lucide-react';
 import api from '../api';
-import { Button, Input, Modal, Select, useToast } from './ui';
+import { Button, Input, Modal, ModalActions, Select, useToast } from './ui';
 
 export const EXPENSE_CATEGORIES = [
   ['rent', 'Rent'],
@@ -141,7 +141,7 @@ export default function AddExpense({ onClose, onSaved }) {
 
         {error && <p className="text-sm text-red-600">{error}</p>}
 
-        <div className="flex gap-2 pt-1">
+        <ModalActions>
           <Button type="button" variant="secondary" className="flex-1" onClick={onClose}>
             Cancel
           </Button>
@@ -153,7 +153,7 @@ export default function AddExpense({ onClose, onSaved }) {
           >
             <Plus size={16} /> Record it
           </Button>
-        </div>
+        </ModalActions>
       </form>
     </Modal>
   );

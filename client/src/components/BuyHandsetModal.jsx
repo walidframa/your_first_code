@@ -3,7 +3,7 @@ import { Plus, Search } from 'lucide-react';
 import api from '../api';
 import ProductQuickCreate from './ProductQuickCreate';
 import { useSettings, lbp } from '../context/SettingsContext';
-import { Button, Input, Modal, Select, cx, money, useToast } from './ui';
+import { Button, Input, Modal, ModalActions, Select, cx, money, useToast } from './ui';
 
 const CONDITIONS = [
   ['used', 'Used'],
@@ -228,14 +228,16 @@ export default function BuyHandsetModal({ onClose, onSaved }) {
           The money comes out of the open cashbox, so the count at close still balances.
         </p>
 
-        <div className="col-span-2 flex gap-2">
+        {/* Spans both columns of the form's grid, and sticks to the bottom of
+            the dialog rather than scrolling off it. */}
+        <ModalActions className="col-span-2">
           <Button type="button" variant="secondary" onClick={onClose} disabled={saving}>
             Cancel
           </Button>
           <Button type="submit" className="flex-1" loading={saving} disabled={!form.productId || !form.imei}>
             Buy it in
           </Button>
-        </div>
+        </ModalActions>
       </form>
 
       {creating !== null && (
