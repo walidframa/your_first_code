@@ -43,7 +43,7 @@ const PRESETS = [
  * apart. What changes underneath is only the wording — "hands over" against
  * "you pay out" — because that is the sentence the operator is living.
  */
-function TransferDialog({ companies, onClose, onSaved }) {
+function TransferDialog({ companies, tillId, tillName, onClose, onSaved }) {
   const toast = useToast();
   const { rate, toLbp } = useSettings();
 
@@ -83,6 +83,7 @@ function TransferDialog({ companies, onClose, onSaved }) {
     setBusy(true);
     try {
       await api.post('/transfers', {
+        accountId: tillId,
         direction,
         company,
         reference,
@@ -109,11 +110,11 @@ function TransferDialog({ companies, onClose, onSaved }) {
       onClose={onClose}
       size="lg"
       title={sending ? 'Send a transfer' : 'Pay a transfer out'}
-      subtitle={
+      subtitle={`${
         sending
           ? 'The customer hands the money over and you keep the fee'
           : 'You count the money out to the customer'
-      }
+      } · ${tillName}`}
     >
       <form onSubmit={submit} className="space-y-3">
         <div className="grid grid-cols-2 gap-2">
@@ -317,6 +318,12 @@ export default function Transfers() {
 
   const [data, setData] = useState(null);
   const [companies, setCompanies] = useState(['OMT']);
+  /*
+   * The desk's own till. A transfer counter with its own float is why tills are
+   * named at all, so the choice is on the screen rather than buried in settings.
+   */
+  const [tills, setTills] = useState([]);
+  const [tillId, setTillId] = useState(() => Number(localStorage.getItem('pos_transfer_till')) || null);
   const [preset, setPreset] = useState('today');
   const [search, setSearch] = useState('');
   const [mine, setMine] = useState(false);
@@ -333,8 +340,20 @@ export default function Transfers() {
   }, [preset, search, mine]);
 
   useEffect(() => {
-    api.get('/transfers/meta').then((res) => setCompanies(res.data.companies));
+    api.get('/transfers/meta').then((res) => {
+      setCompanies(res.data.companies);
+      setTills(res.data.tills);
+      // Remembered per browser: whoever sits at this counter sits at one till.
+      setTillId((current) => {
+        const known = res.data.tills.some((t) => t.id === current);
+        return known ? current : (res.data.tills.find((t) => t.is_default) ?? res.data.tills[0])?.id ?? null;
+      });
+    });
   }, []);
+
+  useEffect(() => {
+    if (tillId) localStorage.setItem('pos_transfer_till', String(tillId));
+  }, [tillId]);
 
   useEffect(() => {
     const id = setTimeout(load, search ? 250 : 0);
@@ -352,6 +371,7 @@ export default function Transfers() {
     }
   }
 
+  const tillName = tills.find((t) => t.id === tillId)?.name || 'the drawer';
   const summary = data?.summary;
   const netUsd = useMemo(
     () => (summary ? Math.round((summary.inUsd - summary.outUsd + summary.feeUsd) * 100) / 100 : 0),
@@ -366,6 +386,22 @@ export default function Transfers() {
         subtitle="Money sent and paid out over the counter, and what it does to the drawer"
         actions={
           <div className="flex items-center gap-2">
+            {tills.length > 1 && (
+              <div className="w-44 shrink-0">
+                <Select
+                  name="till"
+                  aria-label="Which till"
+                  value={tillId ?? ''}
+                  onChange={(e) => setTillId(Number(e.target.value))}
+                >
+                  {tills.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+            )}
             {/* Recording what the shop spends is its own permission. A button
                 that always fails is worse than no button. */}
             {can('expenses') && (
@@ -540,11 +576,12 @@ export default function Transfers() {
           * one number this screen exists to protect is that one.
           */}
         <aside className="w-[340px] shrink-0 overflow-y-auto border-l border-slate-200 bg-white">
-          <CashBox refreshOn={moved} />
+          <CashBox refreshOn={moved} accountId={tillId} />
           <div className="px-4 py-3">
             <p className="text-xs text-slate-500">
-              Signed in as <span className="font-medium text-slate-700">{user.name}</span>. Cash in and
-              cash out above are for money that is not a transfer — a float, a run to the bank.
+              Signed in as <span className="font-medium text-slate-700">{user.name}</span>, working the{' '}
+              <span className="font-medium text-slate-700">{tillName}</span>. Cash in and cash out above
+              are for money that is not a transfer — a float, a run to the bank.
             </p>
           </div>
         </aside>
@@ -553,6 +590,8 @@ export default function Transfers() {
       {adding && (
         <TransferDialog
           companies={companies}
+          tillId={tillId}
+          tillName={tillName}
           onClose={() => setAdding(false)}
           onSaved={() => {
             setAdding(false);

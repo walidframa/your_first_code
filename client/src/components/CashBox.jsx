@@ -69,7 +69,7 @@ const sumNotes = (counts) =>
 
 /* ------------------------------------------------------------------- open */
 
-function OpenDrawer({ denominations, onClose, onOpened }) {
+function OpenDrawer({ denominations, accountId, onClose, onOpened }) {
   const toast = useToast();
   const [usd, setUsd] = useState('');
   const [lbpAmount, setLbpAmount] = useState('');
@@ -83,6 +83,7 @@ function OpenDrawer({ denominations, onClose, onOpened }) {
     setBusy(true);
     try {
       await api.post('/cash/open', {
+        accountId,
         openingUsd: Number(usd) || 0,
         openingLbp: Number(lbpAmount) || 0,
         note: note || null,
@@ -156,7 +157,7 @@ function OpenDrawer({ denominations, onClose, onOpened }) {
  * expected figure shown. Told the answer first, the count stops being a check
  * on anything.
  */
-function CloseDrawer({ denominations, onClose, onClosed }) {
+function CloseDrawer({ denominations, accountId, onClose, onClosed }) {
   const toast = useToast();
   const [usdNotes, setUsdNotes] = useState({});
   const [lbpNotes, setLbpNotes] = useState({});
@@ -176,6 +177,7 @@ function CloseDrawer({ denominations, onClose, onClosed }) {
     setBusy(true);
     try {
       const res = await api.post('/cash/close', {
+        accountId,
         countedUsd,
         countedLbp,
         carriedUsd: carryUsd === '' ? 0 : Number(carryUsd),
@@ -323,7 +325,7 @@ function CloseDrawer({ denominations, onClose, onClosed }) {
 
 /* --------------------------------------------------------------- movement */
 
-function MoveCash({ direction, onClose, onDone }) {
+function MoveCash({ direction, accountId, onClose, onDone }) {
   const toast = useToast();
   const goingIn = direction === 'in';
   const reasons = goingIn ? IN_REASONS : OUT_REASONS;
@@ -341,6 +343,7 @@ function MoveCash({ direction, onClose, onDone }) {
     setBusy(true);
     try {
       await api.post('/cash/movements', {
+        accountId,
         direction,
         amountUsd: Number(usd) || 0,
         amountLbp: Number(lbpAmount) || 0,
@@ -437,18 +440,25 @@ function MoveCash({ direction, onClose, onDone }) {
  * refused until it is open, and the worst moment to learn that is at the
  * counter with a customer waiting.
  */
-export default function CashBox({ onChanged, refreshOn = 0 }) {
+/**
+ * One till's drawer.
+ *
+ * `accountId` says which — the register's, the transfer desk's, the safe's.
+ * Omitted, it is the shop's default till, which is what every screen used
+ * before there was more than one.
+ */
+export default function CashBox({ onChanged, refreshOn = 0, accountId = null }) {
   const [state, setState] = useState(null);
   const [dialog, setDialog] = useState(null);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
-    const res = await api.get('/cash/current');
+    const res = await api.get('/cash/current', { params: accountId ? { accountId } : undefined });
     setState(res.data);
-  }, []);
+  }, [accountId]);
 
   // `refreshOn` changes when a sale completes, which is the moment the figure
-  // on screen stops being true.
+  // on screen stops being true; `load` changes when the till does.
   useEffect(() => {
     load();
   }, [load, refreshOn]);
@@ -492,7 +502,12 @@ export default function CashBox({ onChanged, refreshOn = 0 }) {
         </div>
 
         {dialog === 'open' && (
-          <OpenDrawer denominations={denominations} onClose={() => setDialog(null)} onOpened={done} />
+          <OpenDrawer
+            denominations={denominations}
+            accountId={accountId}
+            onClose={() => setDialog(null)}
+            onOpened={done}
+          />
         )}
       </>
     );
@@ -562,13 +577,23 @@ export default function CashBox({ onChanged, refreshOn = 0 }) {
       </div>
 
       {dialog === 'open' && (
-        <OpenDrawer denominations={denominations} onClose={() => setDialog(null)} onOpened={done} />
+        <OpenDrawer
+            denominations={denominations}
+            accountId={accountId}
+            onClose={() => setDialog(null)}
+            onOpened={done}
+          />
       )}
       {dialog === 'close' && (
-        <CloseDrawer denominations={denominations} onClose={() => setDialog(null)} onClosed={done} />
+        <CloseDrawer
+          denominations={denominations}
+          accountId={accountId}
+          onClose={() => setDialog(null)}
+          onClosed={done}
+        />
       )}
       {(dialog === 'in' || dialog === 'out') && (
-        <MoveCash direction={dialog} onClose={() => setDialog(null)} onDone={done} />
+        <MoveCash direction={dialog} accountId={accountId} onClose={() => setDialog(null)} onDone={done} />
       )}
     </>
   );

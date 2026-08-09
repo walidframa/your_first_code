@@ -1,8 +1,9 @@
 /**
- * Payment and receipt vouchers.
+ * Money moving from one account to another.
  *
- * The thread: money that is neither a sale nor a purchase still has to land in
- * two places at once — the drawer it came out of, and the account it went to.
+ * The thread: a voucher names both ends, so nothing appears from nowhere and
+ * nothing vanishes — and the shop's own accounts are separate piles that each
+ * have to add up on their own.
  */
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -24,6 +25,8 @@ let adminToken;
 let customer;
 let supplier;
 let wallet;
+let mainTill;
+let deskTill;
 
 async function req(method, route, body, token) {
   const res = await fetch(BASE + route, {
@@ -56,11 +59,12 @@ async function waitForServer(timeoutMs = 20000) {
   throw new Error('Server did not become ready in time');
 }
 
-const drawer = async () => (await req('GET', '/cash/current', null, adminToken)).json.expected;
-const balanceOf = async (kind, id) =>
-  (await req('GET', `/${kind}s/${id}`, null, adminToken)).json.party.balance;
-const walletBalance = async (id) =>
-  (await req('GET', '/wallets', null, adminToken)).json.wallets.find((w) => w.id === id).balance;
+const registry = async () => (await req('GET', '/accounts/registry', null, adminToken)).json;
+const tillBalance = async (id) =>
+  (await registry()).registry.cash.find((a) => a.id === id) ?? { balance: 0, balanceLbp: 0 };
+const partyBalance = async (type, id) =>
+  (await registry()).registry[type].find((p) => p.id === id).balance;
+const walletBalance = async (id) => (await registry()).registry.wallet.find((w) => w.id === id).balance;
 
 before(async () => {
   workDir = mkdtempSync(path.join(tmpdir(), 'pos-vouchers-'));
@@ -86,7 +90,14 @@ before(async () => {
   supplier = (await req('POST', '/suppliers', { name: 'Beirut Phones' }, adminToken)).json.party;
   wallet = (await req('POST', '/wallets', { name: 'Alfa credit' }, adminToken)).json.wallet;
 
-  await req('POST', '/cash/open', { openingUsd: 500, openingLbp: 20000000 }, adminToken);
+  mainTill = (await registry()).registry.cash[0];
+  deskTill = (
+    await req('POST', '/accounts/cash', { name: 'Transfer desk', kind: 'desk' }, adminToken)
+  ).json.account;
+
+  // Each till is its own sitting, opened separately.
+  await req('POST', '/cash/open', { accountId: mainTill.id, openingUsd: 500, openingLbp: 20000000 }, adminToken);
+  await req('POST', '/cash/open', { accountId: deskTill.id, openingUsd: 200 }, adminToken);
 });
 
 after(() => {
@@ -94,18 +105,71 @@ after(() => {
   if (workDir) rmSync(workDir, { recursive: true, force: true });
 });
 
-/* ---------------------------------------------------------------- basics */
+/* ------------------------------------------------------------------ tills */
 
-test('a payment voucher takes the money out of the drawer and numbers itself', async () => {
-  const before = await drawer();
+test('a shop starts with one till and can name as many more as it has', async () => {
+  const { registry: reg } = await registry();
+  const names = reg.cash.map((a) => a.name);
+  assert.ok(names.includes('Main drawer'), 'the one that was always there');
+  assert.ok(names.includes('Transfer desk'));
+  assert.equal(reg.cash.find((a) => a.name === 'Main drawer').isDefault, true);
+});
 
+test('each till counts on its own', async () => {
+  assert.equal((await tillBalance(mainTill.id)).balance, 500);
+  assert.equal((await tillBalance(deskTill.id)).balance, 200);
+});
+
+test('a till can be renamed', async () => {
+  const renamed = await req('PUT', `/accounts/cash/${deskTill.id}`, { name: 'OMT desk' }, adminToken);
+  assert.equal(renamed.status, 200);
+  assert.equal(renamed.json.account.name, 'OMT desk');
+
+  await req('PUT', `/accounts/cash/${deskTill.id}`, { name: 'Transfer desk' }, adminToken);
+});
+
+test('a till being counted cannot be put away mid-count', async () => {
+  const res = await req('DELETE', `/accounts/cash/${deskTill.id}`, null, adminToken);
+  assert.equal(res.status, 400);
+  assert.match(res.json.error, /Close its cashbox/);
+});
+
+test('nor can one with money still in it', async () => {
+  const spare = (await req('POST', '/accounts/cash', { name: 'Back safe', kind: 'safe' }, adminToken)).json
+    .account;
+
+  // Opened, floated, and closed carrying the whole count forward — which is
+  // exactly a safe that has money in it and nobody counting.
+  await req('POST', '/cash/open', { accountId: spare.id, openingUsd: 75 }, adminToken);
+  await req(
+    'POST',
+    '/cash/close',
+    { accountId: spare.id, countedUsd: 75, carriedUsd: 75 },
+    adminToken,
+  );
+
+  const res = await req('DELETE', `/accounts/cash/${spare.id}`, null, adminToken);
+  assert.equal(res.status, 400);
+  assert.match(res.json.error, /still money/);
+});
+
+test('the default till cannot be put away either', async () => {
+  const res = await req('DELETE', `/accounts/cash/${mainTill.id}`, null, adminToken);
+  assert.equal(res.status, 400);
+  assert.match(res.json.error, /default/);
+});
+
+/* --------------------------------------------------------------- vouchers */
+
+test('a payment names the till it came out of', async () => {
   const res = await req(
     'POST',
     '/vouchers',
     {
-      kind: 'payment',
-      accountType: 'other',
-      accountName: 'Abu Khalil the landlord',
+      fromType: 'cash',
+      fromId: mainTill.id,
+      toType: 'other',
+      toName: 'Abu Khalil the landlord',
       amountUsd: 300,
       reason: 'rent',
       note: 'August rent',
@@ -114,68 +178,98 @@ test('a payment voucher takes the money out of the drawer and numbers itself', a
   );
 
   assert.equal(res.status, 201, JSON.stringify(res.json));
+  assert.equal(res.json.voucher.kind, 'payment', 'ours out, theirs in');
   assert.equal(res.json.voucher.voucher_number, 'PV-0001');
-  assert.equal(res.json.voucher.account_name, 'Abu Khalil the landlord');
+  assert.equal(res.json.voucher.from_name, 'Main drawer');
+  assert.equal(res.json.voucher.to_name, 'Abu Khalil the landlord');
 
-  const after = await drawer();
-  assert.equal(Math.round((after.usd - before.usd) * 100) / 100, -300);
+  assert.equal((await tillBalance(mainTill.id)).balance, 200);
+  assert.equal((await tillBalance(deskTill.id)).balance, 200, 'the other till is untouched');
 });
 
-test('a receipt voucher brings it in, numbered in its own series', async () => {
-  const before = await drawer();
-
-  const res = await req(
-    'POST',
-    '/vouchers',
-    { kind: 'receipt', accountType: 'other', accountName: 'The owner', amountUsd: 1000, reason: 'owner_funds' },
-    adminToken,
-  );
-
-  assert.equal(res.json.voucher.voucher_number, 'RV-0001', 'receipts number apart from payments');
-  const after = await drawer();
-  assert.equal(Math.round((after.usd - before.usd) * 100) / 100, 1000);
-});
-
-test('pounds move as pounds, never as a converted figure', async () => {
-  const before = await drawer();
-  await req(
-    'POST',
-    '/vouchers',
-    { kind: 'payment', accountType: 'other', accountName: 'Electrician', amountLbp: 4500000, reason: 'other' },
-    adminToken,
-  );
-
-  const after = await drawer();
-  assert.equal(after.lbp - before.lbp, -4500000);
-  assert.equal(after.usd, before.usd, 'the dollars did not move');
-});
-
-test('a voucher paid by bank does not touch the drawer', async () => {
-  const before = await drawer();
+test('a receipt names the till it went into', async () => {
   const res = await req(
     'POST',
     '/vouchers',
     {
-      kind: 'payment',
-      accountType: 'supplier',
-      accountId: supplier.id,
-      amountUsd: 200,
-      method: 'bank',
-      reason: 'supplier',
+      fromType: 'other',
+      fromName: 'The owner',
+      toType: 'cash',
+      toId: deskTill.id,
+      amountUsd: 100,
+      reason: 'owner_funds',
     },
     adminToken,
   );
-  assert.equal(res.status, 201);
 
-  const after = await drawer();
-  assert.equal(after.usd, before.usd, 'a bank transfer is not cash');
+  assert.equal(res.json.voucher.kind, 'receipt');
+  assert.equal(res.json.voucher.voucher_number, 'RV-0001', 'its own series');
+  assert.equal((await tillBalance(deskTill.id)).balance, 300);
+  assert.equal((await tillBalance(mainTill.id)).balance, 200);
+});
+
+test('money can be moved between two of the shop’s own tills', async () => {
+  const res = await req(
+    'POST',
+    '/vouchers',
+    {
+      fromType: 'cash',
+      fromId: deskTill.id,
+      toType: 'cash',
+      toId: mainTill.id,
+      amountUsd: 50,
+      reason: 'bank_drop',
+    },
+    adminToken,
+  );
+
+  assert.equal(res.json.voucher.kind, 'transfer', 'neither paid nor received — it never left');
+  assert.equal(res.json.voucher.voucher_number, 'TV-0001');
+  assert.equal((await tillBalance(deskTill.id)).balance, 250);
+  assert.equal((await tillBalance(mainTill.id)).balance, 250);
+});
+
+test('a voucher between two outsiders is refused — the shop is not involved', async () => {
+  const res = await req(
+    'POST',
+    '/vouchers',
+    { fromType: 'customer', fromId: customer.id, toType: 'supplier', toId: supplier.id, amountUsd: 10 },
+    adminToken,
+  );
+  assert.equal(res.status, 400);
+  assert.match(res.json.error, /One end has to be the shop/);
+});
+
+test('money cannot be moved to the account it came from', async () => {
+  const res = await req(
+    'POST',
+    '/vouchers',
+    { fromType: 'cash', fromId: mainTill.id, toType: 'cash', toId: mainTill.id, amountUsd: 10 },
+    adminToken,
+  );
+  assert.equal(res.status, 400);
+  assert.match(res.json.error, /somewhere else/);
+});
+
+test('pounds move as pounds, never as a converted figure', async () => {
+  const before = await tillBalance(mainTill.id);
+  await req(
+    'POST',
+    '/vouchers',
+    { fromType: 'cash', fromId: mainTill.id, toType: 'other', toName: 'Electrician', amountLbp: 4500000 },
+    adminToken,
+  );
+
+  const after = await tillBalance(mainTill.id);
+  assert.equal(after.balanceLbp - before.balanceLbp, -4500000);
+  assert.equal(after.balance, before.balance, 'the dollars did not move');
 });
 
 test('an amount is required, and a direction is not a minus sign', async () => {
   const empty = await req(
     'POST',
     '/vouchers',
-    { kind: 'payment', accountType: 'other', accountName: 'Nobody' },
+    { fromType: 'cash', fromId: mainTill.id, toType: 'other', toName: 'Nobody' },
     adminToken,
   );
   assert.equal(empty.status, 400);
@@ -184,7 +278,7 @@ test('an amount is required, and a direction is not a minus sign', async () => {
   const negative = await req(
     'POST',
     '/vouchers',
-    { kind: 'payment', accountType: 'other', accountName: 'Nobody', amountUsd: -50 },
+    { fromType: 'cash', fromId: mainTill.id, toType: 'other', toName: 'Nobody', amountUsd: -50 },
     adminToken,
   );
   assert.equal(negative.status, 400);
@@ -195,7 +289,7 @@ test('"someone else" needs a name — an unnamed voucher explains nothing', asyn
   const res = await req(
     'POST',
     '/vouchers',
-    { kind: 'payment', accountType: 'other', amountUsd: 10 },
+    { fromType: 'cash', fromId: mainTill.id, toType: 'other', amountUsd: 10 },
     adminToken,
   );
   assert.equal(res.status, 400);
@@ -205,101 +299,136 @@ test('"someone else" needs a name — an unnamed voucher explains nothing', asyn
 /* ----------------------------------------------------------- the ledgers */
 
 test('paying a supplier reduces what the shop owes them', async () => {
-  // Something to owe: a bill on their account.
-  await req(
+  const billed = await req(
     'POST',
     `/suppliers/${supplier.id}/charges`,
-    { amountUsd: 400, note: 'Delivery' },
+    { amount: 400, note: 'Delivery' },
     adminToken,
   );
-  const owed = await balanceOf('supplier', supplier.id);
+  assert.equal(billed.status, 201, JSON.stringify(billed.json));
+  const owed = await partyBalance('supplier', supplier.id);
 
   await req(
     'POST',
     '/vouchers',
     {
-      kind: 'payment',
-      accountType: 'supplier',
-      accountId: supplier.id,
+      fromType: 'cash',
+      fromId: mainTill.id,
+      toType: 'supplier',
+      toId: supplier.id,
       amountUsd: 150,
       reason: 'supplier',
     },
     adminToken,
   );
 
-  assert.equal(await balanceOf('supplier', supplier.id), Math.round((owed - 150) * 100) / 100);
+  assert.equal(await partyBalance('supplier', supplier.id), Math.round((owed - 150) * 100) / 100);
 });
 
 test('a customer paying reduces what they owe', async () => {
-  await req('POST', `/customers/${customer.id}/charges`, { amountUsd: 250, note: 'On account' }, adminToken);
-  const owed = await balanceOf('customer', customer.id);
+  const charged = await req(
+    'POST',
+    `/customers/${customer.id}/charges`,
+    { amount: 250, note: 'On account' },
+    adminToken,
+  );
+  assert.equal(charged.status, 201, JSON.stringify(charged.json));
+  const owed = await partyBalance('customer', customer.id);
 
   await req(
     'POST',
     '/vouchers',
-    { kind: 'receipt', accountType: 'customer', accountId: customer.id, amountUsd: 100, reason: 'customer' },
+    {
+      fromType: 'customer',
+      fromId: customer.id,
+      toType: 'cash',
+      toId: mainTill.id,
+      amountUsd: 100,
+      reason: 'customer',
+    },
     adminToken,
   );
 
-  assert.equal(await balanceOf('customer', customer.id), Math.round((owed - 100) * 100) / 100);
+  assert.equal(await partyBalance('customer', customer.id), Math.round((owed - 100) * 100) / 100);
 });
 
 test('paying a customer money makes them owe more, not less', async () => {
-  const owed = await balanceOf('customer', customer.id);
+  const owed = await partyBalance('customer', customer.id);
 
   await req(
     'POST',
     '/vouchers',
-    { kind: 'payment', accountType: 'customer', accountId: customer.id, amountUsd: 40, reason: 'refund' },
+    {
+      fromType: 'cash',
+      fromId: mainTill.id,
+      toType: 'customer',
+      toId: customer.id,
+      amountUsd: 40,
+      reason: 'refund',
+    },
     adminToken,
   );
 
   assert.equal(
-    await balanceOf('customer', customer.id),
+    await partyBalance('customer', customer.id),
     Math.round((owed + 40) * 100) / 100,
     'money handed to a customer is money they have not yet paid for',
   );
 });
 
 test('a supplier refunding the shop increases what is owed to them', async () => {
-  const owed = await balanceOf('supplier', supplier.id);
+  const owed = await partyBalance('supplier', supplier.id);
 
-  await req(
-    'POST',
-    '/vouchers',
-    { kind: 'receipt', accountType: 'supplier', accountId: supplier.id, amountUsd: 60, reason: 'refund' },
-    adminToken,
-  );
-
-  assert.equal(await balanceOf('supplier', supplier.id), Math.round((owed + 60) * 100) / 100);
-});
-
-/* ------------------------------------------------------------- a wallet */
-
-test('paying a wallet buys credit; being paid by one takes it back', async () => {
   await req(
     'POST',
     '/vouchers',
     {
-      kind: 'payment',
-      accountType: 'wallet',
-      accountId: wallet.id,
+      fromType: 'supplier',
+      fromId: supplier.id,
+      toType: 'cash',
+      toId: mainTill.id,
+      amountUsd: 60,
+      reason: 'refund',
+    },
+    adminToken,
+  );
+
+  assert.equal(await partyBalance('supplier', supplier.id), Math.round((owed + 60) * 100) / 100);
+});
+
+/* ------------------------------------------------------------- a wallet */
+
+test('buying credit moves it from a till into the wallet', async () => {
+  const cash = (await tillBalance(mainTill.id)).balance;
+
+  await req(
+    'POST',
+    '/vouchers',
+    {
+      fromType: 'cash',
+      fromId: mainTill.id,
+      toType: 'wallet',
+      toId: wallet.id,
       amountUsd: 250,
       reason: 'wallet_top_up',
     },
     adminToken,
   );
-  assert.equal(await walletBalance(wallet.id), 250);
 
+  assert.equal(await walletBalance(wallet.id), 250);
+  assert.equal((await tillBalance(mainTill.id)).balance, Math.round((cash - 250) * 100) / 100);
+});
+
+test('taking credit back out puts the cash back', async () => {
   await req(
     'POST',
     '/vouchers',
     {
-      kind: 'receipt',
-      accountType: 'wallet',
-      accountId: wallet.id,
+      fromType: 'wallet',
+      fromId: wallet.id,
+      toType: 'cash',
+      toId: mainTill.id,
       amountUsd: 50,
-      reason: 'wallet_withdrawal',
     },
     adminToken,
   );
@@ -308,15 +437,16 @@ test('paying a wallet buys credit; being paid by one takes it back', async () =>
 
 /* ---------------------------------------------------------- cancellation */
 
-test('cancelling puts back the cash, the ledger and the credit', async () => {
+test('cancelling puts back both ends at once', async () => {
   const written = (
     await req(
       'POST',
       '/vouchers',
       {
-        kind: 'payment',
-        accountType: 'wallet',
-        accountId: wallet.id,
+        fromType: 'cash',
+        fromId: mainTill.id,
+        toType: 'wallet',
+        toId: wallet.id,
         amountUsd: 90,
         reason: 'wallet_top_up',
       },
@@ -324,40 +454,49 @@ test('cancelling puts back the cash, the ledger and the credit', async () => {
     )
   ).json.voucher;
 
-  const cash = await drawer();
+  const cash = (await tillBalance(mainTill.id)).balance;
   const credit = await walletBalance(wallet.id);
 
   const cancelled = await req('POST', `/vouchers/${written.id}/cancel`, {}, adminToken);
   assert.equal(cancelled.json.voucher.status, 'cancelled');
 
-  assert.equal(Math.round(((await drawer()).usd - cash.usd) * 100) / 100, 90);
+  assert.equal((await tillBalance(mainTill.id)).balance, Math.round((cash + 90) * 100) / 100);
   assert.equal(await walletBalance(wallet.id), credit - 90);
 
   // Kept, not deleted: the number was on a slip somebody signed.
   assert.equal((await req('POST', `/vouchers/${written.id}/cancel`, {}, adminToken)).status, 400);
 });
 
-test('a cancelled voucher is out of the totals but still in the list', async () => {
-  const { vouchers, summary } = (await req('GET', '/vouchers?preset=today', null, adminToken)).json;
-
-  const cancelled = vouchers.filter((v) => v.status === 'cancelled');
-  assert.equal(cancelled.length, 1, 'still listed');
+test('transfers between own accounts are in neither total', async () => {
+  const { summary } = (await req('GET', '/vouchers?preset=today', null, adminToken)).json;
+  assert.ok(summary.transfers >= 1);
   assert.ok(summary.paidUsd > 0);
-  assert.ok(
-    !vouchers.some((v) => v.status === 'cancelled' && summary.paidUsd === v.amount_usd),
-    'the cancelled amount is not the total',
-  );
+  assert.ok(summary.receivedUsd > 0);
 });
 
-test('vouchers are found by number, name or note', async () => {
-  const byNumber = (await req('GET', '/vouchers?search=PV-0001', null, adminToken)).json;
-  assert.equal(byNumber.vouchers.length, 1);
+test('vouchers are found by number or by either end', async () => {
+  assert.equal((await req('GET', '/vouchers?search=PV-0001', null, adminToken)).json.vouchers.length, 1);
 
   const byName = (await req('GET', '/vouchers?search=landlord', null, adminToken)).json;
   assert.equal(byName.vouchers[0].reason, 'rent');
 
-  const onlyReceipts = (await req('GET', '/vouchers?kind=receipt', null, adminToken)).json;
-  assert.ok(onlyReceipts.vouchers.every((v) => v.kind === 'receipt'));
+  const byTill = (await req('GET', '/vouchers?search=Transfer desk', null, adminToken)).json;
+  assert.ok(byTill.vouchers.length > 0, 'the till is an end like any other');
+});
+
+/* -------------------------------------------------------------- who owes */
+
+test('the registry answers who owes the shop and who it owes', async () => {
+  const { summary } = await registry();
+
+  assert.ok(summary.receivable > 0, 'somebody owes us');
+  assert.equal(summary.receivableCount, 1);
+  assert.ok(summary.payable > 0, 'we owe somebody');
+  assert.equal(summary.payableCount, 1);
+
+  // The shop's own money is counted apart from what is owed either way.
+  assert.ok(summary.cashUsd > 0);
+  assert.equal(summary.walletUsd, 200);
 });
 
 test('the desk is its own permission', async () => {
@@ -374,8 +513,14 @@ test('the desk is its own permission', async () => {
   const written = await req(
     'POST',
     '/vouchers',
-    { kind: 'payment', accountType: 'other', accountName: 'Water', amountUsd: 5, reason: 'other' },
+    { fromType: 'cash', fromId: mainTill.id, toType: 'other', toName: 'Water', amountUsd: 5 },
     cashier,
   );
   assert.equal(written.status, 201);
+
+  // Naming a till is the cashbox's business, not the voucher desk's.
+  assert.equal(
+    (await req('POST', '/accounts/cash', { name: 'Sneaky till' }, cashier)).status,
+    403,
+  );
 });

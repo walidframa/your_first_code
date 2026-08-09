@@ -1,23 +1,23 @@
 /**
- * Payment and receipt vouchers.
+ * Money moving from one account to another.
  *
- * Every movement of money that is neither a sale nor a purchase order: wages,
- * rent, the owner putting money in, a supplier settled in cash, a customer
- * paying off what they owe, credit bought for a wallet. A shop that only
- * records selling ends the day with a drawer nobody can explain.
+ * Everything that is neither a sale nor a purchase order: wages, rent, an owner
+ * putting money in, a supplier settled in cash, a customer paying off what they
+ * owe, credit bought for a wallet, a run to the safe. A shop that only records
+ * selling ends the day with a drawer nobody can explain.
  *
- * There are exactly two, and the difference is the direction:
+ * A voucher names **both ends**. That is the whole idea: money never simply
+ * appears or vanishes, it leaves one account and arrives at another, and until
+ * both are written down somebody has to remember which drawer it came out of.
  *
- *   payment   money leaves the shop and goes to the account named
- *   receipt   money comes into the shop from the account named
+ * Two kinds of account meet here:
  *
- * Which side of the ledger that lands on depends on who the account is, and the
- * one rule below covers all four combinations. It is worth reading once:
+ *   the shop's own    a till, a wallet — a record of money that is actually there
+ *   somebody else's   a customer, a supplier, a name typed in words
  *
- *   A customer's balance is what they owe the shop. Paying them money makes
- *   them owe more; being paid makes them owe less.
- *   A supplier's balance is what the shop owes them. Paying them makes the
- *   shop owe less; being paid by them (a refund) makes the shop owe more.
+ * Which makes the kind of voucher a consequence rather than a choice: out of
+ * ours into theirs is a payment, the reverse is a receipt, and between two of
+ * ours it is a transfer.
  */
 import { db, transaction } from '../db.js';
 import { round2 } from './currency.js';
@@ -26,39 +26,36 @@ import { addEntry } from './accounts.js';
 import { currentSession, recordMovement, requiresSession } from './cash.js';
 import { recordMovement as recordWalletMovement } from './wallets.js';
 
-export const VOUCHER_KINDS = ['payment', 'receipt'];
-export const ACCOUNT_TYPES = ['customer', 'supplier', 'wallet', 'other'];
-export const VOUCHER_METHODS = ['cash', 'bank', 'card', 'other'];
+export const VOUCHER_KINDS = ['payment', 'receipt', 'transfer'];
+export const ACCOUNT_TYPES = ['cash', 'wallet', 'customer', 'supplier', 'other'];
+
+/** The shop's own money, as opposed to a record of what somebody owes. */
+export const OWN_TYPES = ['cash', 'wallet'];
 
 /**
  * Why the money moved. Free text alone makes a month impossible to add up, and
  * "other" with a note covers whatever this list does not.
  */
-export const PAYMENT_REASONS = [
+export const VOUCHER_REASONS = [
   'supplier',
+  'customer',
   'wages',
   'rent',
   'utilities',
   'owner_draw',
-  'refund',
-  'wallet_top_up',
-  'other',
-];
-
-export const RECEIPT_REASONS = [
-  'customer',
   'owner_funds',
-  'deposit',
   'refund',
-  'wallet_withdrawal',
+  'deposit',
+  'wallet_top_up',
+  'bank_drop',
   'other',
 ];
 
 const PARTY_TABLES = { customer: 'customers', supplier: 'suppliers' };
 
-/** PV-0001 for a payment, RV-0001 for a receipt. Sequential per kind. */
+/** PV / RV / TV, sequential within its own series. */
 export function nextVoucherNumber(kind) {
-  const prefix = kind === 'payment' ? 'PV' : 'RV';
+  const prefix = { payment: 'PV', receipt: 'RV', transfer: 'TV' }[kind];
   const { n } = db.prepare('SELECT COUNT(*) AS n FROM vouchers WHERE kind = ?').get(kind);
 
   // Numbers stay unique even after a deletion, so step past any clash.
@@ -72,23 +69,117 @@ export function nextVoucherNumber(kind) {
   return candidate;
 }
 
-/**
- * Which way the named account's balance moves, per the rule at the top.
- *
- * Positive always means "more outstanding" — the sign convention the ledger
- * already uses for both sides of the book.
- */
-export function ledgerDirection(kind, accountType) {
-  if (accountType !== 'customer' && accountType !== 'supplier') return 0;
-  const outward = kind === 'payment' ? -1 : 1;
-  return outward * (accountType === 'supplier' ? 1 : -1);
+/** What kind of voucher two sides add up to. */
+export function kindFor(fromType, toType) {
+  const fromOurs = OWN_TYPES.includes(fromType);
+  const toOurs = OWN_TYPES.includes(toType);
+  if (fromOurs && toOurs) return 'transfer';
+  if (fromOurs) return 'payment';
+  if (toOurs) return 'receipt';
+  return null;
 }
 
-/** What a voucher does to the drawer: signed, per currency. Cash only. */
-export function cashEffect({ kind, method, amountUsd = 0, amountLbp = 0 }) {
-  if (method !== 'cash') return { usd: 0, lbp: 0 };
-  const sign = kind === 'payment' ? -1 : 1;
-  return { usd: round2(sign * amountUsd), lbp: Math.round(sign * amountLbp) };
+/**
+ * Resolve one end and give it a name.
+ *
+ * The name is copied rather than joined: a slip printed today must still read
+ * the same after the contact is renamed or the till is put away.
+ */
+function resolveSide(type, id, typedName, what) {
+  if (!ACCOUNT_TYPES.includes(type)) {
+    throw new Error(`${what} must be one of: ${ACCOUNT_TYPES.join(', ')}`);
+  }
+
+  if (type === 'other') {
+    const name = String(typedName || '').trim();
+    if (!name) throw new Error(`Name ${what === 'from' ? 'who the money came from' : 'who it is going to'}`);
+    return { type, id: null, name };
+  }
+
+  if (type === 'cash') {
+    const till = db.prepare('SELECT * FROM cash_accounts WHERE id = ?').get(id);
+    if (!till) throw new Error('That till does not exist');
+    return { type, id: till.id, name: till.name, till };
+  }
+
+  if (type === 'wallet') {
+    const wallet = db.prepare('SELECT * FROM wallets WHERE id = ?').get(id);
+    if (!wallet) throw new Error('That wallet does not exist');
+    return { type, id: wallet.id, name: wallet.name, wallet };
+  }
+
+  const party = db.prepare(`SELECT * FROM ${PARTY_TABLES[type]} WHERE id = ?`).get(id);
+  if (!party) throw new Error(`That ${type} does not exist`);
+  return { type, id: party.id, name: party.name };
+}
+
+/**
+ * How a party's balance moves.
+ *
+ * A customer's balance is what they owe the shop; a supplier's is what the shop
+ * owes them. So money *from* a customer reduces their debt while money from a
+ * supplier increases what the shop owes — and each reverses when the money goes
+ * the other way. `direction` is +1 when the account is the destination.
+ */
+export function partySign(type, direction) {
+  if (type === 'customer') return direction;
+  if (type === 'supplier') return -direction;
+  return 0;
+}
+
+/**
+ * Apply one end of a voucher.
+ *
+ * `direction` is −1 for the side the money left and +1 for the side it reached,
+ * so both ends run through the same code and cannot disagree about the sign.
+ */
+function applySide(side, direction, { usd, lbp, usdEquivalent, rate, number, note, userId }) {
+  if (side.type === 'cash') {
+    return {
+      movementId: recordMovement({
+        accountId: side.id,
+        kind: 'voucher',
+        amountUsd: round2(direction * usd),
+        amountLbp: Math.round(direction * lbp),
+        reason: direction > 0 ? 'in' : 'out',
+        note: `${number}${note ? ` · ${note}` : ''}`,
+        userId,
+      }),
+      entryId: null,
+    };
+  }
+
+  if (side.type === 'wallet') {
+    const amount =
+      side.wallet.currency === 'USD' ? usdEquivalent : Math.round(usdEquivalent * (rate || 0));
+    recordWalletMovement({
+      walletId: side.id,
+      kind: direction > 0 ? 'top_up' : 'withdrawal',
+      amount: direction * amount,
+      amountUsd: round2(direction * usdEquivalent),
+      note: `${number}${note ? ` · ${note}` : ''}`,
+      userId,
+    });
+    return { movementId: null, entryId: null };
+  }
+
+  const sign = partySign(side.type, direction);
+  if (sign === 0) return { movementId: null, entryId: null };
+
+  const entryId = addEntry({
+    partyType: side.type,
+    partyId: side.id,
+    // Both directions are money moving against the account; which way is in
+    // the sign, so one ledger kind serves both.
+    kind: 'payment',
+    amountUsd: sign * usdEquivalent,
+    paidUsd: usd,
+    paidLbp: lbp,
+    exchangeRate: rate,
+    note: `${number}${note ? ` · ${note}` : ''}`,
+    userId,
+  });
+  return { movementId: null, entryId };
 }
 
 export function voucherById(id) {
@@ -100,77 +191,58 @@ export function voucherById(id) {
     .get(id);
 }
 
-/** Resolve and name the account, so the slip cannot be orphaned by a rename. */
-function resolveAccount(accountType, accountId, typedName) {
-  if (accountType === 'other') {
-    const name = String(typedName || '').trim();
-    if (!name) throw new Error('Name who the money is going to or coming from');
-    return { id: null, name };
-  }
-
-  if (accountType === 'wallet') {
-    const wallet = db.prepare('SELECT * FROM wallets WHERE id = ?').get(accountId);
-    if (!wallet) throw new Error('That wallet does not exist');
-    return { id: wallet.id, name: wallet.name, wallet };
-  }
-
-  const table = PARTY_TABLES[accountType];
-  const party = db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(accountId);
-  if (!party) throw new Error(`That ${accountType} does not exist`);
-  return { id: party.id, name: party.name };
-}
-
 /**
  * Write one voucher and everything it causes.
  *
- * All inside one transaction: a voucher whose cash movement failed is a drawer
- * that will not count, and a movement with no voucher behind it is money nobody
- * can explain.
+ * All inside one transaction: a voucher whose movement failed is a drawer that
+ * will not count, and a movement with no voucher behind it is money nobody can
+ * explain.
  */
 export function recordVoucher({
-  kind,
-  accountType,
-  accountId = null,
-  accountName = null,
+  fromType,
+  fromId = null,
+  fromName = null,
+  toType,
+  toId = null,
+  toName = null,
   amountUsd = 0,
   amountLbp = 0,
-  method = 'cash',
   reason = null,
   reference = null,
   note = null,
   issuedOn = null,
   userId = null,
 }) {
-  if (!VOUCHER_KINDS.includes(kind)) {
-    throw new Error(`kind must be one of: ${VOUCHER_KINDS.join(', ')}`);
-  }
-  if (!ACCOUNT_TYPES.includes(accountType)) {
-    throw new Error(`accountType must be one of: ${ACCOUNT_TYPES.join(', ')}`);
-  }
-  if (!VOUCHER_METHODS.includes(method)) {
-    throw new Error(`method must be one of: ${VOUCHER_METHODS.join(', ')}`);
-  }
-
   const usd = round2(Number(amountUsd) || 0);
   const lbp = Math.round(Number(amountLbp) || 0);
   if (usd < 0 || lbp < 0) {
-    throw new Error('Amounts cannot be negative — the direction is the voucher, not a minus sign');
+    throw new Error('Amounts cannot be negative — the direction is the two accounts, not a minus sign');
   }
   if (usd === 0 && lbp === 0) throw new Error('Enter an amount');
 
-  const account = resolveAccount(accountType, accountId, accountName);
+  const from = resolveSide(fromType, fromId, fromName, 'from');
+  const to = resolveSide(toType, toId, toName, 'to');
+
+  if (from.type === to.type && from.id !== null && from.id === to.id) {
+    throw new Error('The money has to go somewhere else');
+  }
+
+  const kind = kindFor(from.type, to.type);
+  if (!kind) {
+    throw new Error('One end has to be the shop — a till or a wallet');
+  }
 
   /*
-   * Cash needs a drawer to come out of or go into. A bank transfer does not,
-   * so it is not blocked — refusing it would stop the shop recording something
-   * that already happened.
+   * Cash needs a drawer to come out of or go into. Told afterwards, the money
+   * has already been counted across the counter.
    */
-  if (method === 'cash' && requiresSession() && !currentSession()) {
-    throw new Error('The cashbox is closed — open it before paying out or taking cash in');
+  for (const side of [from, to]) {
+    if (side.type === 'cash' && requiresSession() && !currentSession(side.id)) {
+      throw new Error(`${side.name} is closed — open its cashbox first`);
+    }
   }
 
   const { exchange_rate: rate } = getSettings();
-  const effect = cashEffect({ kind, method, amountUsd: usd, amountLbp: lbp });
   const usdEquivalent = round2(usd + (rate > 0 ? lbp / rate : 0));
 
   return transaction(() => {
@@ -178,21 +250,22 @@ export function recordVoucher({
     const info = db
       .prepare(
         `INSERT INTO vouchers (
-           voucher_number, kind, account_type, account_id, account_name,
-           amount_usd, amount_lbp, exchange_rate, method, reason, reference, note,
-           user_id, issued_on
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, date('now')))`,
+           voucher_number, kind, from_type, from_id, from_name, to_type, to_id, to_name,
+           amount_usd, amount_lbp, exchange_rate, reason, reference, note, user_id, issued_on
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, date('now')))`,
       )
       .run(
         number,
         kind,
-        accountType,
-        account.id,
-        account.name,
+        from.type,
+        from.id,
+        from.name,
+        to.type,
+        to.id,
+        to.name,
         usd,
         lbp,
         rate,
-        method,
         reason || null,
         reference?.trim() || null,
         note?.trim() || null,
@@ -201,61 +274,25 @@ export function recordVoucher({
       );
 
     const voucherId = info.lastInsertRowid;
+    const context = { usd, lbp, usdEquivalent, rate, number, note, userId };
 
-    const movementId = recordMovement({
-      kind: 'voucher',
-      amountUsd: effect.usd,
-      amountLbp: effect.lbp,
-      reason: kind,
-      note: `${number} · ${account.name}`,
-      userId,
-    });
+    const out = applySide(from, -1, context);
+    const arrived = applySide(to, 1, context);
 
     /*
-     * The party's ledger. `paid_usd` and `paid_lbp` record what actually
-     * changed hands, so a statement shows the pounds as pounds rather than as
-     * a converted figure that moves with the rate.
+     * One of each is kept on the row for traceability, and each has to be the
+     * right kind of id — an entry column holding a cash movement's id would
+     * point at whichever entry happened to share the number.
+     *
+     * A transfer between two tills has two movements and keeps the one it
+     * arrived at, which is the end somebody is looking for when they ask where
+     * the money went.
      */
-    let entryId = null;
-    const direction = ledgerDirection(kind, accountType);
-    if (direction !== 0) {
-      entryId = addEntry({
-        partyType: accountType,
-        partyId: account.id,
-        // Both directions are money moving against the account; which way it
-        // moved is already in the sign, so one ledger kind serves both.
-        kind: 'payment',
-        amountUsd: direction * usdEquivalent,
-        paidUsd: usd,
-        paidLbp: lbp,
-        exchangeRate: rate,
-        note: `${number}${note ? ` · ${note}` : ''}`,
-        userId,
-      });
-    }
-
-    // A wallet is credit, so paying money to one buys credit and being paid by
-    // one is credit taken back out.
-    if (accountType === 'wallet') {
-      const walletAmount =
-        account.wallet.currency === 'USD' ? usdEquivalent : Math.round(usdEquivalent * (rate || 0));
-      recordWalletMovement({
-        walletId: account.wallet.id,
-        kind: kind === 'payment' ? 'top_up' : 'withdrawal',
-        amount: kind === 'payment' ? walletAmount : -walletAmount,
-        amountUsd: kind === 'payment' ? usdEquivalent : -usdEquivalent,
-        note: `${number}${note ? ` · ${note}` : ''}`,
-        userId,
-      });
-    }
-
-    if (movementId || entryId) {
-      db.prepare('UPDATE vouchers SET cash_movement_id = ?, entry_id = ? WHERE id = ?').run(
-        movementId,
-        entryId,
-        voucherId,
-      );
-    }
+    db.prepare('UPDATE vouchers SET cash_movement_id = ?, entry_id = ? WHERE id = ?').run(
+      arrived.movementId ?? out.movementId ?? null,
+      arrived.entryId ?? out.entryId ?? null,
+      voucherId,
+    );
 
     return voucherById(voucherId);
   })();
@@ -273,54 +310,26 @@ export function cancelVoucher(id, userId = null) {
   if (!voucher) throw new Error('That voucher does not exist');
   if (voucher.status === 'cancelled') throw new Error('That voucher is already cancelled');
 
-  const effect = cashEffect({
-    kind: voucher.kind,
-    method: voucher.method,
-    amountUsd: voucher.amount_usd,
-    amountLbp: voucher.amount_lbp,
-  });
-
   const rate = voucher.exchange_rate || getSettings().exchange_rate;
   const usdEquivalent = round2(voucher.amount_usd + (rate > 0 ? voucher.amount_lbp / rate : 0));
 
+  const from = resolveSide(voucher.from_type, voucher.from_id, voucher.from_name, 'from');
+  const to = resolveSide(voucher.to_type, voucher.to_id, voucher.to_name, 'to');
+
+  const context = {
+    usd: voucher.amount_usd,
+    lbp: voucher.amount_lbp,
+    usdEquivalent,
+    rate,
+    number: `Cancelled ${voucher.voucher_number}`,
+    note: null,
+    userId,
+  };
+
   return transaction(() => {
-    recordMovement({
-      kind: 'voucher',
-      amountUsd: -effect.usd,
-      amountLbp: -effect.lbp,
-      reason: 'cancelled',
-      note: `Cancelled ${voucher.voucher_number}`,
-      userId,
-    });
-
-    const direction = ledgerDirection(voucher.kind, voucher.account_type);
-    if (direction !== 0) {
-      addEntry({
-        partyType: voucher.account_type,
-        partyId: voucher.account_id,
-        kind: 'adjustment',
-        amountUsd: -direction * usdEquivalent,
-        exchangeRate: rate,
-        note: `Cancelled ${voucher.voucher_number}`,
-        userId,
-      });
-    }
-
-    if (voucher.account_type === 'wallet') {
-      const wallet = db.prepare('SELECT * FROM wallets WHERE id = ?').get(voucher.account_id);
-      if (wallet) {
-        const walletAmount =
-          wallet.currency === 'USD' ? usdEquivalent : Math.round(usdEquivalent * (rate || 0));
-        recordWalletMovement({
-          walletId: wallet.id,
-          kind: 'adjustment',
-          amount: voucher.kind === 'payment' ? -walletAmount : walletAmount,
-          amountUsd: voucher.kind === 'payment' ? -usdEquivalent : usdEquivalent,
-          note: `Cancelled ${voucher.voucher_number}`,
-          userId,
-        });
-      }
-    }
+    // Both ends, both signs flipped.
+    applySide(from, 1, context);
+    applySide(to, -1, context);
 
     db.prepare(
       "UPDATE vouchers SET status = 'cancelled', cancelled_at = datetime('now') WHERE id = ?",
@@ -351,9 +360,11 @@ export function listVouchers({ preset = 'month', kind = null, search = '', limit
     params.push(kind);
   }
   if (search) {
-    where.push('(v.voucher_number LIKE ? OR v.account_name LIKE ? OR v.note LIKE ? OR v.reference LIKE ?)');
+    where.push(
+      '(v.voucher_number LIKE ? OR v.from_name LIKE ? OR v.to_name LIKE ? OR v.note LIKE ? OR v.reference LIKE ?)',
+    );
     const like = `%${search}%`;
-    params.push(like, like, like, like);
+    params.push(like, like, like, like, like);
   }
 
   return db
@@ -367,26 +378,40 @@ export function listVouchers({ preset = 'month', kind = null, search = '', limit
     .all(...params, Math.min(Number(limit) || 200, 500));
 }
 
-/** Paid out, taken in, and the net — cancelled rows excluded from all three. */
+/**
+ * Out, in, and the net.
+ *
+ * A transfer between two of the shop's own accounts is counted in neither: the
+ * money did not leave, and showing it as both would double the day.
+ */
 export function summarise(vouchers) {
   const live = vouchers.filter((v) => v.status === 'posted');
-  const totals = { paidUsd: 0, paidLbp: 0, receivedUsd: 0, receivedLbp: 0, payments: 0, receipts: 0 };
+  const totals = {
+    payments: 0,
+    receipts: 0,
+    transfers: 0,
+    paidUsd: 0,
+    paidLbp: 0,
+    receivedUsd: 0,
+    receivedLbp: 0,
+  };
 
   for (const v of live) {
     if (v.kind === 'payment') {
       totals.payments += 1;
       totals.paidUsd += v.amount_usd;
       totals.paidLbp += v.amount_lbp;
-    } else {
+    } else if (v.kind === 'receipt') {
       totals.receipts += 1;
       totals.receivedUsd += v.amount_usd;
       totals.receivedLbp += v.amount_lbp;
+    } else {
+      totals.transfers += 1;
     }
   }
 
   return {
-    payments: totals.payments,
-    receipts: totals.receipts,
+    ...totals,
     paidUsd: round2(totals.paidUsd),
     paidLbp: Math.round(totals.paidLbp),
     receivedUsd: round2(totals.receivedUsd),

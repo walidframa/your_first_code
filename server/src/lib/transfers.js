@@ -20,7 +20,7 @@
 import { db, transaction } from '../db.js';
 import { round2 } from './currency.js';
 import { getSettings } from './settings.js';
-import { currentSession, recordMovement, requiresSession } from './cash.js';
+import { currentSession, defaultAccountId, recordMovement, requiresSession } from './cash.js';
 
 export const TRANSFER_DIRECTIONS = ['send', 'payout'];
 
@@ -71,6 +71,7 @@ export function recordTransfer({
   feeUsd = 0,
   feeLbp = 0,
   note = null,
+  accountId = null,
   userId = null,
 }) {
   if (!company || !String(company).trim()) throw new Error('Which company is this transfer with?');
@@ -96,7 +97,7 @@ export function recordTransfer({
    * The money is physically counted, so there has to be an open drawer to count
    * it into or out of. Told afterwards, the operator has already handed it over.
    */
-  if (requiresSession() && !currentSession()) {
+  if (requiresSession() && !currentSession(accountId)) {
     throw new Error('The cashbox is closed — open it before taking or paying out money');
   }
 
@@ -109,8 +110,8 @@ export function recordTransfer({
         `INSERT INTO transfers (
            reference, company, direction, customer_name, customer_phone, customer_id_no,
            counterparty, destination, amount_usd, amount_lbp, fee_usd, fee_lbp,
-           exchange_rate, note, operator_id
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           exchange_rate, note, operator_id, account_id
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         reference?.trim() || null,
@@ -128,9 +129,11 @@ export function recordTransfer({
         rate,
         note?.trim() || null,
         userId,
+        accountId ?? defaultAccountId(),
       );
 
     const movementId = recordMovement({
+      accountId,
       kind: 'transfer',
       amountUsd: effect.usd,
       amountLbp: effect.lbp,
@@ -173,6 +176,7 @@ export function cancelTransfer(id, userId = null) {
 
   return transaction(() => {
     recordMovement({
+      accountId: transfer.account_id,
       kind: 'transfer',
       amountUsd: -effect.usd,
       amountLbp: -effect.lbp,

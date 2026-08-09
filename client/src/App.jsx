@@ -25,6 +25,7 @@ import AdminTradeIns from './pages/admin/TradeIns';
 import HeldAccounts from './pages/admin/HeldAccounts';
 import AdminProfit from './pages/admin/Profit';
 import AdminCards from './pages/admin/Cards';
+import AdminAccounts from './pages/admin/Accounts';
 
 /*
  * Where signing in actually lands you.
@@ -38,6 +39,7 @@ const HOME_ORDER = [
   ['register', '/'],
   ['transfers', '/transfers'],
   ['vouchers', '/vouchers'],
+  ['cashbox', '/admin/accounts'],
   ['repairs', '/admin/repairs'],
   ['reports', '/admin'],
   ['documents', '/admin/documents'],
@@ -179,6 +181,14 @@ export default function App() {
           element={
             <ProtectedRoute permission="reports">
               <AdminProfit />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/accounts"
+          element={
+            <ProtectedRoute permission="cashbox">
+              <AdminAccounts />
             </ProtectedRoute>
           }
         />
