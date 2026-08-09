@@ -1,7 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { HandCoins, Minus, Plus, Search, ShoppingCart, Trash2, UserRound, X } from 'lucide-react';
+import {
+  HandCoins,
+  Minus,
+  PauseCircle,
+  Plus,
+  Search,
+  ShoppingCart,
+  Trash2,
+  UserRound,
+  X,
+} from 'lucide-react';
 import api from '../api';
 import Receipt from '../components/Receipt';
+import { HeldSalesDialog, HoldSaleDialog, ResumeIssues } from '../components/HeldSales';
 import PaymentSheet from '../components/PaymentSheet';
 import CustomerPicker from '../components/CustomerPicker';
 import CashBox from '../components/CashBox';
@@ -57,18 +68,28 @@ export default function Checkout() {
    */
   const [buyer, setBuyer] = useState({ name: '', phone: '' });
   const [accounts, setAccounts] = useState([]);
+  /*
+   * Sales put to one side. The count sits on the button so a cart parked by the
+   * morning shift is visible to the afternoon one without anybody going looking
+   * for it.
+   */
+  const [heldCount, setHeldCount] = useState(0);
+  const [heldDialog, setHeldDialog] = useState(null);
+  const [resumeIssues, setResumeIssues] = useState(null);
 
   const loadData = useCallback(async () => {
-    const [productsRes, categoriesRes, taxRes, walletsRes] = await Promise.all([
+    const [productsRes, categoriesRes, taxRes, walletsRes, heldRes] = await Promise.all([
       api.get('/products', { params: { activeOnly: 'true' } }),
       api.get('/products/categories'),
       api.get('/orders/tax-rate'),
       api.get('/wallets', { params: { activeOnly: 'true' } }),
+      api.get('/held-sales'),
     ]);
     setProducts(productsRes.data.products);
     setCategories(categoriesRes.data.categories);
     setTaxRate(taxRes.data.taxRate);
     setWallets(walletsRes.data.wallets);
+    setHeldCount(heldRes.data.count);
     setLoading(false);
   }, []);
 
@@ -245,6 +266,44 @@ export default function Checkout() {
     toast(`Added ${product.name} · ${unit.imei}`);
   }
 
+  /**
+   * Everything on screen that belongs to this sale but is not a cart line.
+   *
+   * Held alongside the lines so picking the sale back up puts the cashier
+   * exactly where they stood — the customer on the account, the buyer's name
+   * for the phone, the discount already agreed. A cart restored without them is
+   * a sale that has to be set up twice.
+   */
+  const saleContext = () => ({ discountPercent, customer, buyer, accounts });
+
+  function applyHeldSale(held, issues, count) {
+    const context = held.context || {};
+
+    /*
+     * The lines come back as they were typed — a negotiated price stays
+     * negotiated — but what is on the shelf is read again. Otherwise the
+     * quantity stepper would still be capped at yesterday's stock, and the
+     * cashier would only find out at the moment they take the money.
+     */
+    const current = new Map(products.map((p) => [p.id, p]));
+    setCart(
+      (held.cart || []).map((linefromHold) => {
+        const product = current.get(linefromHold.productId);
+        if (!product || linefromHold.unitId) return linefromHold;
+        return { ...linefromHold, stock: product.stock, unlimited: Boolean(product.wallet_id) };
+      }),
+    );
+    setDiscountPercent(context.discountPercent || 0);
+    setCustomer(context.customer ?? null);
+    setBuyer(context.buyer ?? { name: '', phone: '' });
+    setAccounts(context.accounts ?? []);
+    setHeldDialog(null);
+    if (typeof count === 'number') setHeldCount(count);
+    // Only if something actually moved underneath it — an unchanged sale should
+    // come back without a dialog in the way.
+    if (issues?.length) setResumeIssues(issues);
+  }
+
   /** Give a line away: no money, but the stock still moves. */
   function toggleGift(lineKey) {
     setCart((prev) => prev.map((i) => (i.lineKey === lineKey ? { ...i, isGift: !i.isGift } : i)));
@@ -321,7 +380,11 @@ export default function Checkout() {
     }
   }
 
-  // Keyboard shortcuts: "/" focuses search, F2 opens payment, Esc clears search.
+  /*
+   * Keyboard shortcuts: "/" focuses search, F2 charges, F3 holds the sale and
+   * F4 opens the shelf of held ones. Holding is a queue-length problem, and
+   * reaching for the mouse is exactly what there is no time for.
+   */
   useEffect(() => {
     function onKey(e) {
       if (e.key === '/' && document.activeElement !== searchRef.current) {
@@ -331,6 +394,14 @@ export default function Checkout() {
       if (e.key === 'F2' && cart.length > 0 && !receipt) {
         e.preventDefault();
         setPaymentOpen(true);
+      }
+      if (e.key === 'F3' && cart.length > 0 && !receipt) {
+        e.preventDefault();
+        setHeldDialog('hold');
+      }
+      if (e.key === 'F4' && !receipt) {
+        e.preventDefault();
+        setHeldDialog('list');
       }
     }
     window.addEventListener('keydown', onKey);
@@ -480,7 +551,13 @@ export default function Checkout() {
          * only finds out it is shut when a cash sale is refused has already
          * kept a customer waiting.
          */}
-        <CashBox refreshOn={salesMade} />
+        {/*
+         * Profit belongs on this till and not the others: the register is where
+         * the shop's trade happens, and the same figure repeated over the
+         * transfer desk's drawer would read as a second lot of profit rather
+         * than the same one.
+         */}
+        <CashBox refreshOn={salesMade} showProfit />
 
         <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3.5">
           <div>
@@ -491,14 +568,36 @@ export default function Checkout() {
               </p>
             )}
           </div>
-          {cart.length > 0 && (
-            <button
-              onClick={() => setCart([])}
-              className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-slate-500 transition hover:bg-red-50 hover:text-red-600"
-            >
-              <Trash2 size={13} /> Clear
-            </button>
-          )}
+          <div className="flex items-center gap-1">
+            {/*
+             * The shelf of parked sales, with its count on the face of it.
+             * A held sale nobody can see is a held sale nobody finishes.
+             */}
+            {heldCount > 0 && (
+              <button
+                onClick={() => setHeldDialog('list')}
+                className="flex items-center gap-1 rounded-lg bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700 transition hover:bg-amber-100"
+              >
+                <PauseCircle size={13} /> Held {heldCount}
+              </button>
+            )}
+            {cart.length > 0 && (
+              <>
+                <button
+                  onClick={() => setHeldDialog('hold')}
+                  className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
+                >
+                  <PauseCircle size={13} /> Hold
+                </button>
+                <button
+                  onClick={() => setCart([])}
+                  className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-slate-500 transition hover:bg-red-50 hover:text-red-600"
+                >
+                  <Trash2 size={13} /> Clear
+                </button>
+              </>
+            )}
+          </div>
         </div>
 
         <div className="flex items-center gap-2 border-b border-slate-100 px-3 py-2">
@@ -664,7 +763,9 @@ export default function Checkout() {
             Charge {money(total)}
           </Button>
           <p className="mt-2 text-center text-[11px] text-slate-400">
-            Press <kbd className="rounded bg-slate-100 px-1 font-sans">F2</kbd> to charge
+            <kbd className="rounded bg-slate-100 px-1 font-sans">F2</kbd> charge ·{' '}
+            <kbd className="rounded bg-slate-100 px-1 font-sans">F3</kbd> hold ·{' '}
+            <kbd className="rounded bg-slate-100 px-1 font-sans">F4</kbd> held sales
           </p>
         </div>
       </aside>
@@ -711,6 +812,36 @@ export default function Checkout() {
           }}
         />
       )}
+
+      {heldDialog === 'hold' && (
+        <HoldSaleDialog
+          cart={cart}
+          context={saleContext()}
+          customer={customer}
+          total={total}
+          onClose={() => setHeldDialog(null)}
+          onHeld={({ count }) => {
+            // The counter is free again, so the screen has to be too.
+            setCart([]);
+            setDiscountPercent(0);
+            setCustomer(null);
+            setBuyer({ name: '', phone: '' });
+            setAccounts([]);
+            setHeldCount(count);
+            setHeldDialog(null);
+          }}
+        />
+      )}
+
+      {heldDialog === 'list' && (
+        <HeldSalesDialog
+          onClose={() => setHeldDialog(null)}
+          onCountChange={setHeldCount}
+          onResume={({ held, issues, count }) => applyHeldSale(held, issues, count)}
+        />
+      )}
+
+      {resumeIssues && <ResumeIssues issues={resumeIssues} onClose={() => setResumeIssues(null)} />}
 
       {receipt && <Receipt receipt={receipt} onClose={() => setReceipt(null)} />}
     </div>

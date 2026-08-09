@@ -17,7 +17,12 @@ orders and staff.
   names both piles and the sheet totals them against what is owed.
 - Payment sheet: card, or cash with a numeric keypad and quick-cash amounts
 - Change due surfaced prominently, plus a printable receipt
-- Keyboard shortcuts: `/` focuses search, `F2` opens payment
+- **Hold a sale** and take the next customer, then pick it back up where it was
+  left — the lines, the discount, the customer and the buyer's details all come
+  back. Nothing is reserved, and whatever has been sold or archived meanwhile is
+  reported on the way back in
+- Keyboard shortcuts: `/` focuses search, `F2` charges, `F3` holds the sale,
+  `F4` opens the shelf of held ones
 - Stock decrements atomically as part of the sale, so it can't oversell
 
 **The transfer counter** (needs the `transfers` permission)
@@ -672,8 +677,42 @@ pounds lighter, and both are recorded. Change split across both currencies comes
 out of both piles for the same reason.
 
 Admin → **Cashbox** lists every sitting with what it was out by, and opens the
-Z-report: the drawer's movements, the sitting's sales by payment method, and
-expected against counted.
+report.
+
+### The cashbox report
+
+One sitting of one till, start to finish: the count against what the app
+expected, in each currency and altogether; what moved through the drawer by
+kind; the sitting's sales by payment method; and every individual movement. It
+is offered the moment the drawer is closed — that is when somebody wants it —
+and again from Admin → Cashbox for any past sitting.
+
+**Download PDF** produces an A4 page to file, print or send on. The file is
+drawn by the server rather than by the browser's print dialog, so it is the same
+document however it was asked for and the shop's receipt printer being set to
+72mm rolls does not decide what a report looks like. It has no dependency behind
+it — see `server/src/lib/pdf.js`. The one limit: the standard PDF fonts are
+Latin, so Arabic text is printed as `?` and the page says so rather than
+silently mangling it.
+
+The report is readable by anyone with the `cashbox` permission, plus whoever
+actually sat at that till — a cashier who has just counted the drawer can print
+what they signed off without also being handed every other sitting in the shop.
+**Profit is on the report only for whoever holds `reports`**, in the PDF as well
+as on screen: a permission that a download walks around is not a permission.
+
+### Profit on the register
+
+Above the drawer on the register sits **what the shop has made since the till
+was opened** — sold, cost of goods, gross and net. It is a different question
+from cash on hand, which includes the float, customer payments and money that is
+not the shop's to keep, and the two get read for each other all day.
+
+It needs the `reports` permission, which in practice means the owner. A cashier
+is not shown a blanked-out box; the server does not send the figure at all. It
+is the shop's whole trade over the hours the till was open, not that one
+drawer's — profit is made on the sale, not on the till the cash landed in —
+which is why it is shown on the register and not over the transfer desk.
 
 ## Expenses and profit
 
@@ -796,6 +835,9 @@ server/
     lib/vouchers.js       money moving between two accounts
     lib/cashAccounts.js   the shop's tills
     lib/registry.js       all four kinds of account in one shape
+    lib/heldSales.js      sales put to one side
+    lib/cashReport.js     one sitting of one till, as data and as a page
+    lib/pdf.js            a very small PDF writer — no dependency
     middleware/auth.js    JWT verification, role and permission guards
     routes/               auth, products, orders, reports, users, inventory, imports
 client/
@@ -843,6 +885,12 @@ Routes are guarded by **permission**, not by role — an admin holds all of them
 | GET    | `/api/cash/current`            | any          |
 | POST   | `/api/cash/open`, `/close`     | any          |
 | GET    | `/api/cash/sessions`           | `cashbox`    |
+| GET    | `/api/cash/sessions/:id/report`     | `cashbox`, or having sat at that till |
+| GET    | `/api/cash/sessions/:id/report.pdf` | `cashbox`, or having sat at that till |
+| GET    | `/api/held-sales`              | `register`   |
+| POST   | `/api/held-sales`              | `register`   |
+| POST   | `/api/held-sales/:id/resume`   | `register`   |
+| DELETE | `/api/held-sales/:id`          | `register`   |
 | GET    | `/api/reports/summary`         | `reports`    |
 | GET    | `/api/inventory`               | `inventory`  |
 | POST   | `/api/inventory/adjust`        | `inventory`  |

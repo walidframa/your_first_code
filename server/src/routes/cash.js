@@ -14,10 +14,32 @@ import {
   openSession,
   recordMovement,
   requiresSession,
+  sessionById,
   sessionSummary,
 } from '../lib/cash.js';
+import { buildCashReport, renderCashReportPdf, reportFilename, sessionProfit } from '../lib/cashReport.js';
 
 const router = Router();
+
+/**
+ * Who may read one sitting's report.
+ *
+ * Whoever is trusted with the till's history, plus whoever actually sat at it —
+ * a cashier who has just counted the drawer and closed it should be able to
+ * print what they signed off, without also being handed every other sitting in
+ * the shop.
+ */
+function allowReport(req, res, next) {
+  const session = sessionById(Number(req.params.id));
+  if (!session) return res.status(404).json({ error: 'Session not found' });
+
+  const theirs = session.opened_by === req.user.id || session.closed_by === req.user.id;
+  if (!can(req.user, 'cashbox') && !theirs) {
+    return res.status(403).json({ error: 'Insufficient permissions' });
+  }
+  req.cashSession = session;
+  next();
+}
 
 /**
  * The register needs to know whether the drawer is open, so this is not
@@ -56,6 +78,17 @@ router.get('/current', requireAuth, (req, res) => {
      */
     expected: seesTheTill ? expectedIn(session.id) : null,
     movements: seesTheTill ? movements : movements.filter((m) => m.kind !== 'opening_float'),
+    /*
+     * What the shop has actually made while this till has been open — takings
+     * less what the goods cost less what was spent. Behind the reports
+     * permission, which in practice means the owner: a cashier who can see the
+     * margin on every line can also see what the shop paid for it, and that is
+     * not theirs to know.
+     *
+     * It is the whole shop's trade over the sitting's hours, not this drawer's
+     * alone — profit is made on the sale, not on the till the cash landed in.
+     */
+    profit: can(req.user, 'reports') ? sessionProfit(session.id) : null,
   });
 });
 
@@ -156,6 +189,31 @@ router.get('/sessions/:id', requireAuth, requirePermission('cashbox'), (req, res
   const summary = sessionSummary(Number(req.params.id));
   if (!summary) return res.status(404).json({ error: 'Session not found' });
   res.json(summary);
+});
+
+/**
+ * The report for one sitting, as data the app can draw.
+ *
+ * The profit section is added only for whoever may see profit at all — the
+ * report is a file that gets forwarded, and a permission that a download can
+ * walk around is not a permission.
+ */
+router.get('/sessions/:id/report', requireAuth, allowReport, (req, res) => {
+  const report = buildCashReport(Number(req.params.id), { includeProfit: can(req.user, 'reports') });
+  if (!report) return res.status(404).json({ error: 'Session not found' });
+  res.json({ report });
+});
+
+/** The same report as a file to keep, print or send on. */
+router.get('/sessions/:id/report.pdf', requireAuth, allowReport, (req, res) => {
+  const report = buildCashReport(Number(req.params.id), { includeProfit: can(req.user, 'reports') });
+  if (!report) return res.status(404).json({ error: 'Session not found' });
+
+  const pdf = renderCashReportPdf(report, { generatedBy: req.user.name || req.user.username || null });
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="${reportFilename(report)}"`);
+  res.setHeader('Content-Length', pdf.length);
+  res.send(pdf);
 });
 
 export default router;
