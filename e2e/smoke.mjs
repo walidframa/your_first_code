@@ -950,6 +950,9 @@ try {
     await dialog.locator('text=Against the app').waitFor();
     await dialog.locator('text=/over|short|matches/').first().waitFor();
 
+    // And the two currencies as one figure, the pounds converted at the rate.
+    await dialog.locator('text=Altogether').waitFor();
+
     await dialog.locator('#countedUsd').fill('100');
     await page.click('button:has-text("Close and check")');
     await page.waitForSelector('text=How the drawer came out', { timeout: 15000 });
