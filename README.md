@@ -119,6 +119,119 @@ To stop, press `Ctrl+C`. Data lives in `server/data.sqlite`; delete it and re-ru
 
 Change these before deploying anywhere real.
 
+## Putting it live
+
+Everything for this is in `deploy/`. The target is one small VPS — €4–6 a month
+at Hetzner or DigitalOcean is plenty; this is a Node process and a file.
+
+**Before you start, one thing worth knowing.** A till on a cloud server stops
+selling when the shop's internet drops. If that is a real risk where the shop
+is, the same setup runs on a mini PC at the counter with a
+[Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/)
+in front of it — the counter keeps working offline, and it is still reachable
+from anywhere. Nothing below changes except that the machine is in the shop.
+
+### How it serves itself
+
+In development Vite serves the pages on :5173 and forwards `/api` to Express on
+:4000. In production there is no Vite: once `npm run build` has produced
+`client/dist`, **the API server serves the built app itself**, so there is one
+process on one port. nginx sits in front of it for HTTPS, and for nothing else.
+
+Assets are cached for a year — Vite hashes their filenames, so a given asset can
+never change. `index.html` is sent `no-cache`, because it is the file that names
+the current assets and a cached copy is a till permanently stuck on the last
+deploy.
+
+### First time
+
+```bash
+# On the server, as root
+adduser --system --group --home /srv/pos pos
+apt update && apt install -y nginx git curl
+curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && apt install -y nodejs
+
+git clone https://github.com/walidframa/your_first_code /srv/pos
+chown -R pos:pos /srv/pos
+
+# The books live outside the checkout, so a deploy can never touch them
+mkdir -p /var/lib/pos /var/backups/pos
+chown pos:pos /var/lib/pos /var/backups/pos
+
+# Settings and the two secrets
+cp /srv/pos/deploy/pos.env.example /etc/pos.env
+chown pos:pos /etc/pos.env && chmod 600 /etc/pos.env
+node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"   # twice
+nano /etc/pos.env          # paste one into JWT_SECRET, the other into ACCOUNT_SECRET
+
+# Build, seed, and start
+cd /srv/pos && sudo -u pos npm run setup && sudo -u pos npm run build
+cp deploy/pos.service /etc/systemd/system/pos.service
+systemctl daemon-reload && systemctl enable --now pos
+
+# HTTPS on your own domain
+cp deploy/nginx.conf /etc/nginx/sites-available/pos
+sed -i 's/pos.example.com/YOUR-DOMAIN/' /etc/nginx/sites-available/pos
+ln -sf /etc/nginx/sites-available/pos /etc/nginx/sites-enabled/pos
+rm -f /etc/nginx/sites-enabled/default
+nginx -t && systemctl reload nginx
+apt install -y certbot python3-certbot-nginx && certbot --nginx -d YOUR-DOMAIN
+```
+
+Then **change the demo passwords immediately** — `admin` / `admin123` on a public
+address is an open shop.
+
+### Every update after that
+
+Edit locally, push to `main`, then on the server:
+
+```bash
+cd /srv/pos && ./deploy/deploy.sh
+```
+
+That backs up the database, fast-forwards to `origin/main`, installs, rebuilds
+the client, restarts the service and then **waits until the app answers** before
+saying it worked — a deploy that finished is not the same as a shop that is
+serving. It refuses to run if somebody has edited files directly on the server,
+rather than pulling over their work or throwing it away.
+
+It is a command you choose to run rather than something that fires on every
+push, because a restart drops whoever is mid-sale back to a loading screen, and
+that should be somebody's decision rather than a side effect of a merge.
+
+Schema changes need no separate step: the database migrates itself on boot.
+
+### Backups
+
+The whole shop is one SQLite file. `deploy/backup.sh` takes a consistent
+snapshot of it — using SQLite's own backup rather than `cp`, which on a live
+WAL database can produce a file that will not open. `deploy.sh` runs it before
+every deploy; run it nightly too:
+
+```
+0 2 * * * /srv/pos/deploy/backup.sh >> /var/log/pos-backup.log 2>&1
+```
+
+Set `BACKUP_SYNC` in `/etc/pos.env` to somewhere off the machine. A backup on
+the same disk as the database is a second copy of the same disk failure.
+
+**Back up `ACCOUNT_SECRET` separately, somewhere that is not this server.** The
+customer account passwords are encrypted with it, and a database restored
+without it is a database with those passwords gone for good.
+
+### When something is wrong
+
+```bash
+systemctl status pos          # is it running
+journalctl -u pos -f          # what it is saying
+journalctl -u pos -n 100      # what it said before it stopped
+curl localhost:4000/api/health
+```
+
+The commonest cause of a service that will not start is a missing or too-short
+`JWT_SECRET` or `ACCOUNT_SECRET` — in production the server refuses to run
+rather than come up insecure, and says which one in the log.
+
 ## Tests
 
 ```bash
