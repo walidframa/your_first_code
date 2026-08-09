@@ -3,9 +3,31 @@ import { db, transaction } from '../db.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { parseCsvToRecords } from '../lib/csv.js';
 import { CANONICAL_FIELDS, PRESETS, detectFormat, buildMapping, parseNumber } from '../lib/importFormats.js';
+import { barcodesFor, barcodesFromBody, setBarcodes } from '../lib/barcodes.js';
 
 const router = Router();
 const MAX_CSV_BYTES = 5 * 1024 * 1024;
+
+/**
+ * Put a CSV's barcode into the barcode table as well as the column.
+ *
+ * A file names at most one, so it becomes the primary and anything the shop
+ * added by scanning stays behind it. A row with no barcode leaves the product's
+ * alone rather than clearing it: a column missing from a supplier's export is
+ * not an instruction to wipe what is there.
+ *
+ * Never throws. A barcode that belongs to another product is a bad row in
+ * somebody's spreadsheet, and failing the whole import over it — halfway
+ * through, inside the transaction — helps nobody.
+ */
+function syncBarcode(productId, barcode) {
+  if (!barcode) return;
+  try {
+    setBarcodes(productId, barcodesFromBody({ barcode }, { existing: barcodesFor(productId) }));
+  } catch {
+    // Left on whatever it had; the column still carries what the file said.
+  }
+}
 
 router.get('/formats', requireAuth, requirePermission('imports'), (req, res) => {
   res.json({
@@ -214,6 +236,12 @@ router.post('/commit', requireAuth, requirePermission('imports'), (req, res) => 
         const { sku, ...updatable } = payload;
         void sku;
         updateProduct.run({ ...updatable, id: existing.id });
+        /*
+         * A file naming one barcode sets the primary and leaves any others the
+         * shop added by scanning them. Losing those to a routine catalogue
+         * refresh would be a quiet way to make half the shelf unscannable.
+         */
+        syncBarcode(existing.id, payload.barcode);
 
         const delta = payload.stock - existing.stock;
         if (delta !== 0) {
@@ -222,6 +250,7 @@ router.post('/commit', requireAuth, requirePermission('imports'), (req, res) => 
         outcome.updated += 1;
       } else {
         const info = insertProduct.run(payload);
+        syncBarcode(info.lastInsertRowid, payload.barcode);
         if (payload.stock !== 0) {
           insertAdjustment.run(info.lastInsertRowid, req.user.id, payload.stock, payload.stock, 'Opening stock from CSV import');
         }

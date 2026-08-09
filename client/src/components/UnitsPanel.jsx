@@ -1,7 +1,17 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Plus, Smartphone, Trash2 } from 'lucide-react';
 import api from '../api';
-import { Button, EmptyState, Modal, Select, Skeleton, cx, money, useToast } from './ui';
+import {
+  Button,
+  EmptyState,
+  Modal,
+  ModalActions,
+  Select,
+  Skeleton,
+  cx,
+  money,
+  useToast,
+} from './ui';
 
 const CONDITIONS = [
   ['new', 'New'],
@@ -118,14 +128,14 @@ function ReceiveModal({ product, onClose, onSaved }) {
 
         {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
 
-        <div className="flex gap-2">
+        <ModalActions>
           <Button type="button" variant="secondary" onClick={onClose} disabled={saving}>
             Cancel
           </Button>
           <Button type="submit" className="flex-1" loading={saving} disabled={lines.length === 0}>
             {lines.length ? `Book in ${lines.length}` : 'Nothing to book in'}
           </Button>
-        </div>
+        </ModalActions>
       </form>
     </Modal>
   );

@@ -1,7 +1,17 @@
 import { useEffect, useState } from 'react';
 import { AlertTriangle, PauseCircle, Play, Trash2 } from 'lucide-react';
 import api from '../api';
-import { Button, EmptyState, Input, Modal, Skeleton, cx, money, useToast } from './ui';
+import {
+  Button,
+  EmptyState,
+  Input,
+  Modal,
+  ModalActions,
+  Skeleton,
+  cx,
+  money,
+  useToast,
+} from './ui';
 
 /**
  * Put the sale down.
@@ -80,14 +90,14 @@ export function HoldSaleDialog({ cart, context, customer, total, onClose, onHeld
 
         {error && <p className="text-sm text-red-600">{error}</p>}
 
-        <div className="flex gap-2">
+        <ModalActions>
           <Button type="button" variant="secondary" className="flex-1" onClick={onClose}>
             Cancel
           </Button>
           <Button type="submit" className="flex-1" loading={busy}>
             <PauseCircle size={16} /> Hold the sale
           </Button>
-        </div>
+        </ModalActions>
       </form>
     </Modal>
   );

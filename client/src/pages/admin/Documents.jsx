@@ -29,6 +29,7 @@ import {
   EmptyState,
   Input,
   Modal,
+  ModalActions,
   ProductThumb,
   Select,
   Skeleton,
@@ -649,14 +650,14 @@ function DocumentForm({ existing, onClose, onSaved }) {
 
           {error && <p className="text-sm text-red-600">{error}</p>}
 
-          <div className="flex gap-2">
+          <ModalActions>
             <Button type="button" variant="secondary" onClick={onClose} className="flex-1">
               Cancel
             </Button>
             <Button type="submit" className="flex-1" disabled={!valid} loading={saving}>
               {editing ? 'Save changes' : 'Create draft'}
             </Button>
-          </div>
+          </ModalActions>
         </form>
       </Modal>
 

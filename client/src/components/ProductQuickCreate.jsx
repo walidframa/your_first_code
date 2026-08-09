@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import api from '../api';
-import { Button, Input, Modal, Select, useToast } from './ui';
+import BarcodeField from './BarcodeField';
+import { Button, Input, Modal, ModalActions, Select, useToast } from './ui';
 
 /**
  * Create a product without leaving the document you are building.
@@ -23,7 +24,7 @@ export default function ProductQuickCreate({
   const [form, setForm] = useState({
     name: '',
     sku: '',
-    barcode: '',
+    barcodes: [],
     price: '',
     cost: '',
     category_id: '',
@@ -69,7 +70,7 @@ export default function ProductQuickCreate({
       });
       toast(`${res.data.product.name} created`);
       onCreated(res.data.product);
-      setForm({ name: '', sku: '', barcode: '', price: '', cost: '', category_id: '', reorder_point: 5 });
+      setForm({ name: '', sku: '', barcodes: [], price: '', cost: '', category_id: '', reorder_point: 5 });
     } catch (err) {
       setError(err.response?.data?.error || 'Could not create the product');
     } finally {
@@ -93,7 +94,12 @@ export default function ProductQuickCreate({
             className="col-span-2"
           />
           <Input label="SKU" name="sku" value={form.sku} onChange={set('sku')} required hint="Filled in from the name" />
-          <Input label="Barcode" name="barcode" value={form.barcode} onChange={set('barcode')} />
+          <div className="col-span-2">
+            <BarcodeField
+              value={form.barcodes}
+              onChange={(barcodes) => setForm((f) => ({ ...f, barcodes }))}
+            />
+          </div>
           <Input label="Sell price (USD)" name="price" type="number" min="0" step="0.01" value={form.price} onChange={set('price')} required />
           <Input label="Cost (USD)" name="cost" type="number" min="0" step="0.01" value={form.cost} onChange={set('cost')} />
           <Select label="Category" name="category_id" value={form.category_id} onChange={set('category_id')}>
@@ -113,14 +119,14 @@ export default function ProductQuickCreate({
 
         {error && <p className="text-sm text-red-600">{error}</p>}
 
-        <div className="flex gap-2">
+        <ModalActions>
           <Button type="button" variant="secondary" onClick={onClose} className="flex-1">
             Cancel
           </Button>
           <Button type="submit" className="flex-1" loading={saving}>
             Create and add
           </Button>
-        </div>
+        </ModalActions>
       </form>
     </Modal>
   );

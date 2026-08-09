@@ -15,7 +15,7 @@ import CashReport from './CashReport';
 import { lbp, useSettings } from '../context/SettingsContext';
 import { combinedUsd } from '../lib/change.js';
 import { countDifference } from '../lib/cashCount.js';
-import { Button, Input, Modal, Select, cx, money, useToast } from './ui';
+import { Button, Input, Modal, ModalActions, Select, cx, money, useToast } from './ui';
 
 const IN_REASONS = [
   ['petty_cash', 'Petty cash'],
@@ -154,14 +154,14 @@ function OpenDrawer({ denominations, accountId, onClose, onOpened }) {
 
         {error && <p className="text-sm text-red-600">{error}</p>}
 
-        <div className="flex gap-2">
+        <ModalActions>
           <Button type="button" variant="secondary" className="flex-1" onClick={onClose}>
             Cancel
           </Button>
           <Button type="submit" className="flex-1" loading={busy}>
             <LockOpen size={16} /> Open cashbox
           </Button>
-        </div>
+        </ModalActions>
       </form>
     </Modal>
   );
@@ -338,14 +338,14 @@ function CloseDrawer({ denominations, accountId, expected, onClose, onClosed, on
           * been counted, and whoever counted it is the person who signs off the
           * page and files it.
           */}
-        <div className="mt-4 flex gap-2">
+        <ModalActions>
           <Button variant="secondary" className="flex-1" onClick={() => onReport(session.id)}>
             <FileText size={16} /> Cashbox report
           </Button>
           <Button className="flex-1" onClick={onClosed}>
             Done
           </Button>
-        </div>
+        </ModalActions>
       </Modal>
     );
   }
@@ -514,14 +514,14 @@ function CloseDrawer({ denominations, accountId, expected, onClose, onClosed, on
 
         {error && <p className="text-sm text-red-600">{error}</p>}
 
-        <div className="flex gap-2">
+        <ModalActions>
           <Button type="button" variant="secondary" className="flex-1" onClick={onClose}>
             Cancel
           </Button>
           <Button type="submit" className="flex-1" loading={busy}>
             <Lock size={16} /> Close and check
           </Button>
-        </div>
+        </ModalActions>
       </form>
     </Modal>
   );
@@ -612,7 +612,7 @@ function MoveCash({ direction, accountId, onClose, onDone }) {
 
         {error && <p className="text-sm text-red-600">{error}</p>}
 
-        <div className="flex gap-2 pt-1">
+        <ModalActions>
           <Button type="button" variant="secondary" className="flex-1" onClick={onClose}>
             Cancel
           </Button>
@@ -625,7 +625,7 @@ function MoveCash({ direction, accountId, onClose, onDone }) {
             {goingIn ? <ArrowDownLeft size={16} /> : <ArrowUpRight size={16} />}
             {goingIn ? 'Put in' : 'Take out'}
           </Button>
-        </div>
+        </ModalActions>
       </form>
     </Modal>
   );

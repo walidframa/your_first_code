@@ -21,6 +21,7 @@ import {
   EmptyState,
   Input,
   Modal,
+  ModalActions,
   Select,
   Skeleton,
   cx,
@@ -276,7 +277,7 @@ function TransferDialog({ companies, tillId, tillName, onClose, onSaved }) {
 
         {error && <p className="text-sm text-red-600">{error}</p>}
 
-        <div className="flex gap-2 pt-1">
+        <ModalActions>
           <Button type="button" variant="secondary" className="flex-1" onClick={onClose}>
             Cancel
           </Button>
@@ -288,7 +289,7 @@ function TransferDialog({ companies, tillId, tillName, onClose, onSaved }) {
           >
             {sending ? 'Take the money' : 'Pay it out'}
           </Button>
-        </div>
+        </ModalActions>
       </form>
     </Modal>
   );

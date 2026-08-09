@@ -55,7 +55,8 @@ orders and staff.
 - Import: bring a catalog over from **Shopify, Square, Lightspeed or any CSV**,
   with auto-detection, editable column mapping, a validated dry-run preview, and
   upsert-by-SKU
-- Products: full CRUD with barcode, supplier, cost/margin, image URL, archive/restore
+- Products: full CRUD with supplier, cost/margin, image URL, archive/restore, and
+  **as many barcodes as the thing actually has** — scan them in one after another
 - Orders: every cashier's sales with full refunds that restock items
 - **Labels**: printable barcode and price labels for roll or A4 stock, in five
   built-in sizes or any size you type in, preloaded from a purchase invoice's
@@ -678,6 +679,35 @@ still buy, as long as they pay for it.
 
 Numbers are sequential per type: `QT-0001`, `SO-0001`, `SI-0001`, `PI-0001`.
 
+## Barcodes
+
+**A product can have as many barcodes as the thing on the shelf actually has.**
+The maker's EAN is on the box, the distributor sticks their own label over it,
+the shop prints a third for loose stock, and the same charger arrives from a
+second supplier with a fourth. Whichever one is facing up when the scanner goes
+off finds the product.
+
+This matters more than it sounds. With one barcode per product, the way a shop
+works around the second number is to create a second product — and then the
+stock of one thing is split across two rows, and every count, every restock
+alert and every profit figure is wrong.
+
+In the product form, scan into the barcode box and press Enter (which a scanner
+does for you); scan again and the next one lands beside it. Backspace on an
+empty box removes the last. Scanning the same box twice adds one, not two.
+
+The **starred** one is the primary: the number printed on a label and pushed to
+Shopify. Any of the others can be promoted to it. A code that already belongs to
+a different product is refused by name — a scan that could mean two things is
+not a scan, and the counter is the worst place to find that out.
+
+`products.barcode` is still there and still holds the primary, so labels,
+Shopify and the CSV importer are unchanged. It is written in exactly one place
+(`server/src/lib/barcodes.js`) so it cannot drift from the list. A CSV naming
+one barcode sets the primary and **leaves the ones the shop added by scanning**
+— losing those to a routine catalogue refresh would quietly make half the shelf
+unscannable.
+
 ## Printing labels
 
 Admin → **Labels**, or **Print labels** on a confirmed purchase invoice — which
@@ -955,7 +985,8 @@ server/
     routes/               auth, products, orders, reports, users, inventory, imports
 client/
   src/
-    components/ui/        design-system primitives (Button, Modal, Toast, …)
+    components/ui/        design-system primitives (Button, Modal, ModalActions, Toast, …)
+    components/BarcodeField.jsx  scan one barcode after another onto a product
     components/charts.jsx dashboard charts
     context/              auth state
     pages/                login, register, my sales

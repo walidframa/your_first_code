@@ -1,6 +1,6 @@
 import { Printer } from 'lucide-react';
 import { lbp } from '../context/SettingsContext';
-import { Button, Modal, money } from './ui';
+import { Button, Modal, ModalActions, money } from './ui';
 
 const REASONS = {
   supplier: 'Paying a supplier',
@@ -123,14 +123,14 @@ export default function VoucherSlip({ voucher, onClose }) {
       title={voucher.voucher_number}
       subtitle={voucher.kind === 'payment' ? 'Payment voucher' : 'Receipt voucher'}
       footer={
-        <div className="flex gap-2">
+        <ModalActions>
           <Button variant="secondary" className="flex-1" onClick={onClose}>
             Close
           </Button>
           <Button className="flex-1" onClick={() => window.print()}>
             <Printer size={16} /> Print
           </Button>
-        </div>
+        </ModalActions>
       }
     >
       <div className="rounded-xl bg-slate-100 p-4">

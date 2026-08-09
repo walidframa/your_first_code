@@ -1,5 +1,5 @@
 import { CheckCircle2, Printer } from 'lucide-react';
-import { Button, Modal, money } from './ui';
+import { Button, Modal, ModalActions, money } from './ui';
 import { lbp } from '../context/SettingsContext';
 
 export default function Receipt({ receipt, onClose }) {
@@ -108,14 +108,14 @@ export default function Receipt({ receipt, onClose }) {
         )}
       </dl>
 
-      <div className="no-print mt-5 flex gap-2">
+      <ModalActions className="no-print">
         <Button variant="secondary" size="lg" onClick={() => window.print()} aria-label="Print receipt">
           <Printer size={16} />
         </Button>
         <Button size="lg" className="flex-1" onClick={onClose} autoFocus>
           New sale
         </Button>
-      </div>
+      </ModalActions>
     </Modal>
   );
 }

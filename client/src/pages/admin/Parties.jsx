@@ -19,6 +19,7 @@ import {
   EmptyState,
   Input,
   Modal,
+  ModalActions,
   Skeleton,
   cx,
   money,
@@ -141,14 +142,14 @@ function PartyForm({ party, config, onClose, onSaved }) {
 
         {error && <p className="text-sm text-red-600">{error}</p>}
 
-        <div className="flex gap-2 pt-1">
+        <ModalActions>
           <Button type="button" variant="secondary" onClick={onClose} className="flex-1">
             Cancel
           </Button>
           <Button type="submit" className="flex-1" loading={saving}>
             {party ? 'Save changes' : 'Add'}
           </Button>
-        </div>
+        </ModalActions>
       </form>
     </Modal>
   );
@@ -227,14 +228,14 @@ function MoneyModal({ party, config, mode, onClose, onSaved }) {
 
         {error && <p className="text-sm text-red-600">{error}</p>}
 
-        <div className="flex gap-2 pt-1">
+        <ModalActions>
           <Button type="button" variant="secondary" onClick={onClose} className="flex-1">
             Cancel
           </Button>
           <Button type="submit" className="flex-1" disabled={!valid} loading={saving}>
             Record {money(totalUsd)}
           </Button>
-        </div>
+        </ModalActions>
       </form>
     </Modal>
   );

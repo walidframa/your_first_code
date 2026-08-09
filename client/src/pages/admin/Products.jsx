@@ -1,7 +1,18 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router';
-import { Archive, ArchiveRestore, History, Package, Pencil, Plus, Search, Smartphone, Upload } from 'lucide-react';
+import {
+  Archive,
+  ArchiveRestore,
+  History,
+  Package,
+  Pencil,
+  Plus,
+  Search,
+  Smartphone,
+  Upload,
+} from 'lucide-react';
 import api from '../../api';
+import BarcodeField from '../../components/BarcodeField';
 import PageHeader from '../../components/PageHeader';
 import ItemActivity from '../../components/ItemActivity';
 import UnitsPanel from '../../components/UnitsPanel';
@@ -13,6 +24,7 @@ import {
   EmptyState,
   Input,
   Modal,
+  ModalActions,
   ProductThumb,
   Select,
   Skeleton,
@@ -25,7 +37,7 @@ import {
 const emptyForm = {
   name: '',
   sku: '',
-  barcode: '',
+  barcodes: [],
   price: '',
   cost: '',
   stock: '',
@@ -43,7 +55,7 @@ function ProductModal({ product, categories, onClose, onSaved }) {
       ? {
           name: product.name,
           sku: product.sku,
-          barcode: product.barcode || '',
+          barcodes: product.barcodes || (product.barcode ? [product.barcode] : []),
           price: product.price,
           cost: product.cost,
           stock: product.stock,
@@ -142,7 +154,12 @@ function ProductModal({ product, categories, onClose, onSaved }) {
         <div className="grid grid-cols-2 gap-3">
           <Input label="Name" value={form.name} onChange={set('name')} required autoFocus className="col-span-2" />
           <Input label="SKU" value={form.sku} onChange={set('sku')} required />
-          <Input label="Barcode" value={form.barcode} onChange={set('barcode')} hint="Scannable at the register" />
+          <div className="col-span-2">
+            <BarcodeField
+              value={form.barcodes}
+              onChange={(barcodes) => setForm((f) => ({ ...f, barcodes }))}
+            />
+          </div>
           <Input label="Price" type="number" step="0.01" min="0" value={form.price} onChange={set('price')} required />
           <Input label="Cost" type="number" step="0.01" min="0" value={form.cost} onChange={set('cost')} />
           <Input
@@ -198,14 +215,14 @@ function ProductModal({ product, categories, onClose, onSaved }) {
 
         {error && <p className="text-sm text-red-600">{error}</p>}
 
-        <div className="flex gap-2 pt-1">
+        <ModalActions>
           <Button type="button" variant="secondary" onClick={onClose} className="flex-1">
             Cancel
           </Button>
           <Button type="submit" className="flex-1" loading={saving}>
             {product ? 'Save changes' : 'Create product'}
           </Button>
-        </div>
+        </ModalActions>
       </form>
     </Modal>
   );
@@ -248,7 +265,7 @@ export default function Products() {
       !term ||
       p.name.toLowerCase().includes(term) ||
       p.sku.toLowerCase().includes(term) ||
-      (p.barcode || '').includes(term);
+      (p.barcodes || []).some((code) => code.includes(term));
     return matchesSearch && (showArchived ? true : p.active);
   });
 

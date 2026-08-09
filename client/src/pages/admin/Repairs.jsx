@@ -3,7 +3,19 @@ import { Eye, Plus, Search, Trash2, Wrench } from 'lucide-react';
 import api from '../../api';
 import PageHeader from '../../components/PageHeader';
 import RepairSlip, { PrintSlipButton } from '../../components/RepairSlip';
-import { Button, Card, EmptyState, Input, Modal, Select, Skeleton, cx, money, useToast } from '../../components/ui';
+import {
+  Button,
+  Card,
+  EmptyState,
+  Input,
+  Modal,
+  ModalActions,
+  Select,
+  Skeleton,
+  cx,
+  money,
+  useToast,
+} from '../../components/ui';
 
 const FLOW = ['received', 'diagnosed', 'awaiting_parts', 'repairing', 'ready'];
 
@@ -169,14 +181,14 @@ function IntakeModal({ onClose, onSaved }) {
           <p className="col-span-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
         )}
 
-        <div className="col-span-2 flex gap-2">
+        <ModalActions className="col-span-2">
           <Button type="button" variant="secondary" onClick={onClose} disabled={saving}>
             Cancel
           </Button>
           <Button type="submit" className="flex-1" loading={saving}>
             Open ticket
           </Button>
-        </div>
+        </ModalActions>
       </form>
     </Modal>
   );

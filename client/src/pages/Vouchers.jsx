@@ -12,6 +12,7 @@ import {
   EmptyState,
   Input,
   Modal,
+  ModalActions,
   Select,
   Skeleton,
   cx,
@@ -318,14 +319,14 @@ function VoucherDialog({ meta, onClose, onSaved }) {
 
         {error && <p className="text-sm text-red-600">{error}</p>}
 
-        <div className="flex gap-2 pt-1">
+        <ModalActions>
           <Button type="button" variant="secondary" className="flex-1" onClick={onClose}>
             Cancel
           </Button>
           <Button type="submit" className="flex-1" loading={busy} disabled={!ready}>
             Record it
           </Button>
-        </div>
+        </ModalActions>
       </form>
     </Modal>
   );

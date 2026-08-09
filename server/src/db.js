@@ -221,6 +221,59 @@ function addColumn(table, column, definition) {
 
 addColumn('products', 'barcode', 'TEXT');
 addColumn('products', 'image_url', 'TEXT');
+
+/*
+ * Every barcode a product answers to.
+ *
+ * One product is routinely one number and then some. A phone case comes in a
+ * box with the maker's EAN and the distributor's own label stuck over it; a
+ * shop prints its own for loose stock; the same charger arrives from two
+ * suppliers with two numbers on it. Whichever one is facing up when the scanner
+ * goes off has to find the product, and the alternative — a duplicate product
+ * per barcode — splits the stock of one thing across two rows.
+ *
+ * `position` 0 is the primary: the one printed on a label and sent to Shopify.
+ * `products.barcode` is kept as a copy of it so everything that reads that
+ * column carries on working, and both are only ever written through
+ * lib/barcodes.js, so the two cannot drift apart.
+ */
+db.exec(`
+  CREATE TABLE IF NOT EXISTS product_barcodes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    /* One number belongs to one product. A scan that could mean two things is
+       not a scan, and the counter is the worst place to discover that. */
+    barcode TEXT NOT NULL UNIQUE,
+    position INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_product_barcodes_product
+    ON product_barcodes(product_id, position);
+`);
+
+/*
+ * Bring barcodes that only exist in the old column into the table.
+ *
+ * Runs for any product that has a barcode and no rows at all — which covers the
+ * upgrade, the seed, and anything that still writes the column directly. It
+ * cannot resurrect a barcode somebody removed: taking the last one off a
+ * product clears `products.barcode` in the same write, so "column set, no rows"
+ * only ever means "has not been through the new code yet".
+ */
+{
+  const orphaned = db
+    .prepare(
+      `SELECT p.id, p.barcode FROM products p
+       WHERE p.barcode IS NOT NULL AND trim(p.barcode) <> ''
+         AND NOT EXISTS (SELECT 1 FROM product_barcodes b WHERE b.product_id = p.id)`,
+    )
+    .all();
+  const insert = db.prepare(
+    'INSERT OR IGNORE INTO product_barcodes (product_id, barcode, position) VALUES (?, ?, 0)',
+  );
+  for (const row of orphaned) insert.run(row.id, row.barcode.replace(/\s+/g, ''));
+}
 addColumn('products', 'supplier', 'TEXT');
 addColumn('products', 'reorder_point', 'INTEGER NOT NULL DEFAULT 5');
 
