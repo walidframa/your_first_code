@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ArrowDownLeft, ArrowUpRight, Banknote, EyeOff, Lock, LockOpen, RefreshCw } from 'lucide-react';
 import api from '../api';
-import { lbp } from '../context/SettingsContext';
+import { lbp, useSettings } from '../context/SettingsContext';
+import { combinedUsd } from '../lib/change.js';
+import { countDifference } from '../lib/cashCount.js';
 import { Button, Input, Modal, Select, cx, money, useToast } from './ui';
 
 const IN_REASONS = [
@@ -173,6 +175,7 @@ function OpenDrawer({ denominations, accountId, onClose, onOpened }) {
  */
 function CloseDrawer({ denominations, accountId, expected, onClose, onClosed }) {
   const toast = useToast();
+  const { rate } = useSettings();
   const [usdNotes, setUsdNotes] = useState({});
   const [lbpNotes, setLbpNotes] = useState({});
   /*
@@ -209,9 +212,16 @@ function CloseDrawer({ denominations, accountId, expected, onClose, onClosed }) 
    * what the till should hold. A cashier counts blind, because a figure shown
    * before the count is a figure that gets copied rather than counted.
    */
-  const difference = expected
-    ? { usd: round2(countedUsd - expected.usd), lbp: Math.round(countedLbp - expected.lbp) }
-    : null;
+  /*
+   * The per-currency figures are what get recorded, because a drawer is right
+   * or wrong in each independently. The combined one is what a shopkeeper means
+   * by "am I short" — see lib/cashCount.js, where that arithmetic is tested.
+   */
+  const difference = countDifference({
+    expected,
+    counted: { usd: countedUsd, lbp: countedLbp },
+    rate,
+  });
 
   async function submit(e) {
     e.preventDefault();
@@ -237,6 +247,10 @@ function CloseDrawer({ denominations, accountId, expected, onClose, onClosed }) 
 
   if (result) {
     const { session } = result;
+    const closingRate = session.exchange_rate || rate;
+    const combinedDiff = round2(
+      combinedUsd(session.over_short_usd, session.over_short_lbp, closingRate),
+    );
     const rows = [
       ['Dollars', session.expected_usd, session.counted_usd, session.over_short_usd, money],
       ['Lebanese pounds', session.expected_lbp, session.counted_lbp, session.over_short_lbp, lbp],
@@ -269,6 +283,35 @@ function CloseDrawer({ denominations, accountId, expected, onClose, onClosed }) 
                 </td>
               </tr>
             ))}
+
+            {/*
+              * The two together, at the rate this sitting was opened at rather
+              * than today's — a close read back next month should say what it
+              * said on the night.
+              */}
+            {closingRate > 0 && (
+              <tr className="border-t-2 border-slate-200">
+                <td className="py-2 font-medium text-slate-700">Altogether</td>
+                <td className="tnum py-2 text-right text-slate-700">
+                  {money(combinedUsd(session.expected_usd, session.expected_lbp, closingRate))}
+                </td>
+                <td className="tnum py-2 text-right text-slate-700">
+                  {money(combinedUsd(session.counted_usd, session.counted_lbp, closingRate))}
+                </td>
+                <td
+                  className={cx(
+                    'tnum py-2 text-right font-semibold',
+                    combinedDiff === 0
+                      ? 'text-brand-700'
+                      : combinedDiff < 0
+                        ? 'text-red-600'
+                        : 'text-amber-600',
+                  )}
+                >
+                  {combinedDiff === 0 ? 'exact' : `${combinedDiff > 0 ? '+' : ''}${money(combinedDiff)}`}
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
 
@@ -377,6 +420,37 @@ function CloseDrawer({ denominations, accountId, expected, onClose, onClosed }) 
                     </dd>
                   </div>
                 ))}
+
+                {/* One number for "am I short", the pounds converted at today's
+                    rate. It is the reading, not the record: what gets stored is
+                    still each currency on its own. */}
+                {difference.combined !== null && (
+                  <div className="flex items-baseline justify-between gap-3 border-t border-slate-200 pt-1.5">
+                    <dt className="font-medium text-slate-700">
+                      Altogether
+                      <span className="ml-2 text-xs font-normal text-slate-400">
+                        app says {money(difference.expectedCombined)}, you counted{' '}
+                        {money(difference.countedCombined)}
+                      </span>
+                    </dt>
+                    <dd
+                      className={cx(
+                        'tnum shrink-0 font-semibold',
+                        difference.combined === 0
+                          ? 'text-brand-700'
+                          : difference.combined < 0
+                            ? 'text-red-600'
+                            : 'text-amber-600',
+                      )}
+                    >
+                      {difference.combined === 0
+                        ? 'matches'
+                        : `${difference.combined > 0 ? '+' : ''}${money(difference.combined)} ${
+                            difference.combined > 0 ? 'over' : 'short'
+                          }`}
+                    </dd>
+                  </div>
+                )}
               </dl>
             </div>
           )}

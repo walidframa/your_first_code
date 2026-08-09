@@ -656,9 +656,12 @@ the total in.
 For a cashier it is a **blind count**: the expected figure is withheld until the
 count is submitted, because told the answer first a tired cashier writes it down
 whether the money is there or not. Anyone with the `cashbox` permission already
-sees that figure on the panel behind the dialog, so for them the difference —
-matching, over or short, per currency — is shown **as they type**. Whatever is
-not left as tomorrow's float is recorded as going to the bank.
+sees that figure on the panel behind the dialog, so for them the difference is
+shown **as they type**: each currency on its own, and then **altogether** — the
+pounds converted at the rate and added to the dollars, because "am I short" is
+one question about a drawer holding both. The per-currency figures are what get
+recorded; the combined one is a reading. Whatever is not left as tomorrow's
+float is recorded as going to the bank.
 
 Dollars and pounds are counted side by side and never converted into one
 another: a drawer is right or wrong in each currency independently, and folding
