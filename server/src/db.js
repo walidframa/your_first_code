@@ -651,7 +651,7 @@ db.exec(`
     session_id INTEGER NOT NULL REFERENCES cash_sessions(id),
     kind TEXT NOT NULL CHECK (kind IN (
       'opening_float', 'sale', 'refund', 'customer_payment', 'supplier_payment',
-      'document', 'transfer', 'cash_in', 'cash_out', 'bank_drop', 'correction'
+      'document', 'transfer', 'voucher', 'cash_in', 'cash_out', 'bank_drop', 'correction'
     )),
     /* Signed: positive is money in, negative is money out. */
     amount_usd REAL NOT NULL DEFAULT 0,
@@ -737,11 +737,18 @@ db.exec(`
  * from the stored DDL so it runs exactly once, and copied by column name so
  * anything added since comes across intact.
  */
+const CASH_MOVEMENT_KINDS = [
+  'opening_float', 'sale', 'refund', 'customer_payment', 'supplier_payment',
+  'document', 'transfer', 'voucher', 'cash_in', 'cash_out', 'bank_drop', 'correction',
+];
+
 function migrateCashMovementKinds() {
   const row = db
     .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'cash_movements'")
     .get();
-  if (!row?.sql || row.sql.includes("'transfer'")) return;
+  // Checked against the whole list rather than the newest name, so adding a
+  // kind later is one edit here and the rebuild happens once.
+  if (!row?.sql || CASH_MOVEMENT_KINDS.every((k) => row.sql.includes(`'${k}'`))) return;
 
   const columns = db
     .prepare('PRAGMA table_info(cash_movements)')
@@ -756,10 +763,7 @@ function migrateCashMovementKinds() {
       CREATE TABLE cash_movements_migrated (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         session_id INTEGER NOT NULL REFERENCES cash_sessions(id),
-        kind TEXT NOT NULL CHECK (kind IN (
-          'opening_float', 'sale', 'refund', 'customer_payment', 'supplier_payment',
-          'document', 'transfer', 'cash_in', 'cash_out', 'bank_drop', 'correction'
-        )),
+        kind TEXT NOT NULL CHECK (kind IN (${CASH_MOVEMENT_KINDS.map((k) => `'${k}'`).join(', ')})),
         amount_usd REAL NOT NULL DEFAULT 0,
         amount_lbp REAL NOT NULL DEFAULT 0,
         reason TEXT,
@@ -786,6 +790,56 @@ function migrateCashMovementKinds() {
 }
 
 migrateCashMovementKinds();
+
+/*
+ * Payment and receipt vouchers.
+ *
+ * The two movements of money that are not a sale and not a purchase: the shop
+ * paying somebody, and the shop being paid. Wages, rent, an owner putting money
+ * in, a supplier settled in cash, a customer paying off what they owe, credit
+ * bought for a wallet — all of it is one of these two, and all of it moves the
+ * drawer.
+ *
+ * A voucher is a piece of paper before it is a row: it is numbered, it names
+ * who the money went to or came from, it says what for, and somebody signs it.
+ * The table keeps the same shape so the printed slip and the record cannot
+ * disagree.
+ *
+ * `account_type` is what the other side of the money is. Customers and
+ * suppliers post to their ledger, a wallet moves its credit, and 'other' is the
+ * landlord, the electrician, the owner's pocket — named in words because
+ * creating a contact record for the man who fixes the generator is not worth
+ * anybody's time.
+ */
+db.exec(`
+  CREATE TABLE IF NOT EXISTS vouchers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    voucher_number TEXT UNIQUE NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('payment', 'receipt')),
+    account_type TEXT NOT NULL CHECK (account_type IN ('customer', 'supplier', 'wallet', 'other')),
+    account_id INTEGER,
+    /* Copied, not joined: the slip printed today must still read the same after
+       the contact is renamed or archived. */
+    account_name TEXT NOT NULL,
+    amount_usd REAL NOT NULL DEFAULT 0,
+    amount_lbp REAL NOT NULL DEFAULT 0,
+    exchange_rate REAL,
+    method TEXT NOT NULL DEFAULT 'cash' CHECK (method IN ('cash', 'bank', 'card', 'other')),
+    reason TEXT,
+    note TEXT,
+    reference TEXT,
+    status TEXT NOT NULL DEFAULT 'posted' CHECK (status IN ('posted', 'cancelled')),
+    cash_movement_id INTEGER REFERENCES cash_movements(id),
+    entry_id INTEGER REFERENCES account_entries(id),
+    user_id INTEGER REFERENCES users(id),
+    issued_on TEXT NOT NULL DEFAULT (date('now')),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    cancelled_at TEXT
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_vouchers_created ON vouchers(created_at);
+  CREATE INDEX IF NOT EXISTS idx_vouchers_account ON vouchers(account_type, account_id);
+`);
 
 /*
  * Float accounts, for the things the shop sells that were never on a shelf.

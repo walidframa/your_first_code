@@ -28,6 +28,13 @@ orders and staff.
 - The day's takings split into money in, money out and fees earned, with the
   cashbox panel beside the work that moves it
 
+**Vouchers** (needs the `vouchers` permission)
+- **Payment vouchers** — money out to any account: a supplier, a customer, a
+  wallet, or somebody named in words like the landlord
+- **Receipt vouchers** — money in from any of the same
+- Each one moves the drawer, posts to that account's ledger, and prints a
+  numbered slip with two signature lines
+
 **Back office**
 - Dashboard: revenue hero figure, KPI tiles, a continuous daily-revenue column
   chart, top sellers, payment mix and restock alerts — all scoped by one date-range filter
@@ -59,7 +66,7 @@ orders and staff.
 - **Customers**: contacts with credit limits, running balances, a full ledger and
   recorded payments — sell on account straight from the register
 - **Suppliers**: bills and payments made, so you can see what you owe
-- Staff: accounts with **per-person permissions** — sixteen sections that can be
+- Staff: accounts with **per-person permissions** — seventeen sections that can be
   granted one by one, so somebody hired to run the transfer desk gets the
   transfer desk and nothing else
 - Settings: the USD→LBP exchange rate, the pound rounding step, a live preview
@@ -298,7 +305,7 @@ So the role is the coarse answer and permissions are the fine one:
 - **Admin** is the owner. They pass every check by definition — there are no
   boxes to tick, and none to accidentally untick.
 - **Staff** hold exactly what they have been given, in Admin → **Staff** →
-  **Access**: sixteen permissions grouped as Selling, Money, Stock and Setup.
+  **Access**: seventeen permissions grouped as Selling, Money, Stock and Setup.
 
 The same list drives both sides. The navigation rail only shows the sections
 someone can reach, and the server refuses everything else whether or not they
@@ -347,6 +354,42 @@ Cancelling a transfer puts the money back with an opposite movement and keeps
 the row: a drawer that was briefly wrong is part of what happened, and a
 cancelled transfer somebody has to explain to the company is exactly the one
 worth keeping.
+
+## Payment and receipt vouchers
+
+Every movement of money that is neither a sale nor a purchase order: wages,
+rent, an owner putting money in, a supplier settled in cash, a customer paying
+off what they owe, credit bought for a wallet. A shop that only records selling
+ends the day with a drawer nobody can explain.
+
+There are exactly two, and the difference is which way the money went:
+
+| | Money | The account named |
+| --- | --- | --- |
+| **Payment voucher** | leaves the shop | is paid |
+| **Receipt voucher** | comes in | is paying |
+
+The account can be a **customer**, a **supplier**, a **wallet**, or **someone
+else** typed in words — creating a contact record for the man who fixes the
+generator is not worth anybody's time.
+
+Which way that lands on the books depends on who the account is, and one rule
+covers all four combinations:
+
+- A customer's balance is what they owe the shop. Paying them makes them owe
+  more; being paid makes them owe less.
+- A supplier's balance is what the shop owes them. Paying them makes the shop
+  owe less; being refunded by them makes it owe more.
+- A wallet is credit, so paying one buys credit and being paid by one takes it
+  back out.
+
+Cash vouchers move the drawer; a bank transfer is recorded without touching it.
+Each one is numbered in its own series — `PV-0001`, `RV-0001` — and **prints a
+slip with two signature lines**, because a voucher is a piece of paper before it
+is a row: the person handed the money signs to say they took it.
+
+Cancelling reverses the cash, the ledger entry and the wallet credit, and keeps
+the row. The number was on something somebody signed, so it is never reused.
 
 ## Recharge and gift cards
 
@@ -698,6 +741,7 @@ server/
     lib/importFormats.js  ERP column presets + number parsing
     lib/permissions.js    what each member of staff may do
     lib/transfers.js      the money transfer counter
+    lib/vouchers.js       payment and receipt vouchers
     middleware/auth.js    JWT verification, role and permission guards
     routes/               auth, products, orders, reports, users, inventory, imports
 client/
@@ -729,6 +773,10 @@ Routes are guarded by **permission**, not by role — an admin holds all of them
 | GET    | `/api/orders`                  | any\*        |
 | GET    | `/api/orders/:id`              | any\*        |
 | POST   | `/api/orders/:id/refund`       | `refunds`    |
+| GET    | `/api/vouchers`                | `vouchers`   |
+| GET    | `/api/vouchers/meta`           | `vouchers`   |
+| POST   | `/api/vouchers`                | `vouchers`   |
+| POST   | `/api/vouchers/:id/cancel`     | `vouchers`   |
 | GET    | `/api/transfers`               | `transfers`  |
 | POST   | `/api/transfers`               | `transfers`  |
 | POST   | `/api/transfers/:id/cancel`    | `transfers`  |

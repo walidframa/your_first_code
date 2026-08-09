@@ -27,7 +27,7 @@ export default function RepairSlip({ detail, shopName = 'Front Desk POS' }) {
   const { ticket, parts, partsTotal } = detail;
 
   return (
-    <div className="repair-slip mx-auto max-w-[300px] bg-white p-4 font-mono text-[13px] leading-snug text-black">
+    <div className="print-slip repair-slip mx-auto max-w-[300px] bg-white p-4 font-mono text-[13px] leading-snug text-black">
       <div className="text-center">
         <p className="text-[15px] font-bold uppercase">{shopName}</p>
         <p className="mt-0.5 text-[12px]">Repair ticket</p>

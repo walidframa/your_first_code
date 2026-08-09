@@ -18,7 +18,7 @@
 import { db } from '../db.js';
 
 /**
- * Grouped the way the work is, because a flat list of sixteen checkboxes is
+ * Grouped the way the work is, because a flat list of seventeen checkboxes is
  * something to be read one by one rather than a job description to recognise.
  */
 export const PERMISSION_GROUPS = [
@@ -37,6 +37,7 @@ export const PERMISSION_GROUPS = [
     group: 'Money',
     items: [
       ['transfers', 'Money transfer counter', 'Send and pay out transfers, and keep that drawer straight'],
+      ['vouchers', 'Payment and receipt vouchers', 'Pay money out to any account, or take money in from one'],
       ['cashbox', 'Cashbox history', 'Past sittings, counts and what was over or short'],
       ['expenses', 'Record expenses', 'Money spent running the shop'],
       ['reports', 'Takings and profit', 'The dashboard, profit and what the shop is owed'],
@@ -91,7 +92,7 @@ export function permissionMap() {
 }
 
 /**
- * An admin is the owner of the shop. Ticking sixteen boxes to give them what
+ * An admin is the owner of the shop. Ticking every box to give them what
  * the role already means would be a way to accidentally lock them out of their
  * own back office.
  */
@@ -138,7 +139,7 @@ export function seedMissingPermissions() {
   let seeded = 0;
   for (const user of users) {
     // An admin needs no rows at all: the role answers every check, and storing
-    // sixteen grants would leave them behind if the account were ever demoted.
+    // a full set of grants would be left behind if the account were ever demoted.
     if (user.role === 'admin') continue;
     setPermissions(user.id, DEFAULT_PERMISSIONS[user.role] || []);
     seeded += 1;
