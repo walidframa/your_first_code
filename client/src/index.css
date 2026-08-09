@@ -173,23 +173,25 @@ body {
 }
 
 /*
- * Repair tickets on a receipt printer.
+ * Repair tickets and vouchers on a receipt printer.
  *
  * Thermal rolls are 58 or 80mm wide with no fixed height, so the page is sized
- * to the paper and left to run as long as the ticket needs. Same isolation
- * trick as the label sheet: hide the app, show only the slip.
+ * to the paper and left to run as long as the slip needs. Same isolation trick
+ * as the label sheet: hide the app, show only the slip. Both kinds share these
+ * rules — and one @page — because a second block would silently win over the
+ * first for every print in the app.
  */
 @media print {
-  body:has(.repair-slip) * {
+  body:has(.print-slip) * {
     visibility: hidden;
   }
 
-  body:has(.repair-slip) .repair-slip,
-  body:has(.repair-slip) .repair-slip * {
+  body:has(.print-slip) .print-slip,
+  body:has(.print-slip) .print-slip * {
     visibility: visible;
   }
 
-  body:has(.repair-slip) .repair-slip {
+  body:has(.print-slip) .print-slip {
     position: absolute;
     top: 0;
     left: 0;

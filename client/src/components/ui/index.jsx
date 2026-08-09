@@ -288,9 +288,11 @@ export function ToastProvider({ children }) {
     <ToastContext.Provider value={value}>
       {children}
       {/* Bottom-left, clear of the nav rail: away from the scan bar at the top
-          and from the cart totals and Charge button down the right. */}
+          and from the cart totals and Charge button down the right. The offset
+          follows the rail's own width, which the layout publishes — a fixed one
+          sat under the menu the moment it could be widened. */}
       <div
-        className="pointer-events-none fixed bottom-4 left-24 z-[100] flex flex-col items-start gap-2"
+        className="pointer-events-none fixed bottom-4 left-[calc(var(--rail-width,68px)+1rem)] z-[100] flex flex-col items-start gap-2"
         aria-live="polite"
         aria-atomic="false"
       >

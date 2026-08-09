@@ -1078,6 +1078,7 @@ try {
     await page.locator('[role=dialog]').getByLabel('Money transfer counter').check();
     // The desk pays for things out of its own drawer, so it needs both.
     await page.locator('[role=dialog]').getByLabel('Record expenses').check();
+    await page.locator('[role=dialog]').getByLabel('Payment and receipt vouchers').check();
     await page.click('[role=dialog] button:has-text("Save access")');
 
     await page.waitForSelector("text=Front Register's access updated", { timeout: 15000 });
@@ -1151,6 +1152,52 @@ try {
     await page.waitForSelector('text=Expense recorded', { timeout: 15000 });
   });
 
+  await step('a payment voucher pays somebody and prints a slip to sign', async () => {
+    await page.click('a[title="Vouchers"]');
+    await page.waitForSelector('text=/Money paid out and taken in/', { timeout: 15000 });
+
+    await page.click('button:has-text("New voucher")');
+    await page.waitForSelector('[role=dialog] >> text=Payment voucher', { timeout: 10000 });
+    const dialog = page.locator('[role=dialog]');
+
+    await dialog.getByLabel('Paying what kind of account').selectOption('other');
+    await dialog.locator('#accountName').fill('Abu Khalil the landlord');
+    await dialog.locator('#amountUsd').fill('300');
+    await dialog.getByLabel('What for').selectOption('rent');
+    await dialog.locator('#note').fill('August rent');
+
+    await dialog.locator('text=Out of the drawer').waitFor();
+    await dialog.getByRole('button', { name: 'Pay it out' }).click();
+
+    // Straight to the slip, because a voucher exists to be signed.
+    await page.waitForSelector('text=PV-0001', { timeout: 15000 });
+    await page.waitForSelector('text=Received by');
+    await page.waitForSelector('text=For the shop');
+    await closeDialog();
+  });
+  await shot('vouchers');
+
+  await step('a receipt voucher takes money in, on its own numbering', async () => {
+    await page.click('button:has-text("New voucher")');
+    await page.waitForSelector('[role=dialog] >> text=Payment voucher', { timeout: 10000 });
+    const dialog = page.locator('[role=dialog]');
+
+    await dialog.getByRole('button', { name: /Receiving/ }).click();
+    await page.waitForSelector('[role=dialog] >> text=Receipt voucher');
+    await dialog.getByLabel('Received from').selectOption('customer');
+    await dialog.getByLabel('Which one').selectOption({ label: 'Rami Haddad' });
+    await dialog.locator('#amountUsd').fill('25');
+    await dialog.locator('text=Into the drawer').waitFor();
+    await dialog.getByRole('button', { name: 'Take it in' }).click();
+
+    await page.waitForSelector('text=RV-0001', { timeout: 15000 });
+    await closeDialog();
+
+    // Both series on one screen, the money moving opposite ways.
+    await page.waitForSelector('text=Paid out');
+    await page.waitForSelector('text=Taken in');
+  });
+
   await step('the drawer carries every one of them', async () => {
     /*
      * Checked from the back office, because the operator counts blind: the
@@ -1168,10 +1215,12 @@ try {
     await page.waitForSelector('[role=dialog] >> text=Every movement', { timeout: 15000 });
 
     const dialog = page.locator('[role=dialog]');
-    // $100 float + $153 in − $49 out − $4 spent.
-    await dialog.locator('text=$200.00').first().waitFor();
+    // $100 float + $153 in − $49 out − $4 spent − $300 paid + $25 taken.
+    await dialog.locator('text=-$75.00').first().waitFor();
     await dialog.locator('text=OMT send').first().waitFor();
     await dialog.locator('text=Whish payout').first().waitFor();
+    await dialog.locator('text=PV-0001').first().waitFor();
+    await dialog.locator('text=RV-0001').first().waitFor();
 
     // The next step logs out, and the backdrop would swallow the click.
     await closeDialog();

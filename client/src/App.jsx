@@ -1,6 +1,7 @@
 import { Navigate, Routes, Route } from 'react-router';
 import Login from './pages/Login';
 import Transfers from './pages/Transfers';
+import Vouchers from './pages/Vouchers';
 import { useAuth } from './context/AuthContext';
 import Layout from './components/Layout';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -36,6 +37,7 @@ import AdminCards from './pages/admin/Cards';
 const HOME_ORDER = [
   ['register', '/'],
   ['transfers', '/transfers'],
+  ['vouchers', '/vouchers'],
   ['repairs', '/admin/repairs'],
   ['reports', '/admin'],
   ['documents', '/admin/documents'],
@@ -80,6 +82,14 @@ export default function App() {
           element={
             <ProtectedRoute permission="transfers">
               <Transfers />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/vouchers"
+          element={
+            <ProtectedRoute permission="vouchers">
+              <Vouchers />
             </ProtectedRoute>
           }
         />
