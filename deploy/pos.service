@@ -1,0 +1,53 @@
+# The POS, as a service the machine looks after.
+#
+#   sudo cp deploy/pos.service /etc/systemd/system/pos.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now pos
+#
+# Edit the paths and the user if the checkout is not at /srv/pos.
+
+[Unit]
+Description=Front Desk POS
+Documentation=https://github.com/walidframa/your_first_code
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pos
+Group=pos
+WorkingDirectory=/srv/pos/server
+ExecStart=/usr/bin/node src/index.js
+
+# Secrets and settings live here, not in this file — this one is world-readable
+# in /etc, and JWT_SECRET and ACCOUNT_SECRET must not be.
+#   sudo chown pos:pos /etc/pos.env && sudo chmod 600 /etc/pos.env
+EnvironmentFile=/etc/pos.env
+
+# A till that dies at four o'clock has to come back on its own; nobody in a shop
+# is watching a service. Rate-limited so a boot loop shows up in the log as a
+# stopped service rather than hammering the machine all night.
+Restart=always
+RestartSec=2
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+# The database is the shop's books. Nothing else on the machine needs to be
+# writable by this process.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/pos /var/backups/pos
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=pos
+
+[Install]
+WantedBy=multi-user.target
