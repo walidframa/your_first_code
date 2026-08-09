@@ -1,6 +1,17 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowDownLeft, ArrowUpRight, Banknote, EyeOff, Lock, LockOpen, RefreshCw } from 'lucide-react';
+import {
+  ArrowDownLeft,
+  ArrowUpRight,
+  Banknote,
+  EyeOff,
+  FileText,
+  Lock,
+  LockOpen,
+  RefreshCw,
+  TrendingUp,
+} from 'lucide-react';
 import api from '../api';
+import CashReport from './CashReport';
 import { lbp, useSettings } from '../context/SettingsContext';
 import { combinedUsd } from '../lib/change.js';
 import { countDifference } from '../lib/cashCount.js';
@@ -173,7 +184,7 @@ function OpenDrawer({ denominations, accountId, onClose, onOpened }) {
  * behind this dialog, so for them the difference is shown as they type — which
  * is the question they opened the dialog to answer.
  */
-function CloseDrawer({ denominations, accountId, expected, onClose, onClosed }) {
+function CloseDrawer({ denominations, accountId, expected, onClose, onClosed, onReport }) {
   const toast = useToast();
   const { rate } = useSettings();
   const [usdNotes, setUsdNotes] = useState({});
@@ -321,9 +332,20 @@ function CloseDrawer({ denominations, accountId, expected, onClose, onClosed }) 
             : 'The difference is recorded against this session, so the next one starts from what is really there.'}
         </p>
 
-        <Button className="mt-4 w-full" onClick={onClosed}>
-          Done
-        </Button>
+        {/*
+          * The report is offered here rather than only in the back office,
+          * because this is the moment somebody wants it: the drawer has just
+          * been counted, and whoever counted it is the person who signs off the
+          * page and files it.
+          */}
+        <div className="mt-4 flex gap-2">
+          <Button variant="secondary" className="flex-1" onClick={() => onReport(session.id)}>
+            <FileText size={16} /> Cashbox report
+          </Button>
+          <Button className="flex-1" onClick={onClosed}>
+            Done
+          </Button>
+        </div>
       </Modal>
     );
   }
@@ -629,10 +651,13 @@ function MoveCash({ direction, accountId, onClose, onDone }) {
  * Omitted, it is the shop's default till, which is what every screen used
  * before there was more than one.
  */
-export default function CashBox({ onChanged, refreshOn = 0, accountId = null }) {
+export default function CashBox({ onChanged, refreshOn = 0, accountId = null, showProfit = false }) {
   const [state, setState] = useState(null);
   const [dialog, setDialog] = useState(null);
   const [busy, setBusy] = useState(false);
+  // Which sitting's report is on screen — set from the close dialog, and from
+  // the panel itself while the drawer is still open.
+  const [reportFor, setReportFor] = useState(null);
 
   const load = useCallback(async () => {
     const res = await api.get('/cash/current', { params: accountId ? { accountId } : undefined });
@@ -661,7 +686,7 @@ export default function CashBox({ onChanged, refreshOn = 0, accountId = null }) 
   };
 
   if (!state) return null;
-  const { session, denominations, expected } = state;
+  const { session, denominations, expected, profit } = state;
 
   if (!session) {
     return (
@@ -691,12 +716,56 @@ export default function CashBox({ onChanged, refreshOn = 0, accountId = null }) 
             onOpened={done}
           />
         )}
+        {/*
+          * Also here, not only on the open panel: closing the drawer is exactly
+          * when the report is asked for, and by then this is the branch that
+          * renders.
+          */}
+        {reportFor && <CashReport sessionId={reportFor} onClose={() => setReportFor(null)} />}
       </>
     );
   }
 
   return (
     <>
+      {/*
+        * Profit above the drawer, because the two answer different questions and
+        * the wrong one gets read for the other all day: cash on hand is what is
+        * in the till, which includes the float, the customer payments and the
+        * money that is not the shop's to keep. This is what the shop made.
+        *
+        * Only rendered where the till is the shop's trade — the register — and
+        * only when the server sent it, which it does for whoever may see profit
+        * at all. A cashier gets nothing here, not a hidden or blanked-out box.
+        */}
+      {showProfit && profit && (
+        <div className="border-b border-brand-100 bg-brand-50/60 px-4 py-2.5">
+          <div className="flex items-center justify-between gap-2">
+            <span className="flex items-center gap-1.5 text-[11px] font-semibold tracking-wide text-brand-700/80 uppercase">
+              <TrendingUp size={13} /> Profit this sitting
+            </span>
+            <button
+              onClick={() => setReportFor(session.id)}
+              title="Cashbox report"
+              aria-label="Cashbox report"
+              className="rounded p-1 text-brand-700/70 transition hover:bg-brand-100 hover:text-brand-800"
+            >
+              <FileText size={13} />
+            </button>
+          </div>
+          <p className="flex items-baseline gap-2">
+            <span className="tnum text-2xl leading-none font-semibold text-brand-800">
+              {money(profit.netProfit)}
+            </span>
+            <span className="text-[11px] text-brand-700/70">net</span>
+          </p>
+          <p className="tnum mt-1 text-[11px] text-brand-700/70">
+            {money(profit.revenue)} sold · {money(profit.grossProfit)} gross ·{' '}
+            {money(profit.expenses)} spent
+          </p>
+        </div>
+      )}
+
       <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
         <div className="mb-2 flex items-center justify-between gap-2">
           <span className="flex items-center gap-1.5 text-[11px] font-semibold tracking-wide text-slate-500 uppercase">
@@ -773,11 +842,18 @@ export default function CashBox({ onChanged, refreshOn = 0, accountId = null }) 
           expected={state?.expected ?? null}
           onClose={() => setDialog(null)}
           onClosed={done}
+          onReport={(id) => {
+            // Finish the close first: the panel behind has to catch up, and two
+            // dialogs stacked on each other is one too many to read.
+            done();
+            setReportFor(id);
+          }}
         />
       )}
       {(dialog === 'in' || dialog === 'out') && (
         <MoveCash direction={dialog} accountId={accountId} onClose={() => setDialog(null)} onDone={done} />
       )}
+      {reportFor && <CashReport sessionId={reportFor} onClose={() => setReportFor(null)} />}
     </>
   );
 }

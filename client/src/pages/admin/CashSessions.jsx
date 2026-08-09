@@ -1,44 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Banknote, Printer } from 'lucide-react';
+import { Banknote } from 'lucide-react';
 import api from '../../api';
 import PageHeader from '../../components/PageHeader';
+import CashReport from '../../components/CashReport';
 import { lbp } from '../../context/SettingsContext';
-import { Badge, Button, Card, EmptyState, Modal, Skeleton, cx, money } from '../../components/ui';
-
-const KIND_LABELS = {
-  opening_float: 'Opening float',
-  sale: 'Cash sales',
-  refund: 'Refunds',
-  customer_payment: 'Customer payments',
-  supplier_payment: 'Supplier payments',
-  document: 'Invoices paid in cash',
-  cash_in: 'Cash in',
-  cash_out: 'Cash out',
-  bank_drop: 'To the bank',
-  correction: 'Over / short',
-};
-
-const REASON_LABELS = {
-  petty_cash: 'petty cash',
-  owner_funds: 'owner’s money',
-  owner_draw: 'owner took out',
-  bank_drop: 'to the bank',
-  customer_payment: 'customer payment',
-  supplier: 'supplier',
-  expense: 'expense',
-  wages: 'wages',
-  refund: 'refund',
-  correction: 'correction',
-  short: 'short',
-  over: 'over',
-  other: 'other',
-};
-
-/*
- * Money missing is a different problem from money over: one is a loss, the
- * other a mistake somewhere in the recording. They should not look alike.
- */
-const diffTone = (value) => (value === 0 ? 'text-brand-700' : value < 0 ? 'text-red-600' : 'text-amber-600');
+import { Badge, Card, EmptyState, Skeleton, cx, money } from '../../components/ui';
 
 /** Over/short in the currency it happened in — never the two added together. */
 function Difference({ usd, lbpAmount }) {
@@ -52,175 +18,6 @@ function Difference({ usd, lbpAmount }) {
   const short = usd < 0 || lbpAmount < 0;
 
   return <Badge tone={short ? 'critical' : 'warning'}>{parts.join(' · ')}</Badge>;
-}
-
-/** The Z-report: one sitting of the till, start to finish. */
-function SessionReport({ id, onClose }) {
-  const [data, setData] = useState(null);
-
-  useEffect(() => {
-    api.get(`/cash/sessions/${id}`).then((res) => setData(res.data));
-  }, [id]);
-
-  if (!data) {
-    return (
-      <Modal open onClose={onClose} title="Loading…">
-        <Skeleton className="h-56" />
-      </Modal>
-    );
-  }
-
-  const { session, byKind, expected, sales, salesTotal, refunds, movements } = data;
-  const closed = session.status === 'closed';
-
-  return (
-    <Modal
-      open
-      onClose={onClose}
-      title={`Cashbox #${session.id}`}
-      subtitle={`Opened ${new Date(`${session.opened_at}Z`).toLocaleString()} by ${session.opened_by_name}`}
-      size="lg"
-    >
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        <Badge tone={closed ? 'neutral' : 'good'}>{session.status}</Badge>
-        {closed && <Difference usd={session.over_short_usd} lbpAmount={session.over_short_lbp} />}
-      </div>
-
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <p className="mb-1.5 text-xs font-medium tracking-wide text-slate-500 uppercase">
-            The drawer
-          </p>
-          <table className="w-full text-sm">
-            <tbody className="divide-y divide-slate-50">
-              {byKind.map((k) => (
-                <tr key={k.kind}>
-                  <td className="py-1.5 text-slate-600">
-                    {KIND_LABELS[k.kind] || k.kind}
-                    <span className="ml-1 text-xs text-slate-400">×{k.count}</span>
-                  </td>
-                  <td className="tnum py-1.5 text-right text-slate-800">{money(k.usd)}</td>
-                  <td className="tnum py-1.5 text-right text-slate-500">{lbp(k.lbp)}</td>
-                </tr>
-              ))}
-              <tr className="border-t border-slate-200 font-semibold">
-                <td className="py-1.5 text-slate-900">{closed ? 'Left in the drawer' : 'In the drawer now'}</td>
-                <td className="tnum py-1.5 text-right text-slate-900">{money(expected.usd)}</td>
-                <td className="tnum py-1.5 text-right text-slate-600">{lbp(expected.lbp)}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        <div>
-          <p className="mb-1.5 text-xs font-medium tracking-wide text-slate-500 uppercase">
-            Sales in this sitting
-          </p>
-          <table className="w-full text-sm">
-            <tbody className="divide-y divide-slate-50">
-              {sales.map((s) => (
-                <tr key={s.payment_method}>
-                  <td className="py-1.5 text-slate-600">
-                    {s.payment_method}
-                    <span className="ml-1 text-xs text-slate-400">×{s.orders}</span>
-                  </td>
-                  <td className="tnum py-1.5 text-right text-slate-800">{money(s.total)}</td>
-                </tr>
-              ))}
-              {refunds.orders > 0 && (
-                <tr>
-                  <td className="py-1.5 text-slate-600">
-                    refunded<span className="ml-1 text-xs text-slate-400">×{refunds.orders}</span>
-                  </td>
-                  <td className="tnum py-1.5 text-right text-red-600">−{money(refunds.total)}</td>
-                </tr>
-              )}
-              <tr className="border-t border-slate-200 font-semibold">
-                <td className="py-1.5 text-slate-900">Taken</td>
-                <td className="tnum py-1.5 text-right text-slate-900">{money(salesTotal)}</td>
-              </tr>
-            </tbody>
-          </table>
-
-          {closed && (
-            <table className="mt-4 w-full text-sm">
-              <tbody className="divide-y divide-slate-50">
-                <tr>
-                  <td className="py-1.5 text-slate-500">Expected</td>
-                  <td className="tnum py-1.5 text-right">{money(session.expected_usd)}</td>
-                  <td className="tnum py-1.5 text-right text-slate-500">{lbp(session.expected_lbp)}</td>
-                </tr>
-                <tr>
-                  <td className="py-1.5 text-slate-500">Counted</td>
-                  <td className="tnum py-1.5 text-right">{money(session.counted_usd)}</td>
-                  <td className="tnum py-1.5 text-right text-slate-500">{lbp(session.counted_lbp)}</td>
-                </tr>
-                <tr className="font-semibold">
-                  <td className="py-1.5 text-slate-900">Difference</td>
-                  <td className={cx('tnum py-1.5 text-right', diffTone(session.over_short_usd))}>
-                    {money(session.over_short_usd)}
-                  </td>
-                  <td className={cx('tnum py-1.5 text-right', diffTone(session.over_short_lbp))}>
-                    {lbp(session.over_short_lbp)}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          )}
-        </div>
-      </div>
-
-      {session.closing_note && (
-        <p className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-600">{session.closing_note}</p>
-      )}
-
-      <p className="mt-5 mb-1.5 text-xs font-medium tracking-wide text-slate-500 uppercase">
-        Every movement
-      </p>
-      <div className="max-h-64 overflow-y-auto rounded-xl ring-1 ring-slate-100">
-        <table className="w-full text-sm">
-          <tbody className="divide-y divide-slate-50">
-            {movements.map((m) => (
-              <tr key={m.id}>
-                <td className="px-3 py-1.5 text-xs text-slate-400">
-                  {new Date(`${m.created_at}Z`).toLocaleTimeString([], { timeStyle: 'short' })}
-                </td>
-                <td className="px-2 py-1.5 text-slate-600">
-                  {KIND_LABELS[m.kind] || m.kind}
-                  {m.reason && <span className="ml-1 text-xs text-slate-400">{REASON_LABELS[m.reason] || m.reason}</span>}
-                </td>
-                <td className="max-w-[12rem] truncate px-2 py-1.5 text-xs text-slate-400">
-                  {m.order_number || m.doc_number || m.note || ''}
-                </td>
-                <td
-                  className={cx(
-                    'tnum px-2 py-1.5 text-right',
-                    m.amount_usd < 0 ? 'text-red-600' : 'text-slate-700',
-                  )}
-                >
-                  {m.amount_usd !== 0 ? money(m.amount_usd) : ''}
-                </td>
-                <td
-                  className={cx(
-                    'tnum px-3 py-1.5 text-right',
-                    m.amount_lbp < 0 ? 'text-red-600' : 'text-slate-500',
-                  )}
-                >
-                  {m.amount_lbp !== 0 ? lbp(m.amount_lbp) : ''}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      <div className="no-print mt-5">
-        <Button variant="secondary" onClick={() => window.print()}>
-          <Printer size={15} /> Print
-        </Button>
-      </div>
-    </Modal>
-  );
 }
 
 export default function CashSessions() {
@@ -282,6 +79,32 @@ export default function CashSessions() {
                   {current.movementCount === 1 ? '' : 's'} since
                 </span>
               </div>
+
+              {/*
+                * What the shop has made since the drawer was opened — takings
+                * less what the goods cost less what was spent. Only present for
+                * whoever may see profit at all; the server leaves it out
+                * entirely for everyone else.
+                */}
+              {current.profit && (
+                <div className="mt-3 grid grid-cols-2 gap-3 border-t border-slate-100 pt-3 sm:grid-cols-4">
+                  {[
+                    ['Sold', current.profit.revenue, 'text-slate-800'],
+                    ['Cost of goods', -current.profit.cost, 'text-slate-500'],
+                    ['Gross profit', current.profit.grossProfit, 'text-slate-800'],
+                    [
+                      'Net profit',
+                      current.profit.netProfit,
+                      current.profit.netProfit < 0 ? 'text-red-600' : 'text-brand-700',
+                    ],
+                  ].map(([label, value, colour]) => (
+                    <div key={label}>
+                      <p className="text-[11px] tracking-wide text-slate-500 uppercase">{label}</p>
+                      <p className={cx('tnum text-lg font-semibold', colour)}>{money(value)}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
             </>
           ) : (
             <div className="flex items-center justify-between gap-4">
@@ -360,7 +183,7 @@ export default function CashSessions() {
         </Card>
       </div>
 
-      {viewing && <SessionReport id={viewing} onClose={() => setViewing(null)} />}
+      {viewing && <CashReport sessionId={viewing} onClose={() => setViewing(null)} />}
     </div>
   );
 }

@@ -1067,6 +1067,48 @@ db.exec(`
 addColumn('products', 'wallet_id', 'INTEGER REFERENCES wallets(id)');
 
 /*
+ * A sale put to one side.
+ *
+ * Somebody is choosing a case while three people wait behind them; a phone is
+ * being unboxed and checked. The cashier needs the counter back without losing
+ * what has been rung up, and the alternative shops actually use — a scrap of
+ * paper, or serving the queue on a second screen — is how a line goes missing.
+ *
+ * Held on the server rather than in the browser: the till gets refreshed, the
+ * laptop goes to sleep, and the person who comes back for their bag is often
+ * served by whoever is on shift rather than whoever started it.
+ *
+ * It is a draft, not an order. Nothing is reserved — stock still belongs to
+ * whoever pays for it first — and the lines are kept as they were typed,
+ * negotiated prices and all, so resuming puts the cashier back exactly where
+ * they stood. What has changed in the meantime is worked out on the way back
+ * in, and said out loud.
+ */
+db.exec(`
+  CREATE TABLE IF NOT EXISTS held_sales (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    reference TEXT NOT NULL UNIQUE,
+    /* What to call it on the shelf of held sales: a name, a phone, "blue case". */
+    label TEXT,
+    customer_id INTEGER REFERENCES customers(id),
+    customer_name TEXT,
+    /* The cart lines, and everything else the register had on screen. */
+    cart TEXT NOT NULL,
+    context TEXT,
+    item_count INTEGER NOT NULL DEFAULT 0,
+    total REAL NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'held' CHECK (status IN ('held', 'resumed', 'voided')),
+    held_by INTEGER REFERENCES users(id),
+    held_at TEXT NOT NULL DEFAULT (datetime('now')),
+    resumed_by INTEGER REFERENCES users(id),
+    resumed_at TEXT,
+    note TEXT
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_held_sales_status ON held_sales(status, held_at DESC);
+`);
+
+/*
  * Shopify inventory sync.
  *
  * `shopify_links` ties a local product to one Shopify variant, and remembers

@@ -291,6 +291,42 @@ try {
     }
   });
 
+  /*
+   * Parking a sale, which is a queue-length problem: the counter has to come
+   * back without the rung-up lines going anywhere.
+   */
+  await step('a sale can be put to one side', async () => {
+    await page.getByRole('button', { name: /^Croissant/ }).first().click();
+    await page.waitForSelector('aside >> text=Croissant');
+
+    await page.click('aside button:has-text("Hold")');
+    await page.waitForSelector('text=Put it to one side', { timeout: 10000 });
+    await page.locator('#heldLabel').fill('Rami · blue case');
+    await page.locator('[role=dialog]').getByRole('button', { name: 'Hold the sale' }).click();
+
+    // The counter is free again, and the shelf says what is waiting on it.
+    await page.waitForSelector('text=No items yet', { timeout: 10000 });
+    await page.waitForSelector('aside button:has-text("Held 1")', { timeout: 10000 });
+  });
+
+  await step('and picked back up exactly where it was left', async () => {
+    await page.click('aside button:has-text("Held 1")');
+    await page.waitForSelector('text=Pick one back up', { timeout: 10000 });
+    await page.waitForSelector('[role=dialog] >> text=Rami · blue case');
+
+    await page.locator('[role=dialog]').getByRole('button', { name: 'Resume' }).first().click();
+    await page.waitForSelector('aside >> text=Croissant', { timeout: 10000 });
+
+    // Off the shelf once somebody has it on their screen, so two cashiers
+    // cannot both be selling the same parked cart.
+    if (await page.locator('aside button:has-text("Held")').count()) {
+      throw new Error('a resumed sale is still being offered on the shelf');
+    }
+    await page.click('aside button:has-text("Clear")');
+    await page.waitForSelector('text=No items yet');
+  });
+  await shot('held-sale');
+
   await step('the sale appears in My sales', async () => {
     await page.click('a[title="My sales"]');
     await page.waitForSelector('text=ORD-', { timeout: 10000 });
@@ -970,6 +1006,32 @@ try {
     await page.waitForSelector('[role=dialog] >> text=Opening float');
     await page.waitForSelector('[role=dialog] >> text=Cash out');
     await page.waitForSelector('[role=dialog] >> text=Over / short');
+    await page.waitForSelector('[role=dialog] >> text=The count');
+    // Profit is on the report for the owner, and only for the owner — the
+    // server leaves it out entirely for anyone else.
+    await page.waitForSelector('[role=dialog] >> text=Gross profit');
+  });
+
+  await step('and downloads as a PDF to file or send on', async () => {
+    const [download] = await Promise.all([
+      page.waitForEvent('download', { timeout: 20000 }),
+      page.click('button:has-text("Download PDF")'),
+    ]);
+
+    const name = download.suggestedFilename();
+    if (!/^cashbox-.*\.pdf$/.test(name)) throw new Error(`unexpected filename: ${name}`);
+
+    // A file the browser accepted but that no reader can open would pass a
+    // download check and fail in the shop, so read the bytes back.
+    const stream = await download.createReadStream();
+    const chunks = [];
+    for await (const chunk of stream) chunks.push(chunk);
+    const bytes = Buffer.concat(chunks);
+
+    if (bytes.subarray(0, 5).toString() !== '%PDF-') throw new Error('the download is not a PDF');
+    if (!bytes.toString('latin1').trimEnd().endsWith('%%EOF')) {
+      throw new Error('the PDF is truncated and will not open');
+    }
     await closeDialog();
   });
 
