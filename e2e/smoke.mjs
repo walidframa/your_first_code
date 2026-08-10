@@ -327,6 +327,42 @@ try {
   });
   await shot('held-sale');
 
+  /*
+   * A phone left in to be fixed. It is counter work and it ends with paper —
+   * the customer brings the ticket back to prove which phone is theirs.
+   */
+  await step('a repair is taken in at the register and prints a ticket', async () => {
+    await page.click('aside button:has-text("Repair")');
+    await page.waitForSelector('[role=dialog] >> text=Write it down while they are here', {
+      timeout: 10000,
+    });
+
+    await page.fill('input[name=customerName]', 'Rami Haddad');
+    await page.fill('input[name=customerPhone]', '03 123 456');
+    await page.fill('input[name=device]', 'iPhone 12 Pro, black');
+    await page.fill('textarea[name=fault]', 'Screen cracked, touch dead at the top');
+    await page.fill('input[name=passcode]', '4417');
+    await page.fill('input[name=quoted]', '85');
+    await page.click('button:has-text("Take it in")');
+
+    // Straight to the slip, because the customer is still standing there.
+    await page.waitForSelector('text=/REP-\\d+ taken in/', { timeout: 15000 });
+    const dialog = page.locator('[role=dialog]');
+    await dialog.locator('text=Rami Haddad').waitFor();
+    await dialog.locator('text=iPhone 12 Pro, black').waitFor();
+    await dialog.locator('text=$85.00').first().waitFor();
+    await dialog.locator('text=Please bring this ticket').waitFor();
+
+    // The passcode is a credential. It is stored, but it does not go in a
+    // customer's pocket.
+    if (await dialog.locator('text=4417').count()) {
+      throw new Error('the passcode was printed on the ticket');
+    }
+
+    await page.click('button:has-text("Done")');
+    await page.waitForSelector('[role=dialog]', { state: 'detached', timeout: 10000 });
+  });
+
   await step('the sale appears in My sales', async () => {
     await page.click('a[title="My sales"]');
     await page.waitForSelector('text=ORD-', { timeout: 10000 });

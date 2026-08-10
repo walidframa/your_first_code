@@ -86,7 +86,7 @@ router.get('/:id/passcode', requireAuth, requirePermission('secrets'), (req, res
 
 router.post('/', requireAuth, (req, res) => {
   try {
-    const id = transaction(() => openTicket(req.body || {}, req.user.id))();
+    const id = transaction(() => openTicket(req.body || {}, req.user.id, req.branchId))();
     res.status(201).json(ticketWithDetail(id));
   } catch (err) {
     res.status(400).json({ error: err.message });

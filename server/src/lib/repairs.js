@@ -123,7 +123,7 @@ export function ticketWithDetail(id) {
  * handset and the warranty answer comes out of the record rather than out of an
  * argument at the counter.
  */
-export function openTicket(input, userId) {
+export function openTicket(input, userId, branchId = null) {
   const imei = normaliseImei(input.imei);
   const unit = imei
     ? db.prepare('SELECT * FROM product_units WHERE imei = ? OR imei2 = ?').get(imei, imei)
@@ -144,8 +144,8 @@ export function openTicket(input, userId) {
     .prepare(
       `INSERT INTO repair_tickets
          (ticket_number, unit_id, customer_id, customer_name, customer_phone, device, imei,
-          fault, condition_note, passcode_enc, under_warranty, quoted, taken_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          fault, condition_note, passcode_enc, under_warranty, quoted, taken_by, branch_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       ticketNumber,
@@ -161,6 +161,9 @@ export function openTicket(input, userId) {
       covered ? 1 : 0,
       input.quoted === undefined || input.quoted === null ? null : Number(input.quoted),
       userId,
+      // Which shop has the phone. Parts fitted to it come off that branch's
+      // shelf, and a ticket with no branch would draw them from the main one.
+      branchId,
     );
 
   db.prepare(

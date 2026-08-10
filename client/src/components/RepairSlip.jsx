@@ -1,6 +1,7 @@
 import { Printer } from 'lucide-react';
 import { Button } from './ui';
 import { useCompany } from './Letterhead';
+import { lbp, useSettings } from '../context/SettingsContext';
 
 const STATUS_LABEL = {
   received: 'Received',
@@ -28,6 +29,20 @@ export default function RepairSlip({ detail }) {
   const { ticket, parts, partsTotal } = detail;
   // The shop's own details, so a customer holding this can ring the number on it.
   const company = useCompany();
+  const { rate, toLbp } = useSettings();
+
+  /*
+   * What the customer will be asked for. Once collected that is what was
+   * actually charged; before then it is the quote, and a warranty job is
+   * neither.
+   */
+  const noCharge = ticket.under_warranty === 1 && !ticket.charged;
+  const amount =
+    ticket.charged !== null && ticket.charged !== undefined && ticket.status === 'collected'
+      ? ticket.charged
+      : ticket.quoted === null || ticket.quoted === undefined
+        ? null
+        : ticket.quoted;
 
   return (
     <div className="print-slip repair-slip mx-auto max-w-[300px] bg-white p-4 font-mono text-[13px] leading-snug text-black">
@@ -113,15 +128,26 @@ export default function RepairSlip({ detail }) {
       <p className="flex justify-between text-[15px] font-bold">
         <span>{ticket.status === 'collected' ? 'Paid' : 'Estimate'}</span>
         <span>
-          {ticket.under_warranty === 1 && !ticket.charged
+          {noCharge
             ? 'No charge'
-            : ticket.charged !== null && ticket.status === 'collected'
-              ? `$${Number(ticket.charged).toFixed(2)}`
-              : ticket.quoted !== null && ticket.quoted !== undefined
-                ? `$${Number(ticket.quoted).toFixed(2)}`
-                : 'to be quoted'}
+            : amount !== null
+              ? `$${Number(amount).toFixed(2)}`
+              : 'to be quoted'}
         </span>
       </p>
+
+      {/*
+        * And in pounds, because that is what most customers will hand over when
+        * they come back. Converted at today's rate rather than stored: the phone
+        * is collected days later and the rate will have moved, so a figure fixed
+        * now would be wrong by then — and this is an estimate, not an invoice.
+        */}
+      {!noCharge && amount !== null && rate > 0 && (
+        <p className="flex justify-between text-[12px]">
+          <span />
+          <span>{lbp(toLbp(amount))}</span>
+        </p>
+      )}
 
       {line()}
 
