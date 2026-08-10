@@ -20,6 +20,7 @@ import {
   ShoppingBag,
   Settings as SettingsIcon,
   Store,
+  Truck,
   Tag,
   TrendingUp,
   Upload,
@@ -31,6 +32,7 @@ import {
   Landmark,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import BranchSwitcher from './BranchSwitcher';
 import { cx } from './ui';
 
 /*
@@ -86,6 +88,7 @@ const ADMIN_NAV = [
     items: [
       { to: '/admin/products', label: 'Products', icon: Package, permission: 'catalogue' },
       { to: '/admin/inventory', label: 'Inventory', icon: Boxes, permission: 'inventory' },
+      { to: '/admin/stock-transfers', label: 'Move stock', icon: Truck, permission: 'transfer_stock' },
       { to: '/admin/cards', label: 'Cards', icon: CreditCard, permission: 'cards' },
       { to: '/admin/labels', label: 'Labels', icon: Tag, permission: 'catalogue' },
       { to: '/admin/import', label: 'Import', icon: Upload, permission: 'imports' },
@@ -95,6 +98,7 @@ const ADMIN_NAV = [
     heading: 'Setup',
     items: [
       { to: '/admin/shopify', label: 'Shopify', icon: ShoppingBag, permission: 'imports' },
+      { to: '/admin/branches', label: 'Branches', icon: Store, permission: 'branches' },
       { to: '/admin/users', label: 'Staff', icon: Users, permission: 'users' },
       { to: '/admin/settings', label: 'Settings', icon: SettingsIcon, permission: 'settings' },
     ],
@@ -194,6 +198,8 @@ export default function Layout() {
             <span className="truncate text-sm font-semibold text-white">Front Desk</span>
           )}
         </div>
+
+        <BranchSwitcher expanded={expanded} />
 
         <nav className="flex w-full flex-col gap-1">
           {counter.map((item) => (

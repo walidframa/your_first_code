@@ -51,13 +51,14 @@ router.get('/current', requireAuth, (req, res) => {
   // Which till is being asked about; every screen names its own, and anything
   // that does not care gets the default one.
   const accountId = Number(req.query.accountId) || null;
-  const session = currentSession(accountId);
+  // No till named means this branch's own drawer, not the company's first one.
+  const session = currentSession(accountId, req.branchId);
   if (!session) {
     return res.json({
       session: null,
       required: requiresSession(),
       denominations: DENOMINATIONS,
-      accountId: accountId ?? defaultAccountId(),
+      accountId: accountId ?? defaultAccountId(req.branchId),
     });
   }
 
@@ -88,7 +89,7 @@ router.get('/current', requireAuth, (req, res) => {
      * It is the whole shop's trade over the sitting's hours, not this drawer's
      * alone — profit is made on the sale, not on the till the cash landed in.
      */
-    profit: can(req.user, 'reports') ? sessionProfit(session.id) : null,
+    profit: can(req.user, 'reports') ? sessionProfit(session.id, req.branchId) : null,
   });
 });
 
@@ -98,6 +99,7 @@ router.post('/open', requireAuth, (req, res) => {
     const session = openSession({
       userId: req.user.id,
       accountId,
+      branchId: req.branchId,
       openingUsd,
       openingLbp,
       note,
@@ -114,7 +116,7 @@ router.post('/open', requireAuth, (req, res) => {
  */
 router.post('/movements', requireAuth, (req, res) => {
   const { direction, amountUsd = 0, amountLbp = 0, reason, note, accountId = null } = req.body || {};
-  const session = currentSession(accountId);
+  const session = currentSession(accountId, req.branchId);
   if (!session) return res.status(400).json({ error: 'Open the cashbox first' });
 
   if (!['in', 'out'].includes(direction)) {
@@ -163,7 +165,7 @@ router.post('/movements', requireAuth, (req, res) => {
 router.post('/close', requireAuth, (req, res) => {
   const { countedUsd = 0, countedLbp = 0, carriedUsd = null, carriedLbp = null, note, accountId = null } =
     req.body || {};
-  const session = currentSession(accountId);
+  const session = currentSession(accountId, req.branchId);
   if (!session) return res.status(400).json({ error: 'The cashbox is not open' });
   try {
     const summary = closeSession({
@@ -182,7 +184,12 @@ router.post('/close', requireAuth, (req, res) => {
 });
 
 router.get('/sessions', requireAuth, requirePermission('cashbox'), (req, res) => {
-  res.json({ sessions: listSessions(req.query.limit, Number(req.query.accountId) || null) });
+  res.json({
+    sessions: listSessions(
+      req.query.limit,
+      Number(req.query.accountId) || defaultAccountId(req.branchId),
+    ),
+  });
 });
 
 router.get('/sessions/:id', requireAuth, requirePermission('cashbox'), (req, res) => {

@@ -3,6 +3,7 @@ import { db } from '../db.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { activityFor, costHistoryFor, recordCostChange } from '../lib/costHistory.js';
 import { barcodeMap, barcodesFor, barcodesFromBody, setBarcodes } from '../lib/barcodes.js';
+import { clearStockEverywhere, setStock, stockAt, stockByBranch, stockMap } from '../lib/stock.js';
 
 const router = Router();
 
@@ -10,8 +11,20 @@ const router = Router();
  * `barcode` stays on every product as the primary one, because labels, Shopify
  * and the importer all read it. `barcodes` is the full list, primary first.
  */
-function serializeProduct(p, codes = undefined) {
-  return { ...p, active: !!p.active, barcodes: codes ?? barcodesFor(p.id) };
+/**
+ * `stock` is what is on the shelf **at this branch** — the only figure a
+ * cashier can act on, because a phone in the other shop cannot be handed over
+ * here. `total_stock` is what the company owns altogether, for the questions
+ * that are genuinely company-wide.
+ */
+function serializeProduct(p, { codes = undefined, branchId = null, here = undefined } = {}) {
+  return {
+    ...p,
+    active: !!p.active,
+    barcodes: codes ?? barcodesFor(p.id),
+    total_stock: p.stock,
+    stock: p.wallet_id ? p.stock : (here ?? stockAt(branchId, p.id)),
+  };
 }
 
 /**
@@ -64,7 +77,14 @@ router.get('/', requireAuth, (req, res) => {
   // One query for every product's barcodes rather than one per product: the
   // register loads this list on every visit.
   const codes = barcodeMap();
-  res.json({ products: rows.map((p) => serializeProduct(p, codes.get(p.id) || [])) });
+  // One query each for barcodes and for this branch's shelf, rather than two
+  // per product: the register loads the whole catalogue every visit.
+  const here = stockMap(req.branchId);
+  res.json({
+    products: rows.map((p) =>
+      serializeProduct(p, { codes: codes.get(p.id) || [], here: here.get(p.id) ?? 0, branchId: req.branchId }),
+    ),
+  });
 });
 
 /**
@@ -92,7 +112,7 @@ router.get('/lookup', requireAuth, (req, res) => {
     .get(code, code.replace(/\s+/g, ''));
 
   if (!product) return res.status(404).json({ error: `No product matches "${code}"` });
-  res.json({ product: serializeProduct(product) });
+  res.json({ product: serializeProduct(product, { branchId: req.branchId }) });
 });
 
 router.post('/', requireAuth, requirePermission('catalogue'), (req, res) => {
@@ -114,7 +134,9 @@ router.post('/', requireAuth, requirePermission('catalogue'), (req, res) => {
       sku,
       Number(price),
       Number(cost) || 0,
-      Number.isFinite(Number(stock)) ? Number(stock) : 0,
+      // The shelf itself is written below, through lib/stock.js — this column
+      // is a mirror of the company total and is refreshed from the branches.
+      0,
       category_id || null,
       image_emoji || '',
       barcode || null,
@@ -128,7 +150,19 @@ router.post('/', requireAuth, requirePermission('catalogue'), (req, res) => {
       Math.max(0, Math.round(Number(warranty_months) || 0)),
       wallet_id || null,
     );
-    if (tracks_units) db.prepare('UPDATE products SET stock = 0 WHERE id = ?').run(info.lastInsertRowid);
+    /*
+     * The opening count lands on the shelf of the branch it was entered at —
+     * a product created at the second shop is stock at the second shop.
+     *
+     * Serialised products start empty whatever the form said: the handsets are
+     * booked in by IMEI, and a typed quantity would be a number with no phones
+     * behind it.
+     */
+    if (tracks_units) {
+      clearStockEverywhere(info.lastInsertRowid);
+    } else if (Number.isFinite(Number(stock)) && Number(stock) !== 0) {
+      setStock({ branchId: req.branchId, productId: info.lastInsertRowid, stock: Number(stock) });
+    }
 
     /*
      * Written after the insert rather than in it, so `products.barcode` and the
@@ -144,7 +178,7 @@ router.post('/', requireAuth, requirePermission('catalogue'), (req, res) => {
     }
 
     const product = db.prepare('SELECT * FROM products WHERE id = ?').get(info.lastInsertRowid);
-    res.status(201).json({ product: serializeProduct(product) });
+    res.status(201).json({ product: serializeProduct(product, { branchId: req.branchId }) });
   } catch (err) {
     res.status(409).json({ error: 'SKU already exists' });
   }
@@ -153,7 +187,12 @@ router.post('/', requireAuth, requirePermission('catalogue'), (req, res) => {
 router.get('/:id', requireAuth, (req, res) => {
   const product = db.prepare('SELECT * FROM products WHERE id = ?').get(req.params.id);
   if (!product) return res.status(404).json({ error: 'Product not found' });
-  res.json({ product: serializeProduct(product) });
+  // Where the rest of them are, which is the question asked the moment a shelf
+  // here is empty.
+  res.json({
+    product: serializeProduct(product, { branchId: req.branchId }),
+    branches: stockByBranch(product.id),
+  });
 });
 
 router.put('/:id', requireAuth, requirePermission('catalogue'), (req, res) => {
@@ -201,10 +240,10 @@ router.put('/:id', requireAuth, requirePermission('catalogue'), (req, res) => {
         });
       }
 
-      db.prepare('UPDATE products SET stock = 0 WHERE id = ?').run(product.id);
+      clearStockEverywhere(product.id);
       db.prepare(
-        `INSERT INTO stock_adjustments (product_id, user_id, delta, resulting_stock, reason, note)
-         VALUES (?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO stock_adjustments (product_id, user_id, delta, resulting_stock, reason, note, branch_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         product.id,
         req.user.id,
@@ -212,6 +251,7 @@ router.put('/:id', requireAuth, requirePermission('catalogue'), (req, res) => {
         0,
         'count_correction',
         'Switched to IMEI tracking — book the handsets in by their numbers',
+        req.branchId,
       );
       product.stock = 0;
     }
@@ -237,7 +277,12 @@ router.put('/:id', requireAuth, requirePermission('catalogue'), (req, res) => {
    * A count on a product now sold from credit is a leftover, and would keep
    * showing "12 left" beside something that cannot run out.
    */
-  if (walletId && !product.wallet_id) updates.stock = 0;
+  if (walletId && !product.wallet_id) {
+    // Everywhere, not just here: a leftover count at the other branch would keep
+    // showing "12 left" beside something that cannot run out.
+    clearStockEverywhere(product.id);
+    updates.stock = 0;
+  }
 
   /*
    * The barcodes go in first, because that is the write that can be refused —
@@ -259,8 +304,19 @@ router.put('/:id', requireAuth, requirePermission('catalogue'), (req, res) => {
   // put the old count back.
   const merged = { ...product, ...updates, barcode: barcodesFor(product.id)[0] ?? null };
   if (switchingTracking && updates.tracks_units) merged.stock = 0;
+
+  /*
+   * A typed count means the shelf in front of whoever typed it. Written through
+   * lib/stock.js and left out of the UPDATE below, which no longer touches the
+   * stock column at all — that one is the company total, refreshed from the
+   * branches.
+   */
+  if (updates.stock !== undefined && !merged.tracks_units && !merged.wallet_id) {
+    setStock({ branchId: req.branchId, productId: product.id, stock: Number(updates.stock) || 0 });
+  }
+
   db.prepare(`
-    UPDATE products SET name = ?, sku = ?, price = ?, cost = ?, stock = ?, category_id = ?, image_emoji = ?,
+    UPDATE products SET name = ?, sku = ?, price = ?, cost = ?, category_id = ?, image_emoji = ?,
       active = ?, barcode = ?, supplier = ?, image_url = ?, reorder_point = ?, tracks_units = ?,
       warranty_months = ?, wallet_id = ?
     WHERE id = ?
@@ -269,7 +325,6 @@ router.put('/:id', requireAuth, requirePermission('catalogue'), (req, res) => {
     merged.sku,
     Number(merged.price),
     Number(merged.cost) || 0,
-    Number(merged.stock) || 0,
     merged.category_id || null,
     merged.image_emoji || '',
     merged.active ? 1 : 0,
@@ -293,7 +348,7 @@ router.put('/:id', requireAuth, requirePermission('catalogue'), (req, res) => {
   });
 
   const updated = db.prepare('SELECT * FROM products WHERE id = ?').get(req.params.id);
-  res.json({ product: serializeProduct(updated) });
+  res.json({ product: serializeProduct(updated, { branchId: req.branchId }) });
 });
 
 router.delete('/:id', requireAuth, requirePermission('catalogue'), (req, res) => {

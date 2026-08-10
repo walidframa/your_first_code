@@ -29,13 +29,21 @@ assert.equal(seed.status, 0, `seed failed: ${seed.stderr}`);
 const { db } = await import('../src/db.js');
 const { setSetting } = await import('../src/lib/settings.js');
 const sync = await import('../src/lib/shopifySync.js');
+const { mainBranchId, setStock: setBranchStock } = await import('../src/lib/stock.js');
 const { verifyWebhook } = await import('../src/routes/shopify.js');
 
 let shopify;
 let baseUrl;
 
 const product = (sku) => db.prepare('SELECT * FROM products WHERE sku = ?').get(sku);
-const setStock = (sku, stock) => db.prepare('UPDATE products SET stock = ? WHERE sku = ?').run(stock, sku);
+/*
+ * Stock lives on a branch's shelf now, and products.stock is a mirror of the
+ * total across branches. Writing the mirror directly would be undone by the
+ * next refresh, so this puts the figure where the shop actually keeps it —
+ * which is also what a sale at the counter does.
+ */
+const setStock = (sku, stock) =>
+  setBranchStock({ branchId: mainBranchId(), productId: product(sku).id, stock });
 
 before(async () => {
   shopify = createFakeShopify();

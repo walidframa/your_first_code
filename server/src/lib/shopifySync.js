@@ -15,6 +15,7 @@
  * the sync does nothing at all.
  */
 import { db, transaction } from '../db.js';
+import { mainBranchId, setStock, stockAt } from './stock.js';
 import { createClient } from './shopify.js';
 import { getSettings, setSetting } from './settings.js';
 
@@ -312,13 +313,21 @@ export async function reconcileAll({ keep, config = shopifyConfig(), userId = nu
 function applyRemoteDelta(link, remoteDelta, remote, userId) {
   return transaction(() => {
     const product = db.prepare('SELECT * FROM products WHERE id = ?').get(link.product_id);
-    const resulting = Math.max(0, product.stock + remoteDelta);
-    const actualDelta = resulting - product.stock;
+    /*
+     * A website sale takes stock off the branch that fulfils web orders, which
+     * is the main one. Shopify advertises what the company owns in total and
+     * has no idea which shop the box is in — so somebody has to decide, and the
+     * shop the website ships from is the honest answer.
+     */
+    const branchId = mainBranchId();
+    const here = stockAt(branchId, product.id);
+    const resulting = Math.max(0, here + remoteDelta);
+    const actualDelta = resulting - here;
 
-    db.prepare('UPDATE products SET stock = ? WHERE id = ?').run(resulting, product.id);
+    setStock({ branchId, productId: product.id, stock: resulting });
     db.prepare(
-      `INSERT INTO stock_adjustments (product_id, user_id, delta, resulting_stock, reason, note)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO stock_adjustments (product_id, user_id, delta, resulting_stock, reason, note, branch_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       product.id,
       userId,

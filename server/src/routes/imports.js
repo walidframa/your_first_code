@@ -4,6 +4,7 @@ import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { parseCsvToRecords } from '../lib/csv.js';
 import { CANONICAL_FIELDS, PRESETS, detectFormat, buildMapping, parseNumber } from '../lib/importFormats.js';
 import { barcodesFor, barcodesFromBody, setBarcodes } from '../lib/barcodes.js';
+import { setStock, stockAt } from '../lib/stock.js';
 
 const router = Router();
 const MAX_CSV_BYTES = 5 * 1024 * 1024;
@@ -177,17 +178,17 @@ router.post('/commit', requireAuth, requirePermission('imports'), (req, res) => 
   const insertCategory = db.prepare('INSERT INTO categories (name) VALUES (?)');
   const insertProduct = db.prepare(`
     INSERT INTO products (name, sku, price, cost, stock, category_id, barcode, supplier, image_url, reorder_point, image_emoji, active)
-    VALUES (@name, @sku, @price, @cost, @stock, @category_id, @barcode, @supplier, @image_url, @reorder_point, '', 1)
+    VALUES (@name, @sku, @price, @cost, 0, @category_id, @barcode, @supplier, @image_url, @reorder_point, '', 1)
   `);
   const updateProduct = db.prepare(`
-    UPDATE products SET name = @name, price = @price, cost = @cost, stock = @stock,
+    UPDATE products SET name = @name, price = @price, cost = @cost,
       category_id = @category_id, barcode = @barcode, supplier = @supplier,
       image_url = @image_url, reorder_point = @reorder_point
     WHERE id = @id
   `);
   const insertAdjustment = db.prepare(`
-    INSERT INTO stock_adjustments (product_id, user_id, delta, resulting_stock, reason, note)
-    VALUES (?, ?, ?, ?, 'count_correction', ?)
+    INSERT INTO stock_adjustments (product_id, user_id, delta, resulting_stock, reason, note, branch_id)
+    VALUES (?, ?, ?, ?, 'count_correction', ?, ?)
   `);
 
   transaction(() => {
@@ -233,8 +234,13 @@ router.post('/commit', requireAuth, requirePermission('imports'), (req, res) => 
         payload.reorder_point = row.data.reorder_point ?? existing.reorder_point;
         // The SKU is the match key and is not updated, so it is deliberately
         // absent here — the statement binds only the columns it sets.
-        const { sku, ...updatable } = payload;
+        /*
+         * `stock` is deliberately not bound: lib/stock.js owns that column now,
+         * and a statement given a parameter it does not use is refused outright.
+         */
+        const { sku, stock, ...updatable } = payload;
         void sku;
+        void stock;
         updateProduct.run({ ...updatable, id: existing.id });
         /*
          * A file naming one barcode sets the primary and leaves any others the
@@ -243,16 +249,32 @@ router.post('/commit', requireAuth, requirePermission('imports'), (req, res) => 
          */
         syncBarcode(existing.id, payload.barcode);
 
-        const delta = payload.stock - existing.stock;
+        /*
+         * A file states what is on the shelf, and the shelf it means is the one
+         * the person importing is standing at. Written through lib/stock.js so
+         * the branch's figure and the company total move together.
+         */
+        const before = stockAt(req.branchId, existing.id);
+        const delta = payload.stock - before;
         if (delta !== 0) {
-          insertAdjustment.run(existing.id, req.user.id, delta, payload.stock, 'Set by CSV import');
+          setStock({ branchId: req.branchId, productId: existing.id, stock: payload.stock });
+          insertAdjustment.run(existing.id, req.user.id, delta, payload.stock, 'Set by CSV import', req.branchId);
         }
         outcome.updated += 1;
       } else {
-        const info = insertProduct.run(payload);
+        const { stock: opening, ...insertable } = payload;
+        const info = insertProduct.run(insertable);
         syncBarcode(info.lastInsertRowid, payload.barcode);
-        if (payload.stock !== 0) {
-          insertAdjustment.run(info.lastInsertRowid, req.user.id, payload.stock, payload.stock, 'Opening stock from CSV import');
+        if (opening !== 0) {
+          setStock({ branchId: req.branchId, productId: info.lastInsertRowid, stock: opening });
+          insertAdjustment.run(
+            info.lastInsertRowid,
+            req.user.id,
+            opening,
+            opening,
+            'Opening stock from CSV import',
+            req.branchId,
+          );
         }
         outcome.created += 1;
       }

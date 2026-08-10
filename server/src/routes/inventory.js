@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { db, transaction, ADJUSTMENT_REASONS } from '../db.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
+import { moveStock, stockAt } from '../lib/stock.js';
 
 const router = Router();
 
@@ -95,16 +96,22 @@ router.post('/adjust', requireAuth, requirePermission('inventory'), (req, res) =
         throw new Error(`${product.name} is sold from a wallet — top the wallet up instead`);
       }
 
-      const resulting = product.stock + change;
+      /*
+       * Counted at one counter. A correction is somebody standing in front of a
+       * shelf with the goods in their hand, so it can only ever mean the shelf
+       * they are standing at.
+       */
+      const here = stockAt(req.branchId, product.id);
+      const resulting = here + change;
       if (resulting < 0) {
-        throw new Error(`Adjustment would take ${product.name} below zero (stock ${product.stock})`);
+        throw new Error(`Adjustment would take ${product.name} below zero at this branch (stock ${here})`);
       }
 
-      db.prepare('UPDATE products SET stock = ? WHERE id = ?').run(resulting, product.id);
+      moveStock({ branchId: req.branchId, productId: product.id, delta: change });
       db.prepare(
-        `INSERT INTO stock_adjustments (product_id, user_id, delta, resulting_stock, reason, note)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-      ).run(product.id, req.user.id, change, resulting, reason, note || null);
+        `INSERT INTO stock_adjustments (product_id, user_id, delta, resulting_stock, reason, note, branch_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      ).run(product.id, req.user.id, change, resulting, reason, note || null, req.branchId);
 
       return resulting;
     })();

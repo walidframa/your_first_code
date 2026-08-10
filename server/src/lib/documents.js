@@ -5,6 +5,7 @@ import { recordMovement } from './cash.js';
 import { recordCostChange } from './costHistory.js';
 import { isAvailable, receiveUnits, syncStockFromUnits } from './units.js';
 import { costOfLine } from './wallets.js';
+import { moveStock, stockAt } from './stock.js';
 
 const TAX_RATE = Number(process.env.TAX_RATE || 0.08);
 
@@ -214,14 +215,18 @@ export function itemsOf(documentId) {
  * Move stock for a document's lines. `direction` is +1 to apply the document's
  * own effect and -1 to undo it.
  */
-function moveStock(doc, items, userId, direction, note) {
+function applyDocumentStock(doc, items, userId, direction, note) {
   const type = DOC_TYPES[doc.doc_type];
   if (type.stock === 0) return;
 
-  const adjustStock = db.prepare('UPDATE products SET stock = stock + ? WHERE id = ?');
+  /*
+   * Goods land at, or leave, the branch the document belongs to — the shop that
+   * took the delivery, not the company in the abstract.
+   */
+  const branchId = doc.branch_id ?? null;
   const logMovement = db.prepare(
-    `INSERT INTO stock_adjustments (product_id, user_id, delta, resulting_stock, reason, note)
-     VALUES (?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO stock_adjustments (product_id, user_id, delta, resulting_stock, reason, note, branch_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
   );
 
   for (const item of items) {
@@ -241,7 +246,7 @@ function moveStock(doc, items, userId, direction, note) {
      * recounted from the units rather than added to, so the two cannot drift.
      */
     if (product.tracks_units) {
-      moveUnits({ doc, item, product, direction, userId, note });
+      moveUnits({ doc, item, product, direction, userId, note, branchId });
       continue;
     }
 
@@ -256,12 +261,13 @@ function moveStock(doc, items, userId, direction, note) {
     }
 
     const delta = Math.round(item.quantity) * type.stock * direction;
-    const resulting = product.stock + delta;
+    const here = stockAt(branchId, product.id);
+    const resulting = here + delta;
     if (resulting < 0) {
       throw new Error(
         direction > 0
-          ? `Not enough stock for ${product.name} (have ${product.stock}, need ${Math.round(item.quantity)})`
-          : `${product.name} would go below zero (have ${product.stock}) — it has been sold on already`,
+          ? `Not enough stock for ${product.name} (have ${here}, need ${Math.round(item.quantity)})`
+          : `${product.name} would go below zero (have ${here}) — it has been sold on already`,
       );
     }
 
@@ -283,7 +289,7 @@ function moveStock(doc, items, userId, direction, note) {
       });
     }
 
-    adjustStock.run(delta, product.id);
+    moveStock({ branchId, productId: product.id, delta });
     logMovement.run(
       product.id,
       userId,
@@ -291,6 +297,7 @@ function moveStock(doc, items, userId, direction, note) {
       resulting,
       direction > 0 && type.stock > 0 ? 'received' : 'count_correction',
       note,
+      branchId,
     );
   }
 }
@@ -345,7 +352,7 @@ function moveWalletCredit({ doc, item, product, direction, userId, note, sign })
  * a handset the shop has no record of receiving — better to refuse and make
  * someone decide what actually happened.
  */
-function moveUnits({ doc, item, product, direction, userId, note }) {
+function moveUnits({ doc, item, product, direction, userId, note, branchId = null }) {
   const wanted = Math.round(item.quantity);
 
   if (direction < 0) {
@@ -364,9 +371,9 @@ function moveUnits({ doc, item, product, direction, userId, note }) {
     }
     const left = syncStockFromUnits(product.id);
     db.prepare(
-      `INSERT INTO stock_adjustments (product_id, user_id, delta, resulting_stock, reason, note)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-    ).run(product.id, userId, -received.length, left, 'count_correction', note);
+      `INSERT INTO stock_adjustments (product_id, user_id, delta, resulting_stock, reason, note, branch_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    ).run(product.id, userId, -received.length, left, 'count_correction', note, branchId);
     return;
   }
 
@@ -392,7 +399,11 @@ function moveUnits({ doc, item, product, direction, userId, note }) {
   }
 
   const cost = item.cost ?? product.cost;
-  receiveUnits(product.id, lines.map((line) => ({ imei: line, cost })), { documentId: doc.id });
+  receiveUnits(product.id, lines.map((line) => ({ imei: line, cost })), {
+    documentId: doc.id,
+    // The handsets are on the counter of the branch that took the delivery.
+    branchId: doc.branch_id ?? null,
+  });
 
   if (cost !== null && cost !== undefined) {
     db.prepare('UPDATE products SET cost = ? WHERE id = ?').run(cost, product.id);
@@ -431,7 +442,7 @@ function postsToLedger(doc) {
 export function applyEffects(doc, items, userId, note = doc.doc_number) {
   if (items.length === 0) throw new Error('A document needs at least one line');
 
-  moveStock(doc, items, userId, 1, note);
+  applyDocumentStock(doc, items, userId, 1, note);
   if (!postsToLedger(doc)) return;
 
   // Only the unpaid remainder is credit, so that is what the limit applies to.
@@ -490,7 +501,7 @@ export function applyEffects(doc, items, userId, note = doc.doc_number) {
  * shows what happened and when.
  */
 export function reverseEffects(doc, items, userId, note = `Cancelled ${doc.doc_number}`) {
-  moveStock(doc, items, userId, -1, note);
+  applyDocumentStock(doc, items, userId, -1, note);
   if (!postsToLedger(doc)) return;
 
   addEntry({

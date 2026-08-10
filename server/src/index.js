@@ -26,6 +26,8 @@ import walletRoutes from './routes/wallets.js';
 import transferRoutes from './routes/transfers.js';
 import voucherRoutes from './routes/vouchers.js';
 import heldSaleRoutes from './routes/held.js';
+import branchRoutes from './routes/branches.js';
+import stockTransferRoutes from './routes/stockTransfers.js';
 import { startShopifyWorker } from './lib/shopifyWorker.js';
 import { seedMissingPermissions } from './lib/permissions.js';
 
@@ -112,6 +114,8 @@ app.use('/api/wallets', walletRoutes);
 app.use('/api/transfers', transferRoutes);
 app.use('/api/vouchers', voucherRoutes);
 app.use('/api/held-sales', heldSaleRoutes);
+app.use('/api/branches', branchRoutes);
+app.use('/api/stock-transfers', stockTransferRoutes);
 app.use('/api/customers', partyRouter('customer'));
 app.use('/api/suppliers', partyRouter('supplier'));
 

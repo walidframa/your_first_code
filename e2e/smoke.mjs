@@ -1391,6 +1391,73 @@ try {
 
   console.log('\nAuthorization');
 
+  /*
+   * A second shop: one catalogue, two shelves. The check that matters is that
+   * the product is never duplicated to make the move work.
+   */
+  await step('a second branch is opened, with a drawer of its own', async () => {
+    await page.click('a[title="Branches"]');
+    await page.waitForSelector('button:has-text("Open a branch")', { timeout: 15000 });
+    await page.click('button:has-text("Open a branch")');
+    await page.waitForSelector('[role=dialog] >> text=its own shelf and drawer', { timeout: 10000 });
+
+    await page.fill('input[name=name]', 'Saida');
+    await page.fill('input[name=code]', 'SAI');
+    await page.click('button:has-text("Open the branch")');
+    await page.waitForSelector('text=it has a drawer of its own', { timeout: 15000 });
+  });
+
+  await step('stock sent to it leaves this shelf straight away', async () => {
+    await page.click('a[title="Move stock"]');
+    await page.waitForSelector('button:has-text("Send stock")', { timeout: 15000 });
+    await page.click('button:has-text("Send stock")');
+    await page.waitForSelector('[role=dialog] >> text=To which branch', { timeout: 10000 });
+
+    /* The cable from the barcode step: ten in stock and nothing in this run
+       has sold any, so the figures below are predictable. */
+    await page.fill('input[aria-label="Find a product to send"]', 'Braided');
+    await page.waitForTimeout(400);
+    await page.locator('[role=dialog] li button:has-text("Braided cable")').first().click();
+    await page.fill('input[aria-label="How many Braided cable"]', '4');
+    await page.click('button:has-text("Send it")');
+    await page.waitForSelector('text=/TR-\\d+ sent/', { timeout: 15000 });
+    await page.waitForSelector('text=on the way', { timeout: 10000 });
+  });
+
+  await step('and lands on the other shelf when it is received there', async () => {
+    // Switching branch changes what every figure in the app means, so it is a
+    // control on the rail rather than a setting buried in a page.
+    await page.click('button[aria-label*="Branch:"]');
+    await page.waitForTimeout(300);
+    await page.locator('div.absolute button:has-text("Saida")').first().click();
+    await page.waitForSelector('text=On the way to Saida', { timeout: 15000 });
+
+    await page.click('button:has-text("Receive")');
+    await page.waitForSelector('[role=dialog] >> text=Count what is actually in the box', { timeout: 10000 });
+    await page.click('button:has-text("Receive it")');
+    await page.waitForSelector('text=/TR-\\d+ received/', { timeout: 15000 });
+  });
+
+  await step('the same product, on the second branch’s register — not a copy of it', async () => {
+    await page.click('a[title="Register"]');
+    await page.waitForSelector('text=Current sale', { timeout: 15000 });
+    await page.waitForTimeout(600);
+
+    const tiles = page.locator('section button:has-text("Braided cable")');
+    const count = await tiles.count();
+    if (count !== 1) throw new Error(`a transfer duplicated the product — ${count} tiles`);
+    if (!(await tiles.first().innerText()).includes('4 left')) {
+      throw new Error('the transferred stock is not on this branch’s shelf');
+    }
+
+    // Back where the rest of the run expects to be.
+    await page.click('button[aria-label*="Branch:"]');
+    await page.waitForTimeout(300);
+    await page.locator('div.absolute button').first().click();
+    await page.waitForTimeout(800);
+  });
+  await shot('branches');
+
   await step('a cashier cannot reach an admin route by URL', async () => {
     await page.click('button[aria-label="Log out"]');
     await page.waitForSelector('text=Demo accounts');

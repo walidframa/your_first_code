@@ -135,8 +135,8 @@ export function buildCashReport(sessionId, { includeProfit = false } = {}) {
  * `profitForSession` also works out the best and worst sellers, which is a page
  * of its own and not what a report header or a panel above the drawer wants.
  */
-export function sessionProfit(sessionId) {
-  const report = profitForSession(sessionId);
+export function sessionProfit(sessionId, branchId = null) {
+  const report = profitForSession(sessionId, { branchId });
   if (!report) return null;
   return {
     revenue: report.revenue,
