@@ -1,5 +1,6 @@
 import { CheckCircle2, Printer } from 'lucide-react';
 import { Button, Modal, ModalActions, money } from './ui';
+import Letterhead, { ReceiptFooter } from './Letterhead';
 import { lbp } from '../context/SettingsContext';
 
 export default function Receipt({ receipt, onClose }) {
@@ -23,8 +24,11 @@ export default function Receipt({ receipt, onClose }) {
 
   return (
     <Modal open onClose={onClose} size="sm" className="print:shadow-none print:ring-0">
+      {/* Who the shop is, so the slip is something that can be brought back. */}
+      <Letterhead className="mb-3 border-b border-dashed border-slate-200 pb-3" />
+
       <div className="text-center">
-        <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-brand-50">
+        <div className="no-print mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-brand-50">
           <CheckCircle2 size={24} className="text-brand-600" />
         </div>
         <h2 className="text-lg font-semibold text-slate-900">Payment complete</h2>
@@ -107,6 +111,8 @@ export default function Receipt({ receipt, onClose }) {
           </div>
         )}
       </dl>
+
+      <ReceiptFooter className="mt-4 border-t border-dashed border-slate-200 pt-3" />
 
       <ModalActions className="no-print">
         <Button variant="secondary" size="lg" onClick={() => window.print()} aria-label="Print receipt">

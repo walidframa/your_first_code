@@ -1162,6 +1162,156 @@ db.exec(`
 `);
 
 /*
+ * The shops.
+ *
+ * One company, more than one counter. What they share is everything that
+ * describes a thing — the product, its price, its barcodes, the customer, the
+ * supplier — and what they do not share is anything physical or financial: the
+ * stock on the shelf, the drawer, the day's takings, the profit.
+ *
+ * That split is the whole design. A second branch must not mean a second
+ * catalogue: entering the same phone twice is how two shops end up with two
+ * different prices for it and a stock figure that means nothing.
+ */
+db.exec(`
+  CREATE TABLE IF NOT EXISTS branches (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    /* Short, for a document number or a column heading: MAIN, SAIDA. */
+    code TEXT,
+    phone TEXT,
+    address TEXT,
+    /* Where anything that does not name a branch belongs. Exactly one. */
+    is_main INTEGER NOT NULL DEFAULT 0,
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  /*
+   * What is on the shelf, per shop.
+   *
+   * The truth about quantity. products.stock is kept as the total across every
+   * branch — see lib/stock.js, which is the only thing that writes either — so
+   * anything asking "how many do we own" carries on working while the register
+   * asks the question that actually matters: how many are here.
+   */
+  CREATE TABLE IF NOT EXISTS branch_stock (
+    branch_id INTEGER NOT NULL REFERENCES branches(id),
+    product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    stock INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (branch_id, product_id)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_branch_stock_product ON branch_stock(product_id);
+
+  /*
+   * Stock moving from one shop to the other.
+   *
+   * Sent and received are two steps, deliberately. Between the two the goods
+   * are in a car, and they have left one branch without arriving at the other —
+   * stock that counts in both places at once is worse than stock that counts in
+   * neither, because it can be sold twice.
+   */
+  CREATE TABLE IF NOT EXISTS stock_transfers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    reference TEXT NOT NULL UNIQUE,
+    from_branch_id INTEGER NOT NULL REFERENCES branches(id),
+    to_branch_id INTEGER NOT NULL REFERENCES branches(id),
+    status TEXT NOT NULL DEFAULT 'draft'
+      CHECK (status IN ('draft', 'sent', 'received', 'cancelled')),
+    note TEXT,
+    created_by INTEGER REFERENCES users(id),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    sent_by INTEGER REFERENCES users(id),
+    sent_at TEXT,
+    received_by INTEGER REFERENCES users(id),
+    received_at TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS stock_transfer_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    transfer_id INTEGER NOT NULL REFERENCES stock_transfers(id) ON DELETE CASCADE,
+    product_id INTEGER NOT NULL REFERENCES products(id),
+    /* A serialised line moves one named handset, not a quantity. */
+    unit_id INTEGER REFERENCES product_units(id),
+    quantity INTEGER NOT NULL DEFAULT 1,
+    /* What was actually unpacked at the other end, which is not always what left. */
+    received_quantity INTEGER
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_stock_transfers_from ON stock_transfers(from_branch_id, status);
+  CREATE INDEX IF NOT EXISTS idx_stock_transfers_to ON stock_transfers(to_branch_id, status);
+  CREATE INDEX IF NOT EXISTS idx_stock_transfer_items ON stock_transfer_items(transfer_id);
+`);
+
+/*
+ * Which branch a thing happened at.
+ *
+ * Every one of these is additive and backfilled to the main branch below, so a
+ * shop that has always had one counter reads exactly as it did.
+ */
+addColumn('orders', 'branch_id', 'INTEGER REFERENCES branches(id)');
+addColumn('stock_adjustments', 'branch_id', 'INTEGER REFERENCES branches(id)');
+addColumn('product_units', 'branch_id', 'INTEGER REFERENCES branches(id)');
+addColumn('cash_accounts', 'branch_id', 'INTEGER REFERENCES branches(id)');
+addColumn('documents', 'branch_id', 'INTEGER REFERENCES branches(id)');
+addColumn('expenses', 'branch_id', 'INTEGER REFERENCES branches(id)');
+addColumn('held_sales', 'branch_id', 'INTEGER REFERENCES branches(id)');
+addColumn('repair_tickets', 'branch_id', 'INTEGER REFERENCES branches(id)');
+/* Where somebody works. Null means the main branch. */
+addColumn('users', 'branch_id', 'INTEGER REFERENCES branches(id)');
+
+/**
+ * Give the shop its first branch, and put everything that already happened in it.
+ *
+ * Runs once. Until this, every sale, every count and every drawer belonged to a
+ * shop with no name; afterwards they all belong to the main branch, which is
+ * the same shop with a name — so nothing reads differently and a second branch
+ * can be added without touching any of it.
+ */
+function seedMainBranch() {
+  let main = db.prepare('SELECT * FROM branches WHERE is_main = 1').get();
+  if (!main) {
+    // Named from the shop's own name if it has set one; "Main branch" otherwise.
+    const shopName = db.prepare("SELECT value FROM settings WHERE key = 'company_name'").get()?.value;
+    const info = db
+      .prepare("INSERT INTO branches (name, code, is_main, active) VALUES (?, 'MAIN', 1, 1)")
+      .run(shopName?.trim() || 'Main branch');
+    main = db.prepare('SELECT * FROM branches WHERE id = ?').get(info.lastInsertRowid);
+  }
+
+  for (const table of [
+    'orders',
+    'stock_adjustments',
+    'product_units',
+    'cash_accounts',
+    'documents',
+    'expenses',
+    'held_sales',
+    'repair_tickets',
+  ]) {
+    db.prepare(`UPDATE ${table} SET branch_id = ? WHERE branch_id IS NULL`).run(main.id);
+  }
+
+  /*
+   * The shelf, moved into the branch that has been holding it all along.
+   *
+   * Only for products with no row yet: once lib/stock.js owns the figure, a
+   * product deliberately taken down to zero here must not be refilled from the
+   * total on the next restart.
+   */
+  db.prepare(
+    `INSERT INTO branch_stock (branch_id, product_id, stock)
+     SELECT ?, p.id, p.stock FROM products p
+     WHERE NOT EXISTS (SELECT 1 FROM branch_stock b WHERE b.product_id = p.id)`,
+  ).run(main.id);
+
+  return main;
+}
+
+seedMainBranch();
+
+/*
  * Shopify inventory sync.
  *
  * `shopify_links` ties a local product to one Shopify variant, and remembers

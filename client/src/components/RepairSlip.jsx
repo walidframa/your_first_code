@@ -1,5 +1,6 @@
 import { Printer } from 'lucide-react';
 import { Button } from './ui';
+import { useCompany } from './Letterhead';
 
 const STATUS_LABEL = {
   received: 'Received',
@@ -23,13 +24,17 @@ function line() {
  * the ticket number is unmistakable and the condition it came in is written
  * down, because that is the paragraph that settles arguments later.
  */
-export default function RepairSlip({ detail, shopName = 'Front Desk POS' }) {
+export default function RepairSlip({ detail }) {
   const { ticket, parts, partsTotal } = detail;
+  // The shop's own details, so a customer holding this can ring the number on it.
+  const company = useCompany();
 
   return (
     <div className="print-slip repair-slip mx-auto max-w-[300px] bg-white p-4 font-mono text-[13px] leading-snug text-black">
       <div className="text-center">
-        <p className="text-[15px] font-bold uppercase">{shopName}</p>
+        <p className="text-[15px] font-bold uppercase">{company.name}</p>
+        {company.address && <p className="text-[11px] whitespace-pre-line">{company.address}</p>}
+        {company.phones && <p className="text-[11px]">{company.phones}</p>}
         <p className="mt-0.5 text-[12px]">Repair ticket</p>
       </div>
 

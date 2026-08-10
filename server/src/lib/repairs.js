@@ -6,6 +6,7 @@
  */
 
 import { db } from '../db.js';
+import { moveStock, stockAt } from './stock.js';
 import { encryptSecret } from './secrets.js';
 import { normaliseImei, receiveUnits, syncStockFromUnits } from './units.js';
 
@@ -221,16 +222,21 @@ export function addPart(ticketId, input, userId) {
     if (product.tracks_units) {
       throw new Error(`${product.name} is tracked by IMEI — a whole handset is not a spare part`);
     }
-    if (product.stock < quantity) {
-      throw new Error(`Not enough ${product.name} (have ${product.stock}, need ${quantity})`);
+    /*
+     * Off the shelf of the branch whose bench the job is on — the part is
+     * physically fitted at one counter, not drawn from the company in general.
+     */
+    const branchId = ticket.branch_id ?? null;
+    const here = stockAt(branchId, product.id);
+    if (here < quantity) {
+      throw new Error(`Not enough ${product.name} (have ${here}, need ${quantity})`);
     }
 
-    const resulting = product.stock - quantity;
-    db.prepare('UPDATE products SET stock = ? WHERE id = ?').run(resulting, product.id);
+    const resulting = moveStock({ branchId, productId: product.id, delta: -quantity });
     db.prepare(
-      `INSERT INTO stock_adjustments (product_id, user_id, delta, resulting_stock, reason, note)
-       VALUES (?, ?, ?, ?, 'damaged', ?)`,
-    ).run(product.id, userId, -quantity, resulting, `Fitted on ${ticket.ticket_number}`);
+      `INSERT INTO stock_adjustments (product_id, user_id, delta, resulting_stock, reason, note, branch_id)
+       VALUES (?, ?, ?, ?, 'damaged', ?, ?)`,
+    ).run(product.id, userId, -quantity, resulting, `Fitted on ${ticket.ticket_number}`, branchId);
   } else if (!input.name?.trim()) {
     throw new Error('A part needs a product or a description');
   }
@@ -258,12 +264,12 @@ export function removePart(partId, userId) {
   if (part.product_id) {
     const product = db.prepare('SELECT * FROM products WHERE id = ?').get(part.product_id);
     if (product) {
-      const resulting = product.stock + part.quantity;
-      db.prepare('UPDATE products SET stock = ? WHERE id = ?').run(resulting, product.id);
+      const branchId = ticket.branch_id ?? null;
+      const resulting = moveStock({ branchId, productId: product.id, delta: part.quantity });
       db.prepare(
-        `INSERT INTO stock_adjustments (product_id, user_id, delta, resulting_stock, reason, note)
-         VALUES (?, ?, ?, ?, 'return', ?)`,
-      ).run(product.id, userId, part.quantity, resulting, `Taken off ${ticket.ticket_number}`);
+        `INSERT INTO stock_adjustments (product_id, user_id, delta, resulting_stock, reason, note, branch_id)
+         VALUES (?, ?, ?, ?, 'return', ?, ?)`,
+      ).run(product.id, userId, part.quantity, resulting, `Taken off ${ticket.ticket_number}`, branchId);
     }
   }
 

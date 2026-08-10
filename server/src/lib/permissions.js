@@ -48,6 +48,7 @@ export const PERMISSION_GROUPS = [
     items: [
       ['catalogue', 'Products', 'Add, price and archive what the shop sells'],
       ['inventory', 'Stock', 'Counts, adjustments and booking handsets in by IMEI'],
+      ['transfer_stock', 'Move stock between branches', 'Send goods to another branch, and receive them'],
       ['cards', 'Cards and wallets', 'Recharge and gift cards, and the credit behind them'],
       ['imports', 'Import and Shopify', 'Bring a catalogue in, and the Shopify connection'],
     ],
@@ -57,6 +58,13 @@ export const PERMISSION_GROUPS = [
     items: [
       ['users', 'Staff', 'Add people and decide what they can do'],
       ['settings', 'Store settings', 'The exchange rate, rounding and the rest'],
+      /*
+       * Holding this is what lets somebody look at a branch other than their
+       * own. Without it a cashier is pinned to their counter, which is the
+       * point: selling off another shop's shelf by changing a dropdown is how
+       * stock goes missing from a branch nobody was standing in.
+       */
+      ['branches', 'Branches', 'Add branches, and see the figures for any of them'],
     ],
   },
 ];

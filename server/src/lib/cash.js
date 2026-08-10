@@ -48,12 +48,23 @@ export const DENOMINATIONS = {
  * supplier paid from the back office — gets this one, which is what lets tills
  * be added without touching any of them.
  */
-export function defaultAccountId() {
+export function defaultAccountId(branchId = null) {
+  /*
+   * A branch's own drawer first. Two shops sharing a till would mean the second
+   * one's takings landing in the first one's count — and neither could be
+   * closed against what is physically in it.
+   */
+  if (branchId) {
+    const theirs = db
+      .prepare('SELECT id FROM cash_accounts WHERE branch_id = ? AND active = 1 ORDER BY is_default DESC, id LIMIT 1')
+      .get(branchId);
+    if (theirs) return theirs.id;
+  }
   return db.prepare('SELECT id FROM cash_accounts WHERE is_default = 1').get()?.id ?? null;
 }
 
-export function currentSession(accountId = null) {
-  const id = accountId ?? defaultAccountId();
+export function currentSession(accountId = null, branchId = null) {
+  const id = accountId ?? defaultAccountId(branchId);
   return db
     .prepare(
       `SELECT s.*, u.name AS opened_by_name, a.name AS account_name
@@ -89,8 +100,15 @@ export function requiresSession() {
  * petty cash put in now. Recording it as a movement rather than only a column
  * means the drawer's contents is one sum from one place.
  */
-export function openSession({ userId, openingUsd = 0, openingLbp = 0, note = null, accountId = null }) {
-  const account = accountId ?? defaultAccountId();
+export function openSession({
+  userId,
+  openingUsd = 0,
+  openingLbp = 0,
+  note = null,
+  accountId = null,
+  branchId = null,
+}) {
+  const account = accountId ?? defaultAccountId(branchId);
   if (currentSession(account)) throw new Error('That cashbox is already open');
 
   const usd = round2(Number(openingUsd) || 0);
@@ -137,12 +155,13 @@ export function recordMovement({
   userId = null,
   sessionId = null,
   accountId = null,
+  branchId = null,
 }) {
   const usd = round2(Number(amountUsd) || 0);
   const lbp = Math.round(Number(amountLbp) || 0);
   if (usd === 0 && lbp === 0) return null;
 
-  const account = accountId ?? defaultAccountId();
+  const account = accountId ?? defaultAccountId(branchId);
   const session = sessionId ? sessionById(sessionId) : currentSession(account);
   if (!session) return null;
 

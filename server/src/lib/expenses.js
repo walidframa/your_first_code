@@ -40,7 +40,7 @@ export function expenseTotal(row) {
 
 const withTotal = (row) => ({ ...row, total_usd: expenseTotal(row) });
 
-export function listExpenses({ from = null, to = null, category = null, limit = 500 } = {}) {
+export function listExpenses({ from = null, to = null, category = null, branchId = null, limit = 500 } = {}) {
   let sql = `
     SELECT e.*, u.name AS user_name, s.name AS supplier_name
     FROM expenses e
@@ -60,6 +60,11 @@ export function listExpenses({ from = null, to = null, category = null, limit = 
   if (category) {
     sql += ' AND e.category = ?';
     params.push(category);
+  }
+  // Null means the whole company; a branch's own figures need its own spending.
+  if (branchId) {
+    sql += ' AND e.branch_id = ?';
+    params.push(branchId);
   }
   sql += ' ORDER BY e.spent_on DESC, e.id DESC LIMIT ?';
   params.push(Math.min(Number(limit) || 500, 1000));
@@ -94,6 +99,7 @@ function validate({ category, paidWith, amountUsd, amountLbp }) {
  * short for no visible reason.
  */
 export function addExpense({
+  branchId = null,
   spentOn = null,
   category,
   amountUsd = 0,
@@ -138,10 +144,15 @@ export function addExpense({
       .prepare(
         `INSERT INTO expenses
            (spent_on, category, amount_usd, amount_lbp, exchange_rate, paid_with, supplier_id, note,
-            cash_movement_id, user_id)
-         VALUES (COALESCE(?, date('now')), ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            cash_movement_id, user_id, branch_id)
+         VALUES (COALESCE(?, date('now')), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(spentOn || null, category, usd, lbp, rate, paidWith, supplierId || null, note, movementId, userId);
+      .run(
+        spentOn || null, category, usd, lbp, rate, paidWith, supplierId || null, note, movementId, userId,
+        // Which shop paid for it — a branch's net profit has to carry its own
+        // rent and its own electricity, not the other branch's.
+        branchId ?? null,
+      );
 
     return getExpense(info.lastInsertRowid);
   })();
@@ -180,8 +191,8 @@ export function deleteExpense(id, userId = null) {
 }
 
 /** Spending in a period, per category and in total. */
-export function expenseSummary({ from = null, to = null } = {}) {
-  const rows = listExpenses({ from, to, limit: 1000 });
+export function expenseSummary({ from = null, to = null, branchId = null } = {}) {
+  const rows = listExpenses({ from, to, branchId, limit: 1000 });
 
   const byCategory = {};
   for (const row of rows) {

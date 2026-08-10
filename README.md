@@ -74,7 +74,10 @@ orders and staff.
 - **Suppliers**: bills and payments made, so you can see what you owe
 - **Accounts**: cash accounts, wallets, customers and suppliers in one place,
   with who owes you and who you owe
-- Staff: accounts with **per-person permissions** — seventeen sections that can be
+- **Branches**: a second shop with its own shelf, drawer, sales and profit —
+  sharing one catalogue, so no product is ever entered twice. Stock moves between
+  them with a send-and-receive that counts what actually arrived
+- Staff: accounts with **per-person permissions** — nineteen sections that can be
   granted one by one, so somebody hired to run the transfer desk gets the
   transfer desk and nothing else
 - Settings: the USD→LBP exchange rate, the pound rounding step, a live preview
@@ -679,6 +682,62 @@ still buy, as long as they pay for it.
 
 Numbers are sequential per type: `QT-0001`, `SO-0001`, `SI-0001`, `PI-0001`.
 
+## More than one shop
+
+**One company, one catalogue, a shelf and a drawer at each branch.**
+
+The line runs through the middle of the app. Everything that *describes*
+something is shared — the product, its price, its barcodes, customers,
+suppliers, staff, the exchange rate. Everything that *is* something is not — the
+stock on the shelf, the cashbox, the day's takings, the profit.
+
+That is the point. With a second catalogue you would enter the same phone twice,
+at two prices, and end up with a stock figure that adds up to nothing.
+
+### Where you are
+
+A **branch picker** sits at the top of the rail, because it changes the meaning
+of every figure below it: the stock on the tiles, the drawer, the takings, the
+profit. A cashier is **pinned to their own counter** — being able to sell off
+the other shop's shelf by changing a dropdown is how stock goes missing from a
+branch nobody was standing in. Whoever holds the `branches` permission, in
+practice the owner, can switch to any of them and see the company as a whole.
+
+### Moving stock
+
+Admin → **Move stock**. Pick what is going and how many; the other end receives
+it. Nothing is bought, nothing is sold, and **no product is created** — the same
+product simply sits on a different shelf, keeping its price, its barcodes and
+the cost behind its margin.
+
+**Sending and receiving are two steps, deliberately.** In between, the goods are
+in somebody's car: they have left one branch and not arrived at the other, and
+the app says exactly that. Stock counted at both ends can be sold twice; counted
+at neither it looks lost. A box in transit is a real state and has a word for it.
+
+What arrives is **counted, not assumed**. Usually it is what was sent; when it is
+not, the difference is recorded against the sending branch as short — so somebody
+can go and ask — rather than quietly written off. A transfer still in the car can
+be cancelled and the stock goes back where it came from; one already received
+cannot, because it is on the other shelf and may have been sold from. Send it
+back the other way, which is what actually happened.
+
+### What each branch reports
+
+Its own. Sales, cashbox, expenses, dashboard and profit all scope to the branch
+you are in. The owner can widen the dashboard and the profit report to the whole
+company with `?branch=all`.
+
+Under the hood: `branch_stock` is the truth about quantity, and `products.stock`
+is kept as the total across every branch. Both are written in exactly one place
+(`server/src/lib/stock.js`) so they cannot drift — which is what let the existing
+102 stock touchpoints keep working while the meaning of "in stock" changed
+underneath them.
+
+A branch cannot be closed while it holds stock, has a cashbox open, or has goods
+on the way to it — those things are physically somewhere, and closing the branch
+would only make them vanish from the count. Its past sales are kept either way.
+
 ## Barcodes
 
 **A product can have as many barcodes as the thing on the shelf actually has.**
@@ -979,6 +1038,9 @@ server/
     lib/cashAccounts.js   the shop's tills
     lib/registry.js       all four kinds of account in one shape
     lib/heldSales.js      sales put to one side
+    lib/branches.js       the shops, and who works at which
+    lib/stock.js          what is on the shelf, and where — the only writer
+    lib/stockTransfers.js goods moving between branches
     lib/cashReport.js     one sitting of one till, as data and as a page
     lib/pdf.js            a very small PDF writer — no dependency
     middleware/auth.js    JWT verification, role and permission guards
@@ -1031,6 +1093,14 @@ Routes are guarded by **permission**, not by role — an admin holds all of them
 | GET    | `/api/cash/sessions`           | `cashbox`    |
 | GET    | `/api/cash/sessions/:id/report`     | `cashbox`, or having sat at that till |
 | GET    | `/api/cash/sessions/:id/report.pdf` | `cashbox`, or having sat at that till |
+| GET    | `/api/branches`                | any          |
+| POST   | `/api/branches`                | `branches`   |
+| PUT    | `/api/branches/:id`            | `branches`   |
+| DELETE | `/api/branches/:id`            | `branches`   |
+| GET    | `/api/stock-transfers`         | `transfer_stock` |
+| POST   | `/api/stock-transfers`         | `transfer_stock` |
+| POST   | `/api/stock-transfers/:id/receive` | `transfer_stock` |
+| POST   | `/api/stock-transfers/:id/cancel`  | `transfer_stock` |
 | GET    | `/api/held-sales`              | `register`   |
 | POST   | `/api/held-sales`              | `register`   |
 | POST   | `/api/held-sales/:id/resume`   | `register`   |

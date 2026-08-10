@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import api from '../../api';
 import PageHeader from '../../components/PageHeader';
+import Letterhead from '../../components/Letterhead';
 import { useSettings, lbp } from '../../context/SettingsContext';
 import ProductLineSearch, { AddFreeTextButton } from '../../components/ProductLineSearch';
 import ProductQuickCreate from '../../components/ProductQuickCreate';
@@ -790,6 +791,17 @@ function DocumentDetail({ id, onClose, onChanged, onDeleted }) {
       subtitle={`${doc.party_name || '—'} · ${doc.issue_date}`}
       size="lg"
     >
+      {/*
+        * The shop's own details at the top, because this is the copy that goes
+        * to the customer — an invoice with no name, address or tax number on it
+        * is not a document anybody would accept.
+        */}
+      <Letterhead
+        variant="sheet"
+        className="mb-4 border-b border-slate-200 pb-4"
+        subtitle={`${meta.label} ${doc.doc_number}`}
+      />
+
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <span className={cx('rounded-lg p-1.5 ring-1', meta.tint)}>
           <TypeIcon type={doc.doc_type} size={15} />

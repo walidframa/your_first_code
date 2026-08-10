@@ -1,6 +1,7 @@
 import { Printer } from 'lucide-react';
 import { lbp } from '../context/SettingsContext';
 import { Button, Modal, ModalActions, money } from './ui';
+import { useCompany } from './Letterhead';
 
 const REASONS = {
   supplier: 'Paying a supplier',
@@ -34,13 +35,15 @@ function Rule() {
  * Printed on the same receipt printer as a repair ticket — one narrow column of
  * plain text, nothing that depends on colour.
  */
-export function VoucherPaper({ voucher, shopName = 'Front Desk POS' }) {
+export function VoucherPaper({ voucher }) {
   const paying = voucher.kind === 'payment';
+  const company = useCompany();
 
   return (
     <div className="print-slip mx-auto max-w-[300px] bg-white p-4 font-mono text-[13px] leading-snug text-black">
       <div className="text-center">
-        <p className="text-[15px] font-bold uppercase">{shopName}</p>
+        <p className="text-[15px] font-bold uppercase">{company.name}</p>
+        {company.phones && <p className="text-[11px]">{company.phones}</p>}
         <p className="mt-0.5 text-[12px] font-bold uppercase">
           {paying ? 'Payment voucher' : 'Receipt voucher'}
         </p>

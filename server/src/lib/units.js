@@ -11,6 +11,7 @@
  */
 
 import { db } from '../db.js';
+import { mainBranchId, setStock } from './stock.js';
 
 export const UNIT_CONDITIONS = ['new', 'used', 'refurbished'];
 export const UNIT_STATUSES = ['in_stock', 'sold', 'returned', 'scrapped'];
@@ -43,16 +44,42 @@ export function isAvailable(status) {
   return AVAILABLE_STATUSES.includes(status);
 }
 
-/** Recount `stock` from the units actually on the shelf. */
+/**
+ * Recount the shelf from the handsets actually on it.
+ *
+ * Counted per branch, because a phone is a physical object in one shop: the
+ * register at one counter must not offer a handset sitting in the other. Every
+ * branch holding units of this product is recounted, so a unit that moved is
+ * taken off one shelf and added to the other in the same pass.
+ */
 export function syncStockFromUnits(productId) {
-  const { n } = db
+  const placeholders = AVAILABLE_STATUSES.map(() => '?').join(', ');
+
+  const counts = db
     .prepare(
-      `SELECT COUNT(*) AS n FROM product_units
-       WHERE product_id = ? AND status IN (${AVAILABLE_STATUSES.map(() => '?').join(', ')})`,
+      `SELECT branch_id, COUNT(*) AS n FROM product_units
+       WHERE product_id = ? AND status IN (${placeholders})
+       GROUP BY branch_id`,
     )
-    .get(productId, ...AVAILABLE_STATUSES);
-  db.prepare('UPDATE products SET stock = ? WHERE id = ?').run(n, productId);
-  return n;
+    .all(productId, ...AVAILABLE_STATUSES);
+
+  const byBranch = new Map(counts.map((c) => [c.branch_id ?? mainBranchId(), c.n]));
+
+  // Every branch that has a row, so one falling to zero is written as zero
+  // rather than being left at yesterday's figure.
+  const touched = new Set([
+    ...byBranch.keys(),
+    ...db
+      .prepare('SELECT branch_id FROM branch_stock WHERE product_id = ?')
+      .all(productId)
+      .map((r) => r.branch_id),
+  ]);
+
+  for (const branchId of touched) {
+    setStock({ branchId, productId, stock: byBranch.get(branchId) ?? 0 });
+  }
+
+  return [...byBranch.values()].reduce((sum, n) => sum + n, 0);
 }
 
 /** The units of a product, newest first, optionally narrowed to one status. */
@@ -120,7 +147,7 @@ function imeiTaken(number) {
  * phone is on the shelf that was never booked in, and a partial success is
  * harder to unpick than an outright refusal.
  */
-export function receiveUnits(productId, units, { documentId = null, defaultCost = 0 } = {}) {
+export function receiveUnits(productId, units, { documentId = null, defaultCost = 0, branchId = null } = {}) {
   const product = db.prepare('SELECT * FROM products WHERE id = ?').get(productId);
   if (!product) throw new Error('Product not found');
   if (!product.tracks_units) throw new Error(`${product.name} is not tracked by IMEI`);
@@ -165,11 +192,13 @@ export function receiveUnits(productId, units, { documentId = null, defaultCost 
   });
 
   const insert = db.prepare(
-    `INSERT INTO product_units (product_id, imei, imei2, condition, cost, note, received_document_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO product_units (product_id, imei, imei2, condition, cost, note, received_document_id, branch_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
   );
+  // Booked in at a branch, because a handset is somewhere.
+  const at = branchId ?? mainBranchId();
   for (const r of rows) {
-    insert.run(productId, r.imei, r.imei2, r.condition, r.cost, r.note, documentId);
+    insert.run(productId, r.imei, r.imei2, r.condition, r.cost, r.note, documentId, at);
   }
 
   const stock = syncStockFromUnits(productId);

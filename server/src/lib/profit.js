@@ -62,7 +62,7 @@ export function presetRange(preset, today = new Date()) {
  * did not happen, and counting it as revenue and again as a negative would
  * double its effect on the average sale.
  */
-function registerSales(bounds) {
+function registerSales(bounds, branchId = null) {
   const row = db
     .prepare(
       `SELECT COUNT(DISTINCT o.id) AS orders,
@@ -70,9 +70,10 @@ function registerSales(bounds) {
               COALESCE(SUM(o.tax), 0) AS tax,
               COALESCE(SUM(o.discount), 0) AS discount
        FROM orders o
-       WHERE o.status = 'completed' AND o.created_at BETWEEN ? AND ?`,
+       WHERE o.status = 'completed' AND o.created_at BETWEEN ? AND ?
+         AND (? IS NULL OR o.branch_id = ?)`,
     )
-    .get(bounds.from, bounds.to);
+    .get(bounds.from, bounds.to, branchId, branchId);
 
   const cost = db
     .prepare(
@@ -80,9 +81,10 @@ function registerSales(bounds) {
               SUM(CASE WHEN oi.cost IS NULL THEN 1 ELSE 0 END) AS unknown_lines
        FROM order_items oi
        JOIN orders o ON o.id = oi.order_id
-       WHERE o.status = 'completed' AND o.created_at BETWEEN ? AND ?`,
+       WHERE o.status = 'completed' AND o.created_at BETWEEN ? AND ?
+         AND (? IS NULL OR o.branch_id = ?)`,
     )
-    .get(bounds.from, bounds.to);
+    .get(bounds.from, bounds.to, branchId, branchId);
 
   return {
     orders: row.orders,
@@ -95,16 +97,17 @@ function registerSales(bounds) {
 }
 
 /** Sales invoiced rather than rung up — the same trade, a different counter. */
-function invoiceSales(bounds) {
+function invoiceSales(bounds, branchId = null) {
   const row = db
     .prepare(
       `SELECT COUNT(DISTINCT d.id) AS invoices, COALESCE(SUM(d.total), 0) AS revenue,
               COALESCE(SUM(d.tax), 0) AS tax
        FROM documents d
        WHERE d.doc_type = 'sales_invoice' AND d.status = 'confirmed'
-         AND COALESCE(d.confirmed_at, d.created_at) BETWEEN ? AND ?`,
+         AND COALESCE(d.confirmed_at, d.created_at) BETWEEN ? AND ?
+         AND (? IS NULL OR d.branch_id = ?)`,
     )
-    .get(bounds.from, bounds.to);
+    .get(bounds.from, bounds.to, branchId, branchId);
 
   const cost = db
     .prepare(
@@ -113,9 +116,10 @@ function invoiceSales(bounds) {
        FROM document_items di
        JOIN documents d ON d.id = di.document_id
        WHERE d.doc_type = 'sales_invoice' AND d.status = 'confirmed'
-         AND COALESCE(d.confirmed_at, d.created_at) BETWEEN ? AND ?`,
+         AND COALESCE(d.confirmed_at, d.created_at) BETWEEN ? AND ?
+         AND (? IS NULL OR d.branch_id = ?)`,
     )
-    .get(bounds.from, bounds.to);
+    .get(bounds.from, bounds.to, branchId, branchId);
 
   return {
     invoices: row.invoices,
@@ -126,13 +130,14 @@ function invoiceSales(bounds) {
   };
 }
 
-function refunds(bounds) {
+function refunds(bounds, branchId = null) {
   const row = db
     .prepare(
       `SELECT COUNT(*) AS orders, COALESCE(SUM(total), 0) AS total
-       FROM orders WHERE status = 'refunded' AND created_at BETWEEN ? AND ?`,
+       FROM orders WHERE status = 'refunded' AND created_at BETWEEN ? AND ?
+         AND (? IS NULL OR branch_id = ?)`,
     )
-    .get(bounds.from, bounds.to);
+    .get(bounds.from, bounds.to, branchId, branchId);
   return { orders: row.orders, total: round2(row.total) };
 }
 
@@ -163,25 +168,30 @@ function byProduct(bounds, limit = 10) {
  * gross profit says whether the pricing works, net profit says whether the shop
  * does. Both are worth seeing, so neither is hidden.
  */
-export function profitReport({ from = null, to = null, includeExpenses = true } = {}) {
+/**
+ * `branchId` narrows this to one shop; null is the whole company, which is what
+ * the owner wants to see and what a single-branch shop always gets.
+ */
+export function profitReport({ from = null, to = null, includeExpenses = true, branchId = null } = {}) {
   const bounds = periodBounds({ from, to });
 
-  const register = registerSales(bounds);
-  const invoices = invoiceSales(bounds);
-  const refunded = refunds(bounds);
+  const register = registerSales(bounds, branchId);
+  const invoices = invoiceSales(bounds, branchId);
+  const refunded = refunds(bounds, branchId);
 
   const revenue = round2(register.revenue + invoices.revenue);
   const cost = round2(register.cost + invoices.cost);
   const grossProfit = round2(revenue - cost);
 
   const expenses = includeExpenses
-    ? expenseSummary({ from: bounds.fromDate, to: bounds.toDate })
+    ? expenseSummary({ from: bounds.fromDate, to: bounds.toDate, branchId })
     : { total: 0, count: 0, byCategory: [] };
 
   const netProfit = round2(grossProfit - expenses.total);
 
   return {
     period: { from: bounds.fromDate, to: bounds.toDate },
+    branchId,
     includeExpenses,
     revenue,
     cost,
@@ -205,7 +215,7 @@ export function profitReport({ from = null, to = null, includeExpenses = true } 
 }
 
 /** The same report for one sitting of the till, from its own start and end. */
-export function profitForSession(sessionId, { includeExpenses = true } = {}) {
+export function profitForSession(sessionId, { includeExpenses = true, branchId = null } = {}) {
   const session = sessionById(sessionId);
   if (!session) return null;
 
@@ -216,15 +226,15 @@ export function profitForSession(sessionId, { includeExpenses = true } = {}) {
     toDate: (session.closed_at || '9999-12-31').slice(0, 10),
   };
 
-  const register = registerSales(bounds);
-  const invoices = invoiceSales(bounds);
+  const register = registerSales(bounds, branchId);
+  const invoices = invoiceSales(bounds, branchId);
   const revenue = round2(register.revenue + invoices.revenue);
   const cost = round2(register.cost + invoices.cost);
   const grossProfit = round2(revenue - cost);
 
   // Only what was actually spent during the sitting, by date.
   const expenses = includeExpenses
-    ? expenseSummary({ from: bounds.fromDate, to: bounds.toDate })
+    ? expenseSummary({ from: bounds.fromDate, to: bounds.toDate, branchId })
     : { total: 0, count: 0, byCategory: [] };
 
   return {

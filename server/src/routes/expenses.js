@@ -9,6 +9,7 @@ import {
   listExpenses,
 } from '../lib/expenses.js';
 import { presetRange, profitForSession, profitReport } from '../lib/profit.js';
+import { can } from '../lib/permissions.js';
 
 const router = Router();
 /*
@@ -28,8 +29,8 @@ router.get('/', ...spending, (req, res) => {
   const range = preset ? presetRange(preset) : { from, to };
 
   res.json({
-    expenses: listExpenses({ ...range, category }),
-    summary: expenseSummary(range),
+    expenses: listExpenses({ ...range, category, branchId: req.branchId }),
+    summary: expenseSummary({ ...range, branchId: req.branchId }),
     period: range,
   });
 });
@@ -46,6 +47,7 @@ router.post('/', ...spending, (req, res) => {
       supplierId,
       note,
       userId: req.user.id,
+      branchId: req.branchId,
     });
     res.status(201).json({ expense });
   } catch (err) {
@@ -72,14 +74,20 @@ router.get('/profit', ...reporting, (req, res) => {
   const { from, to, preset, sessionId, includeExpenses } = req.query;
   const withExpenses = includeExpenses !== 'false';
 
+  /*
+   * `branch=all` is the owner's company-wide view. Anything else is the shop
+   * they are standing in, which is what a branch manager should see.
+   */
+  const branchId = req.query.branch === 'all' && can(req.user, 'branches') ? null : req.branchId;
+
   if (sessionId) {
-    const report = profitForSession(Number(sessionId), { includeExpenses: withExpenses });
+    const report = profitForSession(Number(sessionId), { includeExpenses: withExpenses, branchId });
     if (!report) return res.status(404).json({ error: 'Session not found' });
     return res.json(report);
   }
 
   const range = preset ? presetRange(preset) : { from: from || null, to: to || null };
-  res.json(profitReport({ ...range, includeExpenses: withExpenses }));
+  res.json(profitReport({ ...range, includeExpenses: withExpenses, branchId }));
 });
 
 export default router;

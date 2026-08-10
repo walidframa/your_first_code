@@ -7,6 +7,7 @@ import { addEntry, creditCheck } from '../lib/accounts.js';
 import { currentSession, recordMovement, requiresSession } from '../lib/cash.js';
 import { isAvailable, returnUnitsOfOrder, sellUnit, syncStockFromUnits } from '../lib/units.js';
 import { chargeSale, refundOrder as refundWallets } from '../lib/wallets.js';
+import { moveStock, stockAt, stockElsewhere } from '../lib/stock.js';
 import { encryptSecret } from '../lib/secrets.js';
 import {
   CHANGE_MODES,
@@ -28,6 +29,9 @@ router.get('/tax-rate', requireAuth, (req, res) => {
 });
 
 router.post('/', requireAuth, requirePermission('register'), (req, res) => {
+  // The shop this sale happens in: the cashier's own counter, or whichever the
+  // owner has switched to. Set by resolveBranch on every request.
+  const branchId = req.branchId;
   const {
     items,
     discountPercent = 0,
@@ -121,8 +125,19 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
            * empty wallet is a bill to settle with the supplier, not a customer
            * to turn away at the counter.
            */
-          if (!product.wallet_id && product.stock < quantity) {
-            throw new Error(`Not enough stock for ${product.name} (have ${product.stock}, need ${quantity})`);
+          /*
+           * At this counter, not across the company: a phone sitting in the
+           * other branch cannot be handed to the customer standing here.
+           */
+          const here = stockAt(branchId, product.id);
+          if (!product.wallet_id && here < quantity) {
+            const elsewhere = stockElsewhere(branchId, product.id);
+            const alsoAt = elsewhere.length
+              ? ` — ${elsewhere.map((b) => `${b.stock} at ${b.branch_name}`).join(', ')}`
+              : '';
+            throw new Error(
+              `Not enough stock for ${product.name} (have ${here}, need ${quantity})${alsoAt}`,
+            );
           }
         }
 
@@ -181,7 +196,9 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
          * it, so they are left alone — refusing those would stop the shop
          * trading for no reason.
          */
-        if (requiresSession() && !currentSession()) {
+        // This branch's drawer: a sale at one counter cannot be taken against
+        // the other shop's till.
+        if (requiresSession() && !currentSession(null, branchId)) {
           throw new Error('The cashbox is closed — open it before taking cash');
         }
 
@@ -235,9 +252,9 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
           order_number, cashier_id, customer_id, subtotal, discount, tax, total, payment_method,
           amount_tendered, change_due, status,
           exchange_rate, paid_usd, paid_lbp, change_usd, change_lbp, change_currency,
-          buyer_name, buyer_phone
+          buyer_name, buyer_phone, branch_id
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed', ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed', ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         orderNumber, req.user.id, customerId || null, subtotal, discountAmount, tax, total, paymentMethod,
         amountTenderedValue, changeDue,
@@ -245,6 +262,9 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
         paymentMethod === 'cash' ? changeCurrency : null,
         buyerName?.trim() || null,
         buyerPhone?.trim() || null,
+        // Which shop sold it. Everything a branch reports about itself — its
+        // takings, its profit, its shift report — reads from this.
+        branchId,
       );
 
       const orderId = orderInfo.lastInsertRowid;
@@ -255,7 +275,7 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
         INSERT INTO order_items (order_id, product_id, name, price, quantity, line_total, cost, unit_id, is_gift)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
-      const decrementStock = db.prepare('UPDATE products SET stock = stock - ? WHERE id = ?');
+
 
       for (const li of lineItems) {
         /*
@@ -296,7 +316,7 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
             userId: req.user.id,
           });
         } else {
-          decrementStock.run(li.quantity, li.product.id);
+          moveStock({ branchId, productId: li.product.id, delta: -li.quantity });
         }
       }
 
@@ -344,6 +364,7 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
        */
       if (paymentMethod === 'cash') {
         recordMovement({
+          branchId,
           kind: 'sale',
           amountUsd: round2(paidUsd - changeUsd),
           amountLbp: paidLbp - changeLbp,
@@ -410,7 +431,7 @@ router.post('/:id/refund', requireAuth, requirePermission('refunds'), (req, res)
 
   transaction(() => {
     const items = db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(order.id);
-    const restock = db.prepare('UPDATE products SET stock = stock + ? WHERE id = ?');
+
 
     /*
      * Cards never came off a shelf, so nothing goes back on one — the credit is
@@ -429,7 +450,7 @@ router.post('/:id/refund', requireAuth, requirePermission('refunds'), (req, res)
       // Serialised lines are put back by identity below; adding to `stock` here
       // as well would count the returned handset twice.
       if (item.product_id && !item.unit_id && !fromWallet.has(item.product_id)) {
-        restock.run(item.quantity, item.product_id);
+        moveStock({ branchId: order.branch_id, productId: item.product_id, delta: item.quantity });
       }
     }
     returnUnitsOfOrder(order.id);

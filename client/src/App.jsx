@@ -13,6 +13,8 @@ import AdminInventory from './pages/admin/Inventory';
 import AdminImport from './pages/admin/Import';
 import AdminOrders from './pages/admin/Orders';
 import AdminUsers from './pages/admin/Users';
+import AdminBranches from './pages/admin/Branches';
+import AdminStockTransfers from './pages/admin/StockTransfers';
 import AdminSettings from './pages/admin/Settings';
 import AdminParties from './pages/admin/Parties';
 import AdminDocuments from './pages/admin/Documents';
@@ -45,6 +47,8 @@ const HOME_ORDER = [
   ['documents', '/admin/documents'],
   ['catalogue', '/admin/products'],
   ['inventory', '/admin/inventory'],
+  ['transfer_stock', '/admin/stock-transfers'],
+  ['branches', '/admin/branches'],
   ['users', '/admin/users'],
 ];
 
@@ -237,6 +241,22 @@ export default function App() {
           element={
             <ProtectedRoute permission="settings">
               <AdminSettings />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/stock-transfers"
+          element={
+            <ProtectedRoute permission="transfer_stock">
+              <AdminStockTransfers />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/branches"
+          element={
+            <ProtectedRoute permission="branches">
+              <AdminBranches />
             </ProtectedRoute>
           }
         />
