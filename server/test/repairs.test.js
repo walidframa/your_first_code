@@ -208,6 +208,37 @@ test('a ticket needs a name, a device and a fault', async () => {
   }
 });
 
+test('a ticket taken in at the counter keeps everything the slip needs', async () => {
+  // Exactly the fields the register's form collects, and nothing else.
+  const res = await req(
+    'POST',
+    '/repairs',
+    {
+      customerName: 'Rami Haddad',
+      customerPhone: '03 123 456',
+      device: 'iPhone 12 Pro, black',
+      fault: 'Screen cracked, touch dead at the top',
+      passcode: '4417',
+      quoted: 85,
+    },
+    cashierToken,
+  );
+
+  assert.equal(res.status, 201);
+  const { ticket } = res.json;
+  assert.match(ticket.ticket_number, /^REP-\d+/, 'the number is what the customer comes back with');
+  assert.equal(ticket.customer_name, 'Rami Haddad');
+  assert.equal(ticket.customer_phone, '03 123 456');
+  assert.equal(ticket.device, 'iPhone 12 Pro, black');
+  assert.equal(ticket.quoted, 85);
+  assert.equal(ticket.status, 'received');
+
+  // The passcode is a credential: stored, but never handed back with the ticket
+  // that gets printed and put in a customer's pocket.
+  assert.equal(ticket.passcode, undefined);
+  assert.ok(ticket.branch_id, 'and it belongs to the shop that has the phone');
+});
+
 test('the passcode is kept back from the list and shown only to an admin', async () => {
   const ticket = (await req('GET', '/repairs?status=open', null, cashierToken)).json.tickets.find(
     (t) => t.fault === 'Screen cracked',

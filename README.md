@@ -17,6 +17,9 @@ orders and staff.
   names both piles and the sheet totals them against what is owed.
 - Payment sheet: card, or cash with a numeric keypad and quick-cash amounts
 - Change due surfaced prominently, plus a printable receipt
+- **Take a repair in** without leaving the counter — customer, phone number,
+  what the phone is, what is wrong with it, the passcode and the price — and the
+  ticket prints straight away for the customer to bring back
 - **Hold a sale** and take the next customer, then pick it back up where it was
   left — the lines, the discount, the customer and the buyer's details all come
   back. Nothing is reserved, and whatever has been sold or archived meanwhile is
@@ -355,6 +358,19 @@ both.
 
 **Repairs.** A device comes in, and the ticket is the record of it: what it was,
 in what state, what was wrong, what was done and what it cost.
+
+**Taking one in happens at the register.** The customer is at the counter, so the
+form is the six things worth writing down while they wait — their name, their
+phone number, what the phone is, what is wrong with it, the passcode and the
+price — and the **ticket prints straight away**. That slip is the whole point:
+it is what they bring back to prove which phone on the shelf is theirs, and it
+carries the shop's name and number, the ticket number in large type, the fault as
+described, and the estimate in **both currencies**. The passcode is deliberately
+**not** on it — a slip that goes into somebody's pocket should not carry the way
+to unlock their phone.
+
+The fuller intake form is still in Admin → Repairs, for when the IMEI and the
+scratch on the back are worth typing.
 
 - Typing the IMEI at intake links the ticket to the handset if the shop sold it,
   and answers the warranty question **before** the price conversation starts.

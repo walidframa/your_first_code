@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   HandCoins,
   Minus,
+  Wrench,
   PauseCircle,
   Plus,
   Search,
@@ -13,6 +14,7 @@ import {
 import api from '../api';
 import Receipt from '../components/Receipt';
 import { HeldSalesDialog, HoldSaleDialog, ResumeIssues } from '../components/HeldSales';
+import TakeInRepair from '../components/TakeInRepair';
 import PaymentSheet from '../components/PaymentSheet';
 import CustomerPicker from '../components/CustomerPicker';
 import CashBox from '../components/CashBox';
@@ -61,6 +63,8 @@ export default function Checkout() {
   const [sellingUnit, setSellingUnit] = useState(null);
   // Buying a phone happens at the counter too, not only in the back office.
   const [buyingHandset, setBuyingHandset] = useState(false);
+  // A phone left in for repair. Counter work, so it starts at the counter.
+  const [takingRepair, setTakingRepair] = useState(false);
   /*
    * Who walked out with the phone, and what the shop set up for them. Most
    * buyers never become a customer account — what is needed months later is a
@@ -612,6 +616,15 @@ export default function Checkout() {
           >
             <HandCoins size={14} /> Buy in
           </button>
+          {/* And so is taking one in to be fixed — it ends with a slip the
+              customer walks out holding. */}
+          <button
+            onClick={() => setTakingRepair(true)}
+            title="Take a phone in for repair"
+            className="flex shrink-0 items-center gap-1 rounded-lg bg-slate-100 px-2 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-200"
+          >
+            <Wrench size={14} /> Repair
+          </button>
         </div>
 
         {/*
@@ -842,6 +855,8 @@ export default function Checkout() {
       )}
 
       {resumeIssues && <ResumeIssues issues={resumeIssues} onClose={() => setResumeIssues(null)} />}
+
+      {takingRepair && <TakeInRepair onClose={() => setTakingRepair(false)} />}
 
       {receipt && <Receipt receipt={receipt} onClose={() => setReceipt(null)} />}
     </div>
