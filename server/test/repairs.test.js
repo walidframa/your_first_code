@@ -421,3 +421,197 @@ test('a trade-in against a quantity product is refused', async () => {
   assert.equal(res.status, 400);
   assert.match(res.json.error, /not tracked by IMEI/i);
 });
+
+/* ---------------------------------------------------------- the seller's ID */
+
+/*
+ * A real 2×2 PNG. Small enough to keep the test honest about the plumbing
+ * rather than about image encoding, and genuinely decodable so nothing here
+ * passes on a string that only looks like a picture.
+ */
+const TINY_PNG =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVR42mP8z8BQz0AEYBxVSF+FABJADveWkH6oAAAAAElFTkSuQmCC';
+
+let idTradeIn;
+
+test('a phone bought in can have the seller’s ID photographed with it', async () => {
+  const res = await req(
+    'POST',
+    '/repairs/trade-ins',
+    {
+      productId: phone.id,
+      imei: '358800111144441',
+      paidUsd: 60,
+      sellerName: 'Nadim',
+      idPhoto: TINY_PNG,
+    },
+    adminToken,
+  );
+
+  assert.equal(res.status, 201, JSON.stringify(res.json));
+  assert.equal(res.json.hasIdPhoto, true);
+  idTradeIn = res.json.tradeInId;
+  assert.ok(idTradeIn, 'and the purchase says which row to find it under');
+});
+
+test('the list says which purchases are documented, without sending the photos', async () => {
+  const res = await req('GET', '/repairs/trade-ins/list', null, adminToken);
+  assert.equal(res.status, 200);
+
+  const documented = res.json.tradeIns.find((t) => t.id === idTradeIn);
+  assert.equal(documented.has_id_photo, 1);
+  assert.ok(
+    res.json.tradeIns.some((t) => !t.has_id_photo),
+    'and the ones without an ID are visible as such — that is the row worth finding',
+  );
+
+  /*
+   * The point of keeping the bytes in a table of their own. A shop with two
+   * hundred purchases should not download two hundred photographs to draw a
+   * list of names and prices.
+   */
+  const serialised = JSON.stringify(res.json);
+  assert.ok(!serialised.includes('iVBOR'), 'no image data anywhere in the list');
+  assert.ok(serialised.length < 60_000, 'and the list stays small');
+});
+
+test('the ID comes back as an image to whoever may reveal saved passwords', async () => {
+  const res = await fetch(`${BASE}/repairs/trade-ins/${idTradeIn}/id-photo`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get('content-type'), 'image/png');
+  // Never in a shared cache: it is somebody's identity document.
+  assert.match(res.headers.get('cache-control'), /no-store/);
+
+  const bytes = Buffer.from(await res.arrayBuffer());
+  assert.deepEqual(
+    bytes,
+    Buffer.from(TINY_PNG.split(',')[1], 'base64'),
+    'byte for byte what was photographed',
+  );
+});
+
+test('a cashier can take an ID but cannot open one', async () => {
+  // Taking one is counter work, and the cashier is who is at the counter.
+  const taken = await req(
+    'POST',
+    '/repairs/trade-ins',
+    { productId: phone.id, imei: '358800111155551', paidUsd: 10, idPhoto: TINY_PNG },
+    cashierToken,
+  );
+  assert.equal(taken.status, 201, JSON.stringify(taken.json));
+
+  // Reading one back is not. Nobody needs to page through a year of other
+  // people's identity documents because they once had the till open.
+  const peek = await req('GET', `/repairs/trade-ins/${taken.json.tradeInId}/id-photo`, null, cashierToken);
+  assert.equal(peek.status, 403);
+
+  // And destroying the record that a purchase was documented is not either.
+  const wipe = await req(
+    'DELETE',
+    `/repairs/trade-ins/${taken.json.tradeInId}/id-photo`,
+    null,
+    cashierToken,
+  );
+  assert.equal(wipe.status, 403);
+});
+
+test('an ID can be attached after the fact, because the queue does not wait', async () => {
+  const taken = await req(
+    'POST',
+    '/repairs/trade-ins',
+    { productId: phone.id, imei: '358800111166661', paidUsd: 15 },
+    adminToken,
+  );
+  assert.equal(taken.json.hasIdPhoto, false);
+
+  const attached = await req(
+    'POST',
+    `/repairs/trade-ins/${taken.json.tradeInId}/id-photo`,
+    { idPhoto: TINY_PNG },
+    adminToken,
+  );
+  assert.equal(attached.status, 201);
+
+  const list = (await req('GET', '/repairs/trade-ins/list', null, adminToken)).json.tradeIns;
+  assert.equal(list.find((t) => t.id === taken.json.tradeInId).has_id_photo, 1);
+});
+
+test('a second photo replaces the first rather than piling up', async () => {
+  const other =
+    'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q==';
+
+  await req('POST', `/repairs/trade-ins/${idTradeIn}/id-photo`, { idPhoto: other }, adminToken);
+
+  const res = await fetch(`${BASE}/repairs/trade-ins/${idTradeIn}/id-photo`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert.equal(res.headers.get('content-type'), 'image/jpeg', 'the newer one is what is on file');
+});
+
+test('anything that is not a photograph is refused', async () => {
+  for (const junk of [
+    'not a data url',
+    'data:application/pdf;base64,JVBERi0xLjQK',
+    'data:text/html;base64,PGgxPmhpPC9oMT4=',
+  ]) {
+    const res = await req(
+      'POST',
+      `/repairs/trade-ins/${idTradeIn}/id-photo`,
+      { idPhoto: junk },
+      adminToken,
+    );
+    assert.equal(res.status, 400, `${junk} should be refused`);
+  }
+});
+
+test('a photo too big to be worth keeping is refused, with the size in the message', async () => {
+  // Just over the 2MB cap. Base64 is 4 bytes per 3, hence the ratio.
+  const huge = `data:image/jpeg;base64,${'A'.repeat(Math.ceil((2 * 1024 * 1024 + 1024) / 3) * 4)}`;
+  const res = await req(
+    'POST',
+    `/repairs/trade-ins/${idTradeIn}/id-photo`,
+    { idPhoto: huge },
+    adminToken,
+  );
+
+  assert.equal(res.status, 400);
+  assert.match(res.json.error, /under 2MB/i);
+});
+
+test('a rejected photo takes the whole purchase with it', async () => {
+  const before = (await req('GET', '/cash/current', null, adminToken)).json.expected.usd;
+
+  const res = await req(
+    'POST',
+    '/repairs/trade-ins',
+    { productId: phone.id, imei: '358800111177771', paidUsd: 40, idPhoto: 'data:text/plain;base64,aGk=' },
+    adminToken,
+  );
+  assert.equal(res.status, 400);
+
+  /*
+   * The situation this avoids: a shop holding a handset it has no record of
+   * buying, which is exactly what the ID exists to prevent.
+   */
+  const found = await req('GET', '/units/lookup?imei=358800111177771', null, adminToken);
+  assert.notEqual(found.status, 200, 'the handset never joined the shelf');
+  assert.equal(
+    (await req('GET', '/cash/current', null, adminToken)).json.expected.usd,
+    before,
+    'and the money never left the till',
+  );
+});
+
+test('the ID can be deleted, and the purchase stays', async () => {
+  const gone = await req('DELETE', `/repairs/trade-ins/${idTradeIn}/id-photo`, null, adminToken);
+  assert.equal(gone.status, 200);
+
+  const again = await req('GET', `/repairs/trade-ins/${idTradeIn}/id-photo`, null, adminToken);
+  assert.equal(again.status, 404);
+
+  const list = (await req('GET', '/repairs/trade-ins/list', null, adminToken)).json.tradeIns;
+  assert.ok(list.find((t) => t.id === idTradeIn), 'the purchase itself is untouched');
+});

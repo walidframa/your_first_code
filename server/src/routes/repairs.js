@@ -17,6 +17,7 @@ import {
   warrantyOf,
 } from '../lib/repairs.js';
 import { repairMessage, sendable } from '../lib/whatsapp.js';
+import { getIdPhoto, removeIdPhoto, setIdPhoto } from '../lib/idPhotos.js';
 
 const router = Router();
 
@@ -221,7 +222,9 @@ router.post('/trade-ins', requireAuth, (req, res) => {
       const paidUsd = Number(req.body.paidUsd) || 0;
       const paidLbp = Number(req.body.paidLbp) || 0;
       if (paidUsd > 0 || paidLbp > 0) {
-        if (requiresSession() && !currentSession()) {
+        // This branch's till, not the company's first one — the money comes out
+        // of the drawer standing in front of whoever is paying for the phone.
+        if (requiresSession() && !currentSession(null, req.branchId)) {
           throw new Error('The cashbox is closed — open it before paying for a trade-in');
         }
         recordMovement({
@@ -231,6 +234,7 @@ router.post('/trade-ins', requireAuth, (req, res) => {
           reason: 'supplier',
           note: `Traded in ${taken.unit.imei}`,
           userId: req.user.id,
+          branchId: req.branchId,
         });
       }
 
@@ -246,7 +250,14 @@ router.post('/trade-ins', requireAuth, (req, res) => {
 router.get('/trade-ins/list', requireAuth, requirePermission('repairs'), (req, res) => {
   const rows = db
     .prepare(
-      `SELECT ti.*, u.imei, u.imei2, u.status AS unit_status, p.name AS product_name, us.name AS user_name
+      /*
+       * Whether an ID is on file, not the ID itself. A shop checking that its
+       * purchases are documented is asking a yes/no question about two hundred
+       * rows, and answering it should not mean sending two hundred photographs
+       * to draw a table of names and prices.
+       */
+      `SELECT ti.*, u.imei, u.imei2, u.status AS unit_status, p.name AS product_name, us.name AS user_name,
+              EXISTS (SELECT 1 FROM trade_in_ids i WHERE i.trade_in_id = ti.id) AS has_id_photo
        FROM trade_ins ti
        JOIN product_units u ON u.id = ti.unit_id
        JOIN products p ON p.id = u.product_id
@@ -255,6 +266,61 @@ router.get('/trade-ins/list', requireAuth, requirePermission('repairs'), (req, r
     )
     .all();
   res.json({ tradeIns: rows });
+});
+
+/* ------------------------------------------------------- the seller's ID */
+
+/**
+ * Attach or replace the photographed ID after the fact.
+ *
+ * Because the queue does not wait. A phone gets bought while three people are
+ * standing there and the ID gets photographed a minute later; without this the
+ * only way to attach it would be to undo the purchase and start again, so it
+ * would simply never get attached.
+ */
+router.post('/trade-ins/:id/id-photo', requireAuth, requirePermission('repairs'), (req, res) => {
+  const tradeIn = db.prepare('SELECT id FROM trade_ins WHERE id = ?').get(req.params.id);
+  if (!tradeIn) return res.status(404).json({ error: 'Trade-in not found' });
+
+  try {
+    const saved = setIdPhoto(tradeIn.id, req.body?.idPhoto, req.user.id);
+    res.status(201).json({ ...saved, tradeInId: tradeIn.id });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+/**
+ * The photograph itself — behind `secrets`, the same permission as revealing a
+ * customer's saved password.
+ *
+ * Taking somebody's ID and being able to look at it later are different jobs. A
+ * cashier has to be able to do the first, at the counter, with the seller
+ * watching. Nobody needs to be able to sit and page through a year of other
+ * people's identity documents, so that is a permission of its own rather than a
+ * consequence of having had the till open once.
+ */
+router.get('/trade-ins/:id/id-photo', requireAuth, requirePermission('secrets'), (req, res) => {
+  const photo = getIdPhoto(req.params.id);
+  if (!photo) return res.status(404).json({ error: 'No ID on file for that purchase' });
+
+  res.setHeader('Content-Type', photo.mime);
+  res.setHeader('Content-Length', photo.byteSize);
+  // Somebody's identity document has no business in a shared cache, and a
+  // browser holding it after the shop signs out is the same problem.
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.send(photo.bytes);
+});
+
+/**
+ * Remove it. Behind `secrets` rather than `repairs`, because destroying the
+ * evidence that a purchase was documented is not a counter task.
+ */
+router.delete('/trade-ins/:id/id-photo', requireAuth, requirePermission('secrets'), (req, res) => {
+  if (!removeIdPhoto(req.params.id)) {
+    return res.status(404).json({ error: 'No ID on file for that purchase' });
+  }
+  res.json({ removed: true });
 });
 
 /* --------------------------------------------------------------- warranty */

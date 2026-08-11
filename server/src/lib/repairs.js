@@ -9,6 +9,7 @@ import { db } from '../db.js';
 import { moveStock, stockAt } from './stock.js';
 import { encryptSecret } from './secrets.js';
 import { normaliseImei, receiveUnits, syncStockFromUnits } from './units.js';
+import { setIdPhoto } from './idPhotos.js';
 
 export const REPAIR_STATUSES = [
   'received',
@@ -312,20 +313,33 @@ export function takeTradeIn(input, userId) {
   const imei = normaliseImei(String(input.imei).split(/[,/;|]/)[0]);
   const unit = db.prepare('SELECT * FROM product_units WHERE imei = ?').get(imei);
 
-  db.prepare(
-    `INSERT INTO trade_ins (unit_id, customer_id, seller_name, seller_phone, paid_usd, paid_lbp, note, user_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(
-    unit.id,
-    input.customerId || null,
-    input.sellerName?.trim() || null,
-    input.sellerPhone?.trim() || null,
-    paidUsd,
-    paidLbp,
-    input.note || null,
-    userId,
-  );
+  const info = db
+    .prepare(
+      `INSERT INTO trade_ins (unit_id, customer_id, seller_name, seller_phone, paid_usd, paid_lbp, note, user_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      unit.id,
+      input.customerId || null,
+      input.sellerName?.trim() || null,
+      input.sellerPhone?.trim() || null,
+      paidUsd,
+      paidLbp,
+      input.note || null,
+      userId,
+    );
+
+  const tradeInId = Number(info.lastInsertRowid);
+
+  /*
+   * The seller's ID, if one was photographed. Inside the same transaction as
+   * the purchase deliberately: a rejected photo — too big, or not an image —
+   * takes the whole trade-in with it rather than leaving the shop holding a
+   * handset it has no record of buying, which is the situation the photo exists
+   * to prevent.
+   */
+  if (input.idPhoto) setIdPhoto(tradeInId, input.idPhoto, userId);
 
   syncStockFromUnits(product.id);
-  return { unit, cost };
+  return { unit, cost, tradeInId, hasIdPhoto: Boolean(input.idPhoto) };
 }
