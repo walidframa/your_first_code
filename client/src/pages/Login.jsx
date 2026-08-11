@@ -18,6 +18,14 @@ export default function Login() {
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
+  /*
+   * Sent here by a dead session rather than by choosing to sign out. Worth
+   * saying, because otherwise the login screen appearing mid-job looks like the
+   * app threw the work away — and in development it happens on every restart,
+   * since the dev signing key is generated per process.
+   */
+  const expired = new URLSearchParams(location.search).get('expired') === '1';
+
   async function signIn(user, pass) {
     setError('');
     setSubmitting(true);
@@ -67,6 +75,11 @@ export default function Login() {
               required
             />
 
+            {expired && !error && (
+              <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                Your session ended — sign in again to carry on. Nothing you saved is lost.
+              </p>
+            )}
             {error && <p className="text-sm text-red-600">{error}</p>}
 
             <Button type="submit" size="lg" className="w-full" loading={submitting}>
