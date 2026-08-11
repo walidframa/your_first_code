@@ -66,7 +66,8 @@ router.put('/:id', requireAuth, requirePermission('cards'), (req, res) => {
   const wallet = db.prepare('SELECT * FROM wallets WHERE id = ?').get(req.params.id);
   if (!wallet) return res.status(404).json({ error: 'Wallet not found' });
 
-  const { name, kind, lowBalance, note, active, sendsCredit, smsFee } = req.body || {};
+  const { name, kind, lowBalance, note, active, sendsCredit, smsFee, creditPriceLbp } =
+    req.body || {};
   if (kind !== undefined && !WALLET_KINDS.includes(kind)) {
     return res.status(400).json({ error: `kind must be one of: ${WALLET_KINDS.join(', ')}` });
   }
@@ -90,16 +91,26 @@ router.put('/:id', requireAuth, requirePermission('cards'), (req, res) => {
      */
     sends_credit: sendsCredit === undefined ? wallet.sends_credit : sendsCredit ? 1 : 0,
     sms_fee: smsFee === undefined ? wallet.sms_fee : Number(smsFee),
+    /*
+     * What a dollar of credit sells for, in pounds — "110,000 a dollar" is the
+     * figure the counter quotes, so it is stored as that rather than derived
+     * from a USD price and today's rate.
+     */
+    credit_price_lbp:
+      creditPriceLbp === undefined ? wallet.credit_price_lbp : Number(creditPriceLbp),
   };
   if (!merged.name) return res.status(400).json({ error: 'A wallet needs a name' });
   if (!Number.isFinite(merged.sms_fee) || merged.sms_fee < 0) {
     return res.status(400).json({ error: 'A message fee cannot be negative' });
   }
+  if (!Number.isFinite(merged.credit_price_lbp) || merged.credit_price_lbp < 0) {
+    return res.status(400).json({ error: 'A credit price cannot be negative' });
+  }
 
   try {
     db.prepare(
       `UPDATE wallets SET name = ?, kind = ?, low_balance = ?, note = ?, active = ?,
-                          sends_credit = ?, sms_fee = ?
+                          sends_credit = ?, sms_fee = ?, credit_price_lbp = ?
        WHERE id = ?`,
     ).run(
       merged.name,
@@ -109,6 +120,7 @@ router.put('/:id', requireAuth, requirePermission('cards'), (req, res) => {
       merged.active,
       merged.sends_credit,
       merged.sms_fee,
+      merged.credit_price_lbp,
       wallet.id,
     );
   } catch {

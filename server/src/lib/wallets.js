@@ -93,6 +93,12 @@ export function recordMovement({
   orderId = null,
   productId = null,
   userId = null,
+  /*
+   * What this top-up cost the shop, when that is not simply what it added.
+   * Null means bought at face value — cash handed to a distributor for the
+   * same number of dollars.
+   */
+  costUsd = null,
 }) {
   const wallet = db.prepare('SELECT * FROM wallets WHERE id = ?').get(walletId);
   if (!wallet) throw new Error('That wallet does not exist');
@@ -120,12 +126,48 @@ export function recordMovement({
   const info = db
     .prepare(
       `INSERT INTO wallet_movements
-         (wallet_id, kind, amount, amount_usd, exchange_rate, order_id, product_id, note, user_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (wallet_id, kind, amount, amount_usd, exchange_rate, order_id, product_id, note, user_id,
+          cost_usd)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
-    .run(wallet.id, kind, value, usd, rate || null, orderId, productId, note, userId);
+    .run(
+      wallet.id, kind, value, usd, rate || null, orderId, productId, note, userId,
+      costUsd === null || costUsd === undefined ? null : round2(costUsd),
+    );
 
   return info.lastInsertRowid;
+}
+
+/**
+ * What a dollar of this wallet's credit actually cost the shop.
+ *
+ * Face value is the wrong answer for a shop that gets its credit sideways. Sell
+ * a 30-day validity card that comes with $7.50 on it, take $6 of that back onto
+ * the shop's own line, and those six dollars cost nothing extra — the card was
+ * already bought and already sold at a margin. Priced at face value the shop
+ * would think it earns nothing on credit, when credit is the profitable half.
+ *
+ * So it is the average across every top-up: what was paid, over what was added.
+ * An average rather than a queue because credit is fungible — a dollar sent to
+ * a customer is not traceably the dollar that came from any one card, and
+ * pretending otherwise would be precision with nothing behind it.
+ *
+ * Returns 1 when nothing has been topped up yet, which reads as "bought at face
+ * value" and is the safe assumption: it understates the margin rather than
+ * inventing one.
+ */
+export function creditCostBasis(walletId) {
+  const row = db
+    .prepare(
+      `SELECT COALESCE(SUM(COALESCE(cost_usd, amount_usd)), 0) AS paid,
+              COALESCE(SUM(amount_usd), 0) AS added
+       FROM wallet_movements
+       WHERE wallet_id = ? AND kind = 'top_up'`,
+    )
+    .get(walletId);
+
+  if (!row.added) return 1;
+  return Math.round((row.paid / row.added) * 10_000) / 10_000;
 }
 
 /**

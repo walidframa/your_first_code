@@ -875,7 +875,7 @@ try {
    */
   await step('credit is split into messages and priced with its fees', async () => {
     await page.keyboard.press('F8');
-    await page.waitForSelector('[role=dialog] >> text=Top a customer up by SMS', { timeout: 10000 });
+    await page.waitForSelector('[role=dialog] >> text=Send to a customer', { timeout: 10000 });
 
     const credit = page.locator('[role=dialog]');
     await credit.getByLabel("Customer's number").fill('03 123 456');
@@ -883,7 +883,11 @@ try {
 
     await credit.locator('text=Send 4 messages').waitFor({ timeout: 10000 });
     const shown = await credit.innerText();
-    for (const expected of ['$10.60', '4 × $0.15', '$0.60']) {
+    /*
+     * The three figures the shop's money turns on: what the balance loses
+     * (fees included), the counter price in pounds, and what it really cost.
+     */
+    for (const expected of ['$10.60', '4 × $0.15', '110,000 a dollar']) {
       if (!shown.includes(expected)) throw new Error(`the credit panel is missing ${expected}`);
     }
 

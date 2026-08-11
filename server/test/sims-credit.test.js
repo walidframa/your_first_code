@@ -395,3 +395,146 @@ test('a SIM sold and refunded keeps the first buyer’s ID against the first sal
   });
   assert.equal(res.status, 200, 'the first sale still has its ID');
 });
+
+/* -------------------------------------------------- what the credit cost */
+
+/*
+ * The economics this shop actually runs on.
+ *
+ * It does not buy credit from a distributor. It sells a 30-day validity card
+ * that carries $7.50, the customer sends $6 of that back onto the shop's own
+ * line, and the shop resells it by the dollar at 110,000 LL. The card was
+ * already bought and already sold, so those six dollars cost nothing more —
+ * and costing them at face value would report that the profitable half of the
+ * business earns nothing at all.
+ */
+
+test('credit taken back off a validity card costs what the shop says it cost', async () => {
+  const touch = (await req('GET', '/credit/carriers', null, adminToken)).json.carriers.find(
+    (c) => c.name === 'Touch',
+  );
+
+  // Three cards sold, $6 back off each, none of it costing anything extra.
+  for (const from of ['03 101 000', '03 102 000', '03 103 000']) {
+    const res = await req(
+      'POST',
+      '/credit/received',
+      { walletId: touch.id, amount: 6, costUsd: 0, msisdn: from },
+      adminToken,
+    );
+    assert.equal(res.status, 201);
+  }
+
+  const after = (await req('GET', '/credit/carriers', null, adminToken)).json.carriers.find(
+    (c) => c.id === touch.id,
+  );
+  // It was at -5.30 from the overdrawn test above.
+  assert.equal(after.balance, 12.7, '$18 came in on top of what was owed');
+  assert.equal(after.costBasis, 0, 'and none of it cost anything');
+});
+
+test('the margin is against what the credit cost, not its face value', async () => {
+  const touch = (await req('GET', '/credit/carriers', null, adminToken)).json.carriers.find(
+    (c) => c.name === 'Touch',
+  );
+  const rate = (await req('GET', '/settings', null, adminToken)).json.settings.exchange_rate;
+
+  const q = (await req('GET', `/credit/quote?walletId=${touch.id}&amount=10`, null, adminToken)).json;
+
+  assert.equal(q.cost, 10.6, 'the balance still loses the full ten-sixty');
+  assert.equal(q.realCost, 0, 'but it cost the shop nothing to have');
+  assert.equal(q.priceLbp, 110_000);
+  assert.equal(q.chargeLbp, 1_100_000, 'ten dollars at a hundred and ten thousand');
+  assert.equal(q.suggested, Math.round((1_100_000 / rate) * 100) / 100);
+});
+
+test('a sale carries the real cost onto the line, so profit reports read true', async () => {
+  const touch = (await req('GET', '/credit/carriers', null, adminToken)).json.carriers.find(
+    (c) => c.name === 'Touch',
+  );
+
+  const sale = await req(
+    'POST',
+    '/orders',
+    {
+      items: [{ creditSend: { walletId: touch.id, msisdn: '03 123 456', amount: 10 } }],
+      paymentMethod: 'card',
+    },
+    adminToken,
+  );
+
+  assert.equal(sale.status, 201, JSON.stringify(sale.json));
+  const line = sale.json.items[0];
+
+  // Priced in pounds and converted, because that is how credit is quoted here.
+  const rate = (await req('GET', '/settings', null, adminToken)).json.settings.exchange_rate;
+  assert.equal(line.price, Math.round((1_100_000 / rate) * 100) / 100, 'the counter price');
+  assert.equal(line.cost, 0, 'and what it really cost');
+
+  // The balance still loses the face value: that credit is gone whatever it
+  // cost to get hold of.
+  const after = (await req('GET', '/credit/carriers', null, adminToken)).json.carriers.find(
+    (c) => c.id === touch.id,
+  );
+  assert.equal(after.balance, 2.1, '12.70 less 10.60');
+});
+
+test('credit genuinely bought at face value still costs face value', async () => {
+  const bought = (
+    await req('POST', '/wallets', { name: 'Bought at par', kind: 'recharge' }, adminToken)
+  ).json.wallet;
+  await req('PUT', `/wallets/${bought.id}`, { sendsCredit: true }, adminToken);
+
+  // Cash handed to a distributor: what it added is what it cost.
+  await req(
+    'POST',
+    '/credit/received',
+    { walletId: bought.id, amount: 100, costUsd: 100 },
+    adminToken,
+  );
+
+  const q = (await req('GET', `/credit/quote?walletId=${bought.id}&amount=10`, null, adminToken)).json;
+  assert.equal(q.costBasis, 1);
+  assert.equal(q.realCost, 10.6, 'no arbitrage, no discount');
+});
+
+test('credit bought at a discount is costed at the discount', async () => {
+  const deal = (await req('POST', '/wallets', { name: 'Discounted', kind: 'recharge' }, adminToken))
+    .json.wallet;
+  await req('PUT', `/wallets/${deal.id}`, { sendsCredit: true }, adminToken);
+
+  // $95 paid for $100 of balance.
+  await req('POST', '/credit/received', { walletId: deal.id, amount: 100, costUsd: 95 }, adminToken);
+
+  const q = (await req('GET', `/credit/quote?walletId=${deal.id}&amount=10`, null, adminToken)).json;
+  assert.equal(q.costBasis, 0.95);
+  assert.equal(q.realCost, 10.07, '10.60 of credit at ninety-five cents a dollar');
+});
+
+test('the price a dollar sells for is a setting, not a number in the code', async () => {
+  const touch = (await req('GET', '/credit/carriers', null, adminToken)).json.carriers.find(
+    (c) => c.name === 'Touch',
+  );
+  await req('PUT', `/wallets/${touch.id}`, { creditPriceLbp: 120_000 }, adminToken);
+
+  const q = (await req('GET', `/credit/quote?walletId=${touch.id}&amount=5`, null, adminToken)).json;
+  assert.equal(q.chargeLbp, 600_000);
+
+  await req('PUT', `/wallets/${touch.id}`, { creditPriceLbp: 110_000 }, adminToken);
+});
+
+test('credit coming back has to be a real amount', async () => {
+  const touch = (await req('GET', '/credit/carriers', null, adminToken)).json.carriers.find(
+    (c) => c.name === 'Touch',
+  );
+
+  assert.equal(
+    (await req('POST', '/credit/received', { walletId: touch.id, amount: 0 }, adminToken)).status,
+    400,
+  );
+  assert.equal(
+    (await req('POST', '/credit/received', { walletId: touch.id, amount: 6, costUsd: -1 }, adminToken))
+      .status,
+    400,
+  );
+});
