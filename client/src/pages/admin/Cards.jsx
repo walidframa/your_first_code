@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowDownToLine,
   CreditCard,
+  ImageUp,
   Pencil,
   Plus,
   Receipt,
@@ -12,6 +13,7 @@ import {
 import api from '../../api';
 import PageHeader from '../../components/PageHeader';
 import LinkValidity from '../../components/LinkValidity';
+import { shrink } from '../../lib/shrink';
 import { lbp, useSettings } from '../../context/SettingsContext';
 import {
   Badge,
@@ -399,6 +401,69 @@ function StatementDialog({ wallet, onClose }) {
 
 /* --------------------------------------------------------------- the cards */
 
+/**
+ * The picture a cashier presses.
+ *
+ * Recharge cards are told apart by colour long before anybody reads the value
+ * off them, so the seeded ones come with a drawn face. A shop that would rather
+ * see a photograph of the real card takes one here, and every screen that shows
+ * a product picture picks it up — the register tile most of all.
+ *
+ * Shrunk hard on the way in: this is shown at about two hundred pixels and
+ * lives in the row itself, so a four-megabyte phone photo would be four
+ * megabytes of database for no visible difference.
+ */
+function CardPicture({ value, onChange }) {
+  const fileRef = useRef(null);
+  const [error, setError] = useState('');
+
+  async function pick(e) {
+    const file = e.target.files?.[0];
+    // Let the same file be chosen again after a removal.
+    e.target.value = '';
+    if (!file) return;
+    setError('');
+    try {
+      onChange(await shrink(file, { maxEdge: 640, quality: 0.8 }));
+    } catch (err) {
+      setError(err.message || 'That image could not be used');
+    }
+  }
+
+  return (
+    <div>
+      <span className="mb-1.5 block text-sm font-medium text-slate-700">Picture</span>
+      <div className="flex items-center gap-3">
+        {value ? (
+          <img
+            src={value}
+            alt=""
+            className="h-20 w-32 rounded-lg object-cover ring-1 ring-slate-200"
+          />
+        ) : (
+          <div className="flex h-20 w-32 items-center justify-center rounded-lg text-xs text-slate-400 ring-1 ring-dashed ring-slate-300">
+            No picture
+          </div>
+        )}
+        <div className="flex flex-col gap-2">
+          <Button type="button" variant="secondary" onClick={() => fileRef.current?.click()}>
+            <ImageUp className="h-4 w-4" />
+            {value ? 'Replace' : 'Add a photo'}
+          </Button>
+          {value && (
+            <Button type="button" variant="secondary" onClick={() => onChange('')}>
+              <Trash2 className="h-4 w-4" />
+              Remove
+            </Button>
+          )}
+        </div>
+        <input ref={fileRef} type="file" accept="image/*" onChange={pick} className="hidden" />
+      </div>
+      {error && <p className="mt-1 text-xs text-red-600">{error}</p>}
+    </div>
+  );
+}
+
 function CardDialog({ card, wallets, categories, onClose, onSaved }) {
   const toast = useToast();
   const { rate, toLbp } = useSettings();
@@ -410,6 +475,8 @@ function CardDialog({ card, wallets, categories, onClose, onSaved }) {
   const [cost, setCost] = useState(String(card?.cost ?? ''));
   const [categoryId, setCategoryId] = useState(String(card?.category_id || categories[0]?.id || ''));
   const [walletId, setWalletId] = useState(String(card?.wallet_id || wallets[0]?.id || ''));
+  const [credits, setCredits] = useState(String(card?.credits_included ?? ''));
+  const [picture, setPicture] = useState(card?.image_url || '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -425,6 +492,8 @@ function CardDialog({ card, wallets, categories, onClose, onSaved }) {
       cost: Number(cost) || 0,
       category_id: Number(categoryId) || null,
       wallet_id: Number(walletId) || null,
+      credits_included: Number(credits) || null,
+      image_url: picture || null,
     };
     try {
       if (editing) {
@@ -524,6 +593,27 @@ function CardDialog({ card, wallets, categories, onClose, onSaved }) {
             ))}
           </Select>
         </div>
+
+        {/*
+          * What the card carries, which is none of the two figures above. A
+          * "$7.58" recharge card holds 7.58 of credit whatever the dealer
+          * charged for it and whatever the counter charges for it — and it is
+          * the figure the validity loop needs to know how much credit a
+          * scratched card put into play.
+          */}
+        <Input
+          label="Credit inside the card"
+          name="credits_included"
+          type="number"
+          step="0.01"
+          min="0"
+          value={credits}
+          onChange={(e) => setCredits(e.target.value)}
+          placeholder="e.g. 7.58"
+          hint="What the customer receives — not the price, not the cost"
+        />
+
+        <CardPicture value={picture} onChange={setPicture} />
 
         {error && <p className="text-sm text-red-600">{error}</p>}
 
@@ -734,7 +824,25 @@ export default function Cards() {
                           const margin = Math.round((c.price - c.cost) * 100) / 100;
                           return (
                             <tr key={c.id} className="hover:bg-slate-50/60">
-                              <td className="px-5 py-2 font-medium text-slate-800">{c.name}</td>
+                              <td className="px-5 py-2 font-medium text-slate-800">
+                                <span className="flex items-center gap-2">
+                                  {/* The picture the register shows, at the size
+                                      it takes to tell one card from another. */}
+                                  {c.image_url && (
+                                    <img
+                                      src={c.image_url}
+                                      alt=""
+                                      className="h-8 w-12 rounded object-cover ring-1 ring-slate-200"
+                                    />
+                                  )}
+                                  {c.name}
+                                </span>
+                                {c.credits_included > 0 && (
+                                  <span className="block text-xs font-normal text-slate-400">
+                                    carries {money(c.credits_included)} of credit
+                                  </span>
+                                )}
+                              </td>
                               <td className="tnum px-3 py-2 text-right text-slate-900">
                                 {money(c.price)}
                                 {rate > 0 && (

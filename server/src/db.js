@@ -1539,6 +1539,15 @@ addColumn('products', 'validity_days', 'INTEGER');
 addColumn('products', 'linked_card_id', 'INTEGER REFERENCES products(id)');
 addColumn('products', 'credit_recovered', 'REAL NOT NULL DEFAULT 0');
 addColumn('products', 'credit_wallet_id', 'INTEGER REFERENCES wallets(id)');
+/*
+ * How much calling credit a card actually carries.
+ *
+ * Not its price and not its cost. A Lebanese recharge card is named by the
+ * credit inside it — "$7.58" is 7.58 of credit, whatever the shop paid for the
+ * card and whatever it charges for it. Keeping the three apart is the only way
+ * the validity loop can say how much credit a scratched card put into play.
+ */
+addColumn('products', 'credits_included', 'REAL');
 addColumn('product_units', 'msisdn', 'TEXT');
 CREATE_MSISDN_INDEX: {
   db.exec('CREATE INDEX IF NOT EXISTS idx_units_msisdn ON product_units(msisdn)');
@@ -1555,6 +1564,42 @@ if (db.prepare('SELECT COUNT(*) AS n FROM id_photos').get().n === 0) {
     INSERT INTO id_photos (subject_type, subject_id, mime, byte_size, bytes, uploaded_by, created_at)
     SELECT 'trade_in', trade_in_id, mime, byte_size, bytes, uploaded_by, created_at FROM trade_in_ids
   `);
+}
+
+/*
+ * Retire the invented whole-recharge denominations, once.
+ *
+ * The starter set used to offer round $5 / $10 / $20 / $50 recharge cards.
+ * No Lebanese carrier sells those — Alfa and Touch both sell a fixed ladder
+ * (3.79, 4.50, 7.58, 15.15, 22.73, 77.28), which is what the seeder offers
+ * now. A card nobody can buy is worse than no card: it is a tile a cashier
+ * presses and a wallet figure that never reconciles.
+ *
+ * Retired rather than deleted, so anything already sold against one keeps its
+ * history, and guarded on a marker rather than on the rows themselves so a
+ * shop that deliberately brings one back is not overruled every restart.
+ */
+if (!db.prepare(`SELECT value FROM settings WHERE key = 'retired_round_recharge'`).get()) {
+  db.prepare(`
+    UPDATE products SET active = 0
+    WHERE active = 1 AND sku IN ('CARD-ALFA-WHOLE-5', 'CARD-ALFA-WHOLE-10', 'CARD-ALFA-WHOLE-20',
+                                 'CARD-ALFA-WHOLE-50', 'CARD-MTC-WHOLE-5', 'CARD-MTC-WHOLE-10',
+                                 'CARD-MTC-WHOLE-20', 'CARD-MTC-WHOLE-50')
+  `).run();
+  db.prepare(`INSERT INTO settings (key, value) VALUES ('retired_round_recharge', 'done')`).run();
+}
+
+/*
+ * The carrier has been Touch for years; the catalogue still said MTC.
+ * Renaming the display name only — the SKUs are what everything else keys
+ * off, and a shop that has printed labels should not find them orphaned.
+ */
+if (!db.prepare(`SELECT value FROM settings WHERE key = 'renamed_mtc_to_touch'`).get()) {
+  db.prepare(`
+    UPDATE products SET name = 'Touch' || substr(name, 4)
+    WHERE sku LIKE 'CARD-MTC-%' AND name LIKE 'MTC %'
+  `).run();
+  db.prepare(`INSERT INTO settings (key, value) VALUES ('renamed_mtc_to_touch', 'done')`).run();
 }
 
 export const ADJUSTMENT_REASONS = [

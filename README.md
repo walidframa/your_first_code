@@ -663,6 +663,28 @@ duplicates. Each card is seeded with **cost equal to price**, so every margin
 reads "Set the cost" until you put your dealer price in; a guessed discount
 would report a margin nobody earned.
 
+### Recharge cards carry credit; that is not their price
+
+A Lebanese recharge card is named by what is **inside** it. Alfa and Touch both
+print the same ladder — **$03.79, $04.50, $07.58, $15.15, $22.73, $77.28** — and
+those figures are the credit the customer receives, not what the shop paid the
+dealer and not what it charges over the counter. So a card keeps all three
+separately: **price**, **what it costs you**, and **credit inside the card**.
+$8 for a card carrying $7.58 is an ordinary deal once VAT is in it, and only
+the third figure tells the validity loop how much credit a scratched card put
+into play.
+
+Each one is seeded with a **picture** and shows on the register as a card to
+press rather than another line of text — colour-coded per denomination, which
+is how they are told apart in the hand. Those faces are drawn, not the
+carriers' own artwork, which is theirs and not ours to ship; **Cards → edit →
+Picture** replaces any of them with a photograph of the real card.
+
+The round $5 / $10 / $20 / $50 cards the starter set used to offer are retired
+on upgrade. No carrier sells them, and a tile a cashier cannot actually hand
+over is worse than no tile. Retired rather than deleted, so anything already
+sold against one keeps its history.
+
 Buying credit on a **purchase invoice** works too: a card line on a delivery
 tops its wallet up by what was paid instead of adding a meaningless quantity,
 and cancelling the invoice takes it back off.
@@ -677,6 +699,13 @@ a sale to lose.
 
 A fixed-price card is one thing; topping a customer up with an arbitrary amount
 of calling credit is another, and the arithmetic is where the money goes.
+
+**The fees are the shop's, not the customer's.** The customer pays for the
+credit they asked for and receives all of it; the messages are what it costs
+the shop to deliver it, and they come off the balance. Ten dollars sent means
+1,100,000 LL over the counter and $10.60 off the carrier — and the panel says
+so in words, because two figures a few lines apart get read the wrong way
+round.
 
 The carrier accepts **3, 2 or 1 per message**, so a customer asking for $10 is
 not one send but four — three threes and a one — and **every message costs the

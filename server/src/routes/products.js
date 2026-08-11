@@ -193,7 +193,7 @@ router.post('/', requireAuth, requirePermission('catalogue'), (req, res) => {
   const {
     name, sku, price, cost, stock, category_id, image_emoji, barcode, supplier, image_url,
     reorder_point, tracks_units, warranty_months, wallet_id, is_sim,
-    validity_days, linked_card_id, credit_recovered, credit_wallet_id,
+    validity_days, linked_card_id, credit_recovered, credit_wallet_id, credits_included,
   } = req.body || {};
   if (!name || !sku || price == null) {
     return res.status(400).json({ error: 'name, sku and price are required' });
@@ -202,8 +202,8 @@ router.post('/', requireAuth, requirePermission('catalogue'), (req, res) => {
   if (problem) return res.status(400).json({ error: problem });
   try {
     const info = db.prepare(`
-      INSERT INTO products (name, sku, price, cost, stock, category_id, image_emoji, barcode, supplier, image_url, reorder_point, tracks_units, warranty_months, wallet_id, is_sim, validity_days, linked_card_id, credit_recovered, credit_wallet_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO products (name, sku, price, cost, stock, category_id, image_emoji, barcode, supplier, image_url, reorder_point, tracks_units, warranty_months, wallet_id, is_sim, validity_days, linked_card_id, credit_recovered, credit_wallet_id, credits_included)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       name,
       sku,
@@ -236,6 +236,7 @@ router.post('/', requireAuth, requirePermission('catalogue'), (req, res) => {
       linked_card_id || null,
       Number(credit_recovered) || 0,
       credit_wallet_id || null,
+      Number(credits_included) || null,
     );
     /*
      * The opening count lands on the shelf of the branch it was entered at —
@@ -359,6 +360,8 @@ router.put('/:id', requireAuth, requirePermission('catalogue'), (req, res) => {
      * consumed, how much credit comes back, and onto which carrier balance.
      */
     'validity_days', 'linked_card_id', 'credit_recovered', 'credit_wallet_id',
+    // What a card actually carries, which is none of its price nor its cost.
+    'credits_included',
   ];
   const updates = {};
   for (const f of fields) {
@@ -417,7 +420,8 @@ router.put('/:id', requireAuth, requirePermission('catalogue'), (req, res) => {
     UPDATE products SET name = ?, sku = ?, price = ?, cost = ?, category_id = ?, image_emoji = ?,
       active = ?, barcode = ?, supplier = ?, image_url = ?, reorder_point = ?, tracks_units = ?,
       warranty_months = ?, wallet_id = ?, is_sim = ?,
-      validity_days = ?, linked_card_id = ?, credit_recovered = ?, credit_wallet_id = ?
+      validity_days = ?, linked_card_id = ?, credit_recovered = ?, credit_wallet_id = ?,
+      credits_included = ?
     WHERE id = ?
   `).run(
     merged.name,
@@ -439,6 +443,7 @@ router.put('/:id', requireAuth, requirePermission('catalogue'), (req, res) => {
     merged.linked_card_id || null,
     Number(merged.credit_recovered) || 0,
     merged.credit_wallet_id || null,
+    Number(merged.credits_included) || null,
     req.params.id
   );
 

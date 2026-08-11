@@ -61,6 +61,7 @@ export default function LinkValidity({ card, cards, carriers, onClose, onSaved }
           {choices.map((c) => (
             <option key={c.id} value={c.id}>
               {c.name} · costs {money(c.cost)}
+              {c.credits_included > 0 ? ` · carries ${money(c.credits_included)}` : ''}
             </option>
           ))}
         </Select>
@@ -75,7 +76,16 @@ export default function LinkValidity({ card, cards, carriers, onClose, onSaved }
             value={recovered}
             onChange={(e) => setRecovered(e.target.value)}
             placeholder="e.g. 6"
-            hint="What the customer sends to your line"
+            /*
+             * Said against what the card actually holds, because that is the
+             * number this one has to sit under — you cannot take back more
+             * credit than the card put on the customer's line.
+             */
+            hint={
+              linked?.credits_included > 0
+                ? `Out of the ${money(linked.credits_included)} it carries`
+                : 'What the customer sends to your line'
+            }
           />
           <Select
             label="Onto which balance"
