@@ -1466,6 +1466,27 @@ db.exec(`
  */
 addColumn('wallets', 'sends_credit', 'INTEGER NOT NULL DEFAULT 0');
 addColumn('wallets', 'sms_fee', 'REAL NOT NULL DEFAULT 0.15');
+/*
+ * What the shop sells a dollar of credit for, in pounds.
+ *
+ * Credit is priced in pounds and nothing else — "110,000 a dollar" is the
+ * number the counter quotes — so it is kept in pounds rather than derived from
+ * a USD price and the rate. Derived, it would drift every time the rate moved
+ * and the shop would be quoting a figure it never chose.
+ */
+addColumn('wallets', 'credit_price_lbp', 'REAL NOT NULL DEFAULT 110000');
+
+/*
+ * What a top-up actually cost the shop.
+ *
+ * Not the same as how much credit it added, and that is the whole point. A
+ * shop that gets its credit by selling a 30-day validity card and taking the
+ * customer's $6 back onto its own line did not pay $6 for it — the card had
+ * already been paid for and sold. Left null, the credit is assumed bought at
+ * face value, which is what a wallet topped up by handing a distributor cash
+ * means.
+ */
+addColumn('wallet_movements', 'cost_usd', 'REAL');
 
 /*
  * The two Lebanese carriers, as balances the shop can send credit out of.

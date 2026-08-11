@@ -692,14 +692,37 @@ carrier, type the customer's number and the amount, and the dialog shows:
 - what comes off the carrier's balance, credit and fees together
 - what is left once the customer pays
 
-The price **defaults to break-even**, not to the face value. Face value looks
-like the natural default and is wrong every single time. Type over it with what
-you actually charge.
+### Credit is priced in pounds, and did not cost face value
+
+Two things about the money, both easy to get wrong and both costly.
+
+**It sells by the pound.** "110,000 a dollar" is what the counter quotes, so
+that is what is stored — per carrier, editable — rather than a dollar price the
+rate would drag around. Ten dollars of credit suggests **1,100,000 LL**, shown
+in pounds and converted back for the order.
+
+**It did not cost a dollar a dollar.** This shop gets its balance sideways: it
+sells a 30-day validity card carrying $7.50, the customer sends $6 of that back
+onto the shop's own line, and the shop resells it by the dollar. Those six
+dollars cost nothing extra — the card was already bought and already sold. Cost
+them at face value and the app reports that the *profitable* half of the
+business earns nothing.
+
+So **Credit came back** (the other tab of the same dialog) records credit
+arriving with **what it cost you** stated separately — zero, when it came off a
+card you have already sold. Every top-up carries its own cost, the carrier's
+cost basis is the average across them, and a sale is costed at that basis:
+$10.60 of credit at $0 a dollar costs $0, and the margin on 1,100,000 LL is the
+whole of it. Credit genuinely bought at face value still costs face value;
+bought at a discount, it costs the discount.
+
+The balance still loses the **face** value when credit goes out — that much
+credit is gone whatever it cost to get.
 
 **Alfa and Touch are set up automatically** as carrier balances — there are
-exactly two in Lebanon and every shop deals with both. Top one up when you buy
-credit from your distributor. The per-message fee is a setting on each carrier,
-so a changed deal is a number to edit rather than a new version of the app.
+exactly two in Lebanon and every shop deals with both. The per-message fee and
+the price a dollar sells for are settings on each carrier, so a changed deal is
+a number to edit rather than a new version of the app.
 
 Every send is recorded against **the number it went to**, which is the question
 a customer comes back with — the order does not carry it. The split and the fee

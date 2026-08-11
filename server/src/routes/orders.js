@@ -15,6 +15,7 @@ import { moveStock, stockAt, stockElsewhere } from '../lib/stock.js';
 import { encryptSecret } from '../lib/secrets.js';
 import { setIdPhoto } from '../lib/idPhotos.js';
 import { quote, describe as describeCredit } from '../lib/credit.js';
+import { creditCostBasis } from '../lib/wallets.js';
 import { orderMessage, sendable } from '../lib/whatsapp.js';
 import {
   CHANGE_MODES,
@@ -48,7 +49,7 @@ router.get('/tax-rate', requireAuth, (req, res) => {
  * for $10 is losing the sixty cents of message fees, and the honest thing is to
  * record that and show it in the margin rather than refuse the sale.
  */
-function buildCreditLine(item, branchId) {
+function buildCreditLine(item, branchId, exchangeRate) {
   const { walletId, msisdn, amount } = item.creditSend || {};
 
   const wallet = db.prepare('SELECT * FROM wallets WHERE id = ?').get(walletId);
@@ -62,14 +63,36 @@ function buildCreditLine(item, branchId) {
   // Throws with something the counter can act on for a bad amount.
   const quoted = quote(amount, wallet.sms_fee);
 
+  /*
+   * What the shop is really out of pocket, not the face value.
+   *
+   * A shop that gets its credit back off validity cards did not pay a dollar
+   * for a dollar of it, and costing the line at face value would report that
+   * the most profitable half of the business earns nothing. The fees are
+   * multiplied too — they come off the same balance, so they are worth what
+   * that balance cost.
+   */
+  const basis = creditCostBasis(wallet.id);
+  const realCost = round2(quoted.cost * basis);
+
+  /*
+   * Priced in pounds, because that is the only way credit is quoted here —
+   * "110,000 a dollar". Converted back at today's rate because the order is
+   * kept in dollars, the same as every other line.
+   */
+  const suggested =
+    exchangeRate > 0
+      ? round2(Math.round(quoted.amount * wallet.credit_price_lbp) / exchangeRate)
+      : quoted.amount;
+
   const charged =
-    item.price === undefined || item.price === null ? quoted.amount : Number(item.price);
+    item.price === undefined || item.price === null ? suggested : Number(item.price);
   if (!Number.isFinite(charged) || charged < 0) {
     throw new Error('The price for the credit must be zero or more');
   }
 
   return {
-    creditSend: { wallet, to, quoted },
+    creditSend: { wallet, to, quoted, realCost, basis },
     product: null,
     quantity: 1,
     price: charged,
@@ -144,7 +167,7 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
          * browser — it is the figure the shop's margin is made of.
          */
         if (item.creditSend) {
-          lineItems.push(buildCreditLine(item, branchId));
+          lineItems.push(buildCreditLine(item, branchId, exchangeRate));
           subtotal += lineItems.at(-1).lineTotal;
           continue;
         }
@@ -365,7 +388,7 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
          * balance, messages included.
          */
         const cost = li.creditSend
-          ? li.creditSend.quoted.cost
+          ? li.creditSend.realCost
           : li.unit
             ? li.unit.cost
             : (li.product.cost ?? null);
@@ -402,6 +425,11 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
           recordWalletMovement({
             walletId: wallet.id,
             kind: 'sale',
+            /*
+             * The balance loses the credit and the fees at face value — that is
+             * how much credit is gone, whatever it cost to get. What it cost is
+             * on the order line, where margin is read from.
+             */
             amount: -quoted.cost,
             amountUsd: -quoted.cost,
             orderId,
