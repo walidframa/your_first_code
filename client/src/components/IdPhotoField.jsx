@@ -1,47 +1,7 @@
 import { useRef, useState } from 'react';
 import { Camera, ImageUp, Trash2 } from 'lucide-react';
 import { Button } from './ui';
-
-/*
- * What the server will take, and roughly what an ID card needs to be readable.
- * A phone camera produces something like 4000px and 4MB; at 1400px the numbers
- * on a card are still legible and the file is a couple of hundred kilobytes,
- * which is the difference between a shop's backup staying small and not.
- */
-const MAX_EDGE = 1400;
-const QUALITY = 0.75;
-
-/**
- * Redraw the picture smaller before it goes anywhere.
- *
- * Done here rather than on the server because the alternative is uploading four
- * megabytes over a Lebanese connection while somebody waits at the counter, and
- * because the server has no image library — this repo has no dependencies doing
- * that kind of work and adding one for a resize is a poor trade.
- *
- * Always re-encoded as JPEG: a photograph is what this is, and a 12-megapixel
- * PNG straight off a scanner is several times the size for no benefit.
- */
-function shrink(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(new Error('That file could not be read'));
-    reader.onload = () => {
-      const img = new Image();
-      img.onerror = () => reject(new Error('That file is not an image'));
-      img.onload = () => {
-        const scale = Math.min(1, MAX_EDGE / Math.max(img.width, img.height));
-        const canvas = document.createElement('canvas');
-        canvas.width = Math.round(img.width * scale);
-        canvas.height = Math.round(img.height * scale);
-        canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
-        resolve(canvas.toDataURL('image/jpeg', QUALITY));
-      };
-      img.src = reader.result;
-    };
-    reader.readAsDataURL(file);
-  });
-}
+import { shrink } from '../lib/shrink';
 
 /**
  * Photograph the seller's ID at the counter.
@@ -72,7 +32,7 @@ export default function IdPhotoField({ value, onChange, disabled = false }) {
     setError('');
     setBusy(true);
     try {
-      onChange(await shrink(file));
+      onChange(await shrink(file, { maxEdge: 1400 }));
     } catch (err) {
       setError(err.message || 'That image could not be used');
     } finally {

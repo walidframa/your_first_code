@@ -12,6 +12,7 @@
  * first thing the Cards screen invites.
  */
 import { db } from '../db.js';
+import { rechargeCardFace } from './cardFace.js';
 
 /** [name, sku suffix, price] within a section. */
 const VALIDITY = [
@@ -36,13 +37,37 @@ const VALIDITY = [
 ];
 
 /*
- * Whole recharge goes entirely to credit, so the denominations are round and
- * the price is the face value until the shop adds its own fee.
+ * The recharge ladder both carriers actually sell.
+ *
+ * Not round numbers: these are the printed values, and they are the credit
+ * *inside* the card rather than what it costs or what it sells for. A "$7.58"
+ * card carries 7.58 of credit; what the shop paid the dealer and what it
+ * charges over the counter are two other numbers entirely, which is exactly
+ * why they are three fields and not one.
+ *
+ * Seeded price and cost are the face value, the same neutral default the rest
+ * of this file uses — the shop's dealer discount and its own mark-up are its
+ * business, and a guessed one would report a margin nobody earned.
  */
-const WHOLE = [5, 10, 20, 50].flatMap((amount) => [
-  [`ALFA whole recharge $${amount}`, `ALFA-WHOLE-${amount}`, amount],
-  [`MTC whole recharge $${amount}`, `MTC-WHOLE-${amount}`, amount],
-]);
+const RECHARGE_VALUES = [3.79, 4.5, 7.58, 15.15, 22.73, 77.28];
+
+/*
+ * "$03.79", not "$3.79" — which is how the carriers print it, and also the
+ * only way a plain name sort puts the ladder in the order it climbs. Without
+ * the padding the register shows 15.15 before 3.79 and the wall stops reading
+ * like a wall of cards.
+ */
+const padded = (credit) => credit.toFixed(2).padStart(5, '0');
+
+const WHOLE = RECHARGE_VALUES.flatMap((credit, index) =>
+  ['Alfa', 'Touch'].map((carrier) => [
+    `${carrier} $${padded(credit)}`,
+    // Two decimals flattened into the SKU, so 4.50 and 4.5 cannot both exist.
+    `${carrier.toUpperCase()}-WHOLE-${credit.toFixed(2).replace('.', '')}`,
+    credit,
+    { credits: credit, carrier, face: rechargeCardFace({ carrier, credits: credit, index }) },
+  ]),
+);
 
 const GIFT = [
   ['iTunes $10', 'ITUNES-10', 10],
@@ -147,8 +172,8 @@ function findOrCreateWallet({ name, kind, currency }) {
 export function installStarterCatalogue({ userId = null } = {}) {
   const insert = db.prepare(`
     INSERT INTO products (name, sku, price, cost, stock, category_id, image_emoji, wallet_id, reorder_point,
-                          validity_days, credit_wallet_id)
-    VALUES (?, ?, ?, ?, 0, ?, ?, ?, 0, ?, ?)
+                          validity_days, credit_wallet_id, credits_included, image_url)
+    VALUES (?, ?, ?, ?, 0, ?, ?, ?, 0, ?, ?, ?, ?)
   `);
   // Which carrier balance a validity card's recovered credit lands on.
   const carrierId = (name) => db.prepare('SELECT id FROM wallets WHERE name = ?').get(name)?.id ?? null;
@@ -173,6 +198,8 @@ export function installStarterCatalogue({ userId = null } = {}) {
         name, sku, price, price, categoryId, section.emoji, walletId,
         extra?.validityDays ?? null,
         extra?.carrier ? carrierId(extra.carrier) : null,
+        extra?.credits ?? null,
+        extra?.face ?? null,
       );
       added += 1;
     }

@@ -567,8 +567,34 @@ test('the starter set brings the validity cards a Lebanese shop sells', async ()
   }
 
   validity30 = cards.find((c) => c.sku === 'CARD-VAL-ALFA-30');
-  fullCard = products.find((p) => p.sku === 'CARD-ALFA-WHOLE-10');
+  fullCard = products.find((p) => p.sku === 'CARD-ALFA-WHOLE-758');
   assert.ok(validity30 && fullCard);
+});
+
+test('the recharge ladder is the one the carriers actually print', async () => {
+  const products = (await req('GET', '/products', null, adminToken)).json.products;
+  const whole = products.filter((p) => p.sku.includes('-WHOLE-') && p.active);
+
+  /*
+   * Six printed values, for each of the two carriers. Round $5 / $10 / $20 /
+   * $50 cards are not sold in Lebanon, and a tile a cashier cannot actually
+   * hand over is worse than no tile.
+   */
+  assert.deepEqual(
+    [...new Set(whole.map((c) => c.credits_included))].sort((a, b) => a - b),
+    [3.79, 4.5, 7.58, 15.15, 22.73, 77.28],
+  );
+  assert.equal(whole.length, 12, 'six each for Alfa and Touch');
+
+  // The number on the card is the credit inside it, not its price or its cost.
+  assert.equal(fullCard.credits_included, 7.58);
+
+  // And each one carries a picture, so the register is a wall of cards rather
+  // than a wall of identical tiles.
+  assert.ok(
+    whole.every((c) => String(c.image_url || '').startsWith('data:image/svg+xml')),
+    'every recharge card has a face',
+  );
 });
 
 test('a validity card is linked to the full card it is delivered by', async () => {

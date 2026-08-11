@@ -651,6 +651,18 @@ try {
     await page.waitForSelector('text=Validity');
     await page.waitForSelector('text=Not linked yet');
 
+    /*
+     * The recharge ladder the carriers actually print, padded the way they
+     * print it, carrying the credit inside rather than a price. Round $5 and
+     * $10 cards are not sold in Lebanon and are not offered here.
+     */
+    await page.waitForSelector('text=Alfa $03.79');
+    await page.waitForSelector('text=Touch $77.28');
+    await page.waitForSelector('text=carries $7.58 of credit');
+    if (await page.locator('text=Alfa whole recharge $5').count()) {
+      throw new Error('a denomination no carrier sells is still on offer');
+    }
+
     // Seeded at cost = price, so every margin reads as "set the cost" until
     // the shop puts its dealer price in.
     await page.waitForSelector('text=Set the cost');
@@ -935,6 +947,15 @@ try {
      */
     for (const expected of ['$10.60', '4 × $0.15', '110,000 a dollar']) {
       if (!shown.includes(expected)) throw new Error(`the credit panel is missing ${expected}`);
+    }
+    /*
+     * And whose money the fees are, said in words. The customer is charged for
+     * the credit they asked for; the messages are the shop's cost of getting it
+     * to them and come off the balance. Two figures a few lines apart get read
+     * the wrong way round, and the wrong way round is sixty cents a time.
+     */
+    if (!shown.includes('comes off Alfa, not off them')) {
+      throw new Error('the panel does not say who pays the message fees');
     }
 
     await credit.getByRole('button', { name: /Add to the sale/ }).click();

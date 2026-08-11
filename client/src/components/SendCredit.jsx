@@ -249,6 +249,20 @@ export default function SendCredit({ onClose, onPicked }) {
             </p>
           </div>
 
+          {/*
+            * Whose money the fees are is the one thing about this that gets
+            * misread, and misreading it costs sixty cents a time in the wrong
+            * direction. The customer is charged for the credit they asked for;
+            * the messages are the shop's cost of delivering it, and they come
+            * off the balance. Said in words because two figures a few lines
+            * apart do not say it on their own.
+            */}
+          <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs leading-relaxed text-slate-600">
+            The customer pays for <strong>{money(quote.amount)}</strong> of credit and gets all of
+            it. The {quote.smsCount} × {money(quote.feeEach)} comes off {carrier?.name}, not off
+            them.
+          </p>
+
           <dl className="space-y-1 text-sm">
             <div className="flex justify-between">
               <dt className="text-slate-500">
