@@ -5,6 +5,9 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dbPath = process.env.DB_PATH || path.join(__dirname, '..', 'data.sqlite');
 
+/** Where the shop's books actually are, for anything that has to copy them. */
+export const databasePath = dbPath;
+
 export const db = new DatabaseSync(dbPath);
 db.exec('PRAGMA journal_mode = WAL');
 db.exec('PRAGMA foreign_keys = ON');
@@ -1578,6 +1581,45 @@ addColumn('order_items', 'returned_qty', 'INTEGER NOT NULL DEFAULT 0');
  * sale made before this column existed.
  */
 addColumn('orders', 'cash_session_id', 'INTEGER REFERENCES cash_sessions(id)');
+
+/*
+ * Paying for a phone over months — تقسيط.
+ *
+ * A plan is a **schedule over a debt the customer already owes**, not a second
+ * set of books. The sale went on their account the ordinary way and the ledger
+ * in account_entries is still the one true answer to what is owed; this says
+ * when the shop expects it, so "who is late" is a question with an answer
+ * instead of a notebook behind the counter.
+ *
+ * Keeping it that way is the whole design. A plan that carried its own balance
+ * would disagree with the ledger the first time somebody paid off the counter
+ * without mentioning the plan — and the ledger would be right.
+ */
+db.exec(`
+  CREATE TABLE IF NOT EXISTS installment_plans (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    customer_id INTEGER NOT NULL REFERENCES customers(id),
+    order_id INTEGER REFERENCES orders(id),
+    total_usd REAL NOT NULL,
+    note TEXT,
+    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'settled', 'cancelled')),
+    branch_id INTEGER REFERENCES branches(id),
+    user_id INTEGER REFERENCES users(id),
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS installment_dues (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    plan_id INTEGER NOT NULL REFERENCES installment_plans(id) ON DELETE CASCADE,
+    due_date TEXT NOT NULL,
+    amount_usd REAL NOT NULL,
+    paid_usd REAL NOT NULL DEFAULT 0,
+    paid_at TEXT
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_dues_date ON installment_dues(due_date, paid_usd);
+  CREATE INDEX IF NOT EXISTS idx_plans_customer ON installment_plans(customer_id, status);
+`);
 addColumn('product_units', 'msisdn', 'TEXT');
 CREATE_MSISDN_INDEX: {
   db.exec('CREATE INDEX IF NOT EXISTS idx_units_msisdn ON product_units(msisdn)');

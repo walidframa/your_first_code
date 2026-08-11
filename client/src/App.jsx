@@ -12,6 +12,7 @@ import AdminProducts from './pages/admin/Products';
 import AdminInventory from './pages/admin/Inventory';
 import AdminImport from './pages/admin/Import';
 import AdminOrders from './pages/admin/Orders';
+import AdminInstallments from './pages/admin/Installments';
 import AdminUsers from './pages/admin/Users';
 import AdminBranches from './pages/admin/Branches';
 import AdminStockTransfers from './pages/admin/StockTransfers';
@@ -220,6 +221,14 @@ export default function App() {
           element={
             <ProtectedRoute permission="imports">
               <AdminShopify />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/installments"
+          element={
+            <ProtectedRoute permission="parties">
+              <AdminInstallments />
             </ProtectedRoute>
           }
         />

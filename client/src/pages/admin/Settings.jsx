@@ -3,6 +3,7 @@ import { ArrowRight, History, Save } from 'lucide-react';
 import api from '../../api';
 import PageHeader from '../../components/PageHeader';
 import CompanySettings from '../../components/CompanySettings';
+import Backups from '../../components/Backups';
 import { useSettings, lbp } from '../../context/SettingsContext';
 import { TEXT_SIZES, applyTextSize, getTextSize } from '../../lib/textSize';
 import {
@@ -128,6 +129,11 @@ export default function Settings() {
 
         <div className="mb-4 max-w-4xl">
           <TextSize />
+        </div>
+
+        {/* Boring until the day it is the only thing that matters. */}
+        <div className="mb-4 max-w-4xl">
+          <Backups />
         </div>
 
         <div className="grid max-w-4xl grid-cols-2 gap-4">

@@ -25,6 +25,9 @@ import expenseRoutes from './routes/expenses.js';
 import walletRoutes from './routes/wallets.js';
 import simRoutes from './routes/sims.js';
 import creditRoutes from './routes/credit.js';
+import backupRoutes from './routes/backups.js';
+import { startNightlyBackups } from './lib/backups.js';
+import installmentRoutes from './routes/installments.js';
 import transferRoutes from './routes/transfers.js';
 import voucherRoutes from './routes/vouchers.js';
 import heldSaleRoutes from './routes/held.js';
@@ -123,6 +126,8 @@ app.use('/api/wallets', walletRoutes);
 app.use('/api/sims', simRoutes);
 app.use('/api/credit', creditRoutes);
 app.use('/api/transfers', transferRoutes);
+app.use('/api/backups', backupRoutes);
+app.use('/api/installments', installmentRoutes);
 app.use('/api/vouchers', voucherRoutes);
 app.use('/api/held-sales', heldSaleRoutes);
 app.use('/api/branches', branchRoutes);
@@ -164,4 +169,12 @@ app.listen(PORT, () => {
   );
   // No-ops until a shop is connected and the sync is switched on.
   startShopifyWorker();
+
+  /*
+   * A copy of the books, once a day, without anybody remembering to.
+   *
+   * Skipped under test, where a hundred throwaway databases would each leave a
+   * backup directory behind.
+   */
+  if (process.env.NODE_ENV !== 'test') startNightlyBackups();
 });

@@ -1256,6 +1256,115 @@ try {
     await page.waitForSelector('text=/Owes you \\$50\\.00|\\$50\\.00/', { timeout: 15000 });
   });
 
+  await step('a phone paid off over months is scheduled, and the ledger stays boss', async () => {
+    // The step before this one leaves a dialog open.
+    await closeDialog();
+
+    /*
+     * A customer of this step's own, carrying the phone on their account.
+     *
+     * Their own, because a plan moves what somebody owes, and the customer the
+     * later steps use is on a $200 limit — putting a phone on that account here
+     * would leave them over it, and the account sale further down would be
+     * refused for a reason that had nothing to do with it.
+     *
+     * Charged first, which is the order it happens at the counter and the whole
+     * point of the design: a plan schedules a debt that already exists.
+     */
+    await page.evaluate(async () => {
+      const h = {
+        Authorization: `Bearer ${localStorage.getItem('pos_token')}`,
+        'Content-Type': 'application/json',
+      };
+      const made = await (
+        await fetch('/api/customers', {
+          method: 'POST',
+          headers: h,
+          body: JSON.stringify({ name: 'Nadia Khoury', phone: '03 987 654', credit_limit: 1000 }),
+        })
+      ).json();
+      await fetch(`/api/customers/${made.party.id}/charges`, {
+        method: 'POST',
+        headers: h,
+        body: JSON.stringify({ amount: 400, note: 'iPhone 13' }),
+      });
+    });
+
+    await page.click('a[title="Instalments"]');
+    await page.waitForSelector('text=Out on plans', { timeout: 15000 });
+
+    await page.click('button:has-text("New plan")');
+    await page.waitForSelector('[role=dialog] >> text=Paying off what is already owed', { timeout: 10000 });
+
+    // The picker opens a second dialog on top of this one.
+    await page.locator('[role=dialog]').getByRole('button', { name: 'Add customer' }).click();
+    await page.waitForSelector('[role=dialog] >> text=Choose a customer', { timeout: 10000 });
+    await page.locator('input[placeholder*="Search by name"]').fill('Nadia');
+    await page.waitForTimeout(500);
+    await page.locator('[role=dialog]').last().locator('button:has-text("Nadia")').first().click();
+
+    const plan = page.locator('[role=dialog]').last();
+    await plan.locator('#total').fill('400');
+    await plan.locator('#count').selectOption('4');
+    await plan.locator('#note').fill('iPhone 13');
+    // Said back before it is set up, so nobody schedules a figure they did not mean.
+    await page.waitForSelector('[role=dialog] >> text=/About \\$100\\.00/', { timeout: 5000 });
+    await plan.getByRole('button', { name: 'Set it up' }).click();
+    await page.waitForSelector('text=/4 payments set up/', { timeout: 15000 });
+
+    const owedBefore = await page.evaluate(async () => {
+      const h = { Authorization: `Bearer ${localStorage.getItem('pos_token')}` };
+      const r = await (await fetch('/api/installments', { headers: h })).json();
+      const p = r.plans.find((x) => x.note === 'iPhone 13');
+      const c = await (await fetch(`/api/customers/${p.customer_id}`, { headers: h })).json();
+      return { outstanding: p.outstandingUsd, owes: c.party.balance };
+    });
+    if (owedBefore.outstanding !== 400) throw new Error('the plan should be for the whole 400');
+
+    // A payment settles the earliest month and comes off what they owe.
+    await page.locator('.grid > div', { hasText: 'iPhone 13' }).first()
+      .getByRole('button', { name: 'Take a payment' }).click();
+    await page.waitForSelector('[role=dialog] >> text=How much', { timeout: 10000 });
+    await page.locator('[role=dialog]').last().getByRole('button', { name: 'Take it' }).click();
+    await page.waitForSelector('text=/left$/', { timeout: 15000 });
+
+    const after = await page.evaluate(async () => {
+      const h = { Authorization: `Bearer ${localStorage.getItem('pos_token')}` };
+      const r = await (await fetch('/api/installments', { headers: h })).json();
+      const p = r.plans.find((x) => x.note === 'iPhone 13');
+      const c = await (await fetch(`/api/customers/${p.customer_id}`, { headers: h })).json();
+      return { outstanding: p.outstandingUsd, first: p.dues[0].paid_usd, owes: c.party.balance };
+    });
+    if (after.first !== 100) throw new Error(`the first month took ${after.first}, not 100`);
+    if (after.outstanding !== 300) throw new Error(`the plan says ${after.outstanding} left, not 300`);
+    /*
+     * The plan is a schedule over a debt, never a second set of books — so the
+     * customer's balance had to move by the same hundred.
+     */
+    if (Math.round((owedBefore.owes - after.owes) * 100) / 100 !== 100) {
+      throw new Error('the ledger and the plan disagree about the payment');
+    }
+  });
+
+  await step('a backup can be taken, and says what must travel with it', async () => {
+    await page.click('a[title="Settings"]');
+    await page.waitForSelector('text=Backups', { timeout: 15000 });
+
+    await page.getByRole('button', { name: 'Back up now' }).click();
+    await page.waitForSelector('text=/Backup taken/', { timeout: 20000 });
+
+    /*
+     * The warning is the feature. A backup carried off without server/.env has
+     * every stored customer password unreadable, and there is no fixing that
+     * afterwards — so it must be on the screen somebody copies the file from.
+     */
+    await page.waitForSelector('text=server/.env', { timeout: 5000 });
+    await page.waitForSelector('text=/unreadable for good/', { timeout: 5000 });
+
+    // And the copy is real: it appears in the list with a size on it.
+    await page.waitForSelector('button:has-text("Download")', { timeout: 10000 });
+  });
+
   await step('a supplier bill shows up as a payable', async () => {
     await page.keyboard.press('Escape');
     await page.click('a[title="Suppliers"]');
