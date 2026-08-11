@@ -48,7 +48,14 @@ app.use(cors());
  */
 app.use(
   express.json({
-    limit: '6mb',
+    /*
+     * Generous because two things arrive as base64 inside JSON — a spreadsheet
+     * to import and a photographed ID — and base64 costs a third on top. A 5MB
+     * workbook is 6.7MB on the wire, so a 6mb ceiling would refuse a file the
+     * import itself considers well within its limit, from underneath it, with
+     * an error mentioning neither.
+     */
+    limit: '12mb',
     verify: (req, res, buf) => {
       req.rawBody = buf;
     },

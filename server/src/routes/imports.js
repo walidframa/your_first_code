@@ -2,12 +2,15 @@ import { Router } from 'express';
 import { db, transaction } from '../db.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { parseCsvToRecords } from '../lib/csv.js';
+import { readWorkbook, sheetToRecords } from '../lib/xlsx.js';
 import { CANONICAL_FIELDS, PRESETS, detectFormat, buildMapping, parseNumber } from '../lib/importFormats.js';
 import { barcodesFor, barcodesFromBody, setBarcodes } from '../lib/barcodes.js';
 import { setStock, stockAt } from '../lib/stock.js';
+import { getSettings } from '../lib/settings.js';
 
 const router = Router();
-const MAX_CSV_BYTES = 5 * 1024 * 1024;
+/* The same ceiling whether it arrives as text or as a spreadsheet. */
+const MAX_IMPORT_BYTES = 5 * 1024 * 1024;
 
 /**
  * Put a CSV's barcode into the barcode table as well as the column.
@@ -38,11 +41,22 @@ router.get('/formats', requireAuth, requirePermission('imports'), (req, res) => 
 });
 
 /**
- * Turn one CSV record into a validated product payload using the column mapping.
- * Returns { data, errors } — errors are per-row and never throw.
+ * Whether a row's money column is in pounds.
+ *
+ * The app keeps one price, in dollars, and derives the pounds from the rate —
+ * so a file that mixes the two has to be brought onto that footing on the way
+ * in. Anything that is not recognisably LBP is taken as dollars, including a
+ * blank: a file with no currency column at all is a dollar file, and that is
+ * the overwhelmingly common case.
  */
-function buildRow(record, mapping, index) {
+function isLbp(text) {
+  const t = String(text || '').trim().toUpperCase();
+  return t === 'LBP' || t === 'LL' || t === 'L.L.' || t === 'LEBANESE POUND';
+}
+
+function buildRow(record, mapping, index, rate = 0) {
   const errors = [];
+  const notes = [];
   const value = (field) => (mapping[field] ? (record[mapping[field]] ?? '').trim() : '');
 
   const name = value('name');
@@ -52,14 +66,33 @@ function buildRow(record, mapping, index) {
   if (!name) errors.push('Missing product name');
   if (!sku) errors.push('Missing SKU');
 
-  const price = parseNumber(priceRaw);
+  let price = parseNumber(priceRaw);
   if (priceRaw === '') errors.push('Missing price');
   else if (price === null) errors.push(`Price "${priceRaw}" is not a number`);
   else if (price < 0) errors.push('Price cannot be negative');
 
+  /*
+   * A price in pounds, converted at the shop's rate. Left alone, a 300,000 LL
+   * cable becomes a $300,000 cable — a mistake nobody catches reading a preview
+   * of five hundred rows, and one that surfaces at the till in front of a
+   * customer. Said in the row's notes so the preview shows what happened.
+   */
+  if (price !== null && price > 0 && isLbp(value('currency'))) {
+    if (rate > 0) {
+      const asLbp = price;
+      price = Math.round((price / rate) * 100) / 100;
+      notes.push(`${asLbp.toLocaleString('en-US')} LL → ${price.toFixed(2)} at ${rate.toLocaleString('en-US')}`);
+    } else {
+      errors.push('Priced in pounds, but no exchange rate is set');
+    }
+  }
+
   const costRaw = value('cost');
-  const cost = costRaw ? parseNumber(costRaw) : 0;
+  let cost = costRaw ? parseNumber(costRaw) : 0;
   if (costRaw && cost === null) errors.push(`Cost "${costRaw}" is not a number`);
+  else if (cost && isLbp(value('cost_currency')) && rate > 0) {
+    cost = Math.round((cost / rate) * 100) / 100;
+  }
 
   const stockRaw = value('stock');
   const stock = stockRaw ? parseNumber(stockRaw) : 0;
@@ -71,6 +104,7 @@ function buildRow(record, mapping, index) {
   return {
     line: index + 2, // +1 for the header row, +1 for 1-based line numbers
     errors,
+    notes,
     data: {
       name,
       sku,
@@ -86,8 +120,51 @@ function buildRow(record, mapping, index) {
   };
 }
 
-function analyze(csv, requestedFormat, requestedMapping) {
-  const { headers, records } = parseCsvToRecords(csv);
+/**
+ * Turn whatever was uploaded into headers and records.
+ *
+ * A CSV and a spreadsheet differ only in how the grid is got at, so they
+ * converge here and everything downstream — the format presets, the column
+ * mapping, the per-row validation — carries on knowing nothing about it.
+ *
+ * Throws with a message meant for the person who uploaded the file; every
+ * failure here is something they can act on.
+ */
+function readSource({ csv, workbook, sheet }) {
+  if (typeof workbook === 'string' && workbook.trim()) {
+    const bytes = Buffer.from(workbook, 'base64');
+    if (bytes.length > MAX_IMPORT_BYTES) {
+      throw new Error('That spreadsheet is larger than the 5 MB import limit');
+    }
+
+    const { sheets } = readWorkbook(bytes);
+    /*
+     * Named rather than positional. A supplier's workbook routinely holds the
+     * price list, a cover note and last month's version, and only the shop can
+     * say which is which — but with one sheet there is nothing to ask about.
+     */
+    const chosen = sheet ? sheets.find((s) => s.name === sheet) : sheets.find((s) => s.rows.length > 0);
+    if (!chosen) throw new Error(`That workbook has no sheet called “${sheet}”`);
+
+    return {
+      ...sheetToRecords(chosen.rows),
+      sheets: sheets.map((s) => ({ name: s.name, rows: Math.max(0, s.rows.length - 1) })),
+      sheet: chosen.name,
+    };
+  }
+
+  return parseCsvToRecords(csv);
+}
+
+function analyze(source, requestedFormat, requestedMapping) {
+  let read;
+  try {
+    read = readSource(source);
+  } catch (err) {
+    return { error: err.message };
+  }
+
+  const { headers, records, sheets = null, sheet = null } = read;
   if (headers.length === 0) {
     return { error: 'The file appears to be empty' };
   }
@@ -104,9 +181,12 @@ function analyze(csv, requestedFormat, requestedMapping) {
       .map((r) => r.sku.toLowerCase()),
   );
 
+  // The rate any pound-priced row is brought onto dollars at.
+  const { exchange_rate: rate } = getSettings();
+
   const seenInFile = new Set();
   const rows = records.map((record, index) => {
-    const row = buildRow(record, mapping, index);
+    const row = buildRow(record, mapping, index, rate);
     const key = row.data.sku.toLowerCase();
 
     if (key && seenInFile.has(key)) {
@@ -120,6 +200,9 @@ function analyze(csv, requestedFormat, requestedMapping) {
 
   return {
     headers,
+    // Null for a CSV, which has exactly one grid and nothing to choose between.
+    sheets,
+    sheet,
     format,
     detectedFormat: detectFormat(headers),
     mapping,
@@ -130,20 +213,41 @@ function analyze(csv, requestedFormat, requestedMapping) {
       create: rows.filter((r) => r.action === 'create').length,
       update: rows.filter((r) => r.action === 'update').length,
       error: rows.filter((r) => r.action === 'error').length,
+      // Worth its own figure: it is the number that says the currency column
+      // was read, and a shop expecting it to be zero has mapped something wrong.
+      converted: rows.filter((r) => r.notes.length > 0).length,
     },
+    rate,
   };
 }
 
-router.post('/preview', requireAuth, requirePermission('imports'), (req, res) => {
-  const { csv, format, mapping } = req.body || {};
-  if (typeof csv !== 'string' || !csv.trim()) {
-    return res.status(400).json({ error: 'csv content is required' });
+/**
+ * What was uploaded, or a message saying why it cannot be read.
+ *
+ * A CSV arrives as text and a spreadsheet as base64; either is fine, neither
+ * being present is not.
+ */
+function takeUpload(body) {
+  const { csv, workbook, sheet } = body || {};
+  const hasCsv = typeof csv === 'string' && csv.trim();
+  const hasWorkbook = typeof workbook === 'string' && workbook.trim();
+
+  if (!hasCsv && !hasWorkbook) {
+    return { error: 'Upload a CSV or an Excel file', status: 400 };
   }
-  if (Buffer.byteLength(csv, 'utf8') > MAX_CSV_BYTES) {
-    return res.status(413).json({ error: 'File is larger than the 5 MB import limit' });
+  if (hasCsv && Buffer.byteLength(csv, 'utf8') > MAX_IMPORT_BYTES) {
+    return { error: 'File is larger than the 5 MB import limit', status: 413 };
   }
 
-  const result = analyze(csv, format, mapping);
+  return { source: { csv, workbook, sheet } };
+}
+
+router.post('/preview', requireAuth, requirePermission('imports'), (req, res) => {
+  const { format, mapping } = req.body || {};
+  const upload = takeUpload(req.body);
+  if (upload.error) return res.status(upload.status).json({ error: upload.error });
+
+  const result = analyze(upload.source, format, mapping);
   if (result.error) return res.status(400).json({ error: result.error });
 
   // Cap the rows sent back so a huge file doesn't blow up the response.
@@ -151,15 +255,11 @@ router.post('/preview', requireAuth, requirePermission('imports'), (req, res) =>
 });
 
 router.post('/commit', requireAuth, requirePermission('imports'), (req, res) => {
-  const { csv, format, mapping, updateExisting = true, createCategories = true } = req.body || {};
-  if (typeof csv !== 'string' || !csv.trim()) {
-    return res.status(400).json({ error: 'csv content is required' });
-  }
-  if (Buffer.byteLength(csv, 'utf8') > MAX_CSV_BYTES) {
-    return res.status(413).json({ error: 'File is larger than the 5 MB import limit' });
-  }
+  const { format, mapping, updateExisting = true, createCategories = true } = req.body || {};
+  const upload = takeUpload(req.body);
+  if (upload.error) return res.status(upload.status).json({ error: upload.error });
 
-  const result = analyze(csv, format, mapping);
+  const result = analyze(upload.source, format, mapping);
   if (result.error) return res.status(400).json({ error: result.error });
   if (result.missingRequired.length) {
     return res.status(400).json({ error: `Unmapped required columns: ${result.missingRequired.join(', ')}` });

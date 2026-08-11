@@ -503,6 +503,14 @@ someone can reach, and the server refuses everything else whether or not they
 find the address — a cashier typing `/admin/inventory` lands back on the
 register.
 
+The back-office headings — Selling, Money, Stock, Setup — **fold away**, and
+which ones are folded is remembered per person. A shop lives on three or four
+screens and reaches the rest once a month, so most of the rail is a wall of
+things nobody is looking for. The group holding the screen you are on stays open
+whatever the preference says: arriving somewhere should not hide it from the
+menu. Folding only applies to the wide rail; narrow, the headings are already
+rules rather than words.
+
 Permissions are read from the database on every request rather than carried in
 the session token, so **taking one away takes effect on the next click**, not
 whenever the login happens to expire.
@@ -891,17 +899,64 @@ a party's entries, and the same query serves receivables and payables.
 
 ## Importing an existing catalog
 
-Admin → **Import**. Drop a CSV and the importer will:
+Admin → **Import**. Drop a **CSV or an Excel file** and the importer will:
 
-1. Detect the source format from its headers (Shopify, Square, Lightspeed, or generic)
+1. Detect the source format from its headers (Shopify, Square, Lightspeed, a
+   Lebanese till's item export, or generic)
 2. Auto-map columns onto `name`, `sku`, `price`, `cost`, `stock`, `category`,
    `barcode`, `supplier`, `image_url` and `reorder_point` — editable before you commit
 3. Validate every row and show exactly what will be created, updated or skipped
 4. Upsert by SKU, creating categories as needed and writing stock changes to the
    inventory ledger
 
-The parser handles quoted fields, embedded commas and newlines, CRLF, BOMs,
+The CSV parser handles quoted fields, embedded commas and newlines, CRLF, BOMs,
 `;`/tab/`|` delimiters, and prices written as `$1,299.00` or `1.299,50`.
+
+### Excel files are read directly
+
+**Not converted to CSV first, deliberately.** Excel's own CSV export is where a
+catalogue gets damaged: a 13-digit barcode comes out as `6.29104E+12` and every
+one of them is ruined. So an `.xlsx` is read as it came, by
+`server/src/lib/xlsx.js` — a ZIP of XML, both of which Node already does, so
+there is no dependency doing it and nothing parsing arbitrary archives from
+files strangers email the shop.
+
+It copes with what supplier files actually look like: a title line above the
+header (the widest row near the top is taken as the header, not the first
+non-empty one), blank rows through the middle, empty cells that would otherwise
+shift every later column one to the left, accented names, text stored in
+formatting runs, and **two columns with the same name** — the second becomes
+`Currency (2)` so both can still be mapped.
+
+A workbook with several sheets asks which one. The old binary `.xls` is a
+different format entirely and says so, with what to do about it.
+
+### Categories
+
+Admin → Products → **Categories** creates, renames and deletes them. Renaming is
+the useful one: categories could previously be made but never unmade, so a shop
+a year in has "Accessories", "accessories" and "Acessories" — and a rename is
+safe, because a product points at the row rather than at the word, so every
+product on it follows.
+
+Each row shows how many products are on it, which is the number that decides
+whether it can go. **Deleting one that still holds products asks first** and says
+how many; agreeing leaves those products in the catalogue, selling as before,
+simply with no category. Renaming onto a name already taken is refused rather
+than silently merging two categories.
+
+### Prices in two currencies
+
+A Lebanese till exports a mixed list: most lines in dollars, a handful in pounds,
+with a currency column beside the price. **Read as dollars, a 300,000 LL cable
+becomes a $300,000 cable** — which nobody catches reading a preview of five
+hundred rows, and which surfaces at the till with a customer waiting.
+
+So there is a **Price currency** column in the mapping. Where it says LBP the
+price is converted at the shop's rate, the row says what it did
+(`300,000 LL → 3.37 at 89,000`), and the review screen carries a count of how
+many were converted. Left unmapped everything is taken as dollars, which is what
+a file with no such column means.
 
 ## The cashbox
 
@@ -1181,6 +1236,9 @@ Routes are guarded by **permission**, not by role — an admin holds all of them
 | PUT    | `/api/products/:id`            | `catalogue`  |
 | DELETE | `/api/products/:id`            | `catalogue`  |
 | GET    | `/api/products/categories`     | any          |
+| POST   | `/api/products/categories`     | `catalogue`  |
+| PATCH  | `/api/products/categories/:id` | `catalogue`  |
+| DELETE | `/api/products/categories/:id` | `catalogue`  |
 | POST   | `/api/orders`                  | `register`   |
 | GET    | `/api/orders`                  | any\*        |
 | GET    | `/api/orders/:id`              | any\*        |

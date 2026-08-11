@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { db } from '../db.js';
+import { db, transaction } from '../db.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { activityFor, costHistoryFor, recordCostChange } from '../lib/costHistory.js';
 import { barcodeMap, barcodesFor, barcodesFromBody, setBarcodes } from '../lib/barcodes.js';
@@ -43,8 +43,20 @@ function walletProblem(walletId, tracksUnits) {
   return null;
 }
 
+/**
+ * The shelves the catalogue is sorted onto.
+ *
+ * With a count of what is on each, because that is the number that decides
+ * whether one can be got rid of — and a list of empty categories nobody can
+ * see is a list nobody tidies.
+ */
 router.get('/categories', requireAuth, (req, res) => {
-  const categories = db.prepare('SELECT * FROM categories ORDER BY name').all();
+  const categories = db
+    .prepare(
+      `SELECT c.*, (SELECT COUNT(*) FROM products p WHERE p.category_id = c.id) AS product_count
+       FROM categories c ORDER BY c.name`,
+    )
+    .all();
   res.json({ categories });
 });
 
@@ -57,6 +69,64 @@ router.post('/categories', requireAuth, requirePermission('catalogue'), (req, re
   } catch {
     res.status(409).json({ error: 'Category already exists' });
   }
+});
+
+/**
+ * Rename one.
+ *
+ * Every product pointing at it follows, because they point at the row and not
+ * at the word — which is the whole reason a shop can fix a typo it has been
+ * looking at for a month without touching the catalogue.
+ */
+router.patch('/categories/:id', requireAuth, requirePermission('catalogue'), (req, res) => {
+  const { name } = req.body || {};
+  if (!name || !name.trim()) return res.status(400).json({ error: 'Name is required' });
+
+  const category = db.prepare('SELECT * FROM categories WHERE id = ?').get(req.params.id);
+  if (!category) return res.status(404).json({ error: 'Category not found' });
+
+  try {
+    db.prepare('UPDATE categories SET name = ? WHERE id = ?').run(name.trim(), category.id);
+    res.json({ category: { ...category, name: name.trim() } });
+  } catch {
+    // Renaming onto a name already taken. Merging two categories is a
+    // different job with different consequences, so it is not done by accident.
+    res.status(409).json({ error: `There is already a category called “${name.trim()}”` });
+  }
+});
+
+/**
+ * Delete one.
+ *
+ * Refused while products are still on it, because a shop that deletes a
+ * category by accident has quietly uncategorised part of its catalogue and will
+ * not find out until it next looks for something. The count comes back in the
+ * message so the answer is in front of whoever has to decide.
+ *
+ * `?force=true` is that decision made: the category goes and its products
+ * become uncategorised, which is a state they can already be in.
+ */
+router.delete('/categories/:id', requireAuth, requirePermission('catalogue'), (req, res) => {
+  const category = db.prepare('SELECT * FROM categories WHERE id = ?').get(req.params.id);
+  if (!category) return res.status(404).json({ error: 'Category not found' });
+
+  const inUse = db
+    .prepare('SELECT COUNT(*) AS n FROM products WHERE category_id = ?')
+    .get(category.id).n;
+
+  if (inUse > 0 && req.query.force !== 'true') {
+    return res.status(409).json({
+      error: `${inUse} product${inUse === 1 ? ' is' : 's are'} in “${category.name}”`,
+      productCount: inUse,
+    });
+  }
+
+  transaction(() => {
+    db.prepare('UPDATE products SET category_id = NULL WHERE category_id = ?').run(category.id);
+    db.prepare('DELETE FROM categories WHERE id = ?').run(category.id);
+  })();
+
+  res.json({ deleted: true, uncategorised: inUse });
 });
 
 router.get('/', requireAuth, (req, res) => {

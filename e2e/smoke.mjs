@@ -23,7 +23,13 @@ const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
 // browser's generic "Failed to load resource" console line.
 // The Shopify step likewise submits a deliberately invalid shop address, to
 // check the error is reported rather than the credentials quietly stored.
-const ALLOWED_FAILURES = [/\/api\/products\/lookup/, /\/api\/shopify\/connect/];
+// And deleting a category that still holds products is refused on purpose —
+// the 409 carries the count, which is what the confirmation is built from.
+const ALLOWED_FAILURES = [
+  /\/api\/products\/lookup/,
+  /\/api\/shopify\/connect/,
+  /\/api\/products\/categories\/\d+$/,
+];
 
 const consoleErrors = [];
 const failedResponses = [];
@@ -725,6 +731,89 @@ try {
     await page.waitForSelector('text=Cold Brew', { timeout: 15000 });
   });
   await shot('products');
+
+  /*
+   * A supplier sends Excel, not CSV, and saving it out of Excel as CSV is what
+   * turns a 13-digit barcode into 1.23457E+12. The fixture carries the things
+   * that actually go wrong: a title above the header, a gap mid-row, a second
+   * sheet that is not the price list.
+   */
+  await step('an Excel file imports, sheet and all', async () => {
+    await page.click('a[title="Import"]');
+    await page.waitForSelector('text=Drop a CSV file here', { timeout: 15000 });
+    await page.locator('input[type=file]').setInputFiles('server/test/fixtures/supplier-catalogue.xlsx');
+    await page.waitForSelector('text=Source format', { timeout: 20000 });
+
+    // Two sheets, so the shop is asked which — and the price list is not the
+    // first tab.
+    await page.getByLabel('Sheet').selectOption('Price list');
+    await page.waitForSelector('text=/Item Name|Product name/', { timeout: 15000 });
+
+    await page.click('button:has-text("Review")');
+    await page.waitForSelector('td:has-text("Braided USB-C cable")', { timeout: 15000 });
+    // The accented name survived the trip, and so did the row with a gap in it.
+    await page.waitForSelector('td:has-text("Café screen protector")');
+
+    await page.click('button:has-text("Import 3 products")');
+    await page.waitForSelector('text=Import complete', { timeout: 20000 });
+  });
+
+  await step('the long barcode came through the spreadsheet intact', async () => {
+    await page.click('a[title="Products"]');
+    await page.waitForSelector('text=Braided USB-C cable', { timeout: 15000 });
+
+    const found = await page.evaluate(async () => {
+      const token = localStorage.getItem('pos_token') || sessionStorage.getItem('pos_token');
+      const res = await fetch('/api/products', { headers: { Authorization: `Bearer ${token}` } });
+      const { products } = await res.json();
+      return products.find((p) => p.sku === 'CBL-01');
+    });
+
+    // Exported to CSV by Excel this arrives as 6.29104E+12 and is ruined.
+    if (found.barcode !== '6291041500213') {
+      throw new Error(`barcode came through as ${found.barcode}`);
+    }
+    if (found.price !== 3.5) throw new Error(`price came through as ${found.price}`);
+  });
+
+  /*
+   * Categories could be made but never unmade, so a shop a year in has three
+   * spellings of "Accessories" and no way to tidy them.
+   */
+  await step('a category can be renamed, and deleting one keeps its products', async () => {
+    await page.click('button:has-text("Categories")');
+    await page.waitForSelector('[role=dialog] >> text=How the catalogue is sorted', { timeout: 15000 });
+    const dialog = page.locator('[role=dialog]');
+
+    await dialog.getByLabel('Add a category').fill('Chargrs');
+    await dialog.getByRole('button', { name: 'Add' }).click();
+    await dialog.locator('text=Chargrs').waitFor({ timeout: 15000 });
+
+    await dialog.getByRole('button', { name: 'Rename Chargrs' }).click();
+    await page.keyboard.type('Chargers');
+    await page.keyboard.press('Enter');
+    await dialog.locator('text=Chargers').waitFor({ timeout: 15000 });
+
+    // One the import created, which still holds products — so it asks first.
+    await dialog.getByRole('button', { name: 'Delete Accessories' }).click();
+    await page.waitForSelector('text=/Delete .Accessories/', { timeout: 15000 });
+    await page.click('button:has-text("Delete anyway")');
+    await page.waitForSelector('text=/no category now/', { timeout: 15000 });
+
+    await page.click('button:has-text("Done")');
+    // The products it held are still in the catalogue, still selling.
+    await page.waitForSelector('text=Braided USB-C cable', { timeout: 15000 });
+  });
+
+  await step('the back-office groups fold away', async () => {
+    // Stock holds the page we are on, so it stays open however it is set —
+    // otherwise arriving somewhere hides it from the menu.
+    await page.click('aside button:has-text("Setup")');
+    await page.waitForSelector('aside a[title="Settings"]', { state: 'detached', timeout: 10000 });
+
+    await page.click('aside button:has-text("Setup")');
+    await page.waitForSelector('aside a[title="Settings"]', { timeout: 10000 });
+  });
 
   /*
    * One product, several barcodes: the maker's on the box, the distributor's
