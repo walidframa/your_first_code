@@ -28,6 +28,11 @@ orders and staff.
   `F4` opens the shelf of held ones, `F6` takes a phone in for repair, `F7` sells a
   SIM, `F8` sends calling credit
 - Stock decrements atomically as part of the sale, so it can't oversell
+- **Sales** on the cart header opens what this till has rung up since the drawer
+  was opened, to **void a sale or return one item off it**. The sale somebody
+  wants to correct is nearly always the last one and the customer is still at
+  the counter, so it opens over the register rather than navigating away and
+  throwing a half-built cart out
 - The column belongs to **the cart**. The drawer and the day's profit sit on one
   folded strip at the top — both figures always readable, their buttons a press
   away — and the four counter jobs that are not shelf products (buy in, repair,
@@ -838,11 +843,62 @@ A product becomes a SIM by ticking **Sold as a SIM** on it, which is offered
 only once it is tracked by serial — there is no such thing as "four SIMs"
 without saying which four numbers.
 
+## Voiding a sale, and returning one thing off it
+
+A customer brings one item back off a sale of six far more often than they hand
+the whole sale over. Voiding all of it and ringing the rest up again loses the
+sale's own prices, its time of day and its place in the takings — and hands back
+money that was never in dispute.
+
+**Sales** on the register's cart header lists what this till has rung up since
+the drawer was opened. Open one and every line has a **Return**; the whole sale
+still has **Void the whole sale** underneath.
+
+- **What goes back is the line's share of what was actually paid** — after the
+  discount, with the tax — not its price on the shelf. Three of something on a
+  $7.29 sale returns $2.43, not the $2.25 sticker.
+- Returning it in two goes refunds exactly what returning it in one would: the
+  rounding lands once, on the line, rather than once per return.
+- The stock goes back on the shelf, a card's credit goes back on its wallet, and
+  a handset goes back as **returned** rather than as new — it left the shop, and
+  whoever sells it next should be told.
+- Cash goes back in the currency it came in, split across the dollars and pounds
+  that were actually tendered.
+- When the last outstanding line comes back the sale is voided, so there is one
+  answer to what a fully returned order looks like rather than two routes with
+  their own opinions.
+
+Which sitting a sale belongs to is **recorded on the sale**, not worked out by
+comparing timestamps: SQLite keeps those to the second, so a sale rung up in the
+same second the drawer opened falls on the wrong side of the comparison and no
+arithmetic fixes it.
+
+## Text size
+
+**Settings → Text size** — default, medium or large. Kept on the device rather
+than in the shop's settings, because the till is a tablet propped up at arm's
+length and the back office is a laptop a foot away.
+
+Everything is sized in rem, so the whole app moves together — the numbers, the
+buttons and the space around them — instead of the type growing until it breaks
+out of things that stayed put. The steps stop at 120% for the same reason:
+further starts wrapping the register's own columns, and a cashier who cannot
+read a total is no better off if the total is in the wrong place.
+
 ## Dual currency
 
 Products are priced in **US dollars only**. Lebanese pounds are derived from a
 single exchange rate set in Admin → Settings, so there is one number to update
 each morning and the two price lists can never drift apart.
+
+**A price or a cost can still be typed in pounds.** Half of what this shop buys
+is quoted that way — a dealer says "six hundred and eighty thousand", not
+"seven fifty-eight" — and doing that division in your head is how a cost lands
+out by a factor of ten and nobody notices until the margins look odd. The `$` /
+`LL` switch beside the field changes what you are typing, not what is stored:
+the dollars are worked out at today's rate and shown as *Saved as $7.64* before
+you commit. Nothing keeps the pound figure, because a cost that quietly changed
+every time the rate moved would not be a cost.
 
 - Every total is shown in both currencies, on the register, the payment sheet and
   the receipt.

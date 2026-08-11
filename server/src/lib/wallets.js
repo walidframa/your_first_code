@@ -242,3 +242,38 @@ export function refundOrder(orderId, userId = null) {
 
   return spent.length;
 }
+
+/**
+ * Put back the share of a wallet that one returned line paid for.
+ *
+ * Proportional to how many of the line are coming back, and taken from what was
+ * actually spent rather than from the card's cost today — the card may have
+ * been repriced, or pointed at a different wallet, since the sale.
+ */
+export function refundOrderLine({ orderId, productId, returning, sold, userId = null }) {
+  if (!productId || !(returning > 0) || !(sold > 0)) return 0;
+
+  const spent = db
+    .prepare("SELECT * FROM wallet_movements WHERE order_id = ? AND kind = 'sale' AND product_id = ?")
+    .all(orderId, productId);
+
+  const share = returning / sold;
+  for (const m of spent) {
+    db.prepare(
+      `INSERT INTO wallet_movements
+         (wallet_id, kind, amount, amount_usd, exchange_rate, order_id, product_id, note, user_id)
+       VALUES (?, 'refund', ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      m.wallet_id,
+      -round2(m.amount * share),
+      -round2(m.amount_usd * share),
+      m.exchange_rate,
+      orderId,
+      m.product_id,
+      returning === sold ? 'Returned' : `Returned ${returning} of ${sold}`,
+      userId,
+    );
+  }
+
+  return spent.length;
+}

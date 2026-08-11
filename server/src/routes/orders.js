@@ -5,11 +5,18 @@ import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { getSettings } from '../lib/settings.js';
 import { addEntry, creditCheck } from '../lib/accounts.js';
 import { currentSession, recordMovement, requiresSession } from '../lib/cash.js';
-import { isAvailable, returnUnitsOfOrder, sellUnit, syncStockFromUnits } from '../lib/units.js';
+import {
+  isAvailable,
+  returnOneUnit,
+  returnUnitsOfOrder,
+  sellUnit,
+  syncStockFromUnits,
+} from '../lib/units.js';
 import {
   chargeSale,
   recordMovement as recordWalletMovement,
   refundOrder as refundWallets,
+  refundOrderLine as refundWalletLine,
 } from '../lib/wallets.js';
 import { moveStock, stockAt, stockElsewhere } from '../lib/stock.js';
 import { encryptSecret } from '../lib/secrets.js';
@@ -361,9 +368,9 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
           order_number, cashier_id, customer_id, subtotal, discount, tax, total, payment_method,
           amount_tendered, change_due, status,
           exchange_rate, paid_usd, paid_lbp, change_usd, change_lbp, change_currency,
-          buyer_name, buyer_phone, branch_id
+          buyer_name, buyer_phone, branch_id, cash_session_id
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         orderNumber, req.user.id, customerId || null, subtotal, discountAmount, tax, total, paymentMethod,
         amountTenderedValue, changeDue,
@@ -374,6 +381,12 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
         // Which shop sold it. Everything a branch reports about itself — its
         // takings, its profit, its shift report — reads from this.
         branchId,
+        /*
+         * And which sitting of its drawer, so "what has this register sold"
+         * can be answered exactly rather than by comparing timestamps that are
+         * only kept to the second.
+         */
+        currentSession(null, branchId)?.id ?? null,
       );
 
       const orderId = orderInfo.lastInsertRowid;
@@ -627,6 +640,24 @@ router.get('/', requireAuth, (req, res) => {
     sql += ' AND o.created_at <= ?';
     params.push(to);
   }
+  /*
+   * `?scope=sitting` — what has been sold on this till since it was opened.
+   *
+   * The question a cashier asks is "what have I rung up today", and today means
+   * this sitting: the drawer was counted at the start of it, so the sales that
+   * belong to it are the ones that have to reconcile against it. Scoped to the
+   * branch too, because the second shop's takings are not this one's.
+   *
+   * A closed drawer has no sitting, so it has no sales — said with an empty
+   * list rather than by quietly falling back to every sale ever rung up.
+   */
+  if (req.query.scope === 'sitting') {
+    const session = currentSession(null, req.branchId);
+    if (!session) return res.json({ orders: [], session: null });
+    sql += ' AND o.cash_session_id = ?';
+    params.push(session.id);
+  }
+
   sql += ' ORDER BY o.created_at DESC LIMIT 500';
 
   const orders = db.prepare(sql).all(...params);
@@ -695,6 +726,9 @@ router.post('/:id/refund', requireAuth, requirePermission('refunds'), (req, res)
     returnUnitsOfOrder(order.id);
     refundWallets(order.id, req.user.id);
     db.prepare("UPDATE orders SET status = 'refunded' WHERE id = ?").run(order.id);
+    // Everything is back, so every line says so — otherwise a voided sale still
+    // offers its lines for return one at a time.
+    db.prepare('UPDATE order_items SET returned_qty = quantity WHERE order_id = ?').run(order.id);
 
     if (order.payment_method === 'account' && order.customer_id) {
       addEntry({
@@ -724,6 +758,137 @@ router.post('/:id/refund', requireAuth, requirePermission('refunds'), (req, res)
 
   const updated = db.prepare('SELECT * FROM orders WHERE id = ?').get(order.id);
   res.json({ order: updated });
+});
+
+/**
+ * One thing off a sale, handed back.
+ *
+ * A customer returns one item out of six far more often than they hand the
+ * whole sale back, and the only answer used to be to void all of it and ring
+ * the rest up again — which loses the sale's own prices, its time of day and
+ * its place in the takings, and hands back money that was never in dispute.
+ *
+ * What comes back is what that line contributed to the total, not its shelf
+ * price: the customer paid after a discount and with tax on top, and refunding
+ * the sticker price would hand back more than was ever taken.
+ */
+router.post('/:id/return-line', requireAuth, requirePermission('refunds'), (req, res) => {
+  const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(req.params.id);
+  if (!order) return res.status(404).json({ error: 'Order not found' });
+  if (order.status === 'refunded') return res.status(400).json({ error: 'That sale was already voided' });
+
+  const item = db
+    .prepare('SELECT * FROM order_items WHERE id = ? AND order_id = ?')
+    .get(req.body?.itemId, order.id);
+  if (!item) return res.status(404).json({ error: 'That line is not on this sale' });
+
+  const left = item.quantity - item.returned_qty;
+  const returning = Number(req.body?.quantity ?? left);
+  if (!Number.isInteger(returning) || returning <= 0) {
+    return res.status(400).json({ error: 'Say how many are coming back' });
+  }
+  if (returning > left) {
+    return res.status(400).json({
+      error:
+        left === 0
+          ? `${item.name} has already been returned`
+          : `Only ${left} of ${item.name} left to return`,
+    });
+  }
+
+  /*
+   * The line's share of what was actually paid. Discount and tax both apply
+   * across the whole sale, so a line is worth its slice of the total rather
+   * than its own price — refunding the sticker price would hand back money the
+   * shop never took.
+   *
+   * Worked out as a running total against the line rather than per item, so
+   * that returning three then two refunds exactly what returning five would:
+   * the rounding lands once, on the line, instead of once per return.
+   *
+   * A sale that was entirely gifted has no subtotal to take a share of, and
+   * nothing was paid for it either — so nothing goes back.
+   */
+  const lineShare = order.subtotal > 0 ? round2((item.line_total / order.subtotal) * order.total) : 0;
+  const refundedSoFar = round2((lineShare * item.returned_qty) / item.quantity);
+  const refundedAfter = round2((lineShare * (item.returned_qty + returning)) / item.quantity);
+  const refund = round2(refundedAfter - refundedSoFar);
+
+  transaction(() => {
+    const fromWallet = db
+      .prepare(
+        "SELECT 1 FROM wallet_movements WHERE order_id = ? AND kind = 'sale' AND product_id = ? LIMIT 1",
+      )
+      .get(order.id, item.product_id);
+
+    if (item.unit_id) {
+      // A handset is one line of one, so returning the line returns that phone.
+      returnOneUnit(item.unit_id);
+    } else if (fromWallet) {
+      refundWalletLine({
+        orderId: order.id,
+        productId: item.product_id,
+        returning,
+        sold: item.quantity,
+        userId: req.user.id,
+      });
+    } else if (item.product_id) {
+      moveStock({ branchId: order.branch_id, productId: item.product_id, delta: returning });
+    }
+
+    db.prepare('UPDATE order_items SET returned_qty = returned_qty + ? WHERE id = ?').run(
+      returning,
+      item.id,
+    );
+
+    /*
+     * A sale with nothing left on it is a voided sale, however it got there.
+     * Said once, here, so the two routes cannot disagree about what a fully
+     * returned order looks like.
+     */
+    const outstanding = db
+      .prepare('SELECT COALESCE(SUM(quantity - returned_qty), 0) AS n FROM order_items WHERE order_id = ?')
+      .get(order.id).n;
+    if (outstanding === 0) {
+      db.prepare("UPDATE orders SET status = 'refunded' WHERE id = ?").run(order.id);
+    }
+
+    if (order.payment_method === 'account' && order.customer_id) {
+      addEntry({
+        partyType: 'customer',
+        partyId: order.customer_id,
+        kind: 'refund',
+        amountUsd: -refund,
+        orderId: order.id,
+        note: `Returned ${returning} × ${item.name} from ${order.order_number}`,
+        userId: req.user.id,
+      });
+    }
+
+    /*
+     * Money handed back across the counter comes out of the drawer — in the
+     * currency it came in. A customer who paid in pounds is given pounds back,
+     * so the share of the sale being returned is taken off each leg of what was
+     * actually tendered rather than converted into dollars on the way out.
+     */
+    if (order.payment_method === 'cash' && order.total > 0) {
+      const share = refund / order.total;
+      recordMovement({
+        kind: 'refund',
+        amountUsd: -round2((order.paid_usd - order.change_usd) * share),
+        amountLbp: -Math.round((order.paid_lbp - order.change_lbp) * share),
+        orderId: order.id,
+        reason: 'refund',
+        note: `Returned ${returning} × ${item.name} from ${order.order_number}`,
+        userId: req.user.id,
+      });
+    }
+  })();
+
+  res.json({
+    refunded: refund,
+    order: db.prepare('SELECT * FROM orders WHERE id = ?').get(order.id),
+  });
 });
 
 export default router;

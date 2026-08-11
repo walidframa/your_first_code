@@ -1135,13 +1135,95 @@ try {
     await page.waitForSelector('text=No items yet');
   });
 
+  await step('one item off a sale comes back, and the rest of it stands', async () => {
+    await page.click('a[title="Register"]');
+    await page.waitForSelector('text=Current sale', { timeout: 15000 });
+
+    // Three of one thing, so there is something to return part of.
+    await page.getByRole('button', { name: 'All', exact: true }).click();
+    const tile = page.getByRole('button', { name: /Chocolate Bar/ }).first();
+    for (const _ of [1, 2, 3]) {
+      await tile.click();
+      await page.waitForTimeout(120);
+    }
+    await page.click('aside button:has-text("Charge $")');
+    await page.waitForSelector('[role=dialog] >> text=Take payment', { timeout: 15000 });
+    await page.click('[role=dialog] button:has-text("Card")');
+    await page.click('[role=dialog] button:has-text("Confirm $")');
+    await page.waitForSelector('text=Payment complete', { timeout: 15000 });
+    await page.click('button:has-text("New sale")');
+
+    /*
+     * Found from the register rather than the back office: the sale somebody
+     * wants to correct is nearly always the last one, and the customer is still
+     * at the counter.
+     */
+    await page.click('aside button:has-text("Sales")');
+    await page.waitForSelector("[role=dialog] >> text=This register's sales", { timeout: 10000 });
+    await page.locator('[role=dialog] tbody tr').first().click();
+    await page.waitForSelector('[role=dialog] >> text=Void the whole sale', { timeout: 10000 });
+
+    await page.locator('[role=dialog]').last().getByRole('button', { name: 'Return' }).first().click();
+    await page.waitForSelector('[role=dialog] >> text=How many are coming back', { timeout: 10000 });
+    await page.locator('#returnQuantity').fill('1');
+    await page.getByRole('button', { name: 'Take it back' }).click();
+    await page.waitForSelector('text=/back to the customer/', { timeout: 15000 });
+
+    /*
+     * One of three: the line says so, the sale is still a sale, and what went
+     * back is the line's share of the total — tax included — rather than its
+     * price on the shelf.
+     */
+    await page.waitForSelector('[role=dialog] >> text=1 returned', { timeout: 10000 });
+    const state = await page.evaluate(async () => {
+      const h = { Authorization: `Bearer ${localStorage.getItem('pos_token')}` };
+      const list = await (await fetch('/api/orders?scope=sitting', { headers: h })).json();
+      const detail = await (await fetch(`/api/orders/${list.orders[0].id}`, { headers: h })).json();
+      return { status: detail.order.status, returned: detail.items[0].returned_qty };
+    });
+    if (state.status !== 'completed') throw new Error('one item back should not void the sale');
+    if (state.returned !== 1) throw new Error(`the line says ${state.returned} came back, not 1`);
+
+    await closeDialog();
+  });
+
   await step('refunding an order works', async () => {
     await page.click('a[title="Orders"]');
     await page.waitForSelector('text=ORD-', { timeout: 15000 });
     await page.click('td:has-text("ORD-") >> nth=0');
-    await page.waitForSelector('button:has-text("Refund order")');
-    await page.click('button:has-text("Refund order")');
+    await page.waitForSelector('button:has-text("Void the whole sale")');
+    await page.click('button:has-text("Void the whole sale")');
     await page.waitForSelector('text=Refunded', { timeout: 15000 });
+  });
+
+  await step('a cost can be typed in pounds, and is kept in dollars', async () => {
+    await page.click('a[title="Products"]');
+    await page.click('button:has-text("New product")');
+    await page.waitForSelector('[role=dialog]', { timeout: 10000 });
+
+    // What a dealer actually quotes, rather than the division done in somebody's
+    // head at the counter.
+    await page.locator('[role=dialog]').getByRole('button', { name: 'LL' }).nth(1).click();
+    await page.locator('[role=dialog] #cost').fill('890000');
+    await page.waitForSelector('[role=dialog] >> text=Saved as $10.00', { timeout: 10000 });
+    await closeDialog();
+  });
+
+  await step('the text can be made bigger, and stays that way', async () => {
+    await page.click('a[title="Settings"]');
+    await page.waitForSelector('text=Text size', { timeout: 15000 });
+    await page.getByRole('button', { name: 'Large' }).click();
+
+    const grown = await page.evaluate(() => document.documentElement.style.fontSize);
+    if (grown !== '120%') throw new Error(`large left the root font at ${grown}`);
+
+    // Remembered on the device, so a till set up once stays set up.
+    await page.reload();
+    await page.waitForSelector('text=Text size', { timeout: 15000 });
+    const afterReload = await page.evaluate(() => document.documentElement.style.fontSize);
+    if (afterReload !== '120%') throw new Error(`a reload forgot the size, leaving ${afterReload}`);
+
+    await page.getByRole('button', { name: 'Default' }).click();
   });
 
   await step('staff page lists accounts', async () => {

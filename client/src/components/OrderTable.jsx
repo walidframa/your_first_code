@@ -1,7 +1,18 @@
 import { useState } from 'react';
 import { Receipt as ReceiptIcon, RotateCcw } from 'lucide-react';
 import api from '../api';
-import { Badge, Button, Card, EmptyState, Modal, Skeleton, money, useToast } from './ui';
+import {
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  Input,
+  Modal,
+  ModalActions,
+  Skeleton,
+  money,
+  useToast,
+} from './ui';
 
 /**
  * Shared order history table. Admins see every cashier's orders and can refund;
@@ -11,6 +22,8 @@ export default function OrderTable({ orders, showCashier = false, canRefund = fa
   const toast = useToast();
   const [selected, setSelected] = useState(null);
   const [refunding, setRefunding] = useState(false);
+  // The line whose return is being counted out.
+  const [returning, setReturning] = useState(null);
 
   async function openOrder(id) {
     const res = await api.get(`/orders/${id}`);
@@ -96,15 +109,38 @@ export default function OrderTable({ orders, showCashier = false, canRefund = fa
           title={selected.order.order_number}
           subtitle={`${selected.order.created_at}${selected.order.cashier_name ? ` · ${selected.order.cashier_name}` : ''}`}
         >
+          {/*
+            * A line at a time, because that is how things actually come back —
+            * one of the six, not the sale. Voiding the whole thing to put one
+            * item back loses the sale's own prices and its place in the day.
+            */}
           <div className="space-y-1.5 border-b border-dashed border-slate-200 pb-3 text-sm">
-            {selected.items.map((item) => (
-              <div key={item.id} className="flex justify-between gap-3">
-                <span className="min-w-0 text-slate-600">
-                  <span className="tnum text-slate-400">{item.quantity}×</span> {item.name}
-                </span>
-                <span className="tnum shrink-0 text-slate-800">{money(item.line_total)}</span>
-              </div>
-            ))}
+            {selected.items.map((item) => {
+              const left = item.quantity - (item.returned_qty || 0);
+              return (
+                <div key={item.id} className="flex items-baseline justify-between gap-3">
+                  <span className="min-w-0 text-slate-600">
+                    <span className="tnum text-slate-400">{item.quantity}×</span> {item.name}
+                    {item.returned_qty > 0 && (
+                      <span className="ml-1.5 text-xs text-amber-700">
+                        {left === 0 ? 'returned' : `${item.returned_qty} returned`}
+                      </span>
+                    )}
+                  </span>
+                  <span className="flex shrink-0 items-baseline gap-2">
+                    <span className="tnum text-slate-800">{money(item.line_total)}</span>
+                    {canRefund && selected.order.status === 'completed' && left > 0 && (
+                      <button
+                        onClick={() => setReturning(item)}
+                        className="rounded px-1.5 py-0.5 text-xs font-medium text-brand-700 transition hover:bg-brand-50"
+                      >
+                        Return
+                      </button>
+                    )}
+                  </span>
+                </div>
+              );
+            })}
           </div>
 
           <dl className="space-y-1 py-3 text-sm">
@@ -135,7 +171,7 @@ export default function OrderTable({ orders, showCashier = false, canRefund = fa
               loading={refunding}
               onClick={() => refund(selected.order.id)}
             >
-              <RotateCcw size={15} /> Refund order
+              <RotateCcw size={15} /> Void the whole sale
             </Button>
           )}
           {selected.order.status === 'refunded' && (
@@ -145,6 +181,92 @@ export default function OrderTable({ orders, showCashier = false, canRefund = fa
           )}
         </Modal>
       )}
+
+      {returning && (
+        <ReturnLine
+          order={selected.order}
+          item={returning}
+          onClose={() => setReturning(null)}
+          onDone={async () => {
+            setReturning(null);
+            // The sale itself may have just become void, and the lines have
+            // certainly moved — read it back rather than patching it here.
+            await openOrder(selected.order.id);
+            onChanged?.();
+          }}
+        />
+      )}
     </>
+  );
+}
+
+/**
+ * How many of this line are coming back.
+ *
+ * Asked rather than assumed, because a customer returning two of five is the
+ * ordinary case and a dialog that silently took all five would be handing over
+ * money nobody asked for. What goes back is worked out on the server — it is
+ * the line's share of what was actually paid, after the discount and with the
+ * tax, which is not a figure to let the browser assert.
+ */
+function ReturnLine({ order, item, onClose, onDone }) {
+  const toast = useToast();
+  const left = item.quantity - (item.returned_qty || 0);
+  const [quantity, setQuantity] = useState(String(left));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  async function submit() {
+    setBusy(true);
+    setError('');
+    try {
+      const res = await api.post(`/orders/${order.id}/return-line`, {
+        itemId: item.id,
+        quantity: Number(quantity),
+      });
+      toast(`${money(res.data.refunded)} back to the customer`);
+      onDone();
+    } catch (err) {
+      setError(err.response?.data?.error || 'Could not record that return');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal open onClose={onClose} size="sm" title={`Return ${item.name}`} subtitle={order.order_number}>
+      <Input
+        label="How many are coming back"
+        name="returnQuantity"
+        type="number"
+        min="1"
+        max={String(left)}
+        value={quantity}
+        onChange={(e) => setQuantity(e.target.value)}
+        hint={`${left} of ${item.quantity} still with the customer`}
+        autoFocus
+      />
+
+      <p className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-xs leading-relaxed text-slate-600">
+        What goes back is this line's share of what was paid — after the discount and with the tax —
+        not its price on the shelf. The stock, or the card's credit, comes back with it.
+      </p>
+
+      {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+
+      <ModalActions>
+        <Button variant="secondary" className="flex-1" onClick={onClose}>
+          Cancel
+        </Button>
+        <Button
+          className="flex-1"
+          loading={busy}
+          disabled={!(Number(quantity) > 0) || Number(quantity) > left}
+          onClick={submit}
+        >
+          <RotateCcw size={15} /> Take it back
+        </Button>
+      </ModalActions>
+    </Modal>
   );
 }
