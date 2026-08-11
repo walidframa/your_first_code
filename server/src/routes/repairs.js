@@ -257,7 +257,8 @@ router.get('/trade-ins/list', requireAuth, requirePermission('repairs'), (req, r
        * to draw a table of names and prices.
        */
       `SELECT ti.*, u.imei, u.imei2, u.status AS unit_status, p.name AS product_name, us.name AS user_name,
-              EXISTS (SELECT 1 FROM trade_in_ids i WHERE i.trade_in_id = ti.id) AS has_id_photo
+              EXISTS (SELECT 1 FROM id_photos i
+                        WHERE i.subject_type = 'trade_in' AND i.subject_id = ti.id) AS has_id_photo
        FROM trade_ins ti
        JOIN product_units u ON u.id = ti.unit_id
        JOIN products p ON p.id = u.product_id
@@ -283,7 +284,7 @@ router.post('/trade-ins/:id/id-photo', requireAuth, requirePermission('repairs')
   if (!tradeIn) return res.status(404).json({ error: 'Trade-in not found' });
 
   try {
-    const saved = setIdPhoto(tradeIn.id, req.body?.idPhoto, req.user.id);
+    const saved = setIdPhoto('trade_in', tradeIn.id, req.body?.idPhoto, req.user.id);
     res.status(201).json({ ...saved, tradeInId: tradeIn.id });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -301,7 +302,7 @@ router.post('/trade-ins/:id/id-photo', requireAuth, requirePermission('repairs')
  * consequence of having had the till open once.
  */
 router.get('/trade-ins/:id/id-photo', requireAuth, requirePermission('secrets'), (req, res) => {
-  const photo = getIdPhoto(req.params.id);
+  const photo = getIdPhoto('trade_in', req.params.id);
   if (!photo) return res.status(404).json({ error: 'No ID on file for that purchase' });
 
   res.setHeader('Content-Type', photo.mime);
@@ -317,7 +318,7 @@ router.get('/trade-ins/:id/id-photo', requireAuth, requirePermission('secrets'),
  * evidence that a purchase was documented is not a counter task.
  */
 router.delete('/trade-ins/:id/id-photo', requireAuth, requirePermission('secrets'), (req, res) => {
-  if (!removeIdPhoto(req.params.id)) {
+  if (!removeIdPhoto('trade_in', req.params.id)) {
     return res.status(404).json({ error: 'No ID on file for that purchase' });
   }
   res.json({ removed: true });

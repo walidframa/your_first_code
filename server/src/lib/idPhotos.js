@@ -1,16 +1,20 @@
 /**
- * The seller's ID, photographed when the shop buys a phone off them.
+ * Somebody's ID, photographed at the counter.
  *
- * Lebanese shops take the ID for a reason that has nothing to do with
+ * Two things need one, for the same reason: buying a used phone off somebody,
+ * and selling them a SIM. Both are transactions the shop may be asked about
+ * later, and both are answered by a picture of who it was dealing with.
+ *
+ * Lebanese shops take the ID for reasons that have nothing to do with
  * bookkeeping: a used handset with no record of who sold it is indistinguishable
- * from a stolen one, and the shop is the one holding it. So this is evidence,
- * and it is treated like evidence — attached to the purchase rather than to a
- * person, kept as it was on the day.
+ * from a stolen one, and a SIM is a line registered to a person. So this is
+ * evidence, and it is treated like evidence — attached to the transaction
+ * rather than to a person, kept as it was on the day.
  *
  * It is also somebody's identity document, which is the other half of the job.
- * Anyone who can buy a phone in can attach one; reading one back needs the same
- * permission as revealing a customer's saved password, because that is the same
- * kind of thing to be trusted with. The two are deliberately not the same
+ * Anyone who can do the transaction can attach one; reading one back needs the
+ * same permission as revealing a customer's saved password, because that is the
+ * same kind of thing to be trusted with. The two are deliberately not the same
  * permission as each other.
  *
  * Kept in SQLite rather than on disk so it rides along with the nightly backup.
@@ -58,32 +62,35 @@ export function decodeDataUrl(dataUrl) {
   return { mime, bytes };
 }
 
+/** The kinds of thing a photograph can be attached to. */
+export const SUBJECTS = ['trade_in', 'sim_sale'];
+
 /**
  * Attach a photo, replacing whatever was there.
  *
  * Replacing rather than keeping both: the first attempt is usually a blurred
  * one, and a shop left with two photos has to decide which is the real record.
  */
-export function setIdPhoto(tradeInId, dataUrl, userId = null) {
+export function setIdPhoto(subjectType, subjectId, dataUrl, userId = null) {
   const { mime, bytes } = decodeDataUrl(dataUrl);
   db.prepare(
-    `INSERT INTO trade_in_ids (trade_in_id, mime, byte_size, bytes, uploaded_by, created_at)
-     VALUES (?, ?, ?, ?, ?, datetime('now'))
-     ON CONFLICT(trade_in_id) DO UPDATE SET
+    `INSERT INTO id_photos (subject_type, subject_id, mime, byte_size, bytes, uploaded_by, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+     ON CONFLICT(subject_type, subject_id) DO UPDATE SET
        mime = excluded.mime,
        byte_size = excluded.byte_size,
        bytes = excluded.bytes,
        uploaded_by = excluded.uploaded_by,
        created_at = excluded.created_at`,
-  ).run(tradeInId, mime, bytes.length, bytes, userId);
+  ).run(subjectType, subjectId, mime, bytes.length, bytes, userId);
   return { mime, byteSize: bytes.length };
 }
 
 /** The image itself. Only ever called behind the `secrets` permission. */
-export function getIdPhoto(tradeInId) {
+export function getIdPhoto(subjectType, subjectId) {
   const row = db
-    .prepare('SELECT mime, byte_size, bytes FROM trade_in_ids WHERE trade_in_id = ?')
-    .get(tradeInId);
+    .prepare('SELECT mime, byte_size, bytes FROM id_photos WHERE subject_type = ? AND subject_id = ?')
+    .get(subjectType, subjectId);
   if (!row) return null;
   // node:sqlite hands a BLOB back as a Uint8Array; Express wants a Buffer.
   return { mime: row.mime, byteSize: row.byte_size, bytes: Buffer.from(row.bytes) };
@@ -96,18 +103,22 @@ export function getIdPhoto(tradeInId) {
  * documented is asking a yes/no question about two hundred rows, and answering
  * it should not mean sending two hundred photographs.
  */
-export function idPhotoSummary(tradeInId) {
+export function idPhotoSummary(subjectType, subjectId) {
   return (
     db
       .prepare(
         `SELECT i.mime, i.byte_size, i.created_at, u.name AS uploaded_by_name
-         FROM trade_in_ids i LEFT JOIN users u ON u.id = i.uploaded_by
-         WHERE i.trade_in_id = ?`,
+         FROM id_photos i LEFT JOIN users u ON u.id = i.uploaded_by
+         WHERE i.subject_type = ? AND i.subject_id = ?`,
       )
-      .get(tradeInId) || null
+      .get(subjectType, subjectId) || null
   );
 }
 
-export function removeIdPhoto(tradeInId) {
-  return db.prepare('DELETE FROM trade_in_ids WHERE trade_in_id = ?').run(tradeInId).changes > 0;
+export function removeIdPhoto(subjectType, subjectId) {
+  return (
+    db
+      .prepare('DELETE FROM id_photos WHERE subject_type = ? AND subject_id = ?')
+      .run(subjectType, subjectId).changes > 0
+  );
 }

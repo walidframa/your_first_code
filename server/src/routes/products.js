@@ -188,7 +188,7 @@ router.get('/lookup', requireAuth, (req, res) => {
 router.post('/', requireAuth, requirePermission('catalogue'), (req, res) => {
   const {
     name, sku, price, cost, stock, category_id, image_emoji, barcode, supplier, image_url,
-    reorder_point, tracks_units, warranty_months, wallet_id,
+    reorder_point, tracks_units, warranty_months, wallet_id, is_sim,
   } = req.body || {};
   if (!name || !sku || price == null) {
     return res.status(400).json({ error: 'name, sku and price are required' });
@@ -197,8 +197,8 @@ router.post('/', requireAuth, requirePermission('catalogue'), (req, res) => {
   if (problem) return res.status(400).json({ error: problem });
   try {
     const info = db.prepare(`
-      INSERT INTO products (name, sku, price, cost, stock, category_id, image_emoji, barcode, supplier, image_url, reorder_point, tracks_units, warranty_months, wallet_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO products (name, sku, price, cost, stock, category_id, image_emoji, barcode, supplier, image_url, reorder_point, tracks_units, warranty_months, wallet_id, is_sim)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       name,
       sku,
@@ -219,6 +219,9 @@ router.post('/', requireAuth, requirePermission('catalogue'), (req, res) => {
       tracks_units ? 1 : 0,
       Math.max(0, Math.round(Number(warranty_months) || 0)),
       wallet_id || null,
+      // A SIM is always serialised — the number on it is the whole point, and
+      // there is no such thing as "four SIMs" without saying which four.
+      is_sim ? 1 : 0,
     );
     /*
      * The opening count lands on the shelf of the branch it was entered at —
@@ -331,6 +334,12 @@ router.put('/:id', requireAuth, requirePermission('catalogue'), (req, res) => {
     'name', 'sku', 'price', 'cost', 'stock', 'category_id', 'image_emoji',
     'active', 'barcode', 'supplier', 'image_url', 'reorder_point', 'tracks_units',
     'warranty_months', 'wallet_id',
+    /*
+     * A SIM is a serialised unit whose identity is the number on it rather than
+     * a serial nobody reads. The flag only changes how it is stocked and sold —
+     * everything else about the product is ordinary.
+     */
+    'is_sim',
   ];
   const updates = {};
   for (const f of fields) {
@@ -388,7 +397,7 @@ router.put('/:id', requireAuth, requirePermission('catalogue'), (req, res) => {
   db.prepare(`
     UPDATE products SET name = ?, sku = ?, price = ?, cost = ?, category_id = ?, image_emoji = ?,
       active = ?, barcode = ?, supplier = ?, image_url = ?, reorder_point = ?, tracks_units = ?,
-      warranty_months = ?, wallet_id = ?
+      warranty_months = ?, wallet_id = ?, is_sim = ?
     WHERE id = ?
   `).run(
     merged.name,
@@ -405,6 +414,7 @@ router.put('/:id', requireAuth, requirePermission('catalogue'), (req, res) => {
     merged.tracks_units ? 1 : 0,
     Math.max(0, Math.round(Number(merged.warranty_months) || 0)),
     walletId || null,
+    merged.is_sim ? 1 : 0,
     req.params.id
   );
 

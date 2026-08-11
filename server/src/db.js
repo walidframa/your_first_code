@@ -561,6 +561,27 @@ db.exec(`
     uploaded_by INTEGER REFERENCES users(id),
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
+
+  /*
+   * The same photograph, for anything that needs one.
+   *
+   * It started against trade-ins, and then selling a SIM turned out to need
+   * exactly the same thing — a picture of whoever the shop is dealing with,
+   * kept as it was on the day. Rather than a second table with the same five
+   * columns, the subject is named: 'trade_in' for a handset bought in,
+   * 'sim_sale' for a line on an order.
+   */
+  CREATE TABLE IF NOT EXISTS id_photos (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    subject_type TEXT NOT NULL CHECK (subject_type IN ('trade_in', 'sim_sale')),
+    subject_id INTEGER NOT NULL,
+    mime TEXT NOT NULL,
+    byte_size INTEGER NOT NULL,
+    bytes BLOB NOT NULL,
+    uploaded_by INTEGER REFERENCES users(id),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (subject_type, subject_id)
+  );
 `);
 
 /*
@@ -1403,6 +1424,94 @@ db.exec(`
     INSERT INTO shopify_sync_queue (product_id, reason) VALUES (NEW.id, 'stock changed');
   END;
 `);
+
+db.exec(`
+  /*
+   * Calling credit sent to a customer's phone.
+   *
+   * Recorded per send rather than derived from the order line, because what
+   * the shop needs months later is "did the $10 reach 03 123 456" — and the
+   * number it went to is not on the order at all. The message split and the
+   * fee are kept as they were, so a change of carrier deal does not rewrite
+   * what last month cost.
+   */
+  CREATE TABLE IF NOT EXISTS credit_sends (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id INTEGER REFERENCES orders(id),
+    wallet_id INTEGER NOT NULL REFERENCES wallets(id),
+    msisdn TEXT NOT NULL,
+    amount REAL NOT NULL,
+    sms_count INTEGER NOT NULL,
+    fee_each REAL NOT NULL,
+    fees REAL NOT NULL,
+    cost REAL NOT NULL,
+    charged REAL NOT NULL,
+    breakdown TEXT NOT NULL,
+    branch_id INTEGER REFERENCES branches(id),
+    user_id INTEGER REFERENCES users(id),
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_credit_sends_order ON credit_sends(order_id);
+  CREATE INDEX IF NOT EXISTS idx_credit_sends_msisdn ON credit_sends(msisdn);
+`);
+
+/*
+ * A carrier the shop can send credit from, and what each message costs it.
+ *
+ * On the wallet because that is already what the shop's balance with Alfa or
+ * Touch is. `sends_credit` is what separates a carrier you can top a customer
+ * up from — where the 3/2/1 split applies — from a wallet that merely funds
+ * fixed-price cards.
+ */
+addColumn('wallets', 'sends_credit', 'INTEGER NOT NULL DEFAULT 0');
+addColumn('wallets', 'sms_fee', 'REAL NOT NULL DEFAULT 0.15');
+
+/*
+ * The two Lebanese carriers, as balances the shop can send credit out of.
+ *
+ * Created rather than left to be set up, because there are exactly two and
+ * every shop in the country deals with both — an empty carrier list would just
+ * be a form to fill in with the only two answers there are. Guarded by name, so
+ * a shop that renames or closes one is left alone, and running this twice does
+ * nothing.
+ */
+{
+  const carrier = db.prepare('SELECT id FROM wallets WHERE name = ?');
+  const addCarrier = db.prepare(
+    `INSERT INTO wallets (name, kind, currency, sends_credit, sms_fee, note)
+     VALUES (?, 'recharge', 'USD', 1, 0.15, ?)`,
+  );
+  for (const name of ['Alfa', 'Touch']) {
+    if (!carrier.get(name)) {
+      addCarrier.run(name, 'Credit sent to customers by SMS. Top this up when you buy balance.');
+    }
+  }
+}
+
+/*
+ * A SIM is a serialised unit like a handset, but the number it carries is what
+ * the shop and the customer both know it by — nobody reads an ICCID off a card
+ * to find out whose line it is.
+ */
+addColumn('products', 'is_sim', 'INTEGER NOT NULL DEFAULT 0');
+addColumn('product_units', 'msisdn', 'TEXT');
+CREATE_MSISDN_INDEX: {
+  db.exec('CREATE INDEX IF NOT EXISTS idx_units_msisdn ON product_units(msisdn)');
+}
+
+/*
+ * One-time move of the ID photos taken against trade-ins into the general
+ * table. Guarded on the destination being empty rather than on a version
+ * number: run twice it does nothing, and a shop that has since added photos
+ * is left alone.
+ */
+if (db.prepare('SELECT COUNT(*) AS n FROM id_photos').get().n === 0) {
+  db.exec(`
+    INSERT INTO id_photos (subject_type, subject_id, mime, byte_size, bytes, uploaded_by, created_at)
+    SELECT 'trade_in', trade_in_id, mime, byte_size, bytes, uploaded_by, created_at FROM trade_in_ids
+  `);
+}
 
 export const ADJUSTMENT_REASONS = [
   'received',
