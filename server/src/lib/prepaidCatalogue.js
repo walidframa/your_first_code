@@ -57,8 +57,37 @@ const GIFT = [
   ['Steam $20', 'STEAM-20', 20],
 ];
 
+/*
+ * Validity, as the shop actually sells it: by how long it lasts.
+ *
+ * A customer asks for "a month" or "three months", not for a card by name, so
+ * these are the products the register shows. Each one is delivered by scratching
+ * a whole recharge card and handing the days over — which card, and how much of
+ * its credit comes back to the shop, is linked by hand afterwards, because only
+ * the shop knows what it really uses.
+ *
+ * Priced from the starter set's own figures for the same durations, so a shop
+ * that never edits them is still quoting something sensible.
+ */
+const VALIDITY_DAYS = [
+  [30, 3.11],
+  [60, 6.7],
+  [90, 8.88],
+  [180, 11.11],
+  [360, 22.22],
+];
+
+const VALIDITY_CARDS = VALIDITY_DAYS.flatMap(([days, price]) =>
+  ['Alfa', 'Touch'].map((carrier) => [
+    `${carrier} ${days} days`,
+    `VAL-${carrier.toUpperCase()}-${days}`,
+    price,
+    { validityDays: days, carrier },
+  ]),
+);
+
 /**
- * The three sections, each with the wallet that funds it.
+ * The four sections, each with the wallet that funds it.
  *
  * Recharge and whole recharge share one wallet because they are the same credit
  * with the operator; gift-card codes are bought from somebody else entirely, so
@@ -76,6 +105,12 @@ export const STARTER_SECTIONS = [
     wallet: { name: 'Mobile recharge', kind: 'recharge', currency: 'USD' },
     emoji: '📱',
     cards: WHOLE,
+  },
+  {
+    category: 'Validity',
+    wallet: { name: 'Mobile recharge', kind: 'recharge', currency: 'USD' },
+    emoji: '📅',
+    cards: VALIDITY_CARDS,
   },
   {
     category: 'Gift Cards',
@@ -111,9 +146,12 @@ function findOrCreateWallet({ name, kind, currency }) {
  */
 export function installStarterCatalogue({ userId = null } = {}) {
   const insert = db.prepare(`
-    INSERT INTO products (name, sku, price, cost, stock, category_id, image_emoji, wallet_id, reorder_point)
-    VALUES (?, ?, ?, ?, 0, ?, ?, ?, 0)
+    INSERT INTO products (name, sku, price, cost, stock, category_id, image_emoji, wallet_id, reorder_point,
+                          validity_days, credit_wallet_id)
+    VALUES (?, ?, ?, ?, 0, ?, ?, ?, 0, ?, ?)
   `);
+  // Which carrier balance a validity card's recovered credit lands on.
+  const carrierId = (name) => db.prepare('SELECT id FROM wallets WHERE name = ?').get(name)?.id ?? null;
   const exists = db.prepare('SELECT id FROM products WHERE sku = ?');
 
   let added = 0;
@@ -125,13 +163,17 @@ export function installStarterCatalogue({ userId = null } = {}) {
     const walletId = findOrCreateWallet(section.wallet);
     walletIds.add(walletId);
 
-    for (const [name, suffix, price] of section.cards) {
+    for (const [name, suffix, price, extra] of section.cards) {
       const sku = `CARD-${suffix}`;
       if (exists.get(sku)) {
         skipped += 1;
         continue;
       }
-      insert.run(name, sku, price, price, categoryId, section.emoji, walletId);
+      insert.run(
+        name, sku, price, price, categoryId, section.emoji, walletId,
+        extra?.validityDays ?? null,
+        extra?.carrier ? carrierId(extra.carrier) : null,
+      );
       added += 1;
     }
   }

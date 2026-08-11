@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import api from '../../api';
 import PageHeader from '../../components/PageHeader';
+import LinkValidity from '../../components/LinkValidity';
 import { lbp, useSettings } from '../../context/SettingsContext';
 import {
   Badge,
@@ -593,6 +594,8 @@ export default function Cards() {
   }, [products]);
 
   const cardCount = sections.reduce((n, [, list]) => n + list.length, 0);
+  // The validity card whose link is being set.
+  const [linking, setLinking] = useState(null);
 
   async function loadStarter() {
     setLoadingStarter(true);
@@ -718,6 +721,11 @@ export default function Cards() {
                           <th className="px-3 py-2 text-right font-medium">Costs you</th>
                           <th className="px-3 py-2 text-right font-medium">Margin</th>
                           <th className="px-3 py-2 font-medium">Paid from</th>
+                          {/* Only validity cards have a card behind them and
+                              credit coming back off it. */}
+                          {list.some((c) => c.validity_days) && (
+                            <th className="px-3 py-2 font-medium">Delivered by</th>
+                          )}
                           <th className="px-5 py-2" />
                         </tr>
                       </thead>
@@ -746,6 +754,29 @@ export default function Cards() {
                                 )}
                               </td>
                               <td className="px-3 py-2 text-slate-500">{c.wallet_name}</td>
+                              {list.some((x) => x.validity_days) && (
+                                <td className="px-3 py-2">
+                                  {c.validity_days ? (
+                                    <button
+                                      onClick={() => setLinking(c)}
+                                      className="text-left text-xs text-brand-700 underline-offset-2 hover:underline"
+                                    >
+                                      {c.linked_card_name ? (
+                                        <>
+                                          {c.linked_card_name}
+                                          <span className="block text-slate-400">
+                                            {money(c.credit_recovered)} back to {c.credit_wallet_name}
+                                          </span>
+                                        </>
+                                      ) : (
+                                        <span className="text-amber-700">Not linked yet</span>
+                                      )}
+                                    </button>
+                                  ) : (
+                                    <span className="text-xs text-slate-300">—</span>
+                                  )}
+                                </td>
+                              )}
                               <td className="px-5 py-2 text-right whitespace-nowrap">
                                 <button
                                   onClick={() => setEditingCard(c)}
@@ -815,6 +846,19 @@ export default function Cards() {
           onSaved={() => {
             setNewCard(false);
             setEditingCard(null);
+            load();
+          }}
+        />
+      )}
+
+      {linking && (
+        <LinkValidity
+          card={linking}
+          cards={products.filter((p) => p.wallet_id && p.active)}
+          carriers={(wallets || []).filter((w) => w.sends_credit && w.active)}
+          onClose={() => setLinking(null)}
+          onSaved={() => {
+            setLinking(null);
             load();
           }}
         />

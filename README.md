@@ -708,13 +708,14 @@ dollars cost nothing extra — the card was already bought and already sold. Cos
 them at face value and the app reports that the *profitable* half of the
 business earns nothing.
 
-So **Credit came back** (the other tab of the same dialog) records credit
-arriving with **what it cost you** stated separately — zero, when it came off a
-card you have already sold. Every top-up carries its own cost, the carrier's
-cost basis is the average across them, and a sale is costed at that basis:
-$10.60 of credit at $0 a dollar costs $0, and the margin on 1,100,000 LL is the
-whole of it. Credit genuinely bought at face value still costs face value;
-bought at a discount, it costs the discount.
+So every top-up records **what it cost you** separately from what it is worth —
+zero, when it came off a card you have already sold. Selling a validity card
+writes one of those on its own (below); **Credit came back**, the other tab of
+the same dialog, is there for the times it arrives some other way. The carrier's
+cost basis is the average across every top-up, and a sale is costed at that
+basis: $10.60 of credit at $0 a dollar costs $0, and the margin on 1,100,000 LL
+is the whole of it. Credit genuinely bought at face value still costs face
+value; bought at a discount, it costs the discount.
 
 The balance still loses the **face** value when credit goes out — that much
 credit is gone whatever it cost to get.
@@ -728,6 +729,37 @@ Every send is recorded against **the number it went to**, which is the question
 a customer comes back with — the order does not carry it. The split and the fee
 are kept as they were, so a change of deal does not rewrite what last month
 cost. A carrier can go negative for the same reason a wallet can.
+
+### Validity cards, and where the credit comes from
+
+Selling days is really three things at once, and typing the other two in
+afterwards is how a credit balance becomes a number nobody trusts.
+
+A customer buys **30 days of validity**. Behind the counter a whole recharge
+card is scratched to deliver them, and the dollars that card carries are sent
+back to the shop's own line to be resold. So selling one validity card now:
+
+1. takes the customer's money,
+2. **sells the linked full card automatically** — off its wallet if it is a
+   recharge card, off the shelf if it is stock,
+3. **puts the recovered credit on the carrier's balance automatically**, costed
+   at zero, because the card behind it has already been bought and sold.
+
+All three happen on one press, inside the same transaction as the sale. Nothing
+to remember, and nothing to reconcile later.
+
+**Validity** is a seeded category: **30, 60, 90, 180 and 360 days, for Alfa and
+for Touch**. They arrive unlinked, because only the shop knows which card it
+really scratches for a 30-day top-up and guessing would quietly spend the wrong
+stock. **Admin → Cards → Link** sets, per validity card, which full card
+delivers it, how much credit comes back, and onto which carrier — and says it
+back in a sentence before you save. The Cards list shows the link in a
+**Delivered by** column, so an unlinked card is visible rather than discovered.
+
+Leaving the link empty is a real arrangement, not a half-finished one: such a
+card sells the days and touches nothing else. But a card linked to one that has
+since been **retired** refuses the sale rather than scratching stock the shop
+has said it no longer carries.
 
 ## SIM cards
 

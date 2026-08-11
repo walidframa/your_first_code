@@ -538,3 +538,195 @@ test('credit coming back has to be a real amount', async () => {
     400,
   );
 });
+
+/* ------------------------------------------------------- validity cards */
+
+/*
+ * Selling a month of validity is three things at once: the customer pays for
+ * days, a whole recharge card is scratched to deliver them, and the credit that
+ * card carries lands on the shop's own line to be resold. Doing the last two by
+ * hand is how a credit balance becomes a number nobody trusts.
+ */
+
+let validity30;
+let fullCard;
+
+test('the starter set brings the validity cards a Lebanese shop sells', async () => {
+  await req('POST', '/wallets/starter-catalogue', null, adminToken);
+
+  const products = (await req('GET', '/products', null, adminToken)).json.products;
+  const cards = products.filter((p) => p.validity_days);
+
+  assert.equal(cards.length, 10, 'five durations for each of the two carriers');
+  assert.deepEqual(
+    [...new Set(cards.map((c) => c.validity_days))].sort((a, b) => a - b),
+    [30, 60, 90, 180, 360],
+  );
+  for (const carrier of ['Alfa', 'Touch']) {
+    assert.ok(cards.some((c) => c.name.startsWith(carrier)), `${carrier} has its own`);
+  }
+
+  validity30 = cards.find((c) => c.sku === 'CARD-VAL-ALFA-30');
+  fullCard = products.find((p) => p.sku === 'CARD-ALFA-WHOLE-10');
+  assert.ok(validity30 && fullCard);
+});
+
+test('a validity card is linked to the full card it is delivered by', async () => {
+  // The shop's own numbers: the $10 card costs it $8, and $6 comes back.
+  await req('PUT', `/products/${fullCard.id}`, { ...fullCard, cost: 8 }, adminToken);
+
+  const res = await req(
+    'PUT',
+    `/products/${validity30.id}`,
+    { ...validity30, linked_card_id: fullCard.id, credit_recovered: 6, credit_wallet_id: alfa.id },
+    adminToken,
+  );
+  assert.equal(res.status, 200);
+
+  const saved = (await req('GET', '/products', null, adminToken)).json.products.find(
+    (p) => p.id === validity30.id,
+  );
+  assert.equal(saved.linked_card_id, fullCard.id);
+  assert.equal(saved.credit_recovered, 6);
+  assert.equal(saved.linked_card_name, fullCard.name, 'named, so the screen can show the link');
+});
+
+test('selling one scratches the card and credits the balance, with nothing typed in', async () => {
+  const before = {
+    credit: (await req('GET', '/credit/carriers', null, adminToken)).json.carriers.find(
+      (c) => c.id === alfa.id,
+    ).balance,
+    supplier: (await req('GET', '/wallets', null, adminToken)).json.wallets.find(
+      (w) => w.name === 'Mobile recharge',
+    ).balance,
+  };
+
+  const sale = await req(
+    'POST',
+    '/orders',
+    { items: [{ productId: validity30.id, quantity: 1 }], paymentMethod: 'card' },
+    adminToken,
+  );
+  assert.equal(sale.status, 201, JSON.stringify(sale.json));
+
+  const after = {
+    credit: (await req('GET', '/credit/carriers', null, adminToken)).json.carriers.find(
+      (c) => c.id === alfa.id,
+    ).balance,
+    supplier: (await req('GET', '/wallets', null, adminToken)).json.wallets.find(
+      (w) => w.name === 'Mobile recharge',
+    ).balance,
+  };
+
+  assert.equal(after.supplier, Math.round((before.supplier - 8) * 100) / 100, 'the card was scratched');
+  assert.equal(after.credit, Math.round((before.credit + 6) * 100) / 100, 'and the credit came back');
+});
+
+test('two of them scratch two cards and bring back twice the credit', async () => {
+  const before = (await req('GET', '/credit/carriers', null, adminToken)).json.carriers.find(
+    (c) => c.id === alfa.id,
+  ).balance;
+
+  await req(
+    'POST',
+    '/orders',
+    { items: [{ productId: validity30.id, quantity: 2 }], paymentMethod: 'card' },
+    adminToken,
+  );
+
+  const after = (await req('GET', '/credit/carriers', null, adminToken)).json.carriers.find(
+    (c) => c.id === alfa.id,
+  ).balance;
+  assert.equal(after, Math.round((before + 12) * 100) / 100);
+});
+
+test('an unlinked validity card still sells — it just brings nothing back', async () => {
+  const spare = (await req('GET', '/products', null, adminToken)).json.products.find(
+    (p) => p.sku === 'CARD-VAL-TOUCH-30',
+  );
+  assert.equal(spare.linked_card_id, null, 'nothing linked to it yet');
+
+  const before = (await req('GET', '/credit/carriers', null, adminToken)).json.carriers.find(
+    (c) => c.name === 'Touch',
+  ).balance;
+
+  const sale = await req(
+    'POST',
+    '/orders',
+    { items: [{ productId: spare.id, quantity: 1 }], paymentMethod: 'card' },
+    adminToken,
+  );
+  assert.equal(sale.status, 201, 'a shop mid-setup can still trade');
+
+  assert.equal(
+    (await req('GET', '/credit/carriers', null, adminToken)).json.carriers.find(
+      (c) => c.name === 'Touch',
+    ).balance,
+    before,
+  );
+});
+
+test('a validity card whose card has been retired refuses the sale', async () => {
+  const retired = (
+    await req(
+      'POST',
+      '/products',
+      { name: 'Discontinued card', sku: 'CARD-OLD', price: 8, cost: 8, stock: 5 },
+      adminToken,
+    )
+  ).json.product;
+  const validity = (
+    await req(
+      'POST',
+      '/products',
+      {
+        name: 'Broken validity',
+        sku: 'VAL-BROKEN',
+        price: 3,
+        validity_days: 30,
+        linked_card_id: retired.id,
+      },
+      adminToken,
+    )
+  ).json.product;
+
+  // Retiring a product hides it rather than deleting it, so the link survives.
+  await req('DELETE', `/products/${retired.id}`, null, adminToken);
+
+  const res = await req(
+    'POST',
+    '/orders',
+    { items: [{ productId: validity.id, quantity: 1 }], paymentMethod: 'card' },
+    adminToken,
+  );
+  /*
+   * Better a refused sale than one that silently delivers nothing: the card it
+   * points at is what the customer is actually being given.
+   */
+  assert.equal(res.status, 400);
+  assert.match(res.json.error, /no longer stocked/i);
+});
+
+test('a validity card with no card behind it just sells the days', async () => {
+  const daysOnly = (
+    await req(
+      'POST',
+      '/products',
+      { name: 'Days only', sku: 'VAL-DAYSONLY', price: 4, validity_days: 60 },
+      adminToken,
+    )
+  ).json.product;
+
+  const res = await req(
+    'POST',
+    '/orders',
+    { items: [{ productId: daysOnly.id, quantity: 1 }], paymentMethod: 'card' },
+    adminToken,
+  );
+  /*
+   * Leaving the link empty is a real arrangement, not a half-finished one, so
+   * it must not be turned away for having nothing on a shelf.
+   */
+  assert.equal(res.status, 201);
+  assert.equal(res.json.order.subtotal, 4);
+});

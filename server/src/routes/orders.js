@@ -219,7 +219,13 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
            * other branch cannot be handed to the customer standing here.
            */
           const here = stockAt(branchId, product.id);
-          if (!product.wallet_id && here < quantity) {
+          /*
+           * A validity card has no shelf of its own either. What limits it is
+           * the card it is delivered by, which is checked when that card is
+           * spent — counting a quantity here would refuse a sale the shop can
+           * perfectly well make.
+           */
+          if (!product.wallet_id && !product.validity_days && here < quantity) {
             const elsewhere = stockElsewhere(branchId, product.id);
             const alsoAt = elsewhere.length
               ? ` — ${elsewhere.map((b) => `${b.stock} at ${b.branch_name}`).join(', ')}`
@@ -459,6 +465,66 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
           // Stock is recounted from the units rather than decremented, so the
           // two can never drift apart.
           syncStockFromUnits(li.product.id);
+        } else if (li.product.validity_days) {
+          /*
+           * A validity card is three things happening at once.
+           *
+           * The customer pays for days. A whole recharge card is scratched to
+           * deliver them, so that card's credit is spent out of the wallet
+           * behind it. And the dollars the shop takes back off the customer's
+           * line land on its own carrier balance, ready to resell — which is
+           * where this shop's margin actually comes from.
+           *
+           * Doing the last two by hand is how a credit balance ends up as a
+           * number nobody trusts, so selling the validity card does all three.
+           *
+           * A card that has not been linked yet sells the days and nothing
+           * else. That is a real arrangement, not an oversight — the shop
+           * says so by leaving the link empty.
+           */
+          if (li.product.linked_card_id) {
+            const linked = db.prepare('SELECT * FROM products WHERE id = ?').get(li.product.linked_card_id);
+            /*
+             * Retiring a card does not delete its row, so the link survives it.
+             * Selling on regardless would quietly scratch a card the shop has
+             * said it no longer stocks — better to stop and be re-linked.
+             */
+            if (!linked) throw new Error(`${li.product.name} is linked to a card that no longer exists`);
+            if (!linked.active) {
+              throw new Error(`${li.product.name} is delivered by ${linked.name}, which is no longer stocked`);
+            }
+
+            if (linked.wallet_id) {
+              chargeSale({
+                walletId: linked.wallet_id,
+                product: linked,
+                quantity: li.quantity,
+                orderId,
+                userId: req.user.id,
+              });
+            } else {
+              // A linked card held as ordinary stock comes off the shelf instead.
+              moveStock({ branchId, productId: linked.id, delta: -li.quantity });
+            }
+          }
+
+          if (li.product.credit_recovered > 0 && li.product.credit_wallet_id) {
+            recordWalletMovement({
+              walletId: li.product.credit_wallet_id,
+              kind: 'top_up',
+              amount: round2(li.product.credit_recovered * li.quantity),
+              /*
+               * It cost nothing: the card it came off was already bought and
+               * has just been sold at a margin. Costing it at face value would
+               * report that reselling it earns nothing.
+               */
+              costUsd: 0,
+              orderId,
+              productId: li.product.id,
+              userId: req.user.id,
+              note: `Back off ${li.quantity} × ${li.product.name}`,
+            });
+          }
         } else if (li.product.wallet_id) {
           /*
            * The wallet is this product's stock, so selling a card spends it.
