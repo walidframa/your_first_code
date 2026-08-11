@@ -83,11 +83,38 @@ async function openNewDocument() {
   return page.locator('[role=dialog]');
 }
 
+/**
+ * Shut the dialogs and make sure they stay shut.
+ *
+ * Saving a document closes the form and opens the saved document in its place,
+ * so for a moment there is one modal going and another arriving. Close during
+ * that moment — which is a matter of milliseconds, and so happens on a loaded
+ * CI runner and never on a developer's machine — and the second one is left
+ * standing with its backdrop across the whole screen.
+ *
+ * Nothing about that looks broken. The backdrop is invisible, the menu beneath
+ * it is plainly there, and the next click on it is simply swallowed, surfacing
+ * thirty seconds later as a timeout on a step that had nothing to do with it.
+ *
+ * So: close every layer rather than the first, and having seen the last one go,
+ * wait and look again before walking away.
+ */
 async function closeDialog() {
-  const dialog = page.locator('[role=dialog]');
-  if (!(await dialog.count())) return;
-  await dialog.getByRole('button', { name: 'Close' }).first().click();
-  await dialog.first().waitFor({ state: 'detached', timeout: 10000 });
+  const overlay = () => page.locator('[role=presentation]');
+
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    if (await overlay().count()) {
+      const close = page.locator('[role=dialog]').last().getByRole('button', { name: 'Close' });
+      if (await close.count()) await close.first().click().catch(() => {});
+      else await page.keyboard.press('Escape');
+      await page.waitForTimeout(250);
+      continue;
+    }
+    await page.waitForTimeout(400);
+    if (!(await overlay().count())) return;
+  }
+
+  await overlay().first().waitFor({ state: 'detached', timeout: 10000 });
 }
 
 async function shot(name) {
@@ -721,10 +748,38 @@ try {
       .getByRole('button', { name: 'Not linked yet' })
       .click();
     await page.waitForSelector('[role=dialog] >> text=What selling one of these does', { timeout: 10000 });
+
+    /*
+     * Opened with nothing filled in, it says so. A card picked with the credit
+     * left at nothing sells the days and moves no money at all — which reads as
+     * configured on every screen unless somebody says otherwise.
+     */
+    await page.waitForSelector('[role=dialog] >> text=No credit will reach a carrier balance');
+
+    /*
+     * Picking a card that carries credit fills the figure in. Typing it from
+     * nothing is what got left at zero, and zero is the silent failure.
+     */
+    const carrying = await page
+      .locator('[role=dialog] #linkedCard option')
+      .evaluateAll((opts) => opts.find((o) => o.textContent.includes('Alfa $07.58'))?.value);
+    if (!carrying) throw new Error('the $7.58 recharge card is not offered as a delivering card');
+    await page.locator('[role=dialog] #linkedCard').selectOption(carrying);
+    await page.waitForTimeout(300);
+    const prefilled = await page.locator('[role=dialog] #creditRecovered').inputValue();
+    if (prefilled !== '7.58') {
+      throw new Error(`picking a $7.58 card left the credit at "${prefilled}"`);
+    }
+
     // The cost was set to $2.75 by the previous step, and the option says so.
     await page.locator('[role=dialog] #linkedCard').selectOption({ label: 'ALFA 10 · 1 month · costs $2.75' });
+    // Trimmed to what the shop really keeps off the card.
     await page.locator('[role=dialog] #creditRecovered').fill('6');
     await page.locator('[role=dialog] #creditWallet').selectOption({ label: 'Alfa' });
+    await page.waitForSelector('[role=dialog] >> text=No credit will reach a carrier balance', {
+      state: 'detached',
+      timeout: 5000,
+    });
     await page.locator('[role=dialog]').getByRole('button', { name: 'Save the link' }).click();
     await page.waitForSelector('text=/linked$/', { timeout: 15000 });
     await page.waitForSelector('text=$6.00 back to Alfa', { timeout: 15000 });

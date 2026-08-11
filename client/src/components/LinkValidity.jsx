@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { TriangleAlert } from 'lucide-react';
 import api from '../api';
 import { Button, Input, Modal, ModalActions, Select, money, useToast } from './ui';
 
@@ -29,6 +30,31 @@ export default function LinkValidity({ card, cards, carriers, onClose, onSaved }
   const choices = cards.filter((c) => !c.validity_days && c.id !== card.id);
   const linked = choices.find((c) => String(c.id) === linkedId);
 
+  /*
+   * Picking the card fills the credit in.
+   *
+   * The card knows what it carries, and the shop takes back most of it — so the
+   * card's own figure is the right starting point and the shop trims it to what
+   * it really keeps. Left to be typed from nothing it gets left at zero, and a
+   * validity card with zero credit against it sells the days and moves no
+   * money at all, which is the one thing this dialog exists to prevent.
+   */
+  function pickCard(id) {
+    setLinkedId(id);
+    const chosen = choices.find((c) => String(c.id) === id);
+    if (chosen?.credits_included > 0 && !Number(recovered)) {
+      setRecovered(String(chosen.credits_included));
+    }
+    if (chosen && !walletId && carriers.length) {
+      // The carrier whose name the card starts with, when there is one.
+      const guess = carriers.find((w) => chosen.name.toLowerCase().startsWith(w.name.toLowerCase()));
+      if (guess) setWalletId(String(guess.id));
+    }
+  }
+
+  // Configured to do nothing: the days are sold and no credit moves.
+  const movesNoCredit = !(Number(recovered) > 0 && walletId);
+
   async function save() {
     setBusy(true);
     setError('');
@@ -55,7 +81,7 @@ export default function LinkValidity({ card, cards, carriers, onClose, onSaved }
           label="Card scratched to deliver it"
           name="linkedCard"
           value={linkedId}
-          onChange={(e) => setLinkedId(e.target.value)}
+          onChange={(e) => pickCard(e.target.value)}
         >
           <option value="">Nothing — just the days</option>
           {choices.map((c) => (
@@ -121,6 +147,25 @@ export default function LinkValidity({ card, cards, carriers, onClose, onSaved }
           )}
           . Nothing to type in afterwards.
         </p>
+
+        {/*
+          * The failure this dialog is for.
+          *
+          * Picking the card and leaving the credit at nothing looks finished —
+          * the link is set, the row reads as configured — and then every sale
+          * moves no credit at all and the carrier balance sits at zero while
+          * the shop wonders what it did wrong. Said before it can happen.
+          */}
+        {movesNoCredit && (
+          <p className="flex items-start gap-1.5 rounded-lg bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-800">
+            <TriangleAlert size={13} className="mt-px shrink-0" />
+            <span>
+              No credit will reach a carrier balance. Selling this sells the days
+              {linked ? ' and scratches the card' : ''} and nothing more — fill in how much comes
+              back, and onto which balance, if that is not what you want.
+            </span>
+          </p>
+        )}
 
         {error && <p className="text-sm text-red-600">{error}</p>}
       </div>

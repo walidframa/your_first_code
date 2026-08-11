@@ -798,6 +798,14 @@ delivers it, how much credit comes back, and onto which carrier — and says it
 back in a sentence before you save. The Cards list shows the link in a
 **Delivered by** column, so an unlinked card is visible rather than discovered.
 
+**Picking the card fills the credit in**, from what that card carries, and the
+shop trims it to what it really keeps. That matters more than it sounds: the
+top-up only happens when the credit is above zero, so a card picked with the
+figure left empty sells the days and moves no money at all — while the row
+still reads as linked. Left that way it now says so in three places: in the
+dialog, in the **Delivered by** column, and on the cart line at the register,
+which is where somebody finds out that a carrier balance never moved.
+
 Leaving the link empty is a real arrangement, not a half-finished one: such a
 card sells the days and touches nothing else. But a card linked to one that has
 since been **retired** refuses the sale rather than scratching stock the shop
