@@ -4,6 +4,7 @@ import {
   ArrowDownLeft,
   ArrowUpRight,
   Banknote,
+  ChevronDown,
   EyeOff,
   FileText,
   Lock,
@@ -665,6 +666,23 @@ export default function CashBox({ onChanged, refreshOn = 0, accountId = null, sh
   // Which sitting's report is on screen — set from the close dialog, and from
   // the panel itself while the drawer is still open.
   const [reportFor, setReportFor] = useState(null);
+  /*
+   * Folded away by default, and remembered.
+   *
+   * The drawer and the day's profit are worth a glance, not a quarter of the
+   * column — and the column's real job is the cart. Folded, the figures are
+   * still on screen; it is the buttons under them, which are used a few times a
+   * day, that stop crowding out the thing used every minute.
+   */
+  const [detailOpen, setDetailOpen] = useState(
+    () => globalThis.localStorage?.getItem('pos_money_open') === '1',
+  );
+
+  const toggleDetail = () =>
+    setDetailOpen((wasOpen) => {
+      globalThis.localStorage?.setItem('pos_money_open', wasOpen ? '0' : '1');
+      return !wasOpen;
+    });
 
   const load = useCallback(async () => {
     const res = await api.get('/cash/current', { params: accountId ? { accountId } : undefined });
@@ -745,92 +763,77 @@ export default function CashBox({ onChanged, refreshOn = 0, accountId = null, sh
         * only when the server sent it, which it does for whoever may see profit
         * at all. A cashier gets nothing here, not a hidden or blanked-out box.
         */}
-      {showProfit && profit && (
-        <div className="border-b border-brand-100 bg-brand-50/60 px-4 py-2.5">
-          <div className="flex items-center justify-between gap-2">
-            <span className="flex items-center gap-1.5 text-[11px] font-semibold tracking-wide text-brand-700/80 uppercase">
-              <TrendingUp size={13} /> Profit this sitting
+      <div className="border-b border-slate-200 bg-slate-50">
+        {/*
+          * The whole strip is the handle. One row, both figures, and the
+          * chevron — a cashier glancing at the drawer gets what they came for
+          * without the panel taking the cart's room to give it to them.
+          */}
+        <button
+          onClick={toggleDetail}
+          aria-expanded={detailOpen}
+          aria-label={detailOpen ? 'Hide the drawer detail' : 'Show the drawer detail'}
+          className="flex w-full items-center gap-2 px-4 py-2 text-left transition hover:bg-slate-100"
+        >
+          <Banknote size={14} className={short ? 'text-red-500' : 'text-brand-600'} />
+          {expected ? (
+            <>
+              <span
+                className={cx(
+                  'tnum text-base leading-none font-semibold',
+                  short ? 'text-red-600' : 'text-slate-900',
+                )}
+              >
+                {money(expected.usd)}
+              </span>
+              <span
+                className={cx('tnum text-xs leading-none', short ? 'text-red-500' : 'text-slate-500')}
+              >
+                {lbp(expected.lbp)}
+              </span>
+            </>
+          ) : (
+            /*
+             * A cashier counts blind, so the figure is withheld — said plainly,
+             * because a blank space where a number should be looks broken.
+             */
+            <span className="flex items-center gap-1.5 text-sm text-slate-500">
+              <EyeOff size={13} /> Counted at close
             </span>
-            <button
-              onClick={() => setReportFor(session.id)}
-              title="Cashbox report"
-              aria-label="Cashbox report"
-              className="rounded p-1 text-brand-700/70 transition hover:bg-brand-100 hover:text-brand-800"
-            >
-              <FileText size={13} />
-            </button>
-          </div>
-          <p className="flex items-baseline gap-2">
-            <span className="tnum text-2xl leading-none font-semibold text-brand-800">
-              {money(profit.netProfit)}
-            </span>
-            <span className="text-[11px] text-brand-700/70">net</span>
-          </p>
-          <p className="tnum mt-1 text-[11px] text-brand-700/70">
-            {money(profit.revenue)} sold · {money(profit.grossProfit)} gross ·{' '}
-            {money(profit.expenses)} spent
-          </p>
-        </div>
-      )}
+          )}
 
-      <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
-        <div className="mb-2 flex items-center justify-between gap-2">
-          <span className="flex items-center gap-1.5 text-[11px] font-semibold tracking-wide text-slate-500 uppercase">
-            <Banknote size={13} className="text-brand-600" />
-            Cash on hand
-          </span>
-          <button
-            onClick={refresh}
-            aria-label="Refresh cash on hand"
-            title="Refresh"
-            className="rounded p-1 text-slate-400 transition hover:bg-slate-200 hover:text-slate-700"
-          >
-            <RefreshCw size={13} className={busy ? 'animate-spin' : undefined} />
-          </button>
-        </div>
+          {showProfit && profit && (
+            <span className="ml-auto flex items-baseline gap-1">
+              <TrendingUp size={12} className="text-brand-600" />
+              <span className="tnum text-sm font-semibold text-brand-700">
+                {money(profit.netProfit)}
+              </span>
+              <span className="text-[11px] text-brand-700/60">profit</span>
+            </span>
+          )}
 
-        {expected ? (
-          <p className="flex items-baseline gap-2">
-            {/* Red when it is below zero: a minus sign alone is easy to read
-                straight past on a figure you glance at fifty times a day. */}
-            <span
-              className={cx(
-                'tnum text-2xl leading-none font-semibold',
-                short ? 'text-red-600' : 'text-slate-900',
-              )}
-            >
-              {money(expected.usd)}
-            </span>
-            <span
-              className={cx(
-                'tnum text-base leading-none font-medium',
-                short ? 'text-red-500' : 'text-slate-500',
-              )}
-            >
-              {lbp(expected.lbp)}
-            </span>
-          </p>
-        ) : (
-          /*
-           * A cashier counts blind, so the figure is withheld — said plainly,
-           * because a blank space where a number should be looks broken.
-           */
-          <p className="flex items-center gap-1.5 text-sm text-slate-500">
-            <EyeOff size={14} /> Counted at close
-          </p>
-        )}
+          <ChevronDown
+            size={15}
+            className={cx(
+              'shrink-0 text-slate-400 transition-transform',
+              showProfit && profit ? '' : 'ml-auto',
+              detailOpen && 'rotate-180',
+            )}
+          />
+        </button>
 
         {/*
           * A drawer below zero means the money and the books have drifted
           * apart, and the sooner somebody looks the better the chance of
           * remembering why. It stays put until it is fixed or the sitting is
-          * closed — the toast at the moment it happened is long gone by then.
+          * closed — the toast at the moment it happened is long gone by then,
+          * and folding the panel away must not fold this away with it.
           *
           * Shown to a cashier too, who cannot see the figure: they are told the
           * drawer is short, not how short, which is still enough to act on.
           */}
         {short && (
-          <p className="mt-1.5 flex items-start gap-1.5 rounded-lg bg-red-50 px-2 py-1.5 text-[11px] leading-snug text-red-700">
+          <p className="mx-4 mb-2 flex items-start gap-1.5 rounded-lg bg-red-50 px-2 py-1.5 text-[11px] leading-snug text-red-700">
             <AlertTriangle size={13} className="mt-px shrink-0" />
             <span>
               More has gone out than came in. Something earlier is missing — a sale rung up
@@ -839,30 +842,62 @@ export default function CashBox({ onChanged, refreshOn = 0, accountId = null, sh
           </p>
         )}
 
-        <p className="mt-1 text-[11px] text-slate-400">
-          Open since {new Date(`${session.opened_at}Z`).toLocaleTimeString([], { timeStyle: 'short' })} ·{' '}
-          {session.opened_by_name}
-        </p>
+        {detailOpen && (
+          <div className="px-4 pb-3">
+            {showProfit && profit && (
+              <p className="tnum mb-2 flex items-center justify-between text-[11px] text-brand-700/70">
+                <span>
+                  {money(profit.revenue)} sold · {money(profit.grossProfit)} gross ·{' '}
+                  {money(profit.expenses)} spent
+                </span>
+                <button
+                  onClick={() => setReportFor(session.id)}
+                  title="Cashbox report"
+                  aria-label="Cashbox report"
+                  className="rounded p-1 text-brand-700/70 transition hover:bg-brand-100 hover:text-brand-800"
+                >
+                  <FileText size={13} />
+                </button>
+              </p>
+            )}
 
-        <div className="mt-2.5 flex items-center gap-1.5">
-          <Button size="sm" variant="secondary" className="flex-1" onClick={() => setDialog('in')}>
-            <ArrowDownLeft size={15} /> Cash in
-          </Button>
-          <Button size="sm" variant="secondary" className="flex-1" onClick={() => setDialog('out')}>
-            <ArrowUpRight size={15} /> Cash out
-          </Button>
-          {/* Icon-only to fit three controls in a narrow column, so it needs a
-              name of its own for anyone not looking at the icon. */}
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={() => setDialog('close')}
-            aria-label="Close the cashbox"
-            title="Close the cashbox"
-          >
-            <Lock size={15} />
-          </Button>
-        </div>
+            <p className="flex items-center justify-between text-[11px] text-slate-400">
+              <span>
+                Open since{' '}
+                {new Date(`${session.opened_at}Z`).toLocaleTimeString([], { timeStyle: 'short' })} ·{' '}
+                {session.opened_by_name}
+              </span>
+              <button
+                onClick={refresh}
+                aria-label="Refresh cash on hand"
+                title="Refresh"
+                className="rounded p-1 text-slate-400 transition hover:bg-slate-200 hover:text-slate-700"
+              >
+                <RefreshCw size={13} className={busy ? 'animate-spin' : undefined} />
+              </button>
+            </p>
+
+            <div className="mt-2 flex items-center gap-1.5">
+              <Button size="sm" variant="secondary" className="flex-1" onClick={() => setDialog('in')}>
+                <ArrowDownLeft size={15} /> Cash in
+              </Button>
+              <Button size="sm" variant="secondary" className="flex-1" onClick={() => setDialog('out')}>
+                <ArrowUpRight size={15} /> Cash out
+              </Button>
+              {/* Icon-only to fit three controls in a narrow column, so it needs
+                  a name of its own for anyone not looking at the icon. */}
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => setDialog('close')}
+                aria-label="Close the cashbox"
+                title="Close the cashbox"
+              >
+                <Lock size={15} />
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
 
       {dialog === 'open' && (
