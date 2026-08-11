@@ -1100,6 +1100,77 @@ a code whose check digit is wrong — falls back to Code 128 so a label always
 prints something scannable. A retail-length code with a bad check digit is
 flagged in the UI rather than silently mis-encoded.
 
+## Instalments — تقسيط
+
+A $400 handset goes out for $150 down and the rest over four months. **Money →
+Instalments** is where those live: what is out on plans, who is behind, and one
+press to remind them on WhatsApp.
+
+A plan is a **schedule laid over a debt that already exists**, never a second
+set of books. The phone went on the customer's account the ordinary way, and
+`account_entries` remains the one true answer to what is owed — the plan only
+says *when* the shop expects it. That distinction is the whole design: a plan
+carrying its own balance would disagree with the ledger the first time somebody
+paid at the counter without mentioning the plan, and the ledger would be right.
+
+- **The amount asked for is what is left to pay**, not the price of the phone —
+  the deposit was taken at the counter as an ordinary sale, and scheduling it
+  again would be scheduling money that is already in the till.
+- Instalments split as evenly as money allows, **odd cents on the first
+  payment**: somebody who has paid the same figure for four months should not
+  meet a different one at the end.
+- A plan started on the 31st does not skip February — each date is clamped to
+  the last day of a month too short for it.
+- **A payment is an ordinary customer payment** that also settles the earliest
+  months. Pay more than one month and it covers the next as well; pay more than
+  the plan and the surplus is simply not allocated, because the ledger already
+  says they are ahead and inventing a due to hold it would be inventing debt.
+- **Overdue is measured against today**, not stored, so a plan that goes late
+  overnight is late in the morning without anything having run.
+- **Stop** cancels the chasing without forgiving the debt: whatever they owe,
+  they still owe. It says the shop has stopped expecting it in monthly pieces.
+
+## Backups
+
+The whole business is one SQLite file on one machine: every sale, customer,
+IMEI, repair, and the passwords the shop holds on customers' behalf. Lose the
+machine and the shop loses its memory.
+
+**Settings → Backups** takes one on the spot and lists what is there. One is
+also taken automatically each day the shop is open, and the last 14 are kept.
+`npm run backup` does the same from a terminal, for a shop that would rather
+drive it from a scheduled task.
+
+- Taken with SQLite's own `VACUUM INTO`, not by copying the file. Copying a
+  database that is being written gives you a torn one and a write-ahead log you
+  did not copy — which usually opens, and that is worse than failing, because
+  you find out at restore time.
+- Checked every half hour rather than scheduled for 3am, because a shop's
+  machine is switched off at night and a backup timed for then would never once
+  fire. It takes one whenever the newest is a day old.
+
+**`server/.env` is not in the backup, and must travel with it.** The customer
+passwords and repair passcodes inside are encrypted with `ACCOUNT_SECRET`, which
+lives in that file and nowhere else. A database restored without it has every
+one of them permanently unreadable. The screen says so above the list, where
+somebody copying a file off it will see it.
+
+### Putting one back
+
+```bash
+npm run restore -- backups/pos-2026-08-11T20-14-03.sqlite
+```
+
+A command rather than a button, deliberately. Restoring throws away everything
+since the copy was taken and has to happen with the server stopped — a database
+swapped underneath a running process is half of one day and half of another.
+Neither belongs behind something clickable at a counter.
+
+It opens and reads the file before moving anything, so a truncated download
+fails with the real books still exactly where they were, and the database being
+replaced is kept aside as `.replaced-<time>` — the commonest restore mistake is
+restoring the wrong copy.
+
 ## Customers, credit and cash flow
 
 One ledger records both sides of the book. Every entry carries a signed amount

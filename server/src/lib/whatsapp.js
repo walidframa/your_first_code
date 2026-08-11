@@ -306,6 +306,54 @@ export function repairMessage(id) {
  * customer is often the landline, and the person standing there can give the
  * mobile they actually use.
  */
+/**
+ * A reminder that somebody has a payment due, or a late one.
+ *
+ * Written to be sent as it is. A shop chasing money by hand writes something
+ * short and polite and gets on with the day, and a reminder that reads like a
+ * demand from a system is one a customer holds against the shop rather than
+ * against the debt.
+ *
+ * What is owed altogether is included alongside what is due now, because the
+ * question that always comes back is "and how much is left after that".
+ */
+export function installmentMessage(plan) {
+  const settings = getSettings();
+  const rate = settings.exchange_rate || 0;
+  const inBoth = (usd) =>
+    `${money(usd)}${rate > 0 ? ` (${pounds(usdToLbp(usd, rate, settings.lbp_rounding))})` : ''}`;
+
+  const late = plan.overdueCount > 0;
+  const due = plan.nextDue;
+
+  const lines = [
+    letterhead(settings),
+    late ? 'Payment overdue' : 'Payment reminder',
+    '',
+    plan.customer_name,
+    plan.order_number ? `For ${plan.order_number}` : null,
+    '',
+    late
+      ? `*${inBoth(plan.overdueUsd)}* is past due${
+          plan.overdueCount > 1 ? ` across ${plan.overdueCount} payments` : ''
+        }.`
+      : due
+        ? `Next payment: *${inBoth(due.amount)}* on ${readableDate(due.date)}.`
+        : 'Everything on this plan has been paid — thank you.',
+    plan.outstandingUsd > 0 ? `Remaining altogether: ${inBoth(plan.outstandingUsd)}` : null,
+    '',
+    plan.outstandingUsd > 0 ? 'Thank you — please come by whenever suits you.' : null,
+    '',
+    ...signature(settings),
+  ];
+
+  return {
+    to: waNumber(plan.customer_phone, settings.phone_country_code),
+    name: plan.customer_name || null,
+    text: join(lines),
+  };
+}
+
 export function sendable(message, phone = null) {
   if (!message) return null;
   const settings = getSettings();

@@ -9,6 +9,8 @@
   "scripts": {
     "setup": "npm install && npm --prefix server install && npm --prefix client install && node scripts/ensure-env.mjs && npm run seed",
     "seed": "npm --prefix server run seed",
+    "backup": "npm --prefix server run backup",
+    "restore": "npm --prefix server run restore --",
     "dev": "concurrently -n server,client -c green,cyan \"npm --prefix server run dev\" \"npm --prefix client run dev\"",
     "dev:server": "npm --prefix server run dev",
     "dev:client": "npm --prefix client run dev",
