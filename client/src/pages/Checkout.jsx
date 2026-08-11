@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   HandCoins,
   Minus,
+  Receipt as ReceiptIcon,
   Send,
   Smartphone,
   Wrench,
@@ -25,6 +26,7 @@ import PhoneSaleDialog from '../components/PhoneSaleDialog';
 import BuyHandsetModal from '../components/BuyHandsetModal';
 import SellSim from '../components/SellSim';
 import SendCredit from '../components/SendCredit';
+import SittingSales from '../components/SittingSales';
 import { Button, EmptyState, ProductThumb, Skeleton, cx, money, useToast } from '../components/ui';
 import { useSettings, lbp } from '../context/SettingsContext';
 
@@ -69,6 +71,8 @@ export default function Checkout() {
   const [buyingHandset, setBuyingHandset] = useState(false);
   // A phone left in for repair. Counter work, so it starts at the counter.
   const [takingRepair, setTakingRepair] = useState(false);
+  // This till's sales, over the register rather than away from it.
+  const [showingSales, setShowingSales] = useState(false);
   // A SIM sold by its number, and calling credit sent by SMS. Both are counter
   // work with their own dialog, and neither is a product on the shelf.
   const [sellingSim, setSellingSim] = useState(false);
@@ -625,6 +629,19 @@ export default function Checkout() {
           </div>
           <div className="flex items-center gap-1">
             {/*
+             * What this till has already sold, and the way to put something
+             * back. The sale somebody wants to correct is almost always the
+             * last one, so the way to it belongs here rather than three screens
+             * into the back office.
+             */}
+            <button
+              onClick={() => setShowingSales(true)}
+              title="This register's sales, to void or return"
+              className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
+            >
+              <ReceiptIcon size={13} /> Sales
+            </button>
+            {/*
              * The shelf of parked sales, with its count on the face of it.
              * A held sale nobody can see is a held sale nobody finishes.
              */}
@@ -939,6 +956,15 @@ export default function Checkout() {
       {resumeIssues && <ResumeIssues issues={resumeIssues} onClose={() => setResumeIssues(null)} />}
 
       {takingRepair && <TakeInRepair onClose={() => setTakingRepair(false)} />}
+
+      {showingSales && (
+        <SittingSales
+          onClose={() => setShowingSales(false)}
+          /* A void or a return moves the drawer, so the panel above has to
+             catch up the same way it does after a sale. */
+          onChanged={() => setSalesMade((n) => n + 1)}
+        />
+      )}
 
       {sellingSim && (
         <SellSim

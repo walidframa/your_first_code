@@ -1548,6 +1548,36 @@ addColumn('products', 'credit_wallet_id', 'INTEGER REFERENCES wallets(id)');
  * the validity loop can say how much credit a scratched card put into play.
  */
 addColumn('products', 'credits_included', 'REAL');
+
+/*
+ * How much of a line has come back.
+ *
+ * A customer returns one thing off a sale of six far more often than they hand
+ * the whole sale back, and until now the only answer was to refund all of it
+ * and ring the rest up again — which loses the original sale's prices, its
+ * time, and its place in the day's takings.
+ *
+ * Counted rather than flagged, because two of five can come back today and
+ * another one next week. The order's own status stays 'completed' until every
+ * line is fully back, which is also the only way to say this without rebuilding
+ * the table: its status column is a CHECK of exactly two values.
+ */
+addColumn('order_items', 'returned_qty', 'INTEGER NOT NULL DEFAULT 0');
+
+/*
+ * Which sitting of the drawer a sale belongs to.
+ *
+ * "What has this register sold" is really "what has been rung up since the
+ * drawer was counted", because that is the span the count has to reconcile
+ * against. Comparing timestamps almost works and then does not: SQLite keeps
+ * these to the second, so a sale rung up in the same second the drawer opened
+ * is on the wrong side of the comparison, and there is no arithmetic that fixes
+ * that. Recording which sitting it was settles it exactly.
+ *
+ * Null for card and account sales taken with the drawer shut, and for every
+ * sale made before this column existed.
+ */
+addColumn('orders', 'cash_session_id', 'INTEGER REFERENCES cash_sessions(id)');
 addColumn('product_units', 'msisdn', 'TEXT');
 CREATE_MSISDN_INDEX: {
   db.exec('CREATE INDEX IF NOT EXISTS idx_units_msisdn ON product_units(msisdn)');

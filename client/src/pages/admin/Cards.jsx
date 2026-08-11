@@ -14,6 +14,7 @@ import api from '../../api';
 import PageHeader from '../../components/PageHeader';
 import LinkValidity from '../../components/LinkValidity';
 import { shrink } from '../../lib/shrink';
+import MoneyInput from '../../components/MoneyInput';
 import { lbp, useSettings } from '../../context/SettingsContext';
 import {
   Badge,
@@ -466,7 +467,6 @@ function CardPicture({ value, onChange }) {
 
 function CardDialog({ card, wallets, categories, onClose, onSaved }) {
   const toast = useToast();
-  const { rate, toLbp } = useSettings();
   const editing = Boolean(card);
 
   const [name, setName] = useState(card?.name || '');
@@ -538,25 +538,18 @@ function CardDialog({ card, wallets, categories, onClose, onSaved }) {
           />
         )}
 
+        {/*
+          * Both in either currency: a dealer quotes a card in pounds and the
+          * counter quotes it in pounds, so making somebody divide by the rate
+          * in their head is how a cost lands out by a factor of ten.
+          */}
         <div className="grid grid-cols-2 gap-3">
-          <Input
-            label="Selling price"
-            name="price"
-            type="number"
-            step="0.01"
-            min="0"
-            value={price}
-            onChange={(e) => setPrice(e.target.value)}
-            hint={rate > 0 && Number(price) ? lbp(toLbp(Number(price))) : undefined}
-          />
-          <Input
+          <MoneyInput label="Selling price" name="price" value={price} onChange={setPrice} />
+          <MoneyInput
             label="What it costs you"
             name="cost"
-            type="number"
-            step="0.01"
-            min="0"
             value={cost}
-            onChange={(e) => setCost(e.target.value)}
+            onChange={setCost}
             hint="Comes off the wallet on every sale"
           />
         </div>

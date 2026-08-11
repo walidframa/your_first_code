@@ -248,3 +248,20 @@ export function returnUnitsOfOrder(orderId) {
   }
   return units.length;
 }
+
+/**
+ * Put one handset back, when only that one is being returned.
+ *
+ * Same standing as a whole order coming back — `returned`, not `in_stock` —
+ * because what makes it a used proposition is that it left the shop, not how
+ * many other things left with it.
+ */
+export function returnOneUnit(unitId) {
+  const unit = db.prepare('SELECT * FROM product_units WHERE id = ?').get(unitId);
+  if (!unit) return null;
+  db.prepare(
+    `UPDATE product_units SET status = 'returned', sold_order_id = NULL, sold_at = NULL WHERE id = ?`,
+  ).run(unit.id);
+  syncStockFromUnits(unit.product_id);
+  return unit;
+}

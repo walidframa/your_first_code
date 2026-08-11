@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import api from '../../api';
 import BarcodeField from '../../components/BarcodeField';
+import MoneyInput from '../../components/MoneyInput';
 import PageHeader from '../../components/PageHeader';
 import ItemActivity from '../../components/ItemActivity';
 import CategoryManager from '../../components/CategoryManager';
@@ -166,8 +167,21 @@ function ProductModal({ product, categories, onClose, onSaved }) {
               onChange={(barcodes) => setForm((f) => ({ ...f, barcodes }))}
             />
           </div>
-          <Input label="Price" type="number" step="0.01" min="0" value={form.price} onChange={set('price')} required />
-          <Input label="Cost" type="number" step="0.01" min="0" value={form.cost} onChange={set('cost')} />
+          {/* Either currency: a supplier quotes in pounds as often as in
+              dollars, and the division belongs here rather than in somebody's
+              head at the counter. Dollars are still what gets stored. */}
+          <MoneyInput
+            label="Price"
+            name="price"
+            value={form.price}
+            onChange={(v) => setForm((f) => ({ ...f, price: v }))}
+          />
+          <MoneyInput
+            label="Cost"
+            name="cost"
+            value={form.cost}
+            onChange={(v) => setForm((f) => ({ ...f, cost: v }))}
+          />
           <Input
             label="Stock on hand"
             type="number"

@@ -4,9 +4,60 @@ import api from '../../api';
 import PageHeader from '../../components/PageHeader';
 import CompanySettings from '../../components/CompanySettings';
 import { useSettings, lbp } from '../../context/SettingsContext';
-import { Button, Card, CardHeader, EmptyState, Input, Skeleton, money, useToast } from '../../components/ui';
+import { TEXT_SIZES, applyTextSize, getTextSize } from '../../lib/textSize';
+import {
+  Button,
+  Card,
+  CardHeader,
+  EmptyState,
+  Input,
+  Skeleton,
+  cx,
+  money,
+  useToast,
+} from '../../components/ui';
 
 const PREVIEW_AMOUNTS = [1, 5, 10, 25, 100];
+
+/**
+ * How big everything is, on this screen.
+ *
+ * Kept on the device rather than in the shop's settings: the till is a tablet
+ * propped up at arm's length and the back office is a laptop a foot away, and
+ * the right answer is different for each. Nothing to save — it takes effect on
+ * the press, which is also the only way to judge whether it is right.
+ */
+function TextSize() {
+  const [size, setSize] = useState(getTextSize);
+
+  return (
+    <Card className="p-5">
+      <h2 className="text-sm font-semibold text-slate-900">Text size</h2>
+      <p className="mt-0.5 mb-4 text-xs text-slate-500">
+        Applies to this screen only, and is remembered on it. Everything grows together — the
+        numbers, the buttons and the space around them — so nothing ends up in the wrong place.
+      </p>
+
+      <div className="flex gap-2">
+        {TEXT_SIZES.map(([id, label]) => (
+          <button
+            key={id}
+            onClick={() => setSize(applyTextSize(id))}
+            aria-pressed={size === id}
+            className={cx(
+              'flex-1 rounded-xl px-3 py-2.5 text-sm font-medium ring-1 transition',
+              size === id
+                ? 'bg-brand-600 text-white ring-brand-600'
+                : 'bg-white text-slate-700 ring-slate-200 hover:bg-slate-50',
+            )}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+    </Card>
+  );
+}
 
 export default function Settings() {
   const toast = useToast();
@@ -73,6 +124,10 @@ export default function Settings() {
             leaves the counter, and it is set once and then forgotten. */}
         <div className="mb-4 max-w-4xl">
           <CompanySettings />
+        </div>
+
+        <div className="mb-4 max-w-4xl">
+          <TextSize />
         </div>
 
         <div className="grid max-w-4xl grid-cols-2 gap-4">
