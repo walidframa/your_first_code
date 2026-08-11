@@ -123,7 +123,7 @@ try {
     await page.getByLabel('Dollars').fill('100');
     await page.getByLabel('Lebanese pounds (LBP)').fill('2000000');
     await page.click('button:has-text("Open cashbox")');
-    await page.waitForSelector('text=Cash on hand', { timeout: 15000 });
+    await page.waitForSelector('button[aria-label$="the drawer detail"]', { timeout: 15000 });
   });
 
   await step('scanning a barcode adds the product', async () => {
@@ -287,7 +287,7 @@ try {
      * panel must still have refreshed. Checking the movement count proves the
      * reload happened without needing to see the money.
      */
-    await page.waitForSelector('text=Cash on hand', { timeout: 15000 });
+    await page.waitForSelector('button[aria-label$="the drawer detail"]', { timeout: 15000 });
     await page.waitForSelector('text=Counted at close');
 
     const drawer = await page.evaluate(async () => {
@@ -937,7 +937,33 @@ try {
 
     const credit = page.locator('[role=dialog]');
     await credit.getByLabel("Customer's number").fill('03 123 456');
-    await credit.getByLabel('How much credit').fill('10');
+
+    /*
+     * Typed a digit at a time, the way a cashier types it — and the way that
+     * used to sell $10 of credit for the price of $1.
+     *
+     * "10" quotes "1" on the way past. A price seeded from that first keystroke
+     * stuck, with the pound figure beside it still reading 1,100,000 and the
+     * margin still positive, so nothing on the screen objected. The price has
+     * to be the same however the amount arrived, which is what this asserts —
+     * no rate hardcoded, because the point is that the two agree.
+     */
+    await credit.getByLabel('How much credit').click();
+    await page.keyboard.type('1', { delay: 250 });
+    await page.waitForTimeout(700);
+    const forOne = Number(await credit.getByLabel('Charge the customer').inputValue());
+
+    await page.keyboard.type('0', { delay: 250 });
+    await credit.locator('text=Send 4 messages').waitFor({ timeout: 10000 });
+    await page.waitForTimeout(700);
+    const forTen = Number(await credit.getByLabel('Charge the customer').inputValue());
+
+    if (!(forOne > 0)) throw new Error('a dollar of credit was not priced at all');
+    // Ten times the credit is ten times the price, give or take the rounding
+    // on each. Left stale, the second reading is still the first one.
+    if (Math.abs(forTen - forOne * 10) > 0.2) {
+      throw new Error(`$1 priced at ${forOne} but $10 priced at ${forTen}`);
+    }
 
     await credit.locator('text=Send 4 messages').waitFor({ timeout: 10000 });
     const shown = await credit.innerText();
@@ -1411,7 +1437,13 @@ try {
 
   await step('the cashbox closes against a blind count', async () => {
     await page.click('a[title="Register"]');
-    await page.waitForSelector('text=Cash on hand', { timeout: 15000 });
+    /*
+     * The drawer's figures are always on the strip; its buttons are folded away
+     * so the cart keeps the column. Unfold it to reach them — and once open it
+     * is remembered, so this is the only step that has to.
+     */
+    await page.click('button[aria-label="Show the drawer detail"]');
+    await page.waitForSelector('button:has-text("Cash out")', { timeout: 15000 });
 
     // Money out of the drawer for an expense.
     await page.click('button:has-text("Cash out")');
@@ -1655,7 +1687,7 @@ try {
     await page.waitForSelector('text=What is in the drawer to start with?', { timeout: 10000 });
     await page.getByLabel('Dollars').fill('100');
     await page.click('button:has-text("Open cashbox")');
-    await page.waitForSelector('text=Cash on hand', { timeout: 15000 });
+    await page.waitForSelector('button[aria-label$="the drawer detail"]', { timeout: 15000 });
     // An operator counts blind: the figure is withheld until the close.
     await page.waitForSelector('text=Counted at close');
 

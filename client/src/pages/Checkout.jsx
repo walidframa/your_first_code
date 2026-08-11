@@ -642,50 +642,36 @@ export default function Checkout() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2 border-b border-slate-100 px-3 py-2">
+        {/*
+          * The customer, and the four things that start at the counter rather
+          * than on the shelf: a phone bought in, a phone taken for repair, a SIM
+          * found by its number, and credit that does not exist until it is sent.
+          *
+          * One row of icons rather than two rows of labelled buttons. They are
+          * pressed a handful of times a day between them and each has a function
+          * key on it; the cart underneath is read on every single sale, and it
+          * was the cart that was losing the argument for space.
+          */}
+        <div className="flex items-center gap-1.5 border-b border-slate-100 px-3 py-2">
           <div className="min-w-0 flex-1">
             <CustomerPicker customer={customer} onChange={setCustomer} />
           </div>
-          {/* Buying a used phone is counter work, so it starts at the counter. */}
-          <button
-            onClick={() => setBuyingHandset(true)}
-            title="Buy a used handset from a customer"
-            className="flex shrink-0 items-center gap-1 rounded-lg bg-slate-100 px-2 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-200"
-          >
-            <HandCoins size={14} /> Buy in
-          </button>
-          {/* And so is taking one in to be fixed — it ends with a slip the
-              customer walks out holding. */}
-          <button
-            onClick={() => setTakingRepair(true)}
-            title="Take a phone in for repair (F6)"
-            className="flex shrink-0 items-center gap-1 rounded-lg bg-slate-100 px-2 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-200"
-          >
-            <Wrench size={14} /> Repair
-          </button>
-        </div>
-
-        {/*
-          * A SIM and a top-up are both sold from the counter and neither is a
-          * product on the shelf — a SIM is found by its number and credit does
-          * not exist until it is sent. Their own row, away from the recharge
-          * cards, which are a different thing that happens to be near them.
-          */}
-        <div className="flex items-center gap-2 border-b border-slate-100 px-3 py-2">
-          <button
-            onClick={() => setSellingSim(true)}
-            title="Sell a SIM card (F7)"
-            className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-slate-100 px-2 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-200"
-          >
-            <Smartphone size={14} /> Sell a SIM
-          </button>
-          <button
-            onClick={() => setSendingCredit(true)}
-            title="Send calling credit (F8)"
-            className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-slate-100 px-2 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-200"
-          >
-            <Send size={14} /> Send credit
-          </button>
+          {[
+            [HandCoins, 'Buy in', 'Buy a used handset from a customer', () => setBuyingHandset(true)],
+            [Wrench, 'Repair', 'Take a phone in for repair (F6)', () => setTakingRepair(true)],
+            [Smartphone, 'Sell a SIM', 'Sell a SIM card (F7)', () => setSellingSim(true)],
+            [Send, 'Send credit', 'Send calling credit (F8)', () => setSendingCredit(true)],
+          ].map(([Icon, name, tip, onClick]) => (
+            <button
+              key={name}
+              onClick={onClick}
+              title={tip}
+              aria-label={name}
+              className="flex shrink-0 items-center justify-center rounded-lg bg-slate-100 p-2 text-slate-600 transition hover:bg-slate-200 hover:text-slate-900"
+            >
+              <Icon size={16} />
+            </button>
+          ))}
         </div>
 
         {/*
@@ -717,62 +703,74 @@ export default function Checkout() {
             />
           ) : (
             <ul className="space-y-1">
+              {/*
+                * Two columns, not four. A picture and then everything else,
+                * stacked — because a name, a unit price, a stepper and a line
+                * total side by side in a column this narrow leaves the name
+                * about a hundred pixels, and "Chocolat…" is not what anybody
+                * needs to read off a cart.
+                */}
               {cart.map((item) => (
-                <li key={item.lineKey} className="flex items-center gap-3 rounded-xl px-2 py-2 hover:bg-slate-50">
-                  <ProductThumb product={item} size="sm" />
+                <li key={item.lineKey} className="flex gap-2.5 rounded-xl px-2 py-2 hover:bg-slate-50">
+                  <ProductThumb product={item} size="sm" className="mt-0.5 shrink-0" />
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-slate-800">{item.name}</p>
-                    <p className="tnum text-xs text-slate-400">
-                      {money(item.price)} each
-                      {rate > 0 && <> · {lbp(toLbp(item.price))}</>}
-                    </p>
+                    <div className="flex items-baseline gap-2">
+                      <p className="min-w-0 flex-1 truncate text-sm font-medium text-slate-800">
+                        {item.name}
+                      </p>
+                      <span
+                        className={cx(
+                          'tnum shrink-0 text-sm font-semibold',
+                          item.isGift ? 'text-slate-300 line-through' : 'text-slate-900',
+                        )}
+                      >
+                        {money(item.price * item.quantity)}
+                      </span>
+                    </div>
+
+                    <div className="flex items-baseline gap-2 text-[11px] text-slate-400">
+                      <span className="tnum min-w-0 flex-1 truncate">
+                        {money(item.price)} each
+                        {rate > 0 && <> · {lbp(toLbp(item.price))}</>}
+                      </span>
+                      {rate > 0 && (
+                        <span className="tnum shrink-0">{lbp(toLbp(item.price * item.quantity))}</span>
+                      )}
+                    </div>
+
                     {item.imei && (
                       <p className="truncate font-mono text-[11px] text-slate-400">{item.imei}</p>
                     )}
-                    <button
-                      onClick={() => toggleGift(item.lineKey)}
-                      className={cx(
-                        'mt-0.5 rounded px-1.5 py-0.5 text-[11px] font-medium transition',
-                        item.isGift
-                          ? 'bg-brand-50 text-brand-700'
-                          : 'text-slate-400 hover:bg-slate-100 hover:text-slate-600',
-                      )}
-                    >
-                      {item.isGift ? '★ Gift — free' : 'Make it a gift'}
-                    </button>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => updateQuantity(item.lineKey, item.quantity - 1)}
-                      aria-label={`Decrease ${item.name}`}
-                      className="flex h-7 w-7 items-center justify-center rounded-lg bg-slate-100 text-slate-600 transition hover:bg-slate-200"
-                    >
-                      <Minus size={13} />
-                    </button>
-                    <span className="tnum w-6 text-center text-sm font-medium">{item.quantity}</span>
-                    <button
-                      onClick={() => updateQuantity(item.lineKey, item.quantity + 1)}
-                      disabled={!item.unlimited && item.quantity >= item.stock}
-                      aria-label={`Increase ${item.name}`}
-                      className="flex h-7 w-7 items-center justify-center rounded-lg bg-slate-100 text-slate-600 transition hover:bg-slate-200 disabled:opacity-40"
-                    >
-                      <Plus size={13} />
-                    </button>
-                  </div>
-                  <div className="w-24 shrink-0 text-right">
-                    <span
-                      className={cx(
-                        'tnum block text-sm font-semibold',
-                        item.isGift ? 'text-slate-300 line-through' : 'text-slate-900',
-                      )}
-                    >
-                      {money(item.price * item.quantity)}
-                    </span>
-                    {rate > 0 && (
-                      <span className="tnum block text-[11px] text-slate-400">
-                        {lbp(toLbp(item.price * item.quantity))}
-                      </span>
-                    )}
+
+                    <div className="mt-1 flex items-center gap-1">
+                      <button
+                        onClick={() => updateQuantity(item.lineKey, item.quantity - 1)}
+                        aria-label={`Decrease ${item.name}`}
+                        className="flex h-7 w-7 items-center justify-center rounded-lg bg-slate-100 text-slate-600 transition hover:bg-slate-200"
+                      >
+                        <Minus size={13} />
+                      </button>
+                      <span className="tnum w-6 text-center text-sm font-medium">{item.quantity}</span>
+                      <button
+                        onClick={() => updateQuantity(item.lineKey, item.quantity + 1)}
+                        disabled={!item.unlimited && item.quantity >= item.stock}
+                        aria-label={`Increase ${item.name}`}
+                        className="flex h-7 w-7 items-center justify-center rounded-lg bg-slate-100 text-slate-600 transition hover:bg-slate-200 disabled:opacity-40"
+                      >
+                        <Plus size={13} />
+                      </button>
+                      <button
+                        onClick={() => toggleGift(item.lineKey)}
+                        className={cx(
+                          'ml-1 rounded px-1.5 py-0.5 text-[11px] font-medium transition',
+                          item.isGift
+                            ? 'bg-brand-50 text-brand-700'
+                            : 'text-slate-400 hover:bg-slate-100 hover:text-slate-600',
+                        )}
+                      >
+                        {item.isGift ? '★ Gift — free' : 'Make it a gift'}
+                      </button>
+                    </div>
                   </div>
                 </li>
               ))}

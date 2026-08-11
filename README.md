@@ -28,6 +28,12 @@ orders and staff.
   `F4` opens the shelf of held ones, `F6` takes a phone in for repair, `F7` sells a
   SIM, `F8` sends calling credit
 - Stock decrements atomically as part of the sale, so it can't oversell
+- The column belongs to **the cart**. The drawer and the day's profit sit on one
+  folded strip at the top — both figures always readable, their buttons a press
+  away — and the four counter jobs that are not shelf products (buy in, repair,
+  SIM, credit) are one row of icons rather than two rows of labels. Each of those
+  is used a handful of times a day and has a function key; the cart is read on
+  every sale, and it was the cart that was losing
 
 **The transfer counter** (needs the `transfers` permission)
 - Send and pay out money for OMT, Whish, Western Union and the rest, with the
@@ -706,6 +712,13 @@ the shop to deliver it, and they come off the balance. Ten dollars sent means
 1,100,000 LL over the counter and $10.60 off the carrier — and the panel says
 so in words, because two figures a few lines apart get read the wrong way
 round.
+
+The price **follows the amount** until somebody types over it. That is worth
+stating because the obvious way to write it — fill the price in only when it is
+empty — sells $10 of credit for the price of $1: typing "10" quotes "1" on the
+way past, and the price seeded from that first keystroke sticks while the pound
+figure beside it still reads 1,100,000. Priced by hand, it stays exactly as
+typed, and anything well under the counter price says so.
 
 The carrier accepts **3, 2 or 1 per message**, so a customer asking for $10 is
 not one send but four — three threes and a one — and **every message costs the

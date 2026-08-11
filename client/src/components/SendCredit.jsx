@@ -32,6 +32,16 @@ export default function SendCredit({ onClose, onPicked }) {
   const [msisdn, setMsisdn] = useState('');
   const [amount, setAmount] = useState('');
   const [charged, setCharged] = useState('');
+  /*
+   * Whether the cashier has priced this by hand.
+   *
+   * Until they do, the price follows the amount. It has to be tracked rather
+   * than inferred from the field being empty: typing "10" quotes "1" on the
+   * way past, and a price seeded from that first keystroke would stick — a $10
+   * top-up sold for the price of $1, with the pound figure beside it still
+   * reading 1,100,000 and nobody any the wiser.
+   */
+  const [pricedByHand, setPricedByHand] = useState(false);
   const [cameBackCost, setCameBackCost] = useState('0');
   const [quote, setQuote] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -65,8 +75,9 @@ export default function SendCredit({ onClose, onPicked }) {
         if (!live) return;
         setQuote(res.data);
         setError('');
-        // The counter price — 110,000 a dollar — not the face value.
-        setCharged((c) => (c === '' ? String(res.data.suggested) : c));
+        // The counter price — 110,000 a dollar — not the face value. Kept in
+        // step with the amount right up until somebody prices it themselves.
+        if (!pricedByHand) setCharged(String(res.data.suggested));
       })
       .catch((err) => {
         if (!live) return;
@@ -76,7 +87,7 @@ export default function SendCredit({ onClose, onPicked }) {
     return () => {
       live = false;
     };
-  }, [mode, walletId, amount]);
+  }, [mode, walletId, amount, pricedByHand]);
 
   const carrier = carriers.find((c) => String(c.id) === String(walletId));
   const price = charged === '' ? (quote?.suggested ?? 0) : Number(charged);
@@ -192,7 +203,10 @@ export default function SendCredit({ onClose, onPicked }) {
             min="0"
             step="0.01"
             value={charged}
-            onChange={(e) => setCharged(e.target.value)}
+            onChange={(e) => {
+              setPricedByHand(true);
+              setCharged(e.target.value);
+            }}
             hint={
               quote
                 ? `${lbp(quote.chargeLbp)} at ${Number(quote.priceLbp).toLocaleString('en-US')} a dollar`
@@ -304,6 +318,21 @@ export default function SendCredit({ onClose, onPicked }) {
             <p className="flex items-start gap-1.5 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
               <TriangleAlert size={13} className="mt-px shrink-0" />
               Charging less than it cost. Send it anyway if that is what was agreed.
+            </p>
+          )}
+
+          {/*
+            * Under the counter price, said out loud.
+            *
+            * Credit taken back off a validity card cost nothing, so underpricing
+            * it still shows a profit and nothing else here would object. A tenth
+            * off is a discount somebody meant; a tenth *of* is a slip.
+            */}
+          {margin >= 0 && price < quote.suggested * 0.9 && (
+            <p className="flex items-start gap-1.5 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              <TriangleAlert size={13} className="mt-px shrink-0" />
+              That is under the counter price of {money(quote.suggested)} ({lbp(quote.chargeLbp)}).
+              Send it anyway if it is a discount you meant.
             </p>
           )}
 
