@@ -128,7 +128,35 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
     buyerName = null,
     buyerPhone = null,
     accounts = [],
+    /*
+     * The till's own name for this sale, when it has one.
+     *
+     * Sent by a till that made the sale while the server was unreachable and is
+     * catching up. It is what stops a retry becoming a second sale — see below,
+     * and see the unique index in db.js.
+     */
+    clientRef = null,
   } = req.body || {};
+
+  /*
+   * Already have it? Hand back the sale that exists.
+   *
+   * The dangerous failure is not the send that fails, it is the one that
+   * succeeds and looks like it failed — the answer lost on the way back, the
+   * till trying again, and the shop having sold the same phone twice. Answered
+   * before any of the work below, so a replay costs nothing and changes
+   * nothing.
+   */
+  if (clientRef) {
+    const already = db.prepare('SELECT * FROM orders WHERE client_ref = ?').get(String(clientRef));
+    if (already) {
+      return res.status(200).json({
+        order: already,
+        items: db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(already.id),
+        alreadyHad: true,
+      });
+    }
+  }
 
   if (!Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: 'Cart must contain at least one item' });
@@ -368,9 +396,9 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
           order_number, cashier_id, customer_id, subtotal, discount, tax, total, payment_method,
           amount_tendered, change_due, status,
           exchange_rate, paid_usd, paid_lbp, change_usd, change_lbp, change_currency,
-          buyer_name, buyer_phone, branch_id, cash_session_id
+          buyer_name, buyer_phone, branch_id, cash_session_id, client_ref
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         orderNumber, req.user.id, customerId || null, subtotal, discountAmount, tax, total, paymentMethod,
         amountTenderedValue, changeDue,
@@ -387,6 +415,7 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
          * only kept to the second.
          */
         currentSession(null, branchId)?.id ?? null,
+        clientRef ? String(clientRef) : null,
       );
 
       const orderId = orderInfo.lastInsertRowid;

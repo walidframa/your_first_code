@@ -217,7 +217,14 @@ function ProductModal({ product, categories, onClose, onSaved }) {
             <input
               type="checkbox"
               checked={form.tracks_units}
-              onChange={(e) => setForm((f) => ({ ...f, tracks_units: e.target.checked }))}
+              onChange={(e) =>
+                setForm((f) => ({
+                  ...f,
+                  tracks_units: e.target.checked,
+                  // A SIM that is not counted one at a time is not a SIM.
+                  is_sim: e.target.checked ? f.is_sim : false,
+                }))
+              }
               className="mt-0.5 h-4 w-4 rounded border-slate-300 accent-brand-600"
             />
             <span>
@@ -230,27 +237,37 @@ function ProductModal({ product, categories, onClose, onSaved }) {
           </label>
 
           {/*
-            * Only offered once it is serialised, because a SIM is a serialised
-            * thing by definition — there is no such thing as "four SIMs"
-            * without saying which four numbers.
+            * Always offered, and it turns IMEI tracking on by itself.
+            *
+            * A SIM is a serialised thing by definition — there is no such thing
+            * as "four SIMs" without saying which four numbers — so this used to
+            * appear only once the box above was ticked. That made it invisible
+            * to anybody who did not already know that a SIM is a kind of
+            * serialised product, which is everybody: the SIM screen says "tick
+            * Sold as a SIM" and there was no such tick to be found.
             */}
-          {form.tracks_units && (
-            <label className="col-span-2 flex items-start gap-2.5 rounded-xl bg-slate-50 px-3 py-2.5 ring-1 ring-slate-200">
-              <input
-                type="checkbox"
-                checked={form.is_sim}
-                onChange={(e) => setForm((f) => ({ ...f, is_sim: e.target.checked }))}
-                className="mt-0.5 h-4 w-4 rounded border-slate-300 accent-brand-600"
-              />
-              <span>
-                <span className="block text-sm font-medium text-slate-800">Sold as a SIM</span>
-                <span className="block text-xs text-slate-500">
-                  Booked in and sold by the phone number on the card, from the SIM cards screen and the
-                  register.
-                </span>
+          <label className="col-span-2 flex items-start gap-2.5 rounded-xl bg-slate-50 px-3 py-2.5 ring-1 ring-slate-200">
+            <input
+              type="checkbox"
+              checked={form.is_sim}
+              onChange={(e) =>
+                setForm((f) => ({
+                  ...f,
+                  is_sim: e.target.checked,
+                  // Ticking this makes it serialised, because it is.
+                  tracks_units: e.target.checked ? true : f.tracks_units,
+                }))
+              }
+              className="mt-0.5 h-4 w-4 rounded border-slate-300 accent-brand-600"
+            />
+            <span>
+              <span className="block text-sm font-medium text-slate-800">Sold as a SIM</span>
+              <span className="block text-xs text-slate-500">
+                Booked in and sold by the phone number on the card, from the SIM cards screen and the
+                register. Ticking this counts them one by one, the same as IMEI.
               </span>
-            </label>
-          )}
+            </span>
+          </label>
 
           <Input label="Supplier" value={form.supplier} onChange={set('supplier')} />
           <Input label="Image URL" value={form.image_url} onChange={set('image_url')} className="col-span-2" />

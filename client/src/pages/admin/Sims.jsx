@@ -228,7 +228,8 @@ export default function Sims() {
         {products.length === 0 && sims !== null && (
           <p className="mb-4 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800 ring-1 ring-amber-200">
             No product is marked as a SIM yet. Create one in <strong>Products</strong> — tick{' '}
-            <strong>Sold as a SIM</strong> — and it becomes available here.
+            <strong>Sold as a SIM</strong>, near the bottom of the form — and it becomes available
+            here.
           </p>
         )}
 

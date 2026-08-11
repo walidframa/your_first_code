@@ -1595,6 +1595,22 @@ addColumn('orders', 'cash_session_id', 'INTEGER REFERENCES cash_sessions(id)');
  * would disagree with the ledger the first time somebody paid off the counter
  * without mentioning the plan — and the ledger would be right.
  */
+/*
+ * The till's own name for a sale, so replaying one cannot ring it up twice.
+ *
+ * A sale made while the server was unreachable waits on the till and is sent
+ * when it comes back. The dangerous case is not the send that fails — it is the
+ * one that succeeds and looks like it failed: the connection drops after the
+ * server has written the order but before the answer arrives, the till tries
+ * again, and the shop has sold the same phone twice.
+ *
+ * So the till names each sale before sending it, and that name is unique here.
+ * A second attempt collides, and the server hands back the sale it already has
+ * instead of making another.
+ */
+addColumn('orders', 'client_ref', 'TEXT');
+db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_client_ref ON orders(client_ref)');
+
 db.exec(`
   CREATE TABLE IF NOT EXISTS installment_plans (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

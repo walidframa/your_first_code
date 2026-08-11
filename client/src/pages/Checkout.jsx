@@ -27,6 +27,8 @@ import BuyHandsetModal from '../components/BuyHandsetModal';
 import SellSim from '../components/SellSim';
 import SendCredit from '../components/SendCredit';
 import SittingSales from '../components/SittingSales';
+import { ringUp } from '../lib/sales';
+import { useOffline } from '../context/OfflineContext';
 import { Button, EmptyState, ProductThumb, Skeleton, cx, money, useToast } from '../components/ui';
 import { useSettings, lbp } from '../context/SettingsContext';
 
@@ -36,6 +38,7 @@ export default function Checkout() {
   const toast = useToast();
   const searchRef = useRef(null);
   const { rate, toLbp } = useSettings();
+  const { refreshQueue } = useOffline();
 
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
@@ -369,7 +372,7 @@ export default function Checkout() {
   }) {
     setSubmitting(true);
     try {
-      const res = await api.post('/orders', {
+      const res = await ringUp({
         items: cart.map((i) => ({
           productId: i.productId,
           quantity: i.quantity,
@@ -401,8 +404,26 @@ export default function Checkout() {
         buyerName: buyer.name || null,
         buyerPhone: buyer.phone || null,
         accounts: accounts.filter((a) => a.username.trim()),
+        /*
+         * What the till believes it just sold. Only read when the sale has to
+         * wait — the server is the authority on totals whenever it is there,
+         * and this is what lets a receipt print and a queue be counted while it
+         * is not.
+         */
+        localTotal: total,
+        localLines: cart.map((i) => ({
+          id: i.lineKey,
+          name: i.name,
+          quantity: i.quantity,
+          price: i.price,
+          line_total: round2(i.price * i.quantity),
+        })),
       });
-      setReceipt({ order: res.data.order, items: res.data.items });
+
+      if (res.waiting) {
+        toast('Saved on this till — it will be sent when the server is back', 'warning', 7000);
+      }
+      setReceipt({ order: res.order, items: res.items });
       setSalesMade((n) => n + 1);
       setCart([]);
       setDiscountPercent(0);
@@ -410,7 +431,12 @@ export default function Checkout() {
       setBuyer({ name: '', phone: '' });
       setAccounts([]);
       setPaymentOpen(false);
-      await loadData();
+      /*
+       * Only worth re-reading the catalogue when there is something to read it
+       * from; offline it would fail and say so for no reason.
+       */
+      if (!res.waiting) await loadData();
+      else await refreshQueue();
     } catch (err) {
       toast(err.response?.data?.error || 'Checkout failed', 'error');
     } finally {

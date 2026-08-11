@@ -234,7 +234,45 @@ that should be somebody's decision rather than a side effect of a merge.
 
 Schema changes need no separate step: the database migrates itself on boot.
 
-### Backups
+### Selling with the server away
+
+A shop runs the till on a tablet at the counter and the server on a machine in
+the back. That machine gets switched off, reboots, or loses power — and until
+now the answer at the counter was "wait", with a customer standing there
+holding a phone.
+
+**What survives.** A service worker keeps the page and its assets, so the app
+still opens and reloads with nothing behind it. The catalogue, categories, tax
+rate, wallets, settings and branches are served from the last good copy. The
+session survives too: the server *refusing* a token means the session is over
+and the login screen is right, but the server *saying nothing* means the machine
+is off — logging somebody out over that strands a till that would otherwise
+still sell.
+
+**What waits.** A sale that cannot be sent is kept on the till in IndexedDB and
+sent when the server answers. The banner says which of the two is happening and
+how much is waiting, because a cashier who cannot tell "waiting" from "gone"
+stops trusting the till, and a till nobody trusts gets a notebook beside it.
+
+**Why a replay cannot ring it up twice.** The till names every sale before
+sending it and the server treats that name as unique. The dangerous failure is
+not the send that fails — it is the one that *succeeds and looks like it
+failed*: the answer lost on the way back, the till trying again, the shop having
+sold the same phone twice. A second attempt collides and gets the original sale
+back instead of making another.
+
+**What it will not do.** Stock is not checked with the server away, so a till
+selling offline can oversell — it has no way to know what the other counter just
+sold. And a sale the server later refuses (a customer over their limit, a drawer
+that was closed) is **kept and shown in red**, not dropped: the money was taken
+at the counter, and somebody has to decide what to do about it.
+
+The honest limit: if the browser and the server are the same machine, a power
+cut takes both and none of this helps. It earns its keep when the till is a
+separate device, and when the server process restarts under a browser that stays
+open.
+
+## Backups
 
 The whole shop is one SQLite file. `deploy/backup.sh` takes a consistent
 snapshot of it — using SQLite's own backup rather than `cp`, which on a live
