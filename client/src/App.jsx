@@ -15,6 +15,7 @@ import AdminOrders from './pages/admin/Orders';
 import AdminUsers from './pages/admin/Users';
 import AdminBranches from './pages/admin/Branches';
 import AdminStockTransfers from './pages/admin/StockTransfers';
+import AdminSims from './pages/admin/Sims';
 import AdminSettings from './pages/admin/Settings';
 import AdminParties from './pages/admin/Parties';
 import AdminDocuments from './pages/admin/Documents';
@@ -169,6 +170,16 @@ export default function App() {
           element={
             <ProtectedRoute permission="repairs">
               <AdminTradeIns />
+            </ProtectedRoute>
+          }
+        />
+        {/* SIMs sit with stock rather than with repairs: they are bought from a
+            supplier, held, and sold like anything else on the shelf. */}
+        <Route
+          path="/admin/sims"
+          element={
+            <ProtectedRoute permission="inventory">
+              <AdminSims />
             </ProtectedRoute>
           }
         />

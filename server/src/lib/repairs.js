@@ -338,7 +338,7 @@ export function takeTradeIn(input, userId) {
    * handset it has no record of buying, which is the situation the photo exists
    * to prevent.
    */
-  if (input.idPhoto) setIdPhoto(tradeInId, input.idPhoto, userId);
+  if (input.idPhoto) setIdPhoto('trade_in', tradeInId, input.idPhoto, userId);
 
   syncStockFromUnits(product.id);
   return { unit, cost, tradeInId, hasIdPhoto: Boolean(input.idPhoto) };

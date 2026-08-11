@@ -6,9 +6,15 @@ import { getSettings } from '../lib/settings.js';
 import { addEntry, creditCheck } from '../lib/accounts.js';
 import { currentSession, recordMovement, requiresSession } from '../lib/cash.js';
 import { isAvailable, returnUnitsOfOrder, sellUnit, syncStockFromUnits } from '../lib/units.js';
-import { chargeSale, refundOrder as refundWallets } from '../lib/wallets.js';
+import {
+  chargeSale,
+  recordMovement as recordWalletMovement,
+  refundOrder as refundWallets,
+} from '../lib/wallets.js';
 import { moveStock, stockAt, stockElsewhere } from '../lib/stock.js';
 import { encryptSecret } from '../lib/secrets.js';
+import { setIdPhoto } from '../lib/idPhotos.js';
+import { quote, describe as describeCredit } from '../lib/credit.js';
 import { orderMessage, sendable } from '../lib/whatsapp.js';
 import {
   CHANGE_MODES,
@@ -28,6 +34,52 @@ const TAX_RATE = Number(process.env.TAX_RATE || 0.08);
 router.get('/tax-rate', requireAuth, (req, res) => {
   res.json({ taxRate: TAX_RATE });
 });
+
+/**
+ * One line of calling credit, priced.
+ *
+ * The split into messages and the fee per message are worked out here from the
+ * carrier's own settings, never taken from the request: the browser can say how
+ * much the customer asked for and what they were charged, but what it costs the
+ * shop is not the browser's to assert.
+ *
+ * The price defaults to the face value, because that is what most shops charge
+ * — and it is deliberately allowed to be less than the cost. A shop selling $10
+ * for $10 is losing the sixty cents of message fees, and the honest thing is to
+ * record that and show it in the margin rather than refuse the sale.
+ */
+function buildCreditLine(item, branchId) {
+  const { walletId, msisdn, amount } = item.creditSend || {};
+
+  const wallet = db.prepare('SELECT * FROM wallets WHERE id = ?').get(walletId);
+  if (!wallet) throw new Error('Pick which carrier the credit is coming from');
+  if (!wallet.sends_credit) throw new Error(`${wallet.name} is not set up to send credit`);
+  if (!wallet.active) throw new Error(`${wallet.name} is closed`);
+
+  const to = String(msisdn || '').trim();
+  if (!to) throw new Error('Say which number the credit is going to');
+
+  // Throws with something the counter can act on for a bad amount.
+  const quoted = quote(amount, wallet.sms_fee);
+
+  const charged =
+    item.price === undefined || item.price === null ? quoted.amount : Number(item.price);
+  if (!Number.isFinite(charged) || charged < 0) {
+    throw new Error('The price for the credit must be zero or more');
+  }
+
+  return {
+    creditSend: { wallet, to, quoted },
+    product: null,
+    quantity: 1,
+    price: charged,
+    lineTotal: round2(charged),
+    unit: null,
+    isGift: false,
+    branchId,
+    name: `${wallet.name} credit — $${quoted.amount} to ${to}`,
+  };
+}
 
 router.post('/', requireAuth, requirePermission('register'), (req, res) => {
   // The shop this sale happens in: the cashier's own counter, or whichever the
@@ -84,6 +136,19 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
       const claimedUnits = new Set();
 
       for (const item of items) {
+        /*
+         * Calling credit sent by SMS, which is not a product at all: nothing
+         * comes off a shelf and nothing has a catalogue price. What it costs
+         * the shop is the credit plus a fee for every message the carrier makes
+         * it send, and that is worked out here rather than trusted from the
+         * browser — it is the figure the shop's margin is made of.
+         */
+        if (item.creditSend) {
+          lineItems.push(buildCreditLine(item, branchId));
+          subtotal += lineItems.at(-1).lineTotal;
+          continue;
+        }
+
         const product = db.prepare('SELECT * FROM products WHERE id = ? AND active = 1').get(item.productId);
         if (!product) throw new Error(`Product ${item.productId} not found`);
         const quantity = Number(item.quantity);
@@ -168,7 +233,21 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
 
         const lineTotal = isGift ? 0 : round2(agreed * quantity - lineDiscount);
         subtotal += lineTotal;
-        lineItems.push({ product, quantity, lineTotal, unit, isGift, price: agreed });
+        lineItems.push({
+          product,
+          quantity,
+          lineTotal,
+          unit,
+          isGift,
+          price: agreed,
+          /*
+           * Only meaningful on a SIM, and only ever set by the register's SIM
+           * dialog. A photo sent against anything else is simply carried and
+           * attached to that line — harmless, and refusing it would be a rule
+           * with no failure behind it.
+           */
+          idPhoto: item.idPhoto || null,
+        });
       }
 
       subtotal = round2(subtotal);
@@ -282,15 +361,64 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
         /*
          * A serialised line carries the cost of the handset that left, not the
          * product's average — the point of tracking units is that this one's
-         * margin is its own.
+         * margin is its own. Credit costs what the carrier took off the
+         * balance, messages included.
          */
-        const cost = li.unit ? li.unit.cost : (li.product.cost ?? null);
-        insertItem.run(
-          orderId, li.product.id, li.product.name, li.isGift ? 0 : li.price, li.quantity,
-          li.lineTotal, cost, li.unit?.id ?? null, li.isGift ? 1 : 0,
-        );
+        const cost = li.creditSend
+          ? li.creditSend.quoted.cost
+          : li.unit
+            ? li.unit.cost
+            : (li.product.cost ?? null);
 
-        if (li.unit) {
+        const lineInfo = insertItem.run(
+          orderId,
+          li.product?.id ?? null,
+          li.product?.name ?? li.name,
+          li.isGift ? 0 : li.price,
+          li.quantity,
+          li.lineTotal,
+          cost,
+          li.unit?.id ?? null,
+          li.isGift ? 1 : 0,
+        );
+        const orderItemId = Number(lineInfo.lastInsertRowid);
+
+        /*
+         * A SIM is a line registered to a person, so the buyer's ID is
+         * photographed at the counter and kept against the sale — this line
+         * rather than the card, because a SIM returned and sold on again has a
+         * different buyer the second time.
+         */
+        if (li.idPhoto) setIdPhoto('sim_sale', orderItemId, li.idPhoto, req.user.id);
+
+        if (li.creditSend) {
+          const { wallet, to, quoted } = li.creditSend;
+          /*
+           * The balance loses the credit and the message fees together — the
+           * fees are the part a shop never sees, so they are spent through the
+           * same movement rather than left as a rounding difference nobody
+           * accounts for.
+           */
+          recordWalletMovement({
+            walletId: wallet.id,
+            kind: 'sale',
+            amount: -quoted.cost,
+            amountUsd: -quoted.cost,
+            orderId,
+            userId: req.user.id,
+            note: `$${quoted.amount} to ${to} — ${quoted.smsCount} SMS`,
+          });
+
+          db.prepare(
+            `INSERT INTO credit_sends
+               (order_id, wallet_id, msisdn, amount, sms_count, fee_each, fees, cost, charged,
+                breakdown, branch_id, user_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          ).run(
+            orderId, wallet.id, to, quoted.amount, quoted.smsCount, quoted.feeEach, quoted.fees,
+            quoted.cost, li.lineTotal, describeCredit(quoted), branchId, req.user.id,
+          );
+        } else if (li.unit) {
           sellUnit(li.unit.id, li.product.id, orderId);
           /*
            * The warranty is copied onto the handset as it leaves, not read from

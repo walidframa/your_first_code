@@ -25,7 +25,8 @@ orders and staff.
   back. Nothing is reserved, and whatever has been sold or archived meanwhile is
   reported on the way back in
 - Keyboard shortcuts: `/` focuses search, `F2` charges, `F3` holds the sale,
-  `F4` opens the shelf of held ones, `F6` takes a phone in for repair
+  `F4` opens the shelf of held ones, `F6` takes a phone in for repair, `F7` sells a
+  SIM, `F8` sends calling credit
 - Stock decrements atomically as part of the sale, so it can't oversell
 
 **The transfer counter** (needs the `transfers` permission)
@@ -64,6 +65,13 @@ orders and staff.
 - **Labels**: printable barcode and price labels for roll or A4 stock, in five
   built-in sizes or any size you type in, preloaded from a purchase invoice's
   received quantities
+- **SIM cards**: lines bought from a supplier in batches and sold by **the phone
+  number on the card** — booked in one number per line, sold at the register on
+  `F7`, and each sale keeping a photograph of the buyer's ID
+- **Send credit** (`F8`): the "$" a Lebanese shop tops customers up with, split
+  into the 3/2/1 messages the carrier accepts and priced with the fee each one
+  costs — $10 of credit is four sends and $10.60 off the balance, and the dialog
+  says so before anybody commits
 - **Cards**: recharge, validity and gift cards sold from a **wallet** instead of
   from stock — they never run out, and each sale spends what the card cost out
   of the credit the shop holds with that supplier. One press loads a ready-made
@@ -665,6 +673,66 @@ is sold whatever the ledger says — so the sale goes through and the overdraft 
 shown in red on the wallet and on the register tile. It is a bill to settle, not
 a sale to lose.
 
+## Sending credit — the "$"
+
+A fixed-price card is one thing; topping a customer up with an arbitrary amount
+of calling credit is another, and the arithmetic is where the money goes.
+
+The carrier accepts **3, 2 or 1 per message**, so a customer asking for $10 is
+not one send but four — three threes and a one — and **every message costs the
+shop $0.15 out of its balance**. Ten dollars of credit leaves **$10.60**. A shop
+pricing against the ten is losing sixty cents a time and will not see it until
+the balance runs out early.
+
+<kbd>F8</kbd> at the register, or **Send credit** beside the cart. Pick the
+carrier, type the customer's number and the amount, and the dialog shows:
+
+- the messages to send, spelled out — `$3 $3 $3 $1` — because that is what the
+  cashier does next, and sending three instead of four leaves the customer short
+- what comes off the carrier's balance, credit and fees together
+- what is left once the customer pays
+
+The price **defaults to break-even**, not to the face value. Face value looks
+like the natural default and is wrong every single time. Type over it with what
+you actually charge.
+
+**Alfa and Touch are set up automatically** as carrier balances — there are
+exactly two in Lebanon and every shop deals with both. Top one up when you buy
+credit from your distributor. The per-message fee is a setting on each carrier,
+so a changed deal is a number to edit rather than a new version of the app.
+
+Every send is recorded against **the number it went to**, which is the question
+a customer comes back with — the order does not carry it. The split and the fee
+are kept as they were, so a change of deal does not rewrite what last month
+cost. A carrier can go negative for the same reason a wallet can.
+
+## SIM cards
+
+A SIM is stock — bought from a supplier, held, sold once — but nobody identifies
+one by the serial on the card. The shop and the customer both know it by **its
+phone number**, so that is what is typed, searched and shown.
+
+**Admin → SIM cards → Book in SIMs** takes a delivery: pick which SIM, what each
+cost, and paste the numbers one per line. Any spelling works — `03 111 222`,
+`03/111222`, `+961 3 111 222` are one number — because they are normalised on
+the way in and on the way out. The whole batch goes in or none of it does: a
+delivery half-entered is worse than not entered, because the shop believes it has
+SIMs it cannot find.
+
+**<kbd>F7</kbd> at the register** sells one. Type the number off the card, and
+the dialog takes the buyer's name and **a photograph of their ID** — a line is
+registered to a person, and this is the same field and the same rules as buying
+a handset in. Taking it is counter work; **reading one back needs `secrets`**,
+the permission that reveals saved passwords.
+
+The photograph is attached to the **sale**, not to the card: a SIM returned and
+sold on again has a different buyer the second time, and neither sale
+overwrites the other.
+
+A product becomes a SIM by ticking **Sold as a SIM** on it, which is offered
+only once it is tracked by serial — there is no such thing as "four SIMs"
+without saying which four numbers.
+
 ## Dual currency
 
 Products are priced in **US dollars only**. Lebanese pounds are derived from a
@@ -1239,6 +1307,14 @@ Routes are guarded by **permission**, not by role — an admin holds all of them
 | POST   | `/api/products/categories`     | `catalogue`  |
 | PATCH  | `/api/products/categories/:id` | `catalogue`  |
 | DELETE | `/api/products/categories/:id` | `catalogue`  |
+| GET    | `/api/sims`                    | any          |
+| GET    | `/api/sims/by-number/:msisdn`  | any          |
+| POST   | `/api/sims/receive`            | `inventory`  |
+| POST   | `/api/sims/sales/:id/id-photo` | `register`   |
+| GET    | `/api/sims/sales/:id/id-photo` | `secrets`    |
+| GET    | `/api/credit/carriers`         | any          |
+| GET    | `/api/credit/quote`            | any          |
+| GET    | `/api/credit/sends`            | `reports`    |
 | POST   | `/api/orders`                  | `register`   |
 | GET    | `/api/orders`                  | any\*        |
 | GET    | `/api/orders/:id`              | any\*        |

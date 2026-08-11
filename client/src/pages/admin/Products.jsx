@@ -48,6 +48,7 @@ const emptyForm = {
   supplier: '',
   image_url: '',
   tracks_units: false,
+  is_sim: false,
 };
 
 function ProductModal({ product, categories, onClose, onSaved }) {
@@ -66,6 +67,7 @@ function ProductModal({ product, categories, onClose, onSaved }) {
           supplier: product.supplier || '',
           image_url: product.image_url || '',
           tracks_units: Boolean(product.tracks_units),
+          is_sim: Boolean(product.is_sim),
         }
       : emptyForm,
   );
@@ -109,6 +111,8 @@ function ProductModal({ product, categories, onClose, onSaved }) {
       reorder_point: Number(form.reorder_point) || 0,
       category_id: form.category_id || null,
       tracks_units: form.tracks_units,
+      // A product that is not serialised cannot be a SIM.
+      is_sim: form.tracks_units && form.is_sim,
     };
     try {
       if (product) await api.put(`/products/${product.id}`, payload);
@@ -210,6 +214,29 @@ function ProductModal({ product, categories, onClose, onSaved }) {
               </span>
             </span>
           </label>
+
+          {/*
+            * Only offered once it is serialised, because a SIM is a serialised
+            * thing by definition — there is no such thing as "four SIMs"
+            * without saying which four numbers.
+            */}
+          {form.tracks_units && (
+            <label className="col-span-2 flex items-start gap-2.5 rounded-xl bg-slate-50 px-3 py-2.5 ring-1 ring-slate-200">
+              <input
+                type="checkbox"
+                checked={form.is_sim}
+                onChange={(e) => setForm((f) => ({ ...f, is_sim: e.target.checked }))}
+                className="mt-0.5 h-4 w-4 rounded border-slate-300 accent-brand-600"
+              />
+              <span>
+                <span className="block text-sm font-medium text-slate-800">Sold as a SIM</span>
+                <span className="block text-xs text-slate-500">
+                  Booked in and sold by the phone number on the card, from the SIM cards screen and the
+                  register.
+                </span>
+              </span>
+            </label>
+          )}
 
           <Input label="Supplier" value={form.supplier} onChange={set('supplier')} />
           <Input label="Image URL" value={form.image_url} onChange={set('image_url')} className="col-span-2" />

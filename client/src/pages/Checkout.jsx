@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   HandCoins,
   Minus,
+  Send,
+  Smartphone,
   Wrench,
   PauseCircle,
   Plus,
@@ -21,6 +23,8 @@ import CashBox from '../components/CashBox';
 import UnitPicker from '../components/UnitPicker';
 import PhoneSaleDialog from '../components/PhoneSaleDialog';
 import BuyHandsetModal from '../components/BuyHandsetModal';
+import SellSim from '../components/SellSim';
+import SendCredit from '../components/SendCredit';
 import { Button, EmptyState, ProductThumb, Skeleton, cx, money, useToast } from '../components/ui';
 import { useSettings, lbp } from '../context/SettingsContext';
 
@@ -65,6 +69,10 @@ export default function Checkout() {
   const [buyingHandset, setBuyingHandset] = useState(false);
   // A phone left in for repair. Counter work, so it starts at the counter.
   const [takingRepair, setTakingRepair] = useState(false);
+  // A SIM sold by its number, and calling credit sent by SMS. Both are counter
+  // work with their own dialog, and neither is a product on the shelf.
+  const [sellingSim, setSellingSim] = useState(false);
+  const [sendingCredit, setSendingCredit] = useState(false);
   /*
    * Who walked out with the phone, and what the shop set up for them. Most
    * buyers never become a customer account — what is needed months later is a
@@ -350,6 +358,15 @@ export default function Checkout() {
           quantity: i.quantity,
           unitId: i.unitId,
           isGift: Boolean(i.isGift),
+          /*
+           * Credit is not a product: the server works out the messages and what
+           * they cost from the carrier's own settings, and only takes the
+           * amount and the number from here.
+           */
+          creditSend: i.creditSend,
+          // A SIM is a line registered to somebody, so the buyer's ID rides
+          // with it and is attached to the sale line once it exists.
+          idPhoto: i.idPhoto,
           // Undefined leaves the catalogue price alone; a handset carries what
           // was actually agreed at the counter.
           price: i.price,
@@ -418,6 +435,15 @@ export default function Checkout() {
       if (e.key === 'F6' && !receipt) {
         e.preventDefault();
         setTakingRepair(true);
+      }
+      // The two that are sold from the counter without being on the shelf.
+      if (e.key === 'F7' && !receipt) {
+        e.preventDefault();
+        setSellingSim(true);
+      }
+      if (e.key === 'F8' && !receipt) {
+        e.preventDefault();
+        setSendingCredit(true);
       }
     }
     window.addEventListener('keydown', onKey);
@@ -640,6 +666,29 @@ export default function Checkout() {
         </div>
 
         {/*
+          * A SIM and a top-up are both sold from the counter and neither is a
+          * product on the shelf — a SIM is found by its number and credit does
+          * not exist until it is sent. Their own row, away from the recharge
+          * cards, which are a different thing that happens to be near them.
+          */}
+        <div className="flex items-center gap-2 border-b border-slate-100 px-3 py-2">
+          <button
+            onClick={() => setSellingSim(true)}
+            title="Sell a SIM card (F7)"
+            className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-slate-100 px-2 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-200"
+          >
+            <Smartphone size={14} /> Sell a SIM
+          </button>
+          <button
+            onClick={() => setSendingCredit(true)}
+            title="Send calling credit (F8)"
+            className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-slate-100 px-2 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-200"
+          >
+            <Send size={14} /> Send credit
+          </button>
+        </div>
+
+        {/*
           * Buyer and accounts are collected in the sale dialog on the way in,
           * so a handset cannot reach the cart without them being asked for.
           * Shown here only as a reminder of what was captured.
@@ -792,6 +841,9 @@ export default function Checkout() {
             <kbd className="rounded bg-slate-100 px-1 font-sans">F3</kbd> hold ·{' '}
             <kbd className="rounded bg-slate-100 px-1 font-sans">F4</kbd> held sales ·{' '}
             <kbd className="rounded bg-slate-100 px-1 font-sans">F6</kbd> repair
+            <br />
+            <kbd className="rounded bg-slate-100 px-1 font-sans">F7</kbd> SIM ·{' '}
+            <kbd className="rounded bg-slate-100 px-1 font-sans">F8</kbd> credit
           </p>
         </div>
       </aside>
@@ -870,6 +922,55 @@ export default function Checkout() {
       {resumeIssues && <ResumeIssues issues={resumeIssues} onClose={() => setResumeIssues(null)} />}
 
       {takingRepair && <TakeInRepair onClose={() => setTakingRepair(false)} />}
+
+      {sellingSim && (
+        <SellSim
+          onClose={() => setSellingSim(false)}
+          onPicked={({ sim, price, buyer: who, idPhoto }) => {
+            /*
+             * A SIM never merges with anything: it is one card with one number,
+             * and its own buyer.
+             */
+            setCart((prev) => [
+              ...prev,
+              {
+                lineKey: `sim:${sim.id}`,
+                productId: sim.product_id,
+                unitId: sim.id,
+                name: sim.product_name,
+                imei: sim.msisdn,
+                price,
+                stock: 1,
+                quantity: 1,
+                idPhoto,
+              },
+            ]);
+            if (who?.name || who?.phone) setBuyer({ name: who.name, phone: who.phone });
+          }}
+        />
+      )}
+
+      {sendingCredit && (
+        <SendCredit
+          onClose={() => setSendingCredit(false)}
+          onPicked={({ walletId, carrierName, msisdn, amount, price, quote }) => {
+            setCart((prev) => [
+              ...prev,
+              {
+                lineKey: `credit:${Date.now()}`,
+                productId: null,
+                unitId: null,
+                name: `${carrierName} credit — $${amount}`,
+                imei: `${msisdn} · ${quote.smsCount} SMS`,
+                price,
+                stock: 1,
+                quantity: 1,
+                creditSend: { walletId, msisdn, amount },
+              },
+            ]);
+          }}
+        />
+      )}
 
       {receipt && <Receipt receipt={receipt} onClose={() => setReceipt(null)} />}
     </div>

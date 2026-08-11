@@ -805,6 +805,123 @@ try {
     await page.waitForSelector('text=Braided USB-C cable', { timeout: 15000 });
   });
 
+  /*
+   * A SIM is bought from a supplier and sold by the number on the card, and
+   * the line is registered to a person — so the buyer's ID goes with it.
+   */
+  await step('SIMs are booked in by number and sold with the buyer’s ID', async () => {
+    await page.evaluate(async () => {
+      const token = localStorage.getItem('pos_token');
+      await fetch('/api/products', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          name: 'Alfa prepaid SIM',
+          sku: 'SIM-ALFA-E2E',
+          price: 5,
+          cost: 3,
+          tracks_units: true,
+          is_sim: true,
+        }),
+      });
+    });
+
+    await page.goto(`${BASE_URL}/admin/sims`, { waitUntil: 'networkidle' });
+    await page.click('button:has-text("Book in SIMs")');
+    await page.waitForSelector('[role=dialog] >> text=One number per line', { timeout: 10000 });
+
+    const book = page.locator('[role=dialog]');
+    await book.getByLabel('What each one cost').fill('3');
+    await book.locator('#simNumbers').fill('03 111 222\n76 333 444');
+    await book.getByRole('button', { name: /Book in/ }).click();
+    await page.waitForSelector('text=/2 SIMs booked in/', { timeout: 15000 });
+    await page.waitForSelector('text=9613111222', { timeout: 15000 });
+  });
+  await shot('sims');
+
+  await step('a SIM is sold at the register on F7, ID and all', async () => {
+    await page.click('a[title="Register"]');
+    await page.waitForSelector('text=Current sale', { timeout: 15000 });
+    await page.keyboard.press('F7');
+    await page.waitForSelector('[role=dialog] >> text=Find it by the number on the card', {
+      timeout: 10000,
+    });
+
+    const sell = page.locator('[role=dialog]');
+    // Typed the way it is written on the card, not the way it is stored.
+    await sell.getByLabel('Phone number').fill('03 111 222');
+    await sell.getByRole('button', { name: 'Find' }).click();
+    await sell.locator('text=Alfa prepaid SIM').waitFor({ timeout: 10000 });
+
+    await sell.getByLabel("Buyer's name").fill('Ali Hassan');
+    await sell.locator('input[type=file]').setInputFiles({
+      name: 'id.png',
+      mimeType: 'image/png',
+      buffer: Buffer.from(
+        'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVR42mP8z8BQz0AEYBxVSF+FABJADveWkH6oAAAAAElFTkSuQmCC',
+        'base64',
+      ),
+    });
+    await sell.locator('img[alt="The seller\u2019s ID"]').waitFor({ timeout: 10000 });
+    await sell.getByRole('button', { name: 'Add to the sale' }).click();
+    await page.waitForSelector('[role=dialog]', { state: 'detached', timeout: 10000 });
+    await page.waitForSelector('text=9613111222', { timeout: 10000 });
+  });
+
+  /*
+   * The arithmetic the shop's money depends on: the carrier takes 3, 2 or 1 per
+   * message, and every message costs 0.15 off the balance. $10 is four sends
+   * and $10.60, not $10.
+   */
+  await step('credit is split into messages and priced with its fees', async () => {
+    await page.keyboard.press('F8');
+    await page.waitForSelector('[role=dialog] >> text=Top a customer up by SMS', { timeout: 10000 });
+
+    const credit = page.locator('[role=dialog]');
+    await credit.getByLabel("Customer's number").fill('03 123 456');
+    await credit.getByLabel('How much credit').fill('10');
+
+    await credit.locator('text=Send 4 messages').waitFor({ timeout: 10000 });
+    const shown = await credit.innerText();
+    for (const expected of ['$10.60', '4 × $0.15', '$0.60']) {
+      if (!shown.includes(expected)) throw new Error(`the credit panel is missing ${expected}`);
+    }
+
+    await credit.getByRole('button', { name: /Add to the sale/ }).click();
+    await page.waitForSelector('[role=dialog]', { state: 'detached', timeout: 10000 });
+    await page.waitForSelector('text=/Alfa credit/', { timeout: 10000 });
+  });
+  await shot('credit');
+
+  await step('paying for both leaves the carrier and the shelf right', async () => {
+    await page.click('aside button:has-text("Charge $")');
+    await page.click('[role=dialog] button:has-text("Card")');
+    await page.click('[role=dialog] button:has-text("Confirm $")');
+    await page.waitForSelector('text=Payment complete', { timeout: 15000 });
+    await page.click('button:has-text("New sale")');
+
+    const state = await page.evaluate(async () => {
+      const token = localStorage.getItem('pos_token');
+      const h = { Authorization: `Bearer ${token}` };
+      const carriers = await (await fetch('/api/credit/carriers', { headers: h })).json();
+      const sims = await (await fetch('/api/sims?status=sold', { headers: h })).json();
+      return {
+        alfa: carriers.carriers.find((c) => c.name === 'Alfa').balance,
+        sold: sims.sims.find((s) => s.msisdn === '9613111222'),
+      };
+    });
+
+    // Nothing was ever bought from Alfa in this run, so the balance is exactly
+    // what the top-up took: the credit plus four message fees.
+    if (state.alfa !== -10.6) throw new Error(`Alfa balance is ${state.alfa}, expected -10.6`);
+    if (!state.sold) throw new Error('the SIM did not leave the shelf');
+    if (!state.sold.has_id_photo) throw new Error('the buyer’s ID was not kept');
+
+    // Back where the steps below expect to be standing.
+    await page.click('a[title="Products"]');
+    await page.waitForSelector('button:has-text("New product")', { timeout: 15000 });
+  });
+
   await step('the back-office groups fold away', async () => {
     // Stock holds the page we are on, so it stays open however it is set —
     // otherwise arriving somewhere hides it from the menu.

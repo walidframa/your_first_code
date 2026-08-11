@@ -66,7 +66,7 @@ router.put('/:id', requireAuth, requirePermission('cards'), (req, res) => {
   const wallet = db.prepare('SELECT * FROM wallets WHERE id = ?').get(req.params.id);
   if (!wallet) return res.status(404).json({ error: 'Wallet not found' });
 
-  const { name, kind, lowBalance, note, active } = req.body || {};
+  const { name, kind, lowBalance, note, active, sendsCredit, smsFee } = req.body || {};
   if (kind !== undefined && !WALLET_KINDS.includes(kind)) {
     return res.status(400).json({ error: `kind must be one of: ${WALLET_KINDS.join(', ')}` });
   }
@@ -82,16 +82,33 @@ router.put('/:id', requireAuth, requirePermission('cards'), (req, res) => {
     low_balance: lowBalance === undefined ? wallet.low_balance : roundAmount(lowBalance, wallet.currency),
     note: note === undefined ? wallet.note : note || null,
     active: active === undefined ? wallet.active : active ? 1 : 0,
+    /*
+     * Whether the shop can top a customer up out of this balance by SMS, and
+     * what the carrier charges per message. Only a wallet marked this way
+     * appears in the register's credit dialog — a gift-card float is a balance
+     * too, and sending "$" out of it means nothing.
+     */
+    sends_credit: sendsCredit === undefined ? wallet.sends_credit : sendsCredit ? 1 : 0,
+    sms_fee: smsFee === undefined ? wallet.sms_fee : Number(smsFee),
   };
   if (!merged.name) return res.status(400).json({ error: 'A wallet needs a name' });
+  if (!Number.isFinite(merged.sms_fee) || merged.sms_fee < 0) {
+    return res.status(400).json({ error: 'A message fee cannot be negative' });
+  }
 
   try {
-    db.prepare('UPDATE wallets SET name = ?, kind = ?, low_balance = ?, note = ?, active = ? WHERE id = ?').run(
+    db.prepare(
+      `UPDATE wallets SET name = ?, kind = ?, low_balance = ?, note = ?, active = ?,
+                          sends_credit = ?, sms_fee = ?
+       WHERE id = ?`,
+    ).run(
       merged.name,
       merged.kind,
       merged.low_balance,
       merged.note,
       merged.active,
+      merged.sends_credit,
+      merged.sms_fee,
       wallet.id,
     );
   } catch {
