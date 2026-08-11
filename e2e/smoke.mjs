@@ -646,6 +646,10 @@ try {
     await page.waitForSelector('text=ALFA 7.58 · 1 month', { timeout: 15000 });
     await page.waitForSelector('text=Whole Recharge');
     await page.waitForSelector('text=Gift Cards');
+    // Validity is seeded too, and seeded unlinked — the shop says which card
+    // really delivers its 30 days, so the screen has to admit it does not know.
+    await page.waitForSelector('text=Validity');
+    await page.waitForSelector('text=Not linked yet');
 
     // Seeded at cost = price, so every margin reads as "set the cost" until
     // the shop puts its dealer price in.
@@ -692,6 +696,48 @@ try {
     // $500 less four at $2.75.
     await page.click('a[title="Cards"]');
     await page.waitForSelector('text=$489.00', { timeout: 15000 });
+  });
+
+  await step('a validity card is linked, and selling one moves all three balances', async () => {
+    await page.click('a[title="Cards"]');
+    await page.waitForSelector('text=Not linked yet', { timeout: 15000 });
+
+    // Say what an Alfa month really is: a whole card scratched, and $6 of it
+    // sent back to the shop's own line.
+    await page
+      .locator('tr', { hasText: 'Alfa 30 days' })
+      .getByRole('button', { name: 'Not linked yet' })
+      .click();
+    await page.waitForSelector('[role=dialog] >> text=What selling one of these does', { timeout: 10000 });
+    // The cost was set to $2.75 by the previous step, and the option says so.
+    await page.locator('[role=dialog] #linkedCard').selectOption({ label: 'ALFA 10 · 1 month · costs $2.75' });
+    await page.locator('[role=dialog] #creditRecovered').fill('6');
+    await page.locator('[role=dialog] #creditWallet').selectOption({ label: 'Alfa' });
+    await page.locator('[role=dialog]').getByRole('button', { name: 'Save the link' }).click();
+    await page.waitForSelector('text=/linked$/', { timeout: 15000 });
+    await page.waitForSelector('text=$6.00 back to Alfa', { timeout: 15000 });
+
+    await page.click('a[title="Register"]');
+    await page.waitForSelector('text=Current sale', { timeout: 15000 });
+    await page.getByRole('button', { name: 'Validity', exact: true }).click();
+    await page.getByRole('button', { name: /Alfa 30 days/ }).first().click();
+    await page.waitForSelector('aside >> text=Alfa 30 days', { timeout: 10000 });
+
+    await page.click('aside button:has-text("Charge $")');
+    await page.waitForSelector('[role=dialog] >> text=Take payment', { timeout: 15000 });
+    await page.click('[role=dialog] button:has-text("Card")');
+    await page.click('[role=dialog] button:has-text("Confirm $")');
+    await page.waitForSelector('text=Payment complete', { timeout: 15000 });
+    await page.click('button:has-text("New sale")');
+
+    /*
+     * Nobody typed either of these. The recharge wallet paid $2.75 for the card
+     * that was scratched ($489.00 → $486.25), and $6 of credit landed on Alfa.
+     */
+    await page.click('a[title="Cards"]');
+    await page.waitForSelector('text=$486.25', { timeout: 15000 });
+    await page.click('a[title="Accounts"]');
+    await page.waitForSelector('text=$6.00', { timeout: 15000 });
   });
 
   await step('a held account is found and its password revealed to an admin', async () => {
@@ -915,9 +961,12 @@ try {
       };
     });
 
-    // Nothing was ever bought from Alfa in this run, so the balance is exactly
-    // what the top-up took: the credit plus four message fees.
-    if (state.alfa !== -10.6) throw new Error(`Alfa balance is ${state.alfa}, expected -10.6`);
+    /*
+     * The only credit Alfa ever received in this run is the $6 the validity
+     * sale put there by itself, and the only thing taken off is this top-up:
+     * the $10 sent plus four message fees.
+     */
+    if (state.alfa !== -4.6) throw new Error(`Alfa balance is ${state.alfa}, expected -4.6`);
     if (!state.sold) throw new Error('the SIM did not leave the shelf');
     if (!state.sold.has_id_photo) throw new Error('the buyer’s ID was not kept');
 

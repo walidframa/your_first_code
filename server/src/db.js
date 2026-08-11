@@ -1516,6 +1516,29 @@ addColumn('wallet_movements', 'cost_usd', 'REAL');
  * to find out whose line it is.
  */
 addColumn('products', 'is_sim', 'INTEGER NOT NULL DEFAULT 0');
+
+/*
+ * A validity card, and what selling one actually does.
+ *
+ * It is not one sale but three things at once. The customer pays for days of
+ * validity; a whole recharge card comes off the shop's stock to deliver them;
+ * and the credit that card carries lands on the shop's own line, to be resold
+ * by the dollar. Doing the second and third by hand is how a shop ends up with
+ * a credit balance nobody trusts.
+ *
+ *   validity_days     — how long it buys, and what marks it a validity card
+ *   linked_card_id    — the full card consumed to deliver it
+ *   credit_recovered  — the dollars that come back onto the shop's line
+ *   credit_wallet_id  — which carrier balance they land on
+ *
+ * The link is set by hand rather than guessed: only the shop knows which card
+ * it actually scratches for a 30-day top-up, and guessing would silently spend
+ * the wrong stock.
+ */
+addColumn('products', 'validity_days', 'INTEGER');
+addColumn('products', 'linked_card_id', 'INTEGER REFERENCES products(id)');
+addColumn('products', 'credit_recovered', 'REAL NOT NULL DEFAULT 0');
+addColumn('products', 'credit_wallet_id', 'INTEGER REFERENCES wallets(id)');
 addColumn('product_units', 'msisdn', 'TEXT');
 CREATE_MSISDN_INDEX: {
   db.exec('CREATE INDEX IF NOT EXISTS idx_units_msisdn ON product_units(msisdn)');

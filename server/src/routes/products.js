@@ -139,9 +139,13 @@ router.get('/', requireAuth, (req, res) => {
         WHERE p.active = 1 ORDER BY p.name
       `).all()
     : db.prepare(`
-        SELECT p.*, c.name AS category_name, w.name AS wallet_name FROM products p
+        SELECT p.*, c.name AS category_name, w.name AS wallet_name,
+               lc.name AS linked_card_name, cw.name AS credit_wallet_name
+        FROM products p
         LEFT JOIN categories c ON c.id = p.category_id
         LEFT JOIN wallets w ON w.id = p.wallet_id
+        LEFT JOIN products lc ON lc.id = p.linked_card_id
+        LEFT JOIN wallets cw ON cw.id = p.credit_wallet_id
         ORDER BY p.name
       `).all();
   // One query for every product's barcodes rather than one per product: the
@@ -189,6 +193,7 @@ router.post('/', requireAuth, requirePermission('catalogue'), (req, res) => {
   const {
     name, sku, price, cost, stock, category_id, image_emoji, barcode, supplier, image_url,
     reorder_point, tracks_units, warranty_months, wallet_id, is_sim,
+    validity_days, linked_card_id, credit_recovered, credit_wallet_id,
   } = req.body || {};
   if (!name || !sku || price == null) {
     return res.status(400).json({ error: 'name, sku and price are required' });
@@ -197,8 +202,8 @@ router.post('/', requireAuth, requirePermission('catalogue'), (req, res) => {
   if (problem) return res.status(400).json({ error: problem });
   try {
     const info = db.prepare(`
-      INSERT INTO products (name, sku, price, cost, stock, category_id, image_emoji, barcode, supplier, image_url, reorder_point, tracks_units, warranty_months, wallet_id, is_sim)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO products (name, sku, price, cost, stock, category_id, image_emoji, barcode, supplier, image_url, reorder_point, tracks_units, warranty_months, wallet_id, is_sim, validity_days, linked_card_id, credit_recovered, credit_wallet_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       name,
       sku,
@@ -222,6 +227,15 @@ router.post('/', requireAuth, requirePermission('catalogue'), (req, res) => {
       // A SIM is always serialised — the number on it is the whole point, and
       // there is no such thing as "four SIMs" without saying which four.
       is_sim ? 1 : 0,
+      /*
+       * A validity card can be born already linked. Creating it blank and
+       * linking it afterwards works too, but a shop adding a card it has just
+       * started stocking knows which full card delivers it there and then.
+       */
+      Number(validity_days) || null,
+      linked_card_id || null,
+      Number(credit_recovered) || 0,
+      credit_wallet_id || null,
     );
     /*
      * The opening count lands on the shelf of the branch it was entered at —
@@ -340,6 +354,11 @@ router.put('/:id', requireAuth, requirePermission('catalogue'), (req, res) => {
      * everything else about the product is ordinary.
      */
     'is_sim',
+    /*
+     * A validity card and what selling one sets in motion: which full card is
+     * consumed, how much credit comes back, and onto which carrier balance.
+     */
+    'validity_days', 'linked_card_id', 'credit_recovered', 'credit_wallet_id',
   ];
   const updates = {};
   for (const f of fields) {
@@ -397,7 +416,8 @@ router.put('/:id', requireAuth, requirePermission('catalogue'), (req, res) => {
   db.prepare(`
     UPDATE products SET name = ?, sku = ?, price = ?, cost = ?, category_id = ?, image_emoji = ?,
       active = ?, barcode = ?, supplier = ?, image_url = ?, reorder_point = ?, tracks_units = ?,
-      warranty_months = ?, wallet_id = ?, is_sim = ?
+      warranty_months = ?, wallet_id = ?, is_sim = ?,
+      validity_days = ?, linked_card_id = ?, credit_recovered = ?, credit_wallet_id = ?
     WHERE id = ?
   `).run(
     merged.name,
@@ -415,6 +435,10 @@ router.put('/:id', requireAuth, requirePermission('catalogue'), (req, res) => {
     Math.max(0, Math.round(Number(merged.warranty_months) || 0)),
     walletId || null,
     merged.is_sim ? 1 : 0,
+    merged.validity_days || null,
+    merged.linked_card_id || null,
+    Number(merged.credit_recovered) || 0,
+    merged.credit_wallet_id || null,
     req.params.id
   );
 
