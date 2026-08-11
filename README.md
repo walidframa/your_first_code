@@ -419,6 +419,37 @@ its margin against what the shop actually paid. The cash-out is recorded, becaus
 a trade-in paid from the register and not recorded is a shortfall nobody can
 explain at close.
 
+### The seller's ID
+
+**A used handset with no record of who sold it is indistinguishable from a
+stolen one, and the shop is the one holding it.** So the buy-in form takes a
+photograph of the seller's ID next to their name — on a tablet the button opens
+the camera, on a desktop it is an ordinary file picker for a scan or a photo
+already taken.
+
+The browser shrinks it to about 1400px and re-encodes as JPEG before it is sent,
+which keeps a shop's whole year of purchases in the tens of megabytes rather than
+the gigabytes a phone camera would produce. The server refuses anything over 2MB
+or that is not a JPEG, PNG or WebP. It is stored **in the database**, not in a
+folder beside it, so it rides along with the nightly backup — a photo the shop
+cannot produce after a restore is not evidence of anything.
+
+**A rejected photo takes the whole purchase with it.** The upload happens inside
+the same transaction as the buy-in, so a shop is never left holding a handset it
+has no record of buying — which is the situation the photo exists to prevent.
+
+**Taking one and looking at one are different permissions.** Anyone who can buy a
+phone in can photograph an ID, because that happens at the counter with the
+seller watching. Reading one back needs `secrets` — the same permission as
+revealing a customer's saved password — because nobody needs to page through a
+year of other people's identity documents on the strength of having had the till
+open. Deleting one needs `secrets` too: destroying the record that a purchase was
+documented is not a counter task.
+
+The Trade-ins list shows **ID on file** or **no ID** per row without sending any
+photographs, so a shop can find the undocumented purchase at a glance. The ID
+itself is served with `Cache-Control: private, no-store`.
+
 | Route | Method | Role |
 | ----- | ------ | ---- |
 | `/api/repairs` | GET, POST | any signed-in user |
@@ -426,9 +457,12 @@ explain at close.
 | `/api/repairs/:id/parts` | POST | any signed-in user |
 | `/api/repairs/:id/collect` | POST | any signed-in user |
 | `/api/repairs/:id/passcode` | GET | `secrets` |
+| `/api/repairs/:id/whatsapp` | GET | any signed-in user |
 | `/api/repairs/warranty/:imei` | GET | any signed-in user |
 | `/api/repairs/trade-ins` | POST | any signed-in user |
 | `/api/repairs/trade-ins/list` | GET | `repairs` |
+| `/api/repairs/trade-ins/:id/id-photo` | POST | `repairs` |
+| `/api/repairs/trade-ins/:id/id-photo` | GET, DELETE | `secrets` |
 
 **Customer accounts** has its own screen, and it is *not* an admin one: handing
 somebody back the iCloud the shop set up for them is counter work, so whoever is

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Plus, Search } from 'lucide-react';
 import api from '../api';
 import ProductQuickCreate from './ProductQuickCreate';
+import IdPhotoField from './IdPhotoField';
 import { useSettings, lbp } from '../context/SettingsContext';
 import { Button, Input, Modal, ModalActions, Select, cx, money, useToast } from './ui';
 
@@ -47,6 +48,8 @@ export default function BuyHandsetModal({ onClose, onSaved }) {
     paidLbp: '',
     sellerName: '',
     sellerPhone: '',
+    // A data: URI until the purchase is saved — see IdPhotoField.
+    idPhoto: null,
     note: '',
   });
   const [error, setError] = useState('');
@@ -211,6 +214,19 @@ export default function BuyHandsetModal({ onClose, onSaved }) {
 
         <Input label="Seller's name" value={form.sellerName} onChange={set('sellerName')} />
         <Input label="Phone number" value={form.sellerPhone} onChange={set('sellerPhone')} />
+
+        {/*
+          * Who sold it, with their ID beside their name — the two answer the
+          * same question, and a used handset with no record of where it came
+          * from is the one the shop cannot account for later.
+          */}
+        <div className="col-span-2">
+          <IdPhotoField
+            value={form.idPhoto}
+            disabled={saving}
+            onChange={(idPhoto) => setForm((f) => ({ ...f, idPhoto }))}
+          />
+        </div>
 
         <Input
           label="Note"

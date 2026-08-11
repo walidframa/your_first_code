@@ -540,6 +540,27 @@ db.exec(`
   );
 
   CREATE INDEX IF NOT EXISTS idx_trade_ins_unit ON trade_ins(unit_id);
+
+  /*
+   * The seller's identity document, photographed at the counter.
+   *
+   * A shop that buys a used phone without recording who sold it to them is a
+   * shop that cannot prove it was not handling stolen goods — so this is the
+   * evidence, and it is kept as it was on the day rather than attached to a
+   * person who might come back and be someone else.
+   *
+   * A table of its own, not a column on trade_ins, for one practical reason:
+   * the list query selects ti.* and would otherwise drag every photo in the
+   * shop's history across the wire to draw a table of names and prices.
+   */
+  CREATE TABLE IF NOT EXISTS trade_in_ids (
+    trade_in_id INTEGER PRIMARY KEY REFERENCES trade_ins(id) ON DELETE CASCADE,
+    mime TEXT NOT NULL,
+    byte_size INTEGER NOT NULL,
+    bytes BLOB NOT NULL,
+    uploaded_by INTEGER REFERENCES users(id),
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
 `);
 
 /*

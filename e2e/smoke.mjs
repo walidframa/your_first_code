@@ -588,12 +588,47 @@ try {
     await dialog.getByRole('spinbutton', { name: 'Paid in dollars', exact: true }).fill('20');
     await dialog.getByRole('textbox', { name: "Seller's name", exact: true }).fill('Karim Aoun');
 
+    /*
+     * The seller's ID, which is what makes the purchase documented — a used
+     * handset with no record of who sold it is the one the shop cannot account
+     * for later. Set through the file input rather than the camera, which is
+     * what a desktop does with the same control.
+     */
+    await dialog.locator('input[type=file]').setInputFiles({
+      name: 'id.png',
+      mimeType: 'image/png',
+      buffer: Buffer.from(
+        'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVR42mP8z8BQz0AEYBxVSF+FABJADveWkH6oAAAAAElFTkSuQmCC',
+        'base64',
+      ),
+    });
+    await dialog.locator('img[alt="The seller’s ID"]').waitFor({ timeout: 10000 });
+
     // What it costs the shop, worked out before the money leaves the drawer.
     await page.waitForSelector('text=/Costs the shop/');
     await dialog.getByRole('button', { name: 'Buy it in' }).click();
 
     await page.waitForSelector('text=357700556644331', { timeout: 15000 });
     await page.waitForSelector('text=On the shelf');
+    await page.waitForSelector('text=ID on file', { timeout: 15000 });
+  });
+
+  await step('the seller’s ID can be opened, and deleted', async () => {
+    await page.click('button:has-text("ID on file")');
+    await page.waitForSelector('[role=dialog] >> text=Seller’s ID', { timeout: 10000 });
+
+    const shown = page.locator('[role=dialog] img[alt="The seller’s ID"]');
+    await shown.waitFor({ timeout: 15000 });
+    // Actually decoded by the browser, not a broken image with a src on it.
+    if (!(await shown.evaluate((el) => el.naturalWidth > 0))) {
+      throw new Error('the ID did not load as an image');
+    }
+
+    await page.click('button:has-text("Delete the ID")');
+    await page.waitForSelector('text=/The ID was deleted/', { timeout: 15000 });
+    // The purchase itself survives losing its photograph.
+    await page.waitForSelector('text=357700556644331', { timeout: 15000 });
+    await page.waitForSelector('text=no ID', { timeout: 15000 });
   });
 
   await step('the starter card catalogue loads and a wallet is topped up', async () => {
