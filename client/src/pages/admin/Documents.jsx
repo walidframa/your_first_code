@@ -38,6 +38,7 @@ import {
   money,
   useToast,
 } from '../../components/ui';
+import WhatsAppButton from '../../components/WhatsAppButton';
 
 /** Each type's identity: icon, wording, and what confirming it will do. */
 export const TYPE_META = {
@@ -903,6 +904,16 @@ function DocumentDetail({ id, onClose, onChanged, onDeleted }) {
         <Button variant="secondary" onClick={() => window.print()}>
           <Printer size={15} /> Print
         </Button>
+
+        {/*
+          * Only what a customer is meant to receive. A purchase invoice is the
+          * shop's own record of what it bought and at what price — the supplier
+          * wrote it, and sending it back with the shop's margins attached is
+          * not something to make one click away.
+          */}
+        {doc.party_type === 'customer' && (
+          <WhatsAppButton path={`/documents/${doc.id}/whatsapp`} label="Send on WhatsApp" />
+        )}
 
         {doc.status === 'draft' && (
           <Button loading={busy} onClick={() => act('confirm', null, `${doc.doc_number} confirmed`)}>

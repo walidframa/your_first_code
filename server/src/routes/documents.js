@@ -19,6 +19,7 @@ import {
   totalsFor,
 } from '../lib/documents.js';
 import { round2 } from '../lib/currency.js';
+import { documentMessage, sendable } from '../lib/whatsapp.js';
 
 const router = Router();
 
@@ -74,6 +75,17 @@ router.get('/:id', requireAuth, requirePermission('documents'), (req, res) => {
   const found = getDocument(req.params.id);
   if (!found) return res.status(404).json({ error: 'Document not found' });
   res.json(found);
+});
+
+/**
+ * The invoice as a WhatsApp message. `?phone=` overrides the number on the
+ * customer's record — a company's billing contact is often not the person
+ * standing in the shop.
+ */
+router.get('/:id/whatsapp', requireAuth, requirePermission('documents'), (req, res) => {
+  const message = documentMessage(req.params.id);
+  if (!message) return res.status(404).json({ error: 'Document not found' });
+  res.json(sendable(message, req.query.phone || null));
 });
 
 router.post('/', requireAuth, requirePermission('documents'), (req, res) => {

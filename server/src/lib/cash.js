@@ -201,6 +201,24 @@ export function expectedIn(sessionId) {
 }
 
 /**
+ * Whether the drawer has been taken below zero.
+ *
+ * A fact rather than a figure, so it can be told to a cashier who counts blind
+ * without handing them the number the count is supposed to produce. Money going
+ * out that is not there is allowed — refusing it does not put the money back,
+ * it only stops the shop writing down what happened — but it is never silent.
+ */
+export function drawerShort(sessionId) {
+  const held = expectedIn(sessionId);
+  return held.usd < 0 || held.lbp < 0;
+}
+
+/** Said the same way wherever the drawer has just gone below zero. */
+export const SHORT_DRAWER_WARNING =
+  'That is more than the drawer holds. It is recorded — the till is now showing less than ' +
+  'nothing, so something earlier is missing.';
+
+/**
  * Everything a shopkeeper wants to see about one sitting: what came in, what
  * went out, and — once closed — whether the drawer agreed.
  *

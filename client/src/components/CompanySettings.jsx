@@ -21,6 +21,17 @@ const FIELDS = [
   ['company_email', 'Email', 'e.g. shop@example.com'],
   ['company_website', 'Website', 'e.g. facebook.com/ramimobile'],
   ['company_tax_number', 'VAT / MOF number', 'Printed on invoices'],
+  /*
+   * Not printed anywhere — it is what turns a number written down as 03 123 456
+   * into one WhatsApp will accept. Here because it belongs with the shop's own
+   * details, and because a shop outside Lebanon has to be able to change it.
+   */
+  [
+    'phone_country_code',
+    'Dialling code',
+    'e.g. 961 for Lebanon',
+    { hint: 'Used to send receipts on WhatsApp, not printed anywhere' },
+  ],
 ];
 
 /**
@@ -123,6 +134,7 @@ export default function CompanySettings() {
                 placeholder={placeholder}
                 value={form[key]}
                 onChange={set(key)}
+                hint={options?.hint}
                 required={options?.required}
                 className={key === 'company_name' ? 'sm:col-span-2' : undefined}
               />

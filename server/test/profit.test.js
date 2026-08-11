@@ -210,7 +210,7 @@ test('an expense paid in cash comes out of the drawer', async () => {
   assert.ok(expense.cash_movement_id, 'and the two are linked');
 });
 
-test('a cash expense larger than the drawer is refused', async () => {
+test('a cash expense larger than the drawer is recorded, and warned about', async () => {
   const held = (await req('GET', '/cash/current', null, adminToken)).json.expected.usd;
 
   const res = await req(
@@ -219,15 +219,15 @@ test('a cash expense larger than the drawer is refused', async () => {
     { category: 'wages', amountUsd: held + 500, paidWith: 'cash' },
     adminToken,
   );
-  assert.equal(res.status, 400);
-  assert.match(res.json.error, /only holds/i);
+  assert.equal(res.status, 201);
+  assert.match(res.json.warning, /more than the drawer holds/i);
   assert.equal(
     (await req('GET', '/cash/current', null, adminToken)).json.expected.usd,
-    held,
-    'and the drawer is untouched, not driven negative',
+    -500,
+    'the money really left, so the till shows it gone',
   );
 
-  // The same expense is fine once it is not claimed to have come from the till.
+  // Paid from somewhere else, the drawer is not involved and nothing is amiss.
   const byBank = await req(
     'POST',
     '/expenses',
@@ -235,7 +235,11 @@ test('a cash expense larger than the drawer is refused', async () => {
     adminToken,
   );
   assert.equal(byBank.status, 201);
+  assert.equal(byBank.json.warning, null);
   await req('DELETE', `/expenses/${byBank.json.expense.id}`, null, adminToken);
+
+  // Put the till back where the rest of this file expects to find it.
+  await req('DELETE', `/expenses/${res.json.expense.id}`, null, adminToken);
 });
 
 test('an expense paid by bank leaves the drawer alone', async () => {

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
+  AlertTriangle,
   ArrowDownLeft,
   ArrowUpRight,
   Banknote,
@@ -546,7 +547,7 @@ function MoveCash({ direction, accountId, onClose, onDone }) {
     setError('');
     setBusy(true);
     try {
-      await api.post('/cash/movements', {
+      const res = await api.post('/cash/movements', {
         accountId,
         direction,
         amountUsd: Number(usd) || 0,
@@ -554,7 +555,13 @@ function MoveCash({ direction, accountId, onClose, onDone }) {
         reason,
         note: note || null,
       });
-      toast(goingIn ? 'Cash added to the drawer' : 'Cash taken out of the drawer');
+      /*
+       * Taking out more than is there is allowed, and said out loud. Given
+       * longer than an ordinary toast because it is the kind of thing somebody
+       * has to go and look into, not an acknowledgement to glance at.
+       */
+      if (res.data.warning) toast(res.data.warning, 'warning', 9000);
+      else toast(goingIn ? 'Cash added to the drawer' : 'Cash taken out of the drawer');
       onDone();
     } catch (err) {
       setError(err.response?.data?.error || 'Could not record that');
@@ -686,7 +693,7 @@ export default function CashBox({ onChanged, refreshOn = 0, accountId = null, sh
   };
 
   if (!state) return null;
-  const { session, denominations, expected, profit } = state;
+  const { session, denominations, expected, profit, short } = state;
 
   if (!session) {
     return (
@@ -784,10 +791,22 @@ export default function CashBox({ onChanged, refreshOn = 0, accountId = null, sh
 
         {expected ? (
           <p className="flex items-baseline gap-2">
-            <span className="tnum text-2xl leading-none font-semibold text-slate-900">
+            {/* Red when it is below zero: a minus sign alone is easy to read
+                straight past on a figure you glance at fifty times a day. */}
+            <span
+              className={cx(
+                'tnum text-2xl leading-none font-semibold',
+                short ? 'text-red-600' : 'text-slate-900',
+              )}
+            >
               {money(expected.usd)}
             </span>
-            <span className="tnum text-base leading-none font-medium text-slate-500">
+            <span
+              className={cx(
+                'tnum text-base leading-none font-medium',
+                short ? 'text-red-500' : 'text-slate-500',
+              )}
+            >
               {lbp(expected.lbp)}
             </span>
           </p>
@@ -798,6 +817,25 @@ export default function CashBox({ onChanged, refreshOn = 0, accountId = null, sh
            */
           <p className="flex items-center gap-1.5 text-sm text-slate-500">
             <EyeOff size={14} /> Counted at close
+          </p>
+        )}
+
+        {/*
+          * A drawer below zero means the money and the books have drifted
+          * apart, and the sooner somebody looks the better the chance of
+          * remembering why. It stays put until it is fixed or the sitting is
+          * closed — the toast at the moment it happened is long gone by then.
+          *
+          * Shown to a cashier too, who cannot see the figure: they are told the
+          * drawer is short, not how short, which is still enough to act on.
+          */}
+        {short && (
+          <p className="mt-1.5 flex items-start gap-1.5 rounded-lg bg-red-50 px-2 py-1.5 text-[11px] leading-snug text-red-700">
+            <AlertTriangle size={13} className="mt-px shrink-0" />
+            <span>
+              More has gone out than came in. Something earlier is missing — a sale rung up
+              elsewhere, or a float never entered.
+            </span>
           </p>
         )}
 

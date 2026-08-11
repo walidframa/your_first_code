@@ -9,6 +9,7 @@ import { isAvailable, returnUnitsOfOrder, sellUnit, syncStockFromUnits } from '.
 import { chargeSale, refundOrder as refundWallets } from '../lib/wallets.js';
 import { moveStock, stockAt, stockElsewhere } from '../lib/stock.js';
 import { encryptSecret } from '../lib/secrets.js';
+import { orderMessage, sendable } from '../lib/whatsapp.js';
 import {
   CHANGE_MODES,
   round2,
@@ -422,6 +423,22 @@ router.get('/:id', requireAuth, (req, res) => {
   }
   const items = db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(req.params.id);
   res.json({ order, items });
+});
+
+/**
+ * The receipt as a WhatsApp message, ready to send.
+ *
+ * Same rule as reading the order itself: your own sales, or anybody's if you
+ * run the shop. `?phone=` overrides what is on file, for the customer who gives
+ * a different number at the counter than the one the shop wrote down.
+ */
+router.get('/:id/whatsapp', requireAuth, (req, res) => {
+  const order = db.prepare('SELECT id, cashier_id FROM orders WHERE id = ?').get(req.params.id);
+  if (!order) return res.status(404).json({ error: 'Order not found' });
+  if (req.user.role !== 'admin' && order.cashier_id !== req.user.id) {
+    return res.status(403).json({ error: 'Insufficient permissions' });
+  }
+  res.json(sendable(orderMessage(order.id), req.query.phone || null));
 });
 
 router.post('/:id/refund', requireAuth, requirePermission('refunds'), (req, res) => {

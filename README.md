@@ -25,7 +25,7 @@ orders and staff.
   back. Nothing is reserved, and whatever has been sold or archived meanwhile is
   reported on the way back in
 - Keyboard shortcuts: `/` focuses search, `F2` charges, `F3` holds the sale,
-  `F4` opens the shelf of held ones
+  `F4` opens the shelf of held ones, `F6` takes a phone in for repair
 - Stock decrements atomically as part of the sale, so it can't oversell
 
 **The transfer counter** (needs the `transfers` permission)
@@ -371,15 +371,20 @@ both.
 **Repairs.** A device comes in, and the ticket is the record of it: what it was,
 in what state, what was wrong, what was done and what it cost.
 
-**Taking one in happens at the register.** The customer is at the counter, so the
-form is the six things worth writing down while they wait — their name, their
-phone number, what the phone is, what is wrong with it, the passcode and the
-price — and the **ticket prints straight away**. That slip is the whole point:
+**Taking one in happens at the register**, on <kbd>F6</kbd> or the Repair button
+beside the customer picker. The customer is at the counter, so the form is the
+six things worth writing down while they wait — their name, their phone number,
+what the phone is, what is wrong with it, the passcode and the price — and the
+**ticket prints straight away**. That slip is the whole point:
 it is what they bring back to prove which phone on the shelf is theirs, and it
 carries the shop's name and number, the ticket number in large type, the fault as
 described, and the estimate in **both currencies**. The passcode is deliberately
 **not** on it — a slip that goes into somebody's pocket should not carry the way
 to unlock their phone.
+
+The same ticket can be **sent to the customer on WhatsApp** — see below — which
+is worth doing as well as printing, because the slip is exactly the thing that
+goes missing between dropping a phone off and coming back for it.
 
 The fuller intake form is still in Admin → Repairs, for when the IMEI and the
 scratch on the back are worth typing.
@@ -882,6 +887,16 @@ in cash, and **Cash in / Cash out** by hand with a reason — petty cash, an
 expense, wages, the owner taking money out, a run to the bank. Reasons come from
 a fixed list so a month's spending can actually be added up.
 
+**Paying out more than the drawer holds is recorded, not refused** — and said
+out loud. Refusing it does not put the money back; it only stops the shop
+writing down what actually happened, and the drift then turns up at closing time
+as an unexplained shortfall nobody can reconstruct. So the pay-out goes through,
+a warning says the till is now showing less than nothing, and the panel keeps
+saying so — the figure in red, with a line underneath — until somebody puts the
+money back or closes the sitting. The same applies to an expense paid in cash. A
+cashier is told the drawer is short but not by how much, because they still have
+to count it blind.
+
 **Closing counts the drawer against the app.** Count it note by note, or type
 the total straight in — plenty of shopkeepers counted it on the counter before
 opening the app, and making them enter it again a denomination at a time is how
@@ -930,6 +945,39 @@ actually sat at that till — a cashier who has just counted the drawer can prin
 what they signed off without also being handed every other sitting in the shop.
 **Profit is on the report only for whoever holds `reports`**, in the PDF as well
 as on screen: a permission that a download walks around is not a permission.
+
+## Sending a receipt on WhatsApp
+
+A **Send on WhatsApp** button sits next to Print in three places: the receipt
+after a sale, a customer document in Admin → Documents, and a repair ticket —
+both at intake and later in Admin → Repairs. It opens whichever WhatsApp the
+machine already has, with the customer selected and the message written.
+
+It is a `wa.me` link and nothing more. There is no account with Meta, no API key
+and no monthly fee, and nothing that stops working when a token expires. What it
+costs in exchange is that **the shop presses send** — so this is a shortcut, not
+a record of delivery. The printed slip stays the thing that proves anything.
+
+The message is written by the server (`server/src/lib/whatsapp.js`) rather than
+the browser, so a receipt says the same thing wherever it was sent from. It
+carries the shop's name and number, what was bought, the total in **both
+currencies**, and — on an invoice — what is still outstanding, which is the line
+in bold because it is the one a customer should not have to hunt for.
+
+**The number is normalised first.** A Lebanese shop writes the same mobile as
+`03 123 456`, `03/123456`, `+961 3 123 456` or `00961 3 123456`, and WhatsApp
+accepts exactly one of them. The trunk zero is a dialling instruction, so it is
+dropped before the country code goes on — kept, it produces a number that looks
+plausible and reaches nobody. The code itself is the **Dialling code** setting
+under the shop's details (961 by default), so a shop anywhere else changes it
+once. A customer with no number on file still composes: WhatsApp asks who to
+send it to.
+
+**A repair passcode is never in the message.** It is the one thing the shop
+holds that could unlock a customer's whole life, it is stored encrypted for
+exactly that reason, and a WhatsApp message is a copy that lives on two phones
+and whatever backs either of them up. A purchase invoice has no button either —
+the supplier wrote it, and it carries what the shop paid.
 
 ### Profit on the register
 

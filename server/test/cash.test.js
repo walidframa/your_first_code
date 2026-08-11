@@ -276,7 +276,7 @@ test('a reason is required, and must be one the reports can add up', async () =>
   assert.equal(madeUp.status, 400);
 });
 
-test('more cannot be taken out than is in the drawer', async () => {
+test('taking out more than the drawer holds is recorded, and warned about', async () => {
   await req('POST', '/cash/open', { openingUsd: 20 }, adminToken);
   const res = await req(
     'POST',
@@ -284,8 +284,23 @@ test('more cannot be taken out than is in the drawer', async () => {
     { direction: 'out', amountUsd: 100, reason: 'expense' },
     adminToken,
   );
-  assert.equal(res.status, 400);
-  assert.match(res.json.error, /only holds/i);
+
+  assert.equal(res.status, 201, 'the money left, so it is written down');
+  assert.match(res.json.warning, /more than the drawer holds/i);
+  assert.equal(res.json.expected.usd, -80, 'and the till says so');
+
+  // And it keeps saying so on reload — a warning shown once is a warning missed.
+  const current = await req('GET', '/cash/current', null, adminToken);
+  assert.equal(current.json.short, true);
+});
+
+test('a cashier is told the drawer is short without being told the figure', async () => {
+  await req('POST', '/cash/open', { openingUsd: 20 }, adminToken);
+  await req('POST', '/cash/movements', { direction: 'out', amountUsd: 100, reason: 'expense' }, cashierToken);
+
+  const current = await req('GET', '/cash/current', null, cashierToken);
+  assert.equal(current.json.short, true, 'told that it is short');
+  assert.equal(current.json.expected, null, 'but still counts blind');
 });
 
 test('closing reports over and short against the count', async () => {

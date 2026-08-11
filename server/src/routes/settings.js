@@ -27,6 +27,7 @@ const COMPANY_FIELDS = [
   'company_tax_number',
   'company_logo_url',
   'receipt_footer',
+  'phone_country_code',
 ];
 
 const MAX_LOGO_BYTES = 400 * 1024;
@@ -73,6 +74,14 @@ router.put('/', requireAuth, requirePermission('settings'), (req, res) => {
           'That logo is too big. Keep it under 400KB — a receipt prints it at about 40mm wide, ' +
           'so a small PNG is all it needs.',
       });
+    }
+    /*
+     * A dialling code with anything but digits in it silently produces numbers
+     * WhatsApp cannot open, and the failure looks like "the button is broken"
+     * rather than "the code is wrong". Cheaper to refuse it here.
+     */
+    if (field === 'phone_country_code' && value && !/^\d{1,4}$/.test(value)) {
+      return res.status(400).json({ error: 'A dialling code is 1–4 digits, without the +' });
     }
     if (field === 'company_name' && !value) {
       // Everything a customer keeps is headed with this. Blank would print a

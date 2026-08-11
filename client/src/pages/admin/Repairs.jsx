@@ -3,6 +3,7 @@ import { Eye, Plus, Search, Trash2, Wrench } from 'lucide-react';
 import api from '../../api';
 import PageHeader from '../../components/PageHeader';
 import RepairSlip, { PrintSlipButton } from '../../components/RepairSlip';
+import WhatsAppButton from '../../components/WhatsAppButton';
 import {
   Button,
   Card,
@@ -420,8 +421,14 @@ function TicketModal({ id, onClose, onChanged }) {
 
         <div className="space-y-2">
           <RepairSlip detail={detail} />
-          <div className="flex justify-center">
+          {/*
+            * Sending it again is most useful here rather than at intake: this
+            * is the screen open when the phone becomes ready to collect, and
+            * the message carries the status.
+            */}
+          <div className="flex justify-center gap-2">
             <PrintSlipButton />
+            <WhatsAppButton path={`/repairs/${detail.ticket.id}/whatsapp`} label="WhatsApp" size="sm" />
           </div>
         </div>
       </div>

@@ -407,6 +407,18 @@ export default function Checkout() {
         e.preventDefault();
         setHeldDialog('list');
       }
+      /*
+       * F6 takes a phone in. Not F5, which reloads the page — pressed by
+       * mistake at a counter that would throw away the cart.
+       *
+       * It works with a sale part-rung, because that is when it is needed: the
+       * customer buying a charger is also the one asking whether you can look
+       * at their screen. Taking the repair in does not touch the cart.
+       */
+      if (e.key === 'F6' && !receipt) {
+        e.preventDefault();
+        setTakingRepair(true);
+      }
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -620,7 +632,7 @@ export default function Checkout() {
               customer walks out holding. */}
           <button
             onClick={() => setTakingRepair(true)}
-            title="Take a phone in for repair"
+            title="Take a phone in for repair (F6)"
             className="flex shrink-0 items-center gap-1 rounded-lg bg-slate-100 px-2 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-200"
           >
             <Wrench size={14} /> Repair
@@ -778,7 +790,8 @@ export default function Checkout() {
           <p className="mt-2 text-center text-[11px] text-slate-400">
             <kbd className="rounded bg-slate-100 px-1 font-sans">F2</kbd> charge ·{' '}
             <kbd className="rounded bg-slate-100 px-1 font-sans">F3</kbd> hold ·{' '}
-            <kbd className="rounded bg-slate-100 px-1 font-sans">F4</kbd> held sales
+            <kbd className="rounded bg-slate-100 px-1 font-sans">F4</kbd> held sales ·{' '}
+            <kbd className="rounded bg-slate-100 px-1 font-sans">F6</kbd> repair
           </p>
         </div>
       </aside>

@@ -16,6 +16,7 @@ import {
   ticketWithDetail,
   warrantyOf,
 } from '../lib/repairs.js';
+import { repairMessage, sendable } from '../lib/whatsapp.js';
 
 const router = Router();
 
@@ -69,6 +70,19 @@ router.get('/:id', requireAuth, (req, res) => {
   const detail = ticketWithDetail(req.params.id);
   if (!detail) return res.status(404).json({ error: 'Ticket not found' });
   res.json(detail);
+});
+
+/**
+ * The ticket as a WhatsApp message, so the customer has the number on their
+ * phone as well as on the slip they will probably lose.
+ *
+ * Open to anyone who can see the ticket, which is the same people who can take
+ * one in. The passcode is not in the message — see repairMessage.
+ */
+router.get('/:id/whatsapp', requireAuth, (req, res) => {
+  const message = repairMessage(req.params.id);
+  if (!message) return res.status(404).json({ error: 'Ticket not found' });
+  res.json(sendable(message, req.query.phone || null));
 });
 
 /**

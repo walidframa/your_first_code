@@ -258,6 +258,18 @@ try {
   });
   await shot('receipt');
 
+  await step('the receipt can be sent to the customer on WhatsApp', async () => {
+    const wa = page.locator('[role=dialog] a[href^="https://wa.me/"]');
+    await wa.waitFor({ timeout: 10000 });
+    const message = decodeURIComponent(
+      new URL(await wa.getAttribute('href')).searchParams.get('text'),
+    );
+    // What a receipt is for: which shop, which sale, and what it came to.
+    for (const expected of ['ORD-', 'Total:', 'LL']) {
+      if (!message.includes(expected)) throw new Error(`the receipt message is missing ${expected}`);
+    }
+  });
+
   await step('closing the receipt clears the cart', async () => {
     await page.click('button:has-text("New sale")');
     await page.waitForSelector('text=No items yet');
@@ -332,7 +344,9 @@ try {
    * the customer brings the ticket back to prove which phone is theirs.
    */
   await step('a repair is taken in at the register and prints a ticket', async () => {
-    await page.click('aside button:has-text("Repair")');
+    // F6 rather than the button: it is the shortcut a busy counter uses, and
+    // the button is tested by the fact the dialog opens either way.
+    await page.keyboard.press('F6');
     await page.waitForSelector('[role=dialog] >> text=Write it down while they are here', {
       timeout: 10000,
     });
@@ -358,6 +372,26 @@ try {
     if (await dialog.locator('text=4417').count()) {
       throw new Error('the passcode was printed on the ticket');
     }
+
+    /*
+     * And the same ticket as a WhatsApp message, which is what the customer
+     * will still have in a week when the paper slip has gone through the wash.
+     * The link is checked rather than followed — pressing it would hand the
+     * browser over to whatever WhatsApp is installed.
+     */
+    const wa = dialog.locator('a[href^="https://wa.me/"]');
+    await wa.waitFor({ timeout: 10000 });
+    const href = await wa.getAttribute('href');
+    const message = decodeURIComponent(new URL(href).searchParams.get('text'));
+
+    if (!href.startsWith('https://wa.me/9613123456?')) {
+      throw new Error(`the message is addressed to the wrong number: ${href}`);
+    }
+    for (const expected of ['REP-', 'iPhone 12 Pro', 'Screen cracked', '$85.00']) {
+      if (!message.includes(expected)) throw new Error(`the message is missing ${expected}`);
+    }
+    // The passcode is not on the paper and must not be in the message either.
+    if (message.includes('4417')) throw new Error('the passcode went out over WhatsApp');
 
     await page.click('button:has-text("Done")');
     await page.waitForSelector('[role=dialog]', { state: 'detached', timeout: 10000 });
@@ -725,6 +759,8 @@ try {
     await page.click('button:has-text("New customer")');
     await page.waitForSelector('text=New customer');
     await page.fill('input[name="name"], [role=dialog] input >> nth=0', 'Rami Haddad');
+    // A number on file, so a document addressed to them can be sent later.
+    await page.locator('[role=dialog]').getByLabel('Phone').fill('03 123 456');
     await page.fill('[role=dialog] input[type=number] >> nth=0', '200');
     await page.click('button:has-text("Add")');
     await page.waitForSelector('td:has-text("Rami Haddad")', { timeout: 15000 });
@@ -890,6 +926,24 @@ try {
   });
   await shot('documents');
 
+  await step('a customer document can be sent on WhatsApp', async () => {
+    await page.click('a[title="Documents"]');
+    await page.click('td:has-text("SO-0001")');
+    const wa = page.locator('a[href^="https://wa.me/"]');
+    await wa.waitFor({ timeout: 15000 });
+
+    const href = await wa.getAttribute('href');
+    const message = decodeURIComponent(new URL(href).searchParams.get('text'));
+    // Rami Haddad's number, as taken down earlier: 03 123 456.
+    if (!href.startsWith('https://wa.me/9613123456?')) {
+      throw new Error(`addressed to the wrong number: ${href}`);
+    }
+    for (const expected of ['SO-0001', 'Rami Haddad', 'Croissant', 'Total:']) {
+      if (!message.includes(expected)) throw new Error(`the document message is missing ${expected}`);
+    }
+    await page.keyboard.press('Escape');
+  });
+
   await step('a new product can be created from inside a document', async () => {
     await page.click('a[title="Documents"]');
     const dialog = await openNewDocument();
@@ -1052,6 +1106,29 @@ try {
     await page.getByLabel('What for?').fill('Milk and cleaning');
     await page.click('button:has-text("Take out")');
     await page.waitForSelector('text=/taken out of the drawer/i', { timeout: 15000 });
+
+    /*
+     * Taking out more than is there is allowed — the money has gone either way,
+     * and refusing it only stops the shop writing that down. It is said out
+     * loud instead, and the panel keeps saying so until somebody looks.
+     */
+    await page.click('button:has-text("Cash out")');
+    await page.waitForSelector('text=Money coming out of the drawer', { timeout: 10000 });
+    await page.getByLabel('Reason').selectOption('expense');
+    await page.getByLabel('Dollars').fill('9999');
+    await page.getByLabel('What for?').fill('More than is in there');
+    await page.click('button:has-text("Take out")');
+    await page.waitForSelector('text=/more than the drawer holds/i', { timeout: 15000 });
+    await page.waitForSelector('text=/More has gone out than came in/', { timeout: 15000 });
+
+    // Put it back, so the count below is against a drawer that makes sense.
+    await page.click('button:has-text("Cash in")');
+    await page.waitForSelector('text=Money going into the drawer', { timeout: 10000 });
+    await page.getByLabel('Reason').selectOption('correction');
+    await page.getByLabel('Dollars').fill('9999');
+    await page.getByLabel('What for?').fill('Putting back the over-payout');
+    await page.click('button:has-text("Put in")');
+    await page.waitForSelector('text=/added to the drawer/i', { timeout: 15000 });
 
     await page.click('button[aria-label="Close the cashbox"]');
     await page.waitForSelector('text=Count what is in the drawer', { timeout: 10000 });
