@@ -107,9 +107,16 @@ node -v          # expect v24 or newer
 ```
 
 ```bash
-npm run setup   # installs all dependencies and seeds the database
+npm run setup   # installs all dependencies, writes server/.env and seeds the database
 npm run dev     # starts the API on :4000 and the app on :5173
 ```
+
+`npm run setup` writes `server/.env` with two keys of its own the first time it
+runs, and never touches it again. It is gitignored. Without it the server invents
+a key at every boot, which logs everybody out each time you restart it — and
+**`ACCOUNT_SECRET` in that file wants backing up somewhere other than this
+machine**, because a database restored without it has every stored customer
+password and repair passcode permanently unreadable.
 
 Then open http://localhost:5173 and sign in with one of the demo accounts below —
 the login screen has one-tap buttons for both.
@@ -256,7 +263,8 @@ CI runs both suites plus the client build and lint on every pull request
 
 ## Configuration
 
-Copy `server/.env.example` to `server/.env` to override defaults:
+`npm run setup` creates `server/.env` for you with the two secrets filled in.
+Edit that file to override the rest (`server/.env.example` lists them all):
 
 | Variable     | Default      | Purpose                       |
 | ------------ | ------------ | ----------------------------- |
@@ -269,7 +277,11 @@ Copy `server/.env.example` to `server/.env` to override defaults:
 **`JWT_SECRET` is required in production.** With `NODE_ENV=production` the server
 refuses to start unless it is set to at least 32 characters. In development an
 ephemeral random secret is generated per process (with a warning), so sessions do
-not survive a restart until you set one.
+not survive a restart until you set one — which is why `npm run setup` writes one.
+
+**A session that has ended returns you to the login screen**, with a line saying
+so, rather than showing "Invalid or expired token" inside whatever form happened
+to notice first. Nothing already saved is lost; sign in and carry on.
 
 **`ACCOUNT_SECRET` is required to keep customer account passwords** (the iCloud
 or Gmail the shop set up for a buyer). It is deliberately separate from
