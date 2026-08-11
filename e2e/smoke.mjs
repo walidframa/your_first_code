@@ -83,11 +83,38 @@ async function openNewDocument() {
   return page.locator('[role=dialog]');
 }
 
+/**
+ * Shut the dialogs and make sure they stay shut.
+ *
+ * Saving a document closes the form and opens the saved document in its place,
+ * so for a moment there is one modal going and another arriving. Close during
+ * that moment — which is a matter of milliseconds, and so happens on a loaded
+ * CI runner and never on a developer's machine — and the second one is left
+ * standing with its backdrop across the whole screen.
+ *
+ * Nothing about that looks broken. The backdrop is invisible, the menu beneath
+ * it is plainly there, and the next click on it is simply swallowed, surfacing
+ * thirty seconds later as a timeout on a step that had nothing to do with it.
+ *
+ * So: close every layer rather than the first, and having seen the last one go,
+ * wait and look again before walking away.
+ */
 async function closeDialog() {
-  const dialog = page.locator('[role=dialog]');
-  if (!(await dialog.count())) return;
-  await dialog.getByRole('button', { name: 'Close' }).first().click();
-  await dialog.first().waitFor({ state: 'detached', timeout: 10000 });
+  const overlay = () => page.locator('[role=presentation]');
+
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    if (await overlay().count()) {
+      const close = page.locator('[role=dialog]').last().getByRole('button', { name: 'Close' });
+      if (await close.count()) await close.first().click().catch(() => {});
+      else await page.keyboard.press('Escape');
+      await page.waitForTimeout(250);
+      continue;
+    }
+    await page.waitForTimeout(400);
+    if (!(await overlay().count())) return;
+  }
+
+  await overlay().first().waitFor({ state: 'detached', timeout: 10000 });
 }
 
 async function shot(name) {
