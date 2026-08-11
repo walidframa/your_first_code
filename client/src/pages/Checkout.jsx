@@ -147,6 +147,18 @@ export default function Checkout() {
          */
         const unlimited = Boolean(product.wallet_id);
 
+        /*
+         * A validity card that is going to sell the days and move no credit.
+         *
+         * Worth saying here rather than only on the Cards screen, because this
+         * is where somebody finds out: they sell one, go and look at the
+         * carrier balance, and it is still zero. The setup is a press away in
+         * the back office and this is the moment they would want to know.
+         */
+        const noCreditSetUp =
+          Boolean(product.validity_days) &&
+          !(product.credit_recovered > 0 && product.credit_wallet_id);
+
         const existing = prev.find((i) => i.productId === product.id && !i.unitId);
         const inCart = existing?.quantity || 0;
         if (!unlimited && inCart + quantity > product.stock) {
@@ -169,6 +181,7 @@ export default function Checkout() {
             price: product.price,
             stock: product.stock,
             unlimited,
+            noCreditSetUp,
             image_url: product.image_url,
             image_emoji: product.image_emoji,
             quantity,
@@ -740,6 +753,12 @@ export default function Checkout() {
 
                     {item.imei && (
                       <p className="truncate font-mono text-[11px] text-slate-400">{item.imei}</p>
+                    )}
+
+                    {item.noCreditSetUp && (
+                      <p className="mt-0.5 text-[11px] leading-snug text-amber-700">
+                        No credit will reach a carrier — set it up under Cards
+                      </p>
                     )}
 
                     <div className="mt-1 flex items-center gap-1">

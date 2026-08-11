@@ -872,9 +872,23 @@ export default function Cards() {
                                       {c.linked_card_name ? (
                                         <>
                                           {c.linked_card_name}
-                                          <span className="block text-slate-400">
-                                            {money(c.credit_recovered)} back to {c.credit_wallet_name}
-                                          </span>
+                                          {/*
+                                            * A card picked with the credit left
+                                            * at nothing is not set up — it just
+                                            * looks it. Reading "$0.00 back to
+                                            * Alfa" as finished is how a carrier
+                                            * balance stays at zero all week.
+                                            */}
+                                          {c.credit_recovered > 0 && c.credit_wallet_name ? (
+                                            <span className="block text-slate-400">
+                                              {money(c.credit_recovered)} back to{' '}
+                                              {c.credit_wallet_name}
+                                            </span>
+                                          ) : (
+                                            <span className="block text-amber-700">
+                                              no credit set — nothing reaches a balance
+                                            </span>
+                                          )}
                                         </>
                                       ) : (
                                         <span className="text-amber-700">Not linked yet</span>
