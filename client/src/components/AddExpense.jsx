@@ -48,7 +48,7 @@ export default function AddExpense({ onClose, onSaved }) {
     setError('');
     setBusy(true);
     try {
-      await api.post('/expenses', {
+      const res = await api.post('/expenses', {
         spentOn,
         category,
         amountUsd: Number(usd) || 0,
@@ -56,7 +56,10 @@ export default function AddExpense({ onClose, onSaved }) {
         paidWith,
         note: note || null,
       });
-      toast('Expense recorded');
+      // Paying out more than the till holds goes through; it is said out loud
+      // instead, and given long enough to be worth going and looking into.
+      if (res.data.warning) toast(res.data.warning, 'warning', 9000);
+      else toast('Expense recorded');
       onSaved();
     } catch (err) {
       setError(err.response?.data?.error || 'Could not record that');

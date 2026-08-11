@@ -10,7 +10,7 @@
 import { db, transaction } from '../db.js';
 import { round2 } from './currency.js';
 import { getSettings } from './settings.js';
-import { currentSession, expectedIn, recordMovement } from './cash.js';
+import { currentSession, recordMovement } from './cash.js';
 
 /**
  * Categories are a fixed list rather than free text: a month's spending that
@@ -114,22 +114,18 @@ export function addExpense({
 
   return transaction(() => {
     let movementId = null;
-    const session = paidWith === 'cash' ? currentSession() : null;
+    // This branch's drawer, not the company's first one — an expense paid at
+    // the second shop comes out of the till standing in front of the person
+    // paying it.
+    const session = paidWith === 'cash' ? currentSession(null, branchId) : null;
 
     if (session) {
       /*
-       * Money that is not in the drawer cannot have come out of it. Without
-       * this the till goes negative and every count afterwards is wrong — and
-       * an expense really paid from somewhere else should say so.
+       * More than the drawer holds is recorded, not refused — the same rule as
+       * a manual pay-out, and for the same reason: the money has gone either
+       * way, and a refusal only stops the shop writing that down. The caller
+       * reports it; see SHORT_DRAWER_WARNING.
        */
-      const held = expectedIn(session.id);
-      if (usd > held.usd || lbp > held.lbp) {
-        throw new Error(
-          `The drawer only holds ${held.usd.toFixed(2)} USD and ${held.lbp.toLocaleString()} LL — ` +
-            'record this as paid by bank, or put cash in first',
-        );
-      }
-
       movementId = recordMovement({
         kind: 'cash_out',
         amountUsd: -usd,

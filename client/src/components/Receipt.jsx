@@ -1,6 +1,7 @@
 import { CheckCircle2, Printer } from 'lucide-react';
 import { Button, Modal, ModalActions, money } from './ui';
 import Letterhead, { ReceiptFooter } from './Letterhead';
+import WhatsAppButton from './WhatsAppButton';
 import { lbp } from '../context/SettingsContext';
 
 export default function Receipt({ receipt, onClose }) {
@@ -118,6 +119,12 @@ export default function Receipt({ receipt, onClose }) {
         <Button variant="secondary" size="lg" onClick={() => window.print()} aria-label="Print receipt">
           <Printer size={16} />
         </Button>
+        {/*
+          * Sending it beats printing it for most of what a receipt is for: a
+          * customer who has it on their phone still has it in a month, and the
+          * shop does not go through a roll of paper.
+          */}
+        <WhatsAppButton path={`/orders/${order.id}/whatsapp`} label="WhatsApp" size="lg" />
         <Button size="lg" className="flex-1" onClick={onClose} autoFocus>
           New sale
         </Button>

@@ -30,6 +30,12 @@ export const SETTING_DEFAULTS = {
   company_logo_url: '',
   /* The line at the foot of a receipt: returns policy, thank you, opening hours. */
   receipt_footer: '',
+  /*
+   * The dialling code local numbers get when they are sent to WhatsApp, which
+   * wants every number in international form. Lebanon by default; a shop
+   * anywhere else changes it once and every number it has on file follows.
+   */
+  phone_country_code: '961',
 
   /*
    * Whether a cash sale needs an open drawer. On by default: a till that can

@@ -8,6 +8,7 @@ import {
   expenseSummary,
   listExpenses,
 } from '../lib/expenses.js';
+import { currentSession, drawerShort, SHORT_DRAWER_WARNING } from '../lib/cash.js';
 import { presetRange, profitForSession, profitReport } from '../lib/profit.js';
 import { can } from '../lib/permissions.js';
 
@@ -49,7 +50,16 @@ router.post('/', ...spending, (req, res) => {
       userId: req.user.id,
       branchId: req.branchId,
     });
-    res.status(201).json({ expense });
+    /*
+     * Paying more out of the till than it holds is recorded and reported, not
+     * refused — the reasoning is with SHORT_DRAWER_WARNING. Only worth checking
+     * when the money is claimed to have come from the drawer at all.
+     */
+    const session = paidWith === 'cash' ? currentSession(null, req.branchId) : null;
+    res.status(201).json({
+      expense,
+      warning: session && drawerShort(session.id) ? SHORT_DRAWER_WARNING : null,
+    });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

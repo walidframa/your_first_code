@@ -8,6 +8,7 @@ import {
   DENOMINATIONS,
   closeSession,
   currentSession,
+  drawerShort,
   expectedIn,
   listSessions,
   movementsFor,
@@ -16,6 +17,7 @@ import {
   requiresSession,
   sessionById,
   sessionSummary,
+  SHORT_DRAWER_WARNING,
 } from '../lib/cash.js';
 import { buildCashReport, renderCashReportPdf, reportFilename, sessionProfit } from '../lib/cashReport.js';
 
@@ -78,6 +80,14 @@ router.get('/current', requireAuth, (req, res) => {
      * operator to see the drawer can simply grant it.
      */
     expected: seesTheTill ? expectedIn(session.id) : null,
+    /*
+     * Whether the drawer has gone below zero — a fact, not a figure, so it can
+     * be told to a cashier counting blind without handing them the number they
+     * are supposed to arrive at by counting. It stays on screen until somebody
+     * puts the missing money back or closes the sitting, because a warning that
+     * only appeared once is a warning nobody acted on.
+     */
+    short: drawerShort(session.id),
     movements: seesTheTill ? movements : movements.filter((m) => m.kind !== 'opening_float'),
     /*
      * What the shop has actually made while this till has been open — takings
@@ -134,16 +144,6 @@ router.post('/movements', requireAuth, (req, res) => {
     return res.status(400).json({ error: 'Enter an amount in dollars, pounds, or both' });
   }
 
-  // Taking out more than is there is a counting mistake, not a transaction.
-  if (direction === 'out') {
-    const expected = expectedIn(session.id);
-    if (usd > expected.usd || lbp > expected.lbp) {
-      return res.status(400).json({
-        error: `The drawer only holds ${expected.usd.toFixed(2)} USD and ${expected.lbp.toLocaleString()} LL`,
-      });
-    }
-  }
-
   const sign = direction === 'in' ? 1 : -1;
   recordMovement({
     sessionId: session.id,
@@ -155,9 +155,24 @@ router.post('/movements', requireAuth, (req, res) => {
     userId: req.user.id,
   });
 
+  /*
+   * A drawer that has gone below zero is recorded, not refused.
+   *
+   * It means the books and the money have drifted apart — a sale rung up on
+   * the wrong till, a float never entered, a payout taken before the takings
+   * were. Refusing the payout does not put the money back; it just stops the
+   * shop writing down what actually happened, and the drift then surfaces at
+   * closing time as an unexplained shortfall nobody can reconstruct.
+   *
+   * So: record it, and say so plainly while the person is still standing
+   * there and can remember why.
+   */
   res.status(201).json({
     session,
-    expected: req.user.role === 'admin' ? expectedIn(session.id) : null,
+    // Same rule as everywhere else: a cashier counts blind, so they are told
+    // *that* the drawer is short, never by how much.
+    expected: can(req.user, 'cashbox') ? expectedIn(session.id) : null,
+    warning: drawerShort(session.id) ? SHORT_DRAWER_WARNING : null,
   });
 });
 

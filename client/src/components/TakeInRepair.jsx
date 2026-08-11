@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Wrench } from 'lucide-react';
 import api from '../api';
 import RepairSlip, { PrintSlipButton } from './RepairSlip';
+import WhatsAppButton from './WhatsAppButton';
 import { Button, Input, Modal, ModalActions, useToast } from './ui';
 
 /**
@@ -68,6 +69,12 @@ export default function TakeInRepair({ onClose, onTaken }) {
         <RepairSlip detail={detail} />
         <ModalActions className="no-print">
           <PrintSlipButton>Print the ticket</PrintSlipButton>
+          {/*
+            * And to their phone, because the paper slip is the thing that goes
+            * missing between dropping a phone off and coming back for it. The
+            * number was just typed in above, so it is almost always known.
+            */}
+          <WhatsAppButton path={`/repairs/${detail.ticket.id}/whatsapp`} label="WhatsApp" />
           <Button className="flex-1" onClick={onClose}>
             Done
           </Button>
