@@ -9,12 +9,14 @@ import {
   Plus,
   Search,
   Smartphone,
+  Tags,
   Upload,
 } from 'lucide-react';
 import api from '../../api';
 import BarcodeField from '../../components/BarcodeField';
 import PageHeader from '../../components/PageHeader';
 import ItemActivity from '../../components/ItemActivity';
+import CategoryManager from '../../components/CategoryManager';
 import UnitsPanel from '../../components/UnitsPanel';
 import { useSettings, lbp } from '../../context/SettingsContext';
 import {
@@ -233,6 +235,7 @@ export default function Products() {
   const { rate, toLbp } = useSettings();
   const [products, setProducts] = useState(null);
   const [categories, setCategories] = useState([]);
+  const [managingCategories, setManagingCategories] = useState(false);
   const [search, setSearch] = useState('');
   const [showArchived, setShowArchived] = useState(false);
   const [editing, setEditing] = useState(undefined);
@@ -276,6 +279,11 @@ export default function Products() {
         subtitle="Your catalog"
         actions={
           <>
+            {/* Beside Import, because a supplier's file is the other thing
+                that creates categories and this is where they get tidied. */}
+            <Button variant="secondary" onClick={() => setManagingCategories(true)}>
+              <Tags size={16} /> Categories
+            </Button>
             <Link to="/admin/import">
               <Button variant="secondary">
                 <Upload size={16} /> Import
@@ -444,6 +452,10 @@ export default function Products() {
       )}
 
       {activityFor && <ItemActivity productId={activityFor} onClose={() => setActivityFor(null)} />}
+
+      {managingCategories && (
+        <CategoryManager onClose={() => setManagingCategories(false)} onChanged={load} />
+      )}
 
       {unitsFor && (
         <Modal

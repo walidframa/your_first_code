@@ -18,6 +18,17 @@ export const CANONICAL_FIELDS = [
   { key: 'supplier', label: 'Supplier / vendor', required: false },
   { key: 'image_url', label: 'Image URL', required: false },
   { key: 'reorder_point', label: 'Reorder point', required: false },
+  /*
+   * Which currency the price column is in.
+   *
+   * A Lebanese system exports a mixed list — most lines in dollars and a
+   * handful in pounds, with a column saying which. Without reading it, a
+   * 300,000 LL cable is imported as a $300,000 cable, and nobody notices until
+   * it is scanned at the till. Left unmapped, everything is taken as dollars,
+   * which is what a file with no such column means.
+   */
+  { key: 'currency', label: 'Price currency', required: false },
+  { key: 'cost_currency', label: 'Cost currency', required: false },
 ];
 
 const normalize = (s) =>
@@ -72,20 +83,71 @@ export const PRESETS = {
       image_url: [],
     },
   },
+  /*
+   * The item list a Lebanese shop's existing till exports.
+   *
+   * Distinctive because it prices in three tiers with a currency column beside
+   * each — "Price 1 / Currency 1", "Price 2 / Currency 2" — and because the
+   * currency genuinely varies down the column: most lines in dollars, a handful
+   * in pounds. Only the first tier is taken; the others are wholesale and
+   * promotional prices the register has no use for.
+   *
+   * The item number is the SKU rather than the barcode: it is the shop's own
+   * reference and the one thing guaranteed to be there.
+   */
+  lebanese_items: {
+    label: 'Items export (Price 1 / Currency 1)',
+    signature: ['Price 1', 'Currency 1', 'Item'],
+    fields: {
+      name: ['Item', 'Item name'],
+      sku: ['#', 'Item code', 'Code'],
+      price: ['Price 1'],
+      currency: ['Currency 1'],
+      cost: ['Average cost', 'Last cost'],
+      cost_currency: ['Currency'],
+      stock: ['Qty'],
+      category: ['Family'],
+      barcode: ['Barcode'],
+      supplier: ['Brand', 'Source'],
+      image_url: [],
+    },
+  },
   generic: {
     label: 'Generic CSV',
     signature: [],
     fields: {
       name: ['name', 'product', 'product name', 'title', 'item', 'item name', 'description'],
       sku: ['sku', 'code', 'item code', 'product code', 'article', 'reference', 'ref'],
-      price: ['price', 'retail price', 'sell price', 'unit price', 'sale price', 'rrp'],
-      cost: ['cost', 'unit cost', 'cost price', 'buy price', 'wholesale'],
+      price: [
+        'price',
+        'price 1',
+        'retail',
+        'retail price',
+        'sell price',
+        'selling price',
+        'unit price',
+        'sale price',
+        'rrp',
+      ],
+      cost: [
+        'cost',
+        'our cost',
+        'unit cost',
+        'cost price',
+        'average cost',
+        'last cost',
+        'buy price',
+        'purchase price',
+        'wholesale',
+      ],
       stock: ['stock', 'qty', 'quantity', 'on hand', 'stock on hand', 'inventory', 'stock level'],
       category: ['category', 'type', 'department', 'group', 'product type'],
       barcode: ['barcode', 'upc', 'ean', 'gtin', 'isbn'],
       supplier: ['supplier', 'vendor', 'brand', 'manufacturer'],
       image_url: ['image', 'image url', 'image src', 'photo', 'picture'],
       reorder_point: ['reorder point', 'reorder level', 'min stock', 'minimum stock', 'par level'],
+      currency: ['currency', 'currency 1', 'price currency', 'cur'],
+      cost_currency: ['cost currency'],
     },
   },
 };

@@ -16,7 +16,13 @@ export default function Import() {
   const fileRef = useRef(null);
 
   const [step, setStep] = useState(0);
-  const [csv, setCsv] = useState('');
+  /*
+   * The uploaded file, in whichever shape it came: `csv` is text, `workbook` is
+   * an .xlsx as base64. Held together so every re-analysis — changing the
+   * format, remapping a column, picking another sheet — sends the same file
+   * back without the shop having to choose it again.
+   */
+  const [source, setSource] = useState({ csv: '', workbook: '', sheet: '' });
   const [fileName, setFileName] = useState('');
   const [formats, setFormats] = useState([]);
   const [fields, setFields] = useState([]);
@@ -27,14 +33,14 @@ export default function Import() {
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
 
-  async function analyze(text, chosenFormat, chosenMapping) {
+  async function analyze(from, chosenFormat, chosenMapping) {
     setBusy(true);
     setError('');
     try {
       const [meta, res] = await Promise.all([
         formats.length ? Promise.resolve(null) : api.get('/imports/formats'),
         api.post('/imports/preview', {
-          csv: text,
+          ...from,
           format: chosenFormat || undefined,
           mapping: chosenMapping || undefined,
         }),
@@ -46,6 +52,8 @@ export default function Import() {
       setPreview(res.data);
       setFormat(res.data.format);
       setMapping(res.data.mapping);
+      // The server says which sheet it read, which matters when it chose.
+      if (res.data.sheet) setSource((s) => ({ ...s, sheet: res.data.sheet }));
       return true;
     } catch (err) {
       setError(err.response?.data?.error || 'Could not read that file');
@@ -55,30 +63,58 @@ export default function Import() {
     }
   }
 
+  /** An .xlsx as base64, which is how it travels inside a JSON body. */
+  function toBase64(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error('That file could not be read'));
+      // A data: URI, of which only the part after the comma is wanted.
+      reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
+      reader.readAsDataURL(file);
+    });
+  }
+
   async function handleFile(file) {
     if (!file) return;
-    const text = await file.text();
-    setCsv(text);
+
+    /*
+     * Decided by extension rather than by MIME type: Windows reports .xlsx as
+     * half a dozen different types depending on what is installed, and a file
+     * copied off a phone often arrives with no type at all.
+     */
+    const spreadsheet = /\.(xlsx|xlsm)$/i.test(file.name);
+    const next = spreadsheet
+      ? { csv: '', workbook: await toBase64(file), sheet: '' }
+      : { csv: await file.text(), workbook: '', sheet: '' };
+
+    setSource(next);
     setFileName(file.name);
-    if (await analyze(text)) setStep(1);
+    if (await analyze(next)) setStep(1);
   }
 
   async function changeFormat(next) {
     setFormat(next);
-    await analyze(csv, next);
+    await analyze(source, next);
   }
 
   async function changeMapping(field, header) {
     const next = { ...mapping, [field]: header || null };
     setMapping(next);
-    await analyze(csv, format, next);
+    await analyze(source, format, next);
+  }
+
+  /** Another tab of the same workbook — the mapping is re-guessed for it. */
+  async function changeSheet(name) {
+    const next = { ...source, sheet: name };
+    setSource(next);
+    await analyze(next);
   }
 
   async function commit() {
     setBusy(true);
     setError('');
     try {
-      const res = await api.post('/imports/commit', { csv, format, mapping });
+      const res = await api.post('/imports/commit', { ...source, format, mapping });
       setResult(res.data);
       setStep(3);
       toast(`Imported ${res.data.created + res.data.updated} products`);
@@ -91,7 +127,7 @@ export default function Import() {
 
   function reset() {
     setStep(0);
-    setCsv('');
+    setSource({ csv: '', workbook: '', sheet: '' });
     setFileName('');
     setPreview(null);
     setResult(null);
@@ -156,12 +192,13 @@ export default function Import() {
                 </div>
                 <p className="font-medium text-slate-800">Drop a CSV file here</p>
                 <p className="mt-1 max-w-sm text-sm text-slate-500">
-                  We auto-detect Shopify, Square and Lightspeed exports, and map generic CSVs by column name.
+                  Excel or CSV. We auto-detect Shopify, Square and Lightspeed exports, and map anything else by
+                  column name.
                 </p>
                 <input
                   ref={fileRef}
                   type="file"
-                  accept=".csv,.tsv,.txt,text/csv"
+                  accept=".csv,.tsv,.txt,.xlsx,.xlsm,text/csv"
                   className="hidden"
                   onChange={(e) => handleFile(e.target.files[0])}
                 />
@@ -180,9 +217,10 @@ export default function Import() {
                   size="sm"
                   loading={busy}
                   onClick={async () => {
-                    setCsv(SAMPLE_CSV);
+                    const sample = { csv: SAMPLE_CSV, workbook: '', sheet: '' };
+                    setSource(sample);
                     setFileName('sample-catalog.csv');
-                    if (await analyze(SAMPLE_CSV)) setStep(1);
+                    if (await analyze(sample)) setStep(1);
                   }}
                 >
                   Use sample
@@ -201,14 +239,37 @@ export default function Import() {
                     {preview.summary.total} rows · {preview.headers.length} columns
                   </p>
                 </div>
-                <div className="w-56">
-                  <Select value={format} onChange={(e) => changeFormat(e.target.value)} label="Source format">
-                    {formats.map((f) => (
-                      <option key={f.key} value={f.key}>
-                        {f.label}
-                      </option>
-                    ))}
-                  </Select>
+                <div className="flex gap-3">
+                  {/*
+                    * Only when there is a choice to make. A supplier's workbook
+                    * routinely holds the price list, a cover note and last
+                    * month's version, and the app cannot know which is which —
+                    * but a one-sheet file has nothing to ask about.
+                    */}
+                  {preview.sheets?.length > 1 && (
+                    <div className="w-48">
+                      <Select
+                        value={preview.sheet || ''}
+                        onChange={(e) => changeSheet(e.target.value)}
+                        label="Sheet"
+                      >
+                        {preview.sheets.map((s) => (
+                          <option key={s.name} value={s.name}>
+                            {s.name} ({s.rows} rows)
+                          </option>
+                        ))}
+                      </Select>
+                    </div>
+                  )}
+                  <div className="w-56">
+                    <Select value={format} onChange={(e) => changeFormat(e.target.value)} label="Source format">
+                      {formats.map((f) => (
+                        <option key={f.key} value={f.key}>
+                          {f.label}
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
                 </div>
               </div>
 
@@ -285,6 +346,12 @@ export default function Import() {
                     {preview.summary.error} skipped
                   </Badge>
                 )}
+                {preview.summary.converted > 0 && (
+                  <Badge tone="warning">
+                    {preview.summary.converted} converted from LBP at{' '}
+                    {Number(preview.rate).toLocaleString('en-US')}
+                  </Badge>
+                )}
                 {preview.truncated && (
                   <span className="text-xs text-slate-400">Showing the first 100 rows</span>
                 )}
@@ -310,6 +377,12 @@ export default function Import() {
                           {row.data.name || <span className="text-slate-400">—</span>}
                           {row.errors.length > 0 && (
                             <p className="text-xs text-red-600">{row.errors.join(' · ')}</p>
+                          )}
+                          {/* What was changed on the way in, said per row —
+                              a price converted out of pounds is not an error
+                              but it is the thing to check before committing. */}
+                          {row.notes?.length > 0 && (
+                            <p className="text-xs text-amber-700">{row.notes.join(' · ')}</p>
                           )}
                         </td>
                         <td className="px-3 py-2 text-slate-500">{row.data.sku || '—'}</td>
@@ -388,7 +461,7 @@ export default function Import() {
             </Card>
           )}
 
-          {step === 0 && !csv && !busy && !error && (
+          {step === 0 && !source.csv && !source.workbook && !busy && !error && (
             <EmptyState
               className="mt-2"
               title=""

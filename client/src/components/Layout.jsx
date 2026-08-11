@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
-import { NavLink, Outlet } from 'react-router';
+import { NavLink, Outlet, useLocation } from 'react-router';
 import {
   ArrowLeftRight,
   BarChart3,
   Banknote,
   Boxes,
   Building2,
+  ChevronRight,
   Contact,
   CreditCard,
   FileText,
@@ -144,6 +145,7 @@ function NavItem({ to, label, icon: Icon, end, expanded }) {
 
 export default function Layout() {
   const { user, logout, can } = useAuth();
+  const { pathname } = useLocation();
 
   /*
    * Wide by default, and a preference rather than a state: an icon nobody has
@@ -174,6 +176,44 @@ export default function Layout() {
   const groups = ADMIN_NAV.map((g) => ({ ...g, items: allowed(g.items) })).filter(
     (g) => g.items.length > 0,
   );
+
+  /*
+   * Which back-office groups are folded away.
+   *
+   * A shop lives on three or four screens and reaches the rest once a month, so
+   * the rail is mostly a wall of things nobody is looking for. Folded by
+   * heading rather than by item, remembered per person, and stored as a list of
+   * what is *closed* so a group added later arrives open.
+   */
+  const [collapsed, setCollapsed] = useState(() => {
+    try {
+      return new Set(JSON.parse(localStorage.getItem('pos_nav_collapsed') || '[]'));
+    } catch {
+      return new Set();
+    }
+  });
+
+  useEffect(() => {
+    localStorage.setItem('pos_nav_collapsed', JSON.stringify([...collapsed]));
+  }, [collapsed]);
+
+  const toggleGroup = (heading) =>
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(heading)) next.delete(heading);
+      else next.add(heading);
+      return next;
+    });
+
+  /*
+   * The group holding the screen you are on is never folded, whatever the
+   * preference says. Otherwise arriving somewhere hides the page you are
+   * looking at from the menu, and the way back is a guess.
+   */
+  const holdsCurrentPage = (group) =>
+    group.items.some((item) =>
+      item.end ? pathname === item.to : pathname === item.to || pathname.startsWith(`${item.to}/`),
+    );
 
   const initials = user.name
     .split(/\s+/)
@@ -212,22 +252,42 @@ export default function Layout() {
         {groups.length > 0 && (
           <div className="relative mt-2 min-h-0 w-full flex-1">
             <div className="h-full space-y-3 overflow-y-auto pt-2 pb-5">
-              {groups.map((group) => (
-                <nav key={group.heading} className="flex w-full flex-col gap-1">
-                  {expanded ? (
-                    <p className="px-3 pb-1 text-[10px] font-semibold tracking-wider text-slate-500 uppercase">
-                      {group.heading}
-                    </p>
-                  ) : (
-                    /* Narrow, a heading would be four unreadable letters, so the
-                       grouping is carried by a rule instead. */
-                    <div className="mx-3 mb-1 border-t border-slate-700/70" aria-hidden="true" />
-                  )}
-                  {group.items.map((item) => (
-                    <NavItem key={item.to} {...item} expanded={expanded} />
-                  ))}
-                </nav>
-              ))}
+              {groups.map((group) => {
+                /*
+                 * Only foldable in the wide rail. Narrow, the heading is
+                 * already a rule rather than a word, and a toggle with no name
+                 * on it is a button nobody presses twice.
+                 */
+                const foldable = expanded;
+                const open = !foldable || !collapsed.has(group.heading) || holdsCurrentPage(group);
+
+                return (
+                  <nav key={group.heading} className="flex w-full flex-col gap-1">
+                    {foldable ? (
+                      <button
+                        onClick={() => toggleGroup(group.heading)}
+                        aria-expanded={open}
+                        className="flex w-full items-center gap-1 rounded px-3 pb-1 text-[10px] font-semibold tracking-wider text-slate-500 uppercase transition hover:text-slate-300"
+                      >
+                        <ChevronRight
+                          size={11}
+                          className={cx('shrink-0 transition-transform', open && 'rotate-90')}
+                          aria-hidden="true"
+                        />
+                        {group.heading}
+                      </button>
+                    ) : (
+                      /* Narrow, a heading would be four unreadable letters, so the
+                         grouping is carried by a rule instead. */
+                      <div className="mx-3 mb-1 border-t border-slate-700/70" aria-hidden="true" />
+                    )}
+                    {open &&
+                      group.items.map((item) => (
+                        <NavItem key={item.to} {...item} expanded={expanded} />
+                      ))}
+                  </nav>
+                );
+              })}
             </div>
             {/* A hint that the list continues past the fold. */}
             <div className="pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-gradient-to-t from-slate-900 to-transparent" />
