@@ -12,6 +12,19 @@ Documentation=https://github.com/walidframa/your_first_code
 After=network-online.target
 Wants=network-online.target
 
+# How many times to keep trying before giving up.
+#
+# In [Unit], not [Service]: systemd reads these here and silently ignores them
+# there, so a copy in the wrong section is a rate limiter that does nothing. A
+# shop whose database it cannot write restarted 391 times in thirteen minutes
+# before anybody noticed — on a machine that hosts other people's shops, which
+# is whose disk it was hammering.
+#
+# Five failures in a minute and it stays stopped, where `systemctl status` shows
+# it plainly instead of it looking busy.
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
 [Service]
 Type=simple
 User=pos
@@ -25,12 +38,10 @@ ExecStart=/usr/bin/node src/index.js
 EnvironmentFile=/etc/pos.env
 
 # A till that dies at four o'clock has to come back on its own; nobody in a shop
-# is watching a service. Rate-limited so a boot loop shows up in the log as a
-# stopped service rather than hammering the machine all night.
+# is watching a service. How many times it will try before giving up is in
+# [Unit] above, where systemd actually reads it.
 Restart=always
 RestartSec=2
-StartLimitIntervalSec=60
-StartLimitBurst=5
 
 # The database is the shop's books. Nothing else on the machine needs to be
 # writable by this process.

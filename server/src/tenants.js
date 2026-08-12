@@ -83,6 +83,9 @@ const CONFIG = {
   nginxDir: process.env.POS_NGINX_DIR || '/etc/nginx/sites-available',
   nginxEnabled: process.env.POS_NGINX_ENABLED || '/etc/nginx/sites-enabled',
   certEmail: process.env.POS_CERT_EMAIL || '',
+  // Who the service runs as. Everything this command creates has to end up
+  // owned by them, because root created it and root is not who will run it.
+  user: process.env.POS_USER || 'pos',
 };
 
 const args = process.argv.slice(2);
@@ -194,6 +197,20 @@ function add() {
     }),
   );
 
+  /*
+   * From here on, a failure is reported rather than fatal.
+   *
+   * Past this point the shop exists — keys written, database about to be
+   * seeded, licence about to be recorded. Dying midway would leave all of that
+   * in place with no service running, no word about which step to finish by
+   * hand, and a name that can no longer be re-added.
+   */
+  const unfinished = [];
+  const attempt = (label, command, argv) => {
+    const res = run(command, argv, { allowFail: true });
+    if (res.status !== 0) unfinished.push(`${label}:  ${command} ${argv.join(' ')}`);
+  };
+
   step('Creating their database');
   if (!dryRun) mkdirSync(CONFIG.tenantData, { recursive: true });
   /*
@@ -202,6 +219,26 @@ function add() {
    * seed skips anything already present, so the damage would be quiet.
    */
   run(process.execPath, [path.join(srcDir, 'seed.js')], { env: { DB_PATH: dbPath } });
+
+  /*
+   * Hand it all to the user that will actually run it.
+   *
+   * This command is run by root, so everything it just created belongs to root
+   * — while the service runs as `pos`. SQLite cannot write a database it does
+   * not own, so the shop starts, fails, and is restarted by systemd for ever:
+   * `activating (auto-restart)`, with nothing listening on the port and a
+   * status line that says nothing about permissions.
+   *
+   * The whole directory rather than this one shop's files, so that a tenant
+   * created before this existed is repaired the next time anything is added.
+   */
+  step('Handing it to the service user');
+  attempt(`give it to ${CONFIG.user}`, 'chown', [
+    '-R',
+    `${CONFIG.user}:${CONFIG.user}`,
+    CONFIG.tenantData,
+  ]);
+  attempt(`give it to ${CONFIG.user}`, 'chown', [`${CONFIG.user}:${CONFIG.user}`, envFile]);
 
   step('Recording the licence');
   if (!dryRun) {
@@ -221,21 +258,6 @@ function add() {
   } else {
     say(`    would record ${slug} on ${plan}, paid through ${paidThrough}, port ${port}`);
   }
-
-  /*
-   * From here on, a failure is reported rather than fatal.
-   *
-   * The shop already exists by this point — its database is seeded, its keys
-   * are written, its licence is recorded. Dying here would leave all of that in
-   * place with no service running and no word about which step to finish by
-   * hand, and the vendor would be looking at a half-built tenant they cannot
-   * re-add because the name is now taken.
-   */
-  const unfinished = [];
-  const attempt = (label, command, argv) => {
-    const res = run(command, argv, { allowFail: true });
-    if (res.status !== 0) unfinished.push(`${label}:  ${command} ${argv.join(' ')}`);
-  };
 
   step('Starting it');
   attempt('start it', 'systemctl', ['enable', '--now', `pos-tenant@${slug}`]);

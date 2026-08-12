@@ -322,3 +322,30 @@ test('what is already in the environment beats the file', () => {
   });
   assert.match(`${res.stdout}${res.stderr}`, /override\.fromenv\.example/);
 });
+
+/* --------------------------------------------------------- who owns it all */
+
+test('it hands the shop over to the user that will run it', () => {
+  /*
+   * This command is run by root, so everything it creates belongs to root —
+   * while the service runs as `pos`. SQLite cannot write a database it does not
+   * own, so the shop starts, fails, and is restarted by systemd for ever:
+   * `activating (auto-restart)`, nothing listening on the port, and a status
+   * line that says nothing whatsoever about permissions.
+   *
+   * Caught on a real server. The dry run is the only place the ownership step
+   * can be checked from here, since this container has no `pos` user.
+   */
+  const res = pos('add', 'owned', 'Owned Properly', '--dry-run');
+  assert.match(res.out, /chown -R pos:pos .*tenants/, 'the databases and backups');
+  assert.match(res.out, /chown pos:pos .*owned\.env/, 'and the settings file');
+});
+
+test('a chown that cannot run is reported rather than swallowed', () => {
+  // There is no `pos` user here, so this is the failure path — which must leave
+  // the shop recorded and tell the vendor the exact command to finish.
+  const res = pos('add', 'nouser', 'No Such User');
+  assert.match(res.out, /Some steps did not finish/);
+  assert.match(res.out, /chown/);
+  assert.ok(row('nouser'), 'the shop was still recorded');
+});

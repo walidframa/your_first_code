@@ -395,6 +395,23 @@ who pays a week late still gets a whole month and one who pays early keeps the
 remainder — unless the licence lapsed long ago, in which case it starts from
 today rather than selling them a month that has already passed.
 
+### When a shop will not start
+
+```bash
+systemctl status pos-tenant@rami --no-pager
+journalctl -u pos-tenant@rami -n 30 --no-pager
+```
+
+`activating (auto-restart)` with `status=1/FAILURE` and nothing on its port is
+almost always **ownership**: the files belong to root and the service runs as
+`pos`. `pos-tenant add` hands them over itself, but a shop created before it did
+— or one whose files have been copied about by hand — needs:
+
+```bash
+chown -R pos:pos /var/lib/pos/tenants /etc/pos/tenants
+systemctl restart pos-tenant@rami
+```
+
 `remove` and `purge` are deliberately separate. "We are not renting to them any
 more" and "delete their books" are different decisions, and only one of them can
 be undone.
