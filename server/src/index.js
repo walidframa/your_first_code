@@ -80,7 +80,16 @@ app.use(
  * and the tests on exactly the path they were on before.
  */
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const clientDist = process.env.CLIENT_DIST || path.join(__dirname, '..', '..', 'client', 'dist');
+/*
+ * Resolved, because a relative CLIENT_DIST is a trap: the static handler
+ * accepts one and serves the assets happily, while `res.sendFile` refuses
+ * anything that is not absolute — so every asset answers 200 and every actual
+ * page answers 500, which looks like the app being broken rather than a path
+ * being written the short way.
+ */
+const clientDist = path.resolve(
+  process.env.CLIENT_DIST || path.join(__dirname, '..', '..', 'client', 'dist'),
+);
 const indexHtml = path.join(clientDist, 'index.html');
 const serveClient = existsSync(indexHtml);
 

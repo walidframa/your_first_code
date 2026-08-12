@@ -11,6 +11,7 @@ import { OfflineProvider } from './context/OfflineContext.jsx';
 import { applyTextSize } from './lib/textSize.js';
 import { applyLanguage } from './lib/i18n.js';
 import { LanguageProvider } from './context/LanguageContext.jsx';
+import { watchForInstall } from './lib/install.js';
 
 /*
  * Before the first render, so a screen set to large text never flashes the
@@ -20,6 +21,11 @@ applyTextSize();
 /* And the language, for the same reason: an Arabic till must not flash an
    English page laid out backwards on its way in. */
 applyLanguage();
+
+/* The browser offers to install the app once, whenever it decides to, and
+   throws the offer away if nobody is listening — so listen before anything
+   else runs. */
+watchForInstall();
 
 /*
  * The worker that keeps the till on screen when the server is not there.
