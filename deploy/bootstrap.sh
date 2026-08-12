@@ -175,18 +175,40 @@ else
   # retrying for an hour over a DNS record that simply has not propagated. The
   # answer is to look first and say exactly what is wrong.
   #
-  RESOLVED="$(getent ahostsv4 "$DOMAIN" | awk 'NR==1 {print $1}')"
+  #
+  # Every address the name answers with, not just the first.
+  #
+  # A domain bought from a registrar that also sells website building arrives
+  # with a record for that product still attached, and adding your own A record
+  # beside it leaves the name answering with both. DNS then hands out one at
+  # random, so the shop appears to work for some visitors and not others — and
+  # Let's Encrypt fails or succeeds depending on which address its check
+  # happened to draw. Looking only at the first answer would wave that straight
+  # through, which is exactly the failure this check exists to catch.
+  #
+  mapfile -t RESOLVED < <(getent ahostsv4 "$DOMAIN" | awk '{print $1}' | sort -u)
   PUBLIC="$(curl -fsS --max-time 10 https://api.ipify.org 2>/dev/null || true)"
 
-  if [ -z "$RESOLVED" ]; then
+  HERE=no
+  for ip in ${RESOLVED+"${RESOLVED[@]}"}; do
+    [ "$ip" = "$PUBLIC" ] && HERE=yes
+  done
+
+  if [ "${#RESOLVED[@]}" -eq 0 ]; then
     note "$DOMAIN does not resolve to anything yet."
     note "Add an A record for it pointing at this machine, wait a few minutes,"
     note "and run this same command again — it will pick up where it left off."
-  elif [ -n "$PUBLIC" ] && [ "$RESOLVED" != "$PUBLIC" ]; then
-    note "$DOMAIN currently points at $RESOLVED, and this machine is $PUBLIC."
+  elif [ -n "$PUBLIC" ] && [ "$HERE" = no ]; then
+    note "$DOMAIN points at ${RESOLVED[*]}, and this machine is $PUBLIC."
     note "Fix the A record, wait for it to propagate, then run this again."
     note "Skipping the certificate rather than burning an attempt on a name that"
     note "would fail the check."
+  elif [ "${#RESOLVED[@]}" -gt 1 ]; then
+    note "$DOMAIN answers with more than one address: ${RESOLVED[*]}"
+    note "One of them is this machine; the others are somebody else's, and every"
+    note "visitor gets one of them at random. Delete the extra A records at your"
+    note "registrar — a leftover parking or website-builder record is the usual"
+    note "cause — then run this again."
   else
     say "Getting an HTTPS certificate for $NAMES"
     apt-get install -y -qq certbot python3-certbot-nginx >/dev/null

@@ -205,12 +205,26 @@ the `www` CNAME if there is one; two records cannot both own that name.
 Give it ten minutes, then check from your own machine:
 
 ```bash
-nslookup xtechpos.com          # should answer with your server's IP
+nslookup yourdomain.com        # should answer with your server's IP
 ```
 
-Until that answers correctly, there is no point running anything on the server:
-the certificate step asks Let's Encrypt to visit the domain, and it will visit
-whatever the record currently says.
+**It must answer with exactly one address.** More than one means an old record
+is still there — usually the registrar's own website-builder or parking product,
+which often resolves to two addresses of its own, so the reply looks like this:
+
+```
+Addresses:  159.203.185.221      <- the server
+            76.223.105.230       <- the registrar's page
+            13.248.243.5         <- the registrar's page
+```
+
+DNS hands out one of those at random per visitor, so the shop appears to work
+for some people and not others, at different times, on the same address. Delete
+the extra records until only yours remains.
+
+Until that is right there is no point running anything on the server: the
+certificate step asks Let's Encrypt to visit the domain, and it will visit
+whichever address it happens to draw.
 
 ### Cloud, in one command
 
