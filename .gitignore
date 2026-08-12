@@ -1,5 +1,10 @@
 node_modules/
 dist/
+
+# npm's cache. On a server the app's user often has the checkout as its home
+# directory, which puts this inside the repository — where it looks to `git
+# status` like somebody has been working here, and stops the next deploy.
+.npm/
 .env
 *.sqlite
 *.sqlite-wal
