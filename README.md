@@ -181,10 +181,54 @@ in front of it. The counter never depends on the internet, and it is still
 reachable from anywhere. Set it up as the Windows install below, then add the
 tunnel.
 
-### Cloud, in one command
+### Pointing a domain at the server
 
 Get a VPS — the smallest Hetzner or DigitalOcean box is more than this needs —
-running Ubuntu 24.04. Point a domain at its IP address. Then:
+running Ubuntu 24.04. It will show you a **public IPv4** address; that is the
+one that matters. (The private one, usually `10.x.x.x`, is only reachable from
+inside the hosting company's own network.)
+
+Then, wherever the domain was bought — GoDaddy, Namecheap, anywhere — open its
+**DNS records** and make two of them:
+
+| Type | Name | Value | TTL |
+| --- | --- | --- | --- |
+| A | `@` | your server's public IPv4 | 600 |
+| A | `www` | the same address | 600 |
+
+`@` means the bare domain. **Edit the records that are already there rather than
+adding more** — a newly bought domain arrives with an A record aimed at the
+registrar's parking page and a CNAME on `www`, and leaving either in place means
+some visitors reach the parking page and some reach the shop, at random. Delete
+the `www` CNAME if there is one; two records cannot both own that name.
+
+Give it ten minutes, then check from your own machine:
+
+```bash
+nslookup yourdomain.com        # should answer with your server's IP
+```
+
+**It must answer with exactly one address.** More than one means an old record
+is still there — usually the registrar's own website-builder or parking product,
+which often resolves to two addresses of its own, so the reply looks like this:
+
+```
+Addresses:  159.203.185.221      <- the server
+            76.223.105.230       <- the registrar's page
+            13.248.243.5         <- the registrar's page
+```
+
+DNS hands out one of those at random per visitor, so the shop appears to work
+for some people and not others, at different times, on the same address. Delete
+the extra records until only yours remains.
+
+Until that is right there is no point running anything on the server: the
+certificate step asks Let's Encrypt to visit the domain, and it will visit
+whichever address it happens to draw.
+
+### Cloud, in one command
+
+Once the domain resolves:
 
 ```bash
 ssh root@YOUR-SERVER
@@ -195,9 +239,16 @@ sudo ./deploy/bootstrap.sh pos.myshop.com you@example.com
 
 That installs Node, nginx and the app; generates the two secrets; builds the
 client; creates the admin login; starts it as a service that comes back after a
-reboot; gets an HTTPS certificate; and schedules a nightly backup. It waits
-until the app actually answers before it says it worked, and it is safe to run
-again — it will not touch the database or regenerate the secrets a second time.
+reboot; opens the firewall; gets an HTTPS certificate covering the domain and
+its `www`; and schedules a nightly backup. It waits until the app actually
+answers before it says it worked, and it is safe to run again — it will not
+touch the database or regenerate the secrets a second time.
+
+Before asking for the certificate it checks that the domain really does resolve
+to this machine, and says so rather than trying anyway if it does not. That is
+not politeness: a failed Let's Encrypt check counts against an hourly limit for
+that name, so a script that charged ahead could lock you out of retrying for an
+hour over a DNS record that had simply not propagated yet.
 
 Leave the email off while you are still testing on a bare IP address; without a
 domain there is no certificate to get. Add it later by running the same command
