@@ -55,6 +55,13 @@ orders and staff.
   between two of its own it is just money **moved**
 - Each posts to both accounts and prints a numbered slip with two signature lines
 
+- **A phone in part-exchange** — with a cart open, `Buy in` becomes
+  `Part-exchange`: what the old phone is worth comes off this sale, and the
+  balance goes **either way**. Worth less than the new one and the customer pays
+  the difference; worth more and the till shows *You pay the customer* and hands
+  it over from the drawer. One sale, one movement of money, and the old handset
+  on the shelf at what it was agreed to be worth
+
 **Back office**
 - Dashboard: revenue hero figure, KPI tiles, a continuous daily-revenue column
   chart, top sellers, payment mix and restock alerts — all scoped by one date-range filter

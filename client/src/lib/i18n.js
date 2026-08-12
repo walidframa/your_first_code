@@ -110,6 +110,16 @@ const AR = {
   'Card payment': 'الدفع بالبطاقة',
   'Log out': 'تسجيل الخروج',
 
+  // — a phone in part-exchange ————————————————————————————————
+  'Traded in': 'مقايضة',
+  'Take it off': 'إلغاء المقايضة',
+  'To pay': 'المطلوب',
+  'You pay the customer': 'تدفع للزبون',
+  'Pay the customer': 'ادفع للزبون',
+  'Part-exchange': 'مقايضة',
+  'Hand the customer': 'سلّم الزبون',
+  'out of the drawer?': 'من الصندوق؟',
+
   // — the register ———————————————————————————————————————————————
   'Current sale': 'الفاتورة الحالية',
   'No items yet': 'لا يوجد أصناف بعد',

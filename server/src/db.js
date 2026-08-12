@@ -1772,6 +1772,17 @@ if (!db.prepare(`SELECT value FROM settings WHERE key = 'flagged_demo_passwords'
   db.prepare(`INSERT INTO settings (key, value) VALUES ('flagged_demo_passwords', 'done')`).run();
 }
 
+/*
+ * A handset taken in as part of the sale that replaced it.
+ *
+ * On the order rather than only on the trade-in, because this is what the
+ * customer settled: `total` is what the goods came to, `trade_in_value` is what
+ * was knocked off for the phone they handed over, and the difference is the
+ * money that actually crossed the counter — in whichever direction.
+ */
+addColumn('orders', 'trade_in_value', 'REAL NOT NULL DEFAULT 0');
+addColumn('orders', 'trade_in_id', 'INTEGER REFERENCES trade_ins(id)');
+
 export const ADJUSTMENT_REASONS = [
   'received',
   'damaged',
