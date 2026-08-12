@@ -262,3 +262,63 @@ test('this sitting’s sales are the ones rung up since the drawer was opened', 
 
   await req('POST', '/cash/close', { countedUsd: 0, countedLbp: 0 }, adminToken);
 });
+
+/* ------------------------------------------------------- sent again later */
+
+test('a sale sent twice under the same name is rung up once', async () => {
+  const p = await product('BEV-001');
+  const before = p.stock;
+  const body = {
+    items: [{ productId: p.id, quantity: 2 }],
+    paymentMethod: 'card',
+    clientRef: 'till-1:abc-123',
+  };
+
+  const first = await req('POST', '/orders', body, adminToken);
+  assert.equal(first.status, 201);
+
+  /*
+   * The dangerous case: the answer was lost on the way back, so the till sends
+   * it again. Without the name this is a second sale, and the shop has sold the
+   * same two phones twice.
+   */
+  const again = await req('POST', '/orders', body, adminToken);
+  assert.equal(again.status, 200, 'the second attempt is not a new sale');
+  assert.equal(again.json.alreadyHad, true);
+  assert.equal(again.json.order.id, first.json.order.id, 'the same sale comes back');
+  assert.equal(again.json.items.length, first.json.items.length);
+
+  // Two off the shelf, not four.
+  assert.equal((await product('BEV-001')).stock, before - 2);
+});
+
+test('two sales under different names are two sales', async () => {
+  const p = await product('BEV-001');
+  const one = await req(
+    'POST',
+    '/orders',
+    { items: [{ productId: p.id, quantity: 1 }], paymentMethod: 'card', clientRef: 'till-1:x' },
+    adminToken,
+  );
+  const two = await req(
+    'POST',
+    '/orders',
+    { items: [{ productId: p.id, quantity: 1 }], paymentMethod: 'card', clientRef: 'till-1:y' },
+    adminToken,
+  );
+  assert.equal(one.status, 201);
+  assert.equal(two.status, 201);
+  assert.notEqual(one.json.order.id, two.json.order.id);
+});
+
+test('a sale sent with no name at all still works, as it always did', async () => {
+  const p = await product('BEV-001');
+  const res = await req(
+    'POST',
+    '/orders',
+    { items: [{ productId: p.id, quantity: 1 }], paymentMethod: 'card' },
+    adminToken,
+  );
+  assert.equal(res.status, 201);
+  assert.equal(res.json.order.client_ref, null);
+});

@@ -7,6 +7,7 @@ import { AuthProvider } from './context/AuthContext.jsx';
 import { ToastProvider } from './components/ui';
 import { SettingsProvider } from './context/SettingsContext.jsx';
 import { BranchProvider } from './context/BranchContext.jsx';
+import { OfflineProvider } from './context/OfflineContext.jsx';
 import { applyTextSize } from './lib/textSize.js';
 
 /*
@@ -15,6 +16,20 @@ import { applyTextSize } from './lib/textSize.js';
  */
 applyTextSize();
 
+/*
+ * The worker that keeps the till on screen when the server is not there.
+ *
+ * Only in a built app: in development the page comes from Vite, and a worker
+ * caching those assets would serve yesterday's code after every edit.
+ */
+if ('serviceWorker' in navigator && import.meta.env.PROD) {
+  globalThis.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => {
+      // A till without it still sells; it just cannot survive the server going.
+    });
+  });
+}
+
 createRoot(document.getElementById('root')).render(
   <StrictMode>
     <BrowserRouter>
@@ -22,7 +37,9 @@ createRoot(document.getElementById('root')).render(
         <AuthProvider>
           <BranchProvider>
             <SettingsProvider>
-              <App />
+              <OfflineProvider>
+                <App />
+              </OfflineProvider>
             </SettingsProvider>
           </BranchProvider>
         </AuthProvider>

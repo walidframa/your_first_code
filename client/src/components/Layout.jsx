@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router';
+import OfflineBar from './OfflineBar';
 import {
   ArrowLeftRight,
   BarChart3,
@@ -344,8 +345,12 @@ export default function Layout() {
         </div>
       </aside>
 
-      <main className="min-w-0 flex-1 overflow-hidden">
-        <Outlet />
+      <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        {/* Above everything, because it changes what the next press means. */}
+        <OfflineBar />
+        <div className="min-h-0 flex-1 overflow-hidden">
+          <Outlet />
+        </div>
       </main>
     </div>
   );

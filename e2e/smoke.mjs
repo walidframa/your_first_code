@@ -500,7 +500,8 @@ try {
     await dialog.getByRole('textbox', { name: 'SKU', exact: true }).fill('PH-A15');
     await dialog.getByRole('spinbutton', { name: 'Price', exact: true }).fill('189');
     await dialog.getByRole('spinbutton', { name: 'Cost', exact: true }).fill('150');
-    await dialog.getByRole('checkbox').check();
+    // Named: "Sold as a SIM" sits beside it now, and a bare checkbox is two.
+    await dialog.getByRole('checkbox', { name: /Track each one by IMEI/ }).check();
     await dialog.getByRole('button', { name: /Create|Save/ }).click();
     await page.waitForSelector('text=Galaxy A15', { timeout: 15000 });
   });
