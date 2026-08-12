@@ -16,6 +16,7 @@ import {
   renderEnv,
   renderNginx,
   slugify,
+  welcome,
 } from '../src/lib/provision.js';
 
 /* ------------------------------------------------------------- the name */
@@ -141,4 +142,59 @@ test('two shops get configs that cannot be confused', () => {
   assert.ok(!a.includes('nabil'));
   assert.ok(!b.includes('rami'));
   assert.ok(!a.includes('4101'));
+});
+
+/* ------------------------------------------------------------ what it says */
+
+test('a dry run does not claim the shop exists', () => {
+  /*
+   * "Rami Mobile is set up" under a wall of "would run" is the one line a
+   * person actually reads. Believing it means handing a client an address that
+   * does not exist.
+   */
+  const pretend = welcome({
+    slug: 'rami',
+    domain: 'xtechpos.com',
+    shopName: 'Rami Mobile',
+    port: 4100,
+    paidThrough: '2026-08-26',
+    password: 'admin123',
+    pretend: true,
+  });
+  assert.match(pretend, /would be set up/);
+  assert.match(pretend, /Nothing has been done/);
+  assert.ok(!/Mobile is set up/.test(pretend));
+});
+
+test('a real one says so plainly', () => {
+  const real = welcome({
+    slug: 'rami',
+    domain: 'xtechpos.com',
+    shopName: 'Rami Mobile',
+    port: 4100,
+    paidThrough: '2026-08-26',
+    password: 'admin123',
+  });
+  assert.match(real, /Rami Mobile is set up/);
+  assert.match(real, /https:\/\/rami\.xtechpos\.com/);
+});
+
+test('a shop with no certificate is not advertised over https', () => {
+  /*
+   * That address gets copied straight into a message to the client, who then
+   * sees a browser warning and concludes the app is broken — when what really
+   * happened is that nobody set an email for Let's Encrypt.
+   */
+  const plain = welcome({
+    slug: 'rami',
+    domain: 'xtechpos.com',
+    shopName: 'Rami Mobile',
+    port: 4100,
+    paidThrough: '2026-08-26',
+    password: 'admin123',
+    secure: false,
+  });
+  assert.match(plain, /http:\/\/rami\.xtechpos\.com/);
+  assert.ok(!plain.includes('https://'), 'it offered an address that will warn');
+  assert.match(plain, /certbot --nginx -d rami\.xtechpos\.com/, 'and how to fix it');
 });

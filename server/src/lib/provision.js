@@ -161,16 +161,48 @@ server {
 `;
 }
 
-/** What the vendor is told once a shop exists. */
-export function welcome({ slug, domain, shopName, port, paidThrough, password }) {
+/**
+ * What the vendor is told once a shop exists.
+ *
+ * Two things this must not get wrong, because both are read as fact and acted
+ * on:
+ *
+ * It must not say a shop **is** set up at the end of a dry run. "Rami Mobile is
+ * set up" under a wall of "would run" is the one line a person actually reads,
+ * and believing it means handing an address to a client that does not exist.
+ *
+ * And it must not offer an **https** address for a shop that has no
+ * certificate. That link is copied straight into a message to the client, who
+ * gets a browser warning and concludes the app is broken — when what actually
+ * happened is that nobody set an email for Let's Encrypt.
+ */
+export function welcome({
+  slug,
+  domain,
+  shopName,
+  port,
+  paidThrough,
+  password,
+  secure = true,
+  pretend = false,
+}) {
+  const scheme = secure ? 'https' : 'http';
   return [
     '',
-    `  ${shopName} is set up.`,
+    pretend ? `  ${shopName} would be set up. Nothing has been done.` : `  ${shopName} is set up.`,
     '',
-    `    Address    https://${slug}.${domain}`,
+    `    Address    ${scheme}://${slug}.${domain}`,
     `    Sign in    admin / ${password}`,
     `    Paid to    ${paidThrough}`,
     '',
+    ...(secure
+      ? []
+      : [
+          '  No certificate, so that address is http and cannot be installed as an',
+          '  app. Set POS_CERT_EMAIL in /etc/pos.env and run:',
+          `    certbot --nginx -d ${slug}.${domain}`,
+          '',
+        ]),
     '  They will be asked to choose their own password the first time they sign in.',
     `  This shop runs on port ${port}, in its own process, with its own database.`,
     '',

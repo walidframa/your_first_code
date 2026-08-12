@@ -271,7 +271,18 @@ function add() {
   }
 
   db?.close();
-  say(welcome({ slug, domain: CONFIG.domain, shopName: name, port, paidThrough, password: 'admin123' }));
+  say(
+    welcome({
+      slug,
+      domain: CONFIG.domain,
+      shopName: name,
+      port,
+      paidThrough,
+      password: 'admin123',
+      secure: Boolean(CONFIG.certEmail),
+      pretend: dryRun,
+    }),
+  );
 
   if (unfinished.length) {
     say('  Some steps did not finish. The shop is recorded and its database exists;');
