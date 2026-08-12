@@ -349,10 +349,10 @@ system's rather than a `WHERE` clause somebody has to remember.
 # A wildcard A record at your registrar: name *, value your server's IP.
 # Every future client's address then works without touching DNS again.
 
+cd /srv/pos          # every path below is relative to the checkout
 cp deploy/pos-tenant@.service /etc/systemd/system/
 systemctl daemon-reload
 mkdir -p /var/lib/pos/tenants /etc/pos/tenants
-chmod +x /srv/pos/server/src/tenants.js
 ln -sf /srv/pos/server/src/tenants.js /usr/local/bin/pos-tenant
 
 # Where the licences live, and who to get certificates as. `pos-tenant` reads
