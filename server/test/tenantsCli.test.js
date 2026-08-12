@@ -11,7 +11,7 @@ import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { DatabaseSync } from 'node:sqlite';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -253,4 +253,72 @@ test('a step that cannot finish is reported, not fatal', () => {
   assert.match(res.out, /Some steps did not finish/);
   assert.match(res.out, /systemctl enable --now pos-tenant@later/);
   assert.ok(row('later'), 'the shop was still recorded');
+});
+
+/* ---------------------------------------------------- reading its settings */
+
+test('it reads /etc/pos.env itself rather than needing a sourced shell', () => {
+  /*
+   * `set -a; . /etc/pos.env` lasts exactly as long as one terminal. Tomorrow,
+   * or from another computer, POS_CERT_EMAIL is empty again — and `add` then
+   * sets a shop up with no certificate and mentions it in one grey line among
+   * thirty. Silence is the whole danger here, so it is pinned.
+   */
+  const settings = path.join(workDir, 'pos.env');
+  writeFileSync(
+    settings,
+    [
+      '# a comment, and a blank line follow',
+      '',
+      'POS_DOMAIN=fromfile.example',
+      'POS_CERT_EMAIL = spaced@example.com ',
+      // The vendor's own shop's keys live in this file too, and this command
+      // has no business with them.
+      'JWT_SECRET=must-not-be-read',
+      'NOT_OURS=ignored',
+    ].join('\n'),
+  );
+
+  const res = spawnSync(process.execPath, [cli, 'add', 'fromfile', 'From File', '--dry-run'], {
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      POS_ENV_FILE: settings,
+      CONTROL_DB: path.join(workDir, 'control.sqlite'),
+      POS_TENANT_DATA: path.join(workDir, 'tenants'),
+      POS_ENV_DIR: path.join(workDir, 'env'),
+      POS_NGINX_DIR: path.join(workDir, 'nginx'),
+      POS_NGINX_ENABLED: path.join(workDir, 'nginx-enabled'),
+      DB_PATH: path.join(workDir, 'unused.sqlite'),
+      // Deliberately absent, so the file is the only place they could come from.
+      POS_DOMAIN: undefined,
+      POS_CERT_EMAIL: undefined,
+    },
+  });
+  const out = `${res.stdout}${res.stderr}`;
+
+  assert.match(out, /fromfile\.fromfile\.example/, 'the domain came from the file');
+  assert.match(out, /certbot .*-m spaced@example\.com/, 'the email came from the file, trimmed');
+  assert.ok(!out.includes('must-not-be-read'), 'it read keys that are none of its business');
+});
+
+test('what is already in the environment beats the file', () => {
+  // So that `CONTROL_DB=... pos-tenant …` still works, and so the tests above
+  // are not quietly reading a real /etc/pos.env on whatever machine they run on.
+  const settings = path.join(workDir, 'pos.env');
+  const res = spawnSync(process.execPath, [cli, 'add', 'override', 'Override', '--dry-run'], {
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      POS_ENV_FILE: settings,
+      POS_DOMAIN: 'fromenv.example',
+      CONTROL_DB: path.join(workDir, 'control.sqlite'),
+      POS_TENANT_DATA: path.join(workDir, 'tenants'),
+      POS_ENV_DIR: path.join(workDir, 'env'),
+      POS_NGINX_DIR: path.join(workDir, 'nginx'),
+      POS_NGINX_ENABLED: path.join(workDir, 'nginx-enabled'),
+      DB_PATH: path.join(workDir, 'unused.sqlite'),
+    },
+  });
+  assert.match(`${res.stdout}${res.stderr}`, /override\.fromenv\.example/);
 });
