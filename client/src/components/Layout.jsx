@@ -3,114 +3,18 @@ import { NavLink, Outlet, useLocation } from 'react-router';
 import OfflineBar from './OfflineBar';
 import { useT } from '../context/LanguageContext';
 import {
-  ArrowLeftRight,
-  BarChart3,
-  Banknote,
-  CalendarClock,
-  Boxes,
-  Building2,
   ChevronRight,
-  Contact,
-  CreditCard,
-  FileText,
+  LayoutGrid,
   LogOut,
-  Package,
+  Menu as MenuIcon,
   PanelLeftClose,
   PanelLeftOpen,
-  Receipt,
-  ReceiptText,
-  ScanLine,
-  ScrollText,
-  ShoppingBag,
-  Settings as SettingsIcon,
-  Smartphone,
   Store,
-  Truck,
-  Tag,
-  TrendingUp,
-  Upload,
-  Users,
-  Wallet,
-  Wrench,
-  HandCoins,
-  KeyRound,
-  Landmark,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import BranchSwitcher from './BranchSwitcher';
 import { cx } from './ui';
-
-/*
- * The counter. What somebody standing at the front of the shop does all day,
- * kept above the back office and never behind a heading — these are reached
- * dozens of times a shift, and a heading between them is a heading nobody reads
- * twice.
- */
-const COUNTER_NAV = [
-  { to: '/', label: 'Register', icon: ScanLine, end: true, permission: 'register' },
-  { to: '/transfers', label: 'Transfers', icon: ArrowLeftRight, permission: 'transfers' },
-  { to: '/vouchers', label: 'Vouchers', icon: ReceiptText, permission: 'vouchers' },
-  { to: '/orders', label: 'My sales', icon: Receipt },
-  /*
-   * Not a back-office screen. Handing a customer back the iCloud the shop set
-   * up for them is counter work, so whoever is at the counter can find it — the
-   * password itself still takes the right permission.
-   */
-  /* "Logins", not "Accounts": the money accounts are a different thing with a
-     better claim on the word. */
-  { to: '/accounts', label: 'Logins', icon: KeyRound },
-];
-
-/*
- * Grouped, because twenty icons in a column is a list to be searched rather
- * than a menu to be read. Selling first: it is what the shop does, and what
- * anyone opening the back office is most often here for.
- */
-const ADMIN_NAV = [
-  {
-    heading: 'Selling',
-    items: [
-      { to: '/admin/documents', label: 'Documents', icon: FileText, permission: 'documents' },
-      { to: '/admin/orders', label: 'Orders', icon: ScrollText, permission: 'reports' },
-      { to: '/admin/repairs', label: 'Repairs', icon: Wrench, permission: 'repairs' },
-      { to: '/admin/trade-ins', label: 'Trade-ins', icon: HandCoins, permission: 'repairs' },
-      { to: '/admin/customers', label: 'Customers', icon: Contact, permission: 'parties' },
-      { to: '/admin/installments', label: 'Instalments', icon: CalendarClock, permission: 'parties' },
-      { to: '/admin/suppliers', label: 'Suppliers', icon: Building2, permission: 'parties' },
-    ],
-  },
-  {
-    heading: 'Money',
-    items: [
-      { to: '/admin', label: 'Dashboard', icon: BarChart3, end: true, permission: 'reports' },
-      { to: '/admin/accounts', label: 'Accounts', icon: Landmark, permission: 'cashbox' },
-      { to: '/admin/cashbox', label: 'Cashbox', icon: Banknote, permission: 'cashbox' },
-      { to: '/admin/expenses', label: 'Expenses', icon: Wallet, permission: 'expenses' },
-      { to: '/admin/profit', label: 'Profit', icon: TrendingUp, permission: 'reports' },
-    ],
-  },
-  {
-    heading: 'Stock',
-    items: [
-      { to: '/admin/products', label: 'Products', icon: Package, permission: 'catalogue' },
-      { to: '/admin/inventory', label: 'Inventory', icon: Boxes, permission: 'inventory' },
-      { to: '/admin/stock-transfers', label: 'Move stock', icon: Truck, permission: 'transfer_stock' },
-      { to: '/admin/sims', label: 'SIM cards', icon: Smartphone, permission: 'inventory' },
-      { to: '/admin/cards', label: 'Cards', icon: CreditCard, permission: 'cards' },
-      { to: '/admin/labels', label: 'Labels', icon: Tag, permission: 'catalogue' },
-      { to: '/admin/import', label: 'Import', icon: Upload, permission: 'imports' },
-    ],
-  },
-  {
-    heading: 'Setup',
-    items: [
-      { to: '/admin/shopify', label: 'Shopify', icon: ShoppingBag, permission: 'imports' },
-      { to: '/admin/branches', label: 'Branches', icon: Store, permission: 'branches' },
-      { to: '/admin/users', label: 'Staff', icon: Users, permission: 'users' },
-      { to: '/admin/settings', label: 'Settings', icon: SettingsIcon, permission: 'settings' },
-    ],
-  },
-];
+import { COUNTER_NAV, allowedGroups, allowedItems } from '../lib/nav';
 
 /**
  * One row of the rail.
@@ -170,26 +74,44 @@ export default function Layout() {
     () => (localStorage.getItem('pos_nav_expanded') ?? 'true') === 'true',
   );
 
+  /*
+   * The register gets the whole window.
+   *
+   * A counter monitor is usually square and small, and on one of those the rail
+   * costs a column of products — the thing the screen is actually for. So on the
+   * register the rail starts away, and comes back for whoever wants it; the
+   * choice is remembered separately from the one above, because "I want the menu
+   * while I do the books" and "I want it while I am serving" are different
+   * answers from the same person.
+   */
+  const onRegister = pathname === '/';
+  const [railOnRegister, setRailOnRegister] = useState(
+    () => localStorage.getItem('pos_nav_on_register') === 'true',
+  );
+  const showRail = onRegister ? railOnRegister : true;
+
   useEffect(() => {
     localStorage.setItem('pos_nav_expanded', String(expanded));
+  }, [expanded]);
+
+  useEffect(() => {
+    localStorage.setItem('pos_nav_on_register', String(railOnRegister));
+  }, [railOnRegister]);
+
+  useEffect(() => {
     /*
      * Published for anything that has to sit clear of the rail but renders
      * outside it — the toasts, which otherwise appear underneath the menu the
      * moment it is widened.
      */
-    document.documentElement.style.setProperty('--rail-width', expanded ? '212px' : '68px');
-  }, [expanded]);
+    document.documentElement.style.setProperty(
+      '--rail-width',
+      showRail ? (expanded ? '212px' : '68px') : '0px',
+    );
+  }, [expanded, showRail]);
 
-  /*
-   * The rail shows what this person can actually reach. A menu full of doors
-   * that bounce you back to the register is worse than a short menu — it reads
-   * as the app being broken rather than as the job being narrower.
-   */
-  const allowed = (items) => items.filter((item) => !item.permission || can(item.permission));
-  const counter = allowed(COUNTER_NAV);
-  const groups = ADMIN_NAV.map((g) => ({ ...g, items: allowed(g.items) })).filter(
-    (g) => g.items.length > 0,
-  );
+  const counter = allowedItems(COUNTER_NAV, can);
+  const groups = allowedGroups(can);
 
   /*
    * Which back-office groups are folded away.
@@ -238,9 +160,18 @@ export default function Layout() {
 
   return (
     <div className="flex h-full bg-slate-100">
+      {/*
+       * The rail is a desktop thing.
+       *
+       * Below `lg` it is not narrowed, it is gone: two hundred pixels of menu on
+       * a phone is most of the screen, and a menu that slides over the page is a
+       * second thing to learn and a second thing to get stuck open. The page of
+       * tiles is the menu on a small screen, and Back is how you leave it.
+       */}
+      {showRail && (
       <aside
         className={cx(
-          'no-print flex shrink-0 flex-col bg-slate-900 py-3 transition-[width] duration-150',
+          'no-print hidden shrink-0 flex-col bg-slate-900 py-3 transition-[width] duration-150 lg:flex',
           expanded ? 'w-[212px] px-3' : 'w-[68px] px-2.5',
         )}
       >
@@ -256,6 +187,10 @@ export default function Layout() {
         <BranchSwitcher expanded={expanded} />
 
         <nav className="flex w-full flex-col gap-1">
+          {/* The same list at a size a finger can land on. Kept at the top of
+              the rail rather than buried in the back office, because on a touch
+              screen it is the menu somebody actually uses. */}
+          <NavItem to="/menu" label="Menu" icon={LayoutGrid} expanded={expanded} />
           {counter.map((item) => (
             <NavItem key={item.to} {...item} expanded={expanded} />
           ))}
@@ -322,6 +257,23 @@ export default function Layout() {
             {expanded && <span className="text-sm font-medium">{t('Collapse')}</span>}
           </button>
 
+          {/* Only here, because this is the only screen the rail gets out of the
+              way of — and the only place it needs a handle to do it from. */}
+          {onRegister && (
+            <button
+              onClick={() => setRailOnRegister(false)}
+              aria-label={t('Hide the menu')}
+              title={t('Hide the menu')}
+              className={cx(
+                'flex h-9 w-full items-center rounded-lg text-slate-400 transition hover:bg-slate-800 hover:text-white',
+                expanded ? 'gap-3 px-3' : 'justify-center',
+              )}
+            >
+              <MenuIcon size={17} />
+              {expanded && <span className="text-sm font-medium">{t('Hide the menu')}</span>}
+            </button>
+          )}
+
           <div className="border-t border-slate-800 pt-2">
             <div
               className={cx('flex items-center', expanded ? 'gap-2.5 px-2 py-1' : 'justify-center')}
@@ -353,8 +305,67 @@ export default function Layout() {
           </div>
         </div>
       </aside>
+      )}
 
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        {/*
+         * The bar that stands in for the rail.
+         *
+         * On a small screen it is the only way out of a page, so it is always
+         * there. On a wide one it appears only where the rail has been put away
+         * — the register — and carries the way to bring it back, because a menu
+         * that hid itself with no visible handle is a menu somebody has lost.
+         */}
+        <div
+          className={cx(
+            'no-print flex shrink-0 items-center gap-1.5 border-b border-slate-200 bg-white px-2 py-1.5',
+            showRail && 'lg:hidden',
+          )}
+        >
+          <NavLink
+            to="/menu"
+            className="flex h-10 items-center gap-2 rounded-xl px-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+          >
+            <MenuIcon size={20} aria-hidden="true" />
+            <span className="hidden sm:inline">{t('Menu')}</span>
+          </NavLink>
+
+          {/*
+           * Which shop this is, wherever the rail is not.
+           *
+           * It changes the meaning of every figure under it — the stock on the
+           * tiles, the drawer, the takings — so a register with no rail must
+           * not also be a register with no way to tell, or to change it.
+           */}
+          <div className="w-40 shrink-0 sm:w-48 [&>*]:mb-0">
+            <BranchSwitcher expanded />
+          </div>
+
+          {onRegister && (
+            <button
+              onClick={() => setRailOnRegister((v) => !v)}
+              title={railOnRegister ? t('Hide the menu') : t('Show the menu')}
+              aria-label={railOnRegister ? t('Hide the menu') : t('Show the menu')}
+              className="hidden h-10 items-center rounded-xl px-2.5 text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 lg:flex"
+            >
+              {railOnRegister ? <PanelLeftClose size={18} /> : <PanelLeftOpen size={18} />}
+            </button>
+          )}
+
+          <span className="ms-auto truncate text-sm font-medium text-slate-500">{user.name}</span>
+
+          {/* The way out. Only ever in the rail before, which on a screen with
+              no rail meant a till nobody could hand over at the end of a shift. */}
+          <button
+            onClick={logout}
+            title={t('Log out')}
+            aria-label={t('Log out')}
+            className="flex h-10 shrink-0 items-center rounded-xl px-2.5 text-slate-500 transition hover:bg-slate-100 hover:text-red-700"
+          >
+            <LogOut size={18} />
+          </button>
+        </div>
+
         {/* Above everything, because it changes what the next press means. */}
         <OfflineBar />
         <div className="min-h-0 flex-1 overflow-hidden">

@@ -1,6 +1,7 @@
 import { Navigate, Routes, Route } from 'react-router';
 import Login from './pages/Login';
 import SupportEntry from './pages/SupportEntry';
+import MenuPage from './pages/Menu';
 import Transfers from './pages/Transfers';
 import Vouchers from './pages/Vouchers';
 import { useAuth } from './context/AuthContext';
@@ -88,6 +89,9 @@ export default function App() {
         }
       >
         <Route path="/" element={<Landing />} />
+        {/* Reachable by everyone: it is the whole menu on a small screen, and
+            it only ever shows the screens this person may open. */}
+        <Route path="/menu" element={<MenuPage />} />
         <Route path="/orders" element={<MyOrders />} />
         <Route path="/accounts" element={<HeldAccounts />} />
         <Route

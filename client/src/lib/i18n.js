@@ -89,6 +89,23 @@ const AR = {
   Collapse: 'طيّ القائمة',
   'Collapse the menu': 'طيّ القائمة',
   'Expand the menu': 'توسيع القائمة',
+  Menu: 'القائمة',
+  'Hide the menu': 'إخفاء القائمة',
+  'Show the menu': 'إظهار القائمة',
+  Counter: 'الكاشير',
+  Owner: 'صاحب المحل',
+  Cashier: 'كاشير',
+
+  // — when the people who sold you this app come in ——————————————
+  '{name} from support is in your shop right now.': '{name} من الدعم داخل محلك الآن.',
+  'You are in this shop as support. They can see you, and every change is logged.':
+    'أنت داخل هذا المحل كدعم فني. هم يرونك، وكل تعديل يُسجَّل.',
+  'Support visits': 'زيارات الدعم',
+  'When the people who sold you this app came in, and what they changed':
+    'متى دخل من باعك هذا البرنامج، وما الذي غيّره',
+  '1 change': 'تعديل واحد',
+  '{count} changes': '{count} تعديلات',
+  'They looked, and changed nothing.': 'اطّلعوا فقط، ولم يغيّروا شيئاً.',
   'Cash payment': 'الدفع نقداً',
   'Card payment': 'الدفع بالبطاقة',
   'Log out': 'تسجيل الخروج',

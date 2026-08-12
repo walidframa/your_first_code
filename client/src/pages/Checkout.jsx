@@ -496,9 +496,18 @@ export default function Checkout() {
   }, [cart.length, receipt]);
 
   return (
-    <div className="flex h-full">
+    /*
+     * Side by side on anything with room, stacked on a phone.
+     *
+     * A 380-pixel cart beside a product grid needs about a thousand pixels
+     * before the grid stops being a single column of squeezed tiles. Below that
+     * the two become one scrolling page — shelf first, then the cart under it —
+     * which is the order somebody works in anyway: find the thing, then take
+     * the money.
+     */
+    <div className="flex h-full flex-col overflow-y-auto lg:flex-row lg:overflow-hidden">
       {/* Catalog */}
-      <section className="flex min-w-0 flex-1 flex-col bg-slate-100">
+      <section className="flex min-w-0 flex-1 flex-col bg-slate-100 lg:min-h-0">
         <div className="border-b border-slate-200 bg-white px-5 py-3">
           <div className="relative">
             <Search
@@ -632,7 +641,7 @@ export default function Checkout() {
       </section>
 
       {/* Cart */}
-      <aside className="no-print flex w-[380px] shrink-0 flex-col border-l border-slate-200 bg-white">
+      <aside className="no-print flex w-full shrink-0 flex-col border-slate-200 bg-white lg:w-[380px] lg:border-s">
         {/*
          * The drawer's state belongs where the money is taken. A cashier who
          * only finds out it is shut when a cash sale is refused has already

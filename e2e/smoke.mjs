@@ -128,6 +128,35 @@ async function shot(name) {
 
 const scanBox = 'input[aria-label="Scan barcode or search products"]';
 
+/**
+ * The way to the menu, whichever one is on screen.
+ *
+ * There are two links to it and only ever one of them is showing: the rail's,
+ * on a wide screen with the rail out, and the top bar's everywhere else. A
+ * plain text match finds both and clicks the hidden one.
+ */
+async function openMenu() {
+  await page.locator('a[href="/menu"]:visible').first().click();
+  await page.waitForSelector('a[href="/orders"]:visible', { timeout: 15000 });
+}
+
+/**
+ * Go to a screen by name, from wherever we happen to be.
+ *
+ * The rail is not on every screen any more — the register keeps the whole
+ * window — so a click straight at a rail link is a click at something that may
+ * not be there. This uses whichever route is showing: the rail if it is out,
+ * the page of tiles if it is not.
+ */
+async function goTo(title) {
+  const link = `a[title="${title}"]:visible`;
+  if (!(await page.locator(link).count())) await openMenu();
+  await page.locator(link).first().click();
+}
+
+
+
+
 /*
  * Signing in, the way a real shop has to.
  *
@@ -137,6 +166,12 @@ const scanBox = 'input[aria-label="Scan barcode or search products"]';
  * than pretending the shipped ones keep working. Every later sign-in types the
  * real one, because the one-tap demo buttons vanish once they stop being true.
  */
+/** Sign out from wherever the button happens to be — rail, or top bar. */
+async function signOut() {
+  await page.locator('button[aria-label="Log out"]:visible').first().click();
+  await page.waitForSelector('input[name=username]', { timeout: 15000 });
+}
+
 const PASSWORDS = { admin: 'admin123', cashier: 'cashier123' };
 const REAL = { admin: 'owner-real-password', cashier: 'till-real-password' };
 
@@ -475,24 +510,33 @@ try {
   });
 
   await step('the sale appears in My sales', async () => {
-    await page.click('a[title="My sales"]');
+    // Through the menu, because the register keeps the whole window now and the
+    // rail is not on it. Two presses, both of them large.
+    await openMenu();
+    await page.click('a[href="/orders"]');
     await page.waitForSelector('text=ORD-', { timeout: 10000 });
   });
 
   await step('cashiers see no admin navigation', async () => {
+    // Checked on the menu rather than the rail: that is where a cashier's whole
+    // list of doors is now, so it is where an extra one would show up.
+    await openMenu();
+    if (await page.locator('a[href="/admin/products"]').count()) {
+      throw new Error('cashier sees admin nav');
+    }
     if (await page.locator('a[title="Dashboard"]').count()) throw new Error('cashier sees admin nav');
   });
 
   console.log('\nBack office (admin)');
 
   await step('sign in as admin', async () => {
-    await page.click('button[aria-label="Log out"]');
+    await signOut();
     await signIn('admin');
     await page.waitForSelector('text=Current sale', { timeout: 15000 });
   });
 
   await step('dashboard renders every panel', async () => {
-    await page.click('a[title="Dashboard"]');
+    await goTo('Dashboard');
     await page.waitForSelector('text=Daily revenue', { timeout: 15000 });
     await page.waitForSelector('text=Payment mix');
     await page.waitForSelector('text=Needs restocking');
@@ -511,7 +555,7 @@ try {
   });
 
   await step('inventory shows stock health', async () => {
-    await page.click('a[title="Inventory"]');
+    await goTo('Inventory');
     await page.waitForSelector('text=Units on hand', { timeout: 15000 });
     await page.waitForSelector('text=Retail value');
   });
@@ -533,7 +577,7 @@ try {
   });
 
   await step('a product can be set to track each handset by IMEI', async () => {
-    await page.click('a[title="Products"]');
+    await goTo('Products');
     await page.waitForSelector('text=New product', { timeout: 15000 });
     await page.click('button:has-text("New product")');
     await page.waitForSelector('[role=dialog] >> text=Track each one by IMEI');
@@ -585,7 +629,7 @@ try {
   await shot('imei-units');
 
   await step('selling a phone asks which handset, and records it', async () => {
-    await page.click('a[title="Register"]');
+    await goTo('Register');
     await page.waitForSelector('text=Current sale', { timeout: 15000 });
     await page.fill(scanBox, 'Galaxy');
     await page.waitForTimeout(400);
@@ -647,7 +691,7 @@ try {
   });
 
   await step('a handset can be bought in over the counter', async () => {
-    await page.click('a[title="Trade-ins"]');
+    await goTo('Trade-ins');
     await page.waitForSelector('text=Buy a handset', { timeout: 15000 });
     await page.click('button:has-text("Buy a handset")');
     await page.waitForSelector('[role=dialog] >> text=Which model will you sell it as?');
@@ -709,7 +753,7 @@ try {
   });
 
   await step('the starter card catalogue loads and a wallet is topped up', async () => {
-    await page.click('a[title="Cards"]');
+    await goTo('Cards');
     await page.waitForSelector('text=/sold from credit/', { timeout: 15000 });
 
     await page.click('button:has-text("Load the Lebanese starter set")');
@@ -748,7 +792,7 @@ try {
   await shot('cards');
 
   await step('a card sells from the wallet and never runs out of stock', async () => {
-    await page.click('a[title="Cards"]');
+    await goTo('Cards');
     await page.waitForSelector('text=Mobile recharge', { timeout: 15000 });
     // What the card costs the shop, so the wallet moves by a real figure.
     await page.getByRole('button', { name: 'Edit ALFA 10 · 1 month' }).click();
@@ -756,7 +800,7 @@ try {
     await page.locator('[role=dialog]').getByRole('button', { name: 'Save' }).click();
     await page.waitForSelector('text=Card updated', { timeout: 15000 });
 
-    await page.click('a[title="Register"]');
+    await goTo('Register');
     await page.waitForSelector('text=Current sale', { timeout: 15000 });
     // Exact: "recharge" also appears inside several of the card names.
     await page.getByRole('button', { name: 'Recharge', exact: true }).click();
@@ -777,12 +821,12 @@ try {
     await page.click('button:has-text("New sale")');
 
     // $500 less four at $2.75.
-    await page.click('a[title="Cards"]');
+    await goTo('Cards');
     await page.waitForSelector('text=$489.00', { timeout: 15000 });
   });
 
   await step('a validity card is linked, and selling one moves all three balances', async () => {
-    await page.click('a[title="Cards"]');
+    await goTo('Cards');
     await page.waitForSelector('text=Not linked yet', { timeout: 15000 });
 
     // Say what an Alfa month really is: a whole card scratched, and $6 of it
@@ -828,7 +872,7 @@ try {
     await page.waitForSelector('text=/linked$/', { timeout: 15000 });
     await page.waitForSelector('text=$6.00 back to Alfa', { timeout: 15000 });
 
-    await page.click('a[title="Register"]');
+    await goTo('Register');
     await page.waitForSelector('text=Current sale', { timeout: 15000 });
     await page.getByRole('button', { name: 'Validity', exact: true }).click();
     await page.getByRole('button', { name: /Alfa 30 days/ }).first().click();
@@ -845,14 +889,14 @@ try {
      * Nobody typed either of these. The recharge wallet paid $2.75 for the card
      * that was scratched ($489.00 → $486.25), and $6 of credit landed on Alfa.
      */
-    await page.click('a[title="Cards"]');
+    await goTo('Cards');
     await page.waitForSelector('text=$486.25', { timeout: 15000 });
-    await page.click('a[title="Accounts"]');
+    await goTo('Accounts');
     await page.waitForSelector('text=$6.00', { timeout: 15000 });
   });
 
   await step('a held account is found and its password revealed to an admin', async () => {
-    await page.click('a[title="Logins"]');
+    await goTo('Logins');
     await page.waitForSelector('text=Search for a customer', { timeout: 15000 });
 
     // Whatever the customer remembers: here, the number they called from.
@@ -864,7 +908,7 @@ try {
   });
 
   await step('import wizard accepts the sample catalog', async () => {
-    await page.click('a[title="Import"]');
+    await goTo('Import');
     await page.waitForSelector('text=Drop a CSV file here', { timeout: 15000 });
     await page.click('button:has-text("Use sample")');
     await page.waitForSelector('text=Source format', { timeout: 15000 });
@@ -884,7 +928,7 @@ try {
   });
 
   await step('imported products show in the catalog', async () => {
-    await page.click('a[title="Products"]');
+    await goTo('Products');
     await page.waitForSelector('text=Cold Brew', { timeout: 15000 });
   });
   await shot('products');
@@ -896,7 +940,7 @@ try {
    * sheet that is not the price list.
    */
   await step('an Excel file imports, sheet and all', async () => {
-    await page.click('a[title="Import"]');
+    await goTo('Import');
     await page.waitForSelector('text=Drop a CSV file here', { timeout: 15000 });
     await page.locator('input[type=file]').setInputFiles('server/test/fixtures/supplier-catalogue.xlsx');
     await page.waitForSelector('text=Source format', { timeout: 20000 });
@@ -916,7 +960,7 @@ try {
   });
 
   await step('the long barcode came through the spreadsheet intact', async () => {
-    await page.click('a[title="Products"]');
+    await goTo('Products');
     await page.waitForSelector('text=Braided USB-C cable', { timeout: 15000 });
 
     const found = await page.evaluate(async () => {
@@ -997,7 +1041,7 @@ try {
   await shot('sims');
 
   await step('a SIM is sold at the register on F7, ID and all', async () => {
-    await page.click('a[title="Register"]');
+    await goTo('Register');
     await page.waitForSelector('text=Current sale', { timeout: 15000 });
     await page.keyboard.press('F7');
     await page.waitForSelector('[role=dialog] >> text=Find it by the number on the card', {
@@ -1117,7 +1161,7 @@ try {
     if (!state.sold.has_id_photo) throw new Error('the buyer’s ID was not kept');
 
     // Back where the steps below expect to be standing.
-    await page.click('a[title="Products"]');
+    await goTo('Products');
     await page.waitForSelector('button:has-text("New product")', { timeout: 15000 });
   });
 
@@ -1162,7 +1206,7 @@ try {
   });
 
   await step('and any one of them finds it at the register', async () => {
-    await page.click('a[title="Register"]');
+    await goTo('Register');
     await page.waitForSelector(scanBox, { timeout: 15000 });
 
     for (const code of ['6291000000017', '0712345678900', 'SHOP-CBL-1']) {
@@ -1180,7 +1224,7 @@ try {
   });
 
   await step('one item off a sale comes back, and the rest of it stands', async () => {
-    await page.click('a[title="Register"]');
+    await goTo('Register');
     await page.waitForSelector('text=Current sale', { timeout: 15000 });
 
     // Three of one thing, so there is something to return part of.
@@ -1232,7 +1276,7 @@ try {
   });
 
   await step('refunding an order works', async () => {
-    await page.click('a[title="Orders"]');
+    await goTo('Orders');
     await page.waitForSelector('text=ORD-', { timeout: 15000 });
     await page.click('td:has-text("ORD-") >> nth=0');
     await page.waitForSelector('button:has-text("Void the whole sale")');
@@ -1241,7 +1285,7 @@ try {
   });
 
   await step('a cost can be typed in pounds, and is kept in dollars', async () => {
-    await page.click('a[title="Products"]');
+    await goTo('Products');
     await page.click('button:has-text("New product")');
     await page.waitForSelector('[role=dialog]', { timeout: 10000 });
 
@@ -1254,7 +1298,7 @@ try {
   });
 
   await step('the text can be made bigger, and stays that way', async () => {
-    await page.click('a[title="Settings"]');
+    await goTo('Settings');
     await page.waitForSelector('text=Text size', { timeout: 15000 });
     await page.getByRole('button', { name: 'Large' }).click();
 
@@ -1271,12 +1315,12 @@ try {
   });
 
   await step('staff page lists accounts', async () => {
-    await page.click('a[title="Staff"]');
+    await goTo('Staff');
     await page.waitForSelector('text=Store Owner', { timeout: 15000 });
   });
 
   await step('admin can add a customer with a credit limit', async () => {
-    await page.click('a[title="Customers"]');
+    await goTo('Customers');
     await page.waitForSelector('text=Total owed to you', { timeout: 15000 });
     await page.click('button:has-text("New customer")');
     await page.waitForSelector('text=New customer');
@@ -1334,7 +1378,7 @@ try {
       });
     });
 
-    await page.click('a[title="Instalments"]');
+    await goTo('Instalments');
     await page.waitForSelector('text=Out on plans', { timeout: 15000 });
 
     await page.click('button:has-text("New plan")');
@@ -1391,7 +1435,7 @@ try {
   });
 
   await step('a backup can be taken, and says what must travel with it', async () => {
-    await page.click('a[title="Settings"]');
+    await goTo('Settings');
     await page.waitForSelector('text=Backups', { timeout: 15000 });
 
     await page.getByRole('button', { name: 'Back up now' }).click();
@@ -1411,7 +1455,7 @@ try {
 
   await step('a supplier bill shows up as a payable', async () => {
     await page.keyboard.press('Escape');
-    await page.click('a[title="Suppliers"]');
+    await goTo('Suppliers');
     await page.waitForSelector('text=Total you owe', { timeout: 15000 });
     await page.click('button:has-text("New supplier")');
     await page.fill('[role=dialog] input >> nth=0', 'Corner Bakehouse');
@@ -1422,13 +1466,13 @@ try {
 
   await step('a purchase invoice receives stock and creates a payable', async () => {
     // Note the stock level before receiving.
-    await page.click('a[title="Inventory"]');
+    await goTo('Inventory');
     await page.waitForSelector('text=Units on hand', { timeout: 15000 });
     const unitsOnHand = async () =>
       Number((await page.locator('p:has-text("Units on hand") + p').innerText()).replace(/,/g, ''));
     const before = await unitsOnHand();
 
-    await page.click('a[title="Documents"]');
+    await goTo('Documents');
     await page.waitForSelector('button:has-text("New document")', { timeout: 15000 });
     const dialog = await openNewDocument();
     // Type is chosen by icon tile now.
@@ -1451,7 +1495,7 @@ try {
     await page.waitForSelector('[role=dialog] >> text=confirmed', { timeout: 15000 });
     await page.keyboard.press('Escape');
 
-    await page.click('a[title="Inventory"]');
+    await goTo('Inventory');
     await page.waitForSelector('text=Units on hand', { timeout: 15000 });
     const after = await unitsOnHand();
     if (after !== before + 10) throw new Error(`stock went ${before} → ${after}, expected +10`);
@@ -1459,7 +1503,7 @@ try {
   await shot('purchase-invoice');
 
   await step('labels can be printed from a confirmed purchase invoice', async () => {
-    await page.click('a[title="Documents"]');
+    await goTo('Documents');
     await page.click('td:has-text("PI-0001")');
     await page.waitForSelector('text=Print labels', { timeout: 15000 });
     await page.click('button:has-text("Print labels")');
@@ -1541,7 +1585,7 @@ try {
   });
 
   await step('a quotation converts to a sales order', async () => {
-    await page.click('a[title="Documents"]');
+    await goTo('Documents');
     const dialog = await openNewDocument();
     await dialog.getByRole('button', { name: /Quotation/ }).click();
     await dialog.locator('#doc-party').selectOption({ label: 'Rami Haddad' });
@@ -1558,7 +1602,7 @@ try {
   await shot('documents');
 
   await step('a customer document can be sent on WhatsApp', async () => {
-    await page.click('a[title="Documents"]');
+    await goTo('Documents');
     await page.click('td:has-text("SO-0001")');
     const wa = page.locator('a[href^="https://wa.me/"]');
     await wa.waitFor({ timeout: 15000 });
@@ -1576,7 +1620,7 @@ try {
   });
 
   await step('a new product can be created from inside a document', async () => {
-    await page.click('a[title="Documents"]');
+    await goTo('Documents');
     const dialog = await openNewDocument();
     await dialog.getByRole('button', { name: /Purchase invoice/ }).click();
     await dialog.locator('#doc-party').selectOption({ label: 'Corner Bakehouse' });
@@ -1600,7 +1644,7 @@ try {
   await shot('inline-product');
 
   await step('a purchase paid in cash leaves no payable behind', async () => {
-    await page.click('a[title="Documents"]');
+    await goTo('Documents');
     const dialog = await openNewDocument();
     await dialog.getByRole('button', { name: /Purchase invoice/ }).click();
     await dialog.locator('#doc-party').selectOption({ label: 'Corner Bakehouse' });
@@ -1620,7 +1664,7 @@ try {
     await page.keyboard.press('Escape');
 
     // The delivery is on the supplier's statement, but nothing is owed for it.
-    await page.click('a[title="Suppliers"]');
+    await goTo('Suppliers');
     await page.waitForSelector('text=Total you owe', { timeout: 15000 });
     await page.click('td:has-text("Corner Bakehouse")');
     await page.waitForSelector('text=/paid cash/', { timeout: 15000 });
@@ -1629,7 +1673,7 @@ try {
   await shot('paid-in-cash');
 
   await step('a part payment leaves only the remainder owing', async () => {
-    await page.click('a[title="Documents"]');
+    await goTo('Documents');
     const dialog = await openNewDocument();
     await dialog.getByRole('button', { name: /Purchase invoice/ }).click();
     await dialog.locator('#doc-party').selectOption({ label: 'Corner Bakehouse' });
@@ -1658,7 +1702,7 @@ try {
   });
 
   await step('a confirmed document can be corrected, and the books follow', async () => {
-    await page.click('a[title="Documents"]');
+    await goTo('Documents');
     let dialog = await openNewDocument();
     await dialog.getByRole('button', { name: /Purchase invoice/ }).click();
     await dialog.locator('#doc-party').selectOption({ label: 'Corner Bakehouse' });
@@ -1691,7 +1735,7 @@ try {
 
   await step('the correction shows in the stock history', async () => {
     await page.keyboard.press('Escape');
-    await page.click('a[title="Inventory"]');
+    await goTo('Inventory');
     await page.waitForSelector('text=Units on hand', { timeout: 15000 });
 
     await page.click('tr:has-text("Bagel") button[aria-label^="History for"]');
@@ -1702,7 +1746,7 @@ try {
   });
 
   await step('a document can be deleted, and is reversed on the way out', async () => {
-    await page.click('a[title="Documents"]');
+    await goTo('Documents');
     await page.click('td:has-text("PI-0002")');
     await page.waitForSelector('text=Print labels', { timeout: 15000 });
 
@@ -1726,7 +1770,7 @@ try {
   });
 
   await step('the cashbox closes against a blind count', async () => {
-    await page.click('a[title="Register"]');
+    await goTo('Register');
     /*
      * The drawer's figures are always on the strip; its buttons are folded away
      * so the cart keeps the column. Unfold it to reach them — and once open it
@@ -1797,7 +1841,7 @@ try {
   await shot('cashbox');
 
   await step('the shift report shows every movement and what it was out by', async () => {
-    await page.click('a[title="Cashbox"]');
+    await goTo('Cashbox');
     await page.waitForSelector('text=Every sitting of the till', { timeout: 15000 });
     await page.click('tbody tr >> nth=0');
     await page.waitForSelector('text=Every movement', { timeout: 15000 });
@@ -1834,7 +1878,7 @@ try {
   });
 
   await step('an item’s activity shows what it did and what it cost', async () => {
-    await page.click('a[title="Products"]');
+    await goTo('Products');
     await page.waitForSelector('text=Your catalog', { timeout: 15000 });
     await page.click('button[aria-label="Activity for Croissant"]');
 
@@ -1851,7 +1895,7 @@ try {
   });
 
   await step('an expense is recorded and comes off the profit', async () => {
-    await page.click('a[title="Expenses"]');
+    await goTo('Expenses');
     await page.waitForSelector('text=What it costs to keep the doors open', { timeout: 15000 });
 
     await page.click('button:has-text("Add expense")');
@@ -1867,7 +1911,7 @@ try {
   await shot('expenses');
 
   await step('the profit report subtracts cost and expenses in turn', async () => {
-    await page.click('a[title="Profit"]');
+    await goTo('Profit');
     await page.waitForSelector('text=What made the most', { timeout: 15000 });
 
     await page.waitForSelector('text=Cost of goods');
@@ -1885,7 +1929,7 @@ try {
   await shot('profit');
 
   await step('Shopify asks to be connected before it will sync anything', async () => {
-    await page.click('a[title="Shopify"]');
+    await goTo('Shopify');
     await page.waitForSelector('text=Connect your Shopify shop', { timeout: 15000 });
     await page.waitForSelector('text=/read_inventory/');
 
@@ -1898,14 +1942,14 @@ try {
   await shot('shopify');
 
   await step('the dashboard reports both sides of the book', async () => {
-    await page.click('a[title="Dashboard"]');
+    await goTo('Dashboard');
     await page.waitForSelector('text=Owed to you', { timeout: 15000 });
     await page.waitForSelector('text=You owe');
     await page.waitForSelector('text=Net position');
   });
 
   await step('a cashier can put a sale on a customer account', async () => {
-    await page.click('a[title="Register"]');
+    await goTo('Register');
     await page.waitForSelector('text=Current sale', { timeout: 15000 });
     await page.getByRole('button', { name: /^Bagel/ }).first().click();
 
@@ -1923,7 +1967,7 @@ try {
   await shot('account-sale');
 
   await step('admin can change the exchange rate', async () => {
-    await page.click('a[title="Settings"]');
+    await goTo('Settings');
     await page.waitForSelector('text=Exchange rate', { timeout: 15000 });
     await page.fill('input[type=number] >> nth=0', '95000');
     await page.click('button:has-text("Save changes")');
@@ -1934,12 +1978,12 @@ try {
   await shot('settings');
 
   await step('the register picks up the new rate', async () => {
-    await page.click('a[title="Register"]');
+    await goTo('Register');
     await page.waitForSelector('text=1 USD = 95,000 LL', { timeout: 15000 });
   });
 
   await step('an admin can widen what one member of staff may do', async () => {
-    await page.click('a[title="Staff"]');
+    await goTo('Staff');
     await page.waitForSelector('text=Who works here', { timeout: 15000 });
 
     // The register is all a cashier starts with.
@@ -1961,11 +2005,11 @@ try {
   console.log('\nThe transfer counter');
 
   await step('the desk appears for the operator it was granted to', async () => {
-    await page.click('button[aria-label="Log out"]');
+    await signOut();
     await signIn('cashier');
     await page.waitForSelector('text=Current sale', { timeout: 15000 });
 
-    await page.click('a[title="Transfers"]');
+    await goTo('Transfers');
     await page.waitForSelector('text=/Money sent and paid out/', { timeout: 15000 });
   });
 
@@ -2027,7 +2071,7 @@ try {
   });
 
   await step('a payment voucher pays somebody and prints a slip to sign', async () => {
-    await page.click('a[title="Vouchers"]');
+    await goTo('Vouchers');
     await page.waitForSelector('text=/Money paid out and taken in/', { timeout: 15000 });
 
     await page.click('button:has-text("New voucher")');
@@ -2089,11 +2133,11 @@ try {
   });
 
   await step('the accounts screen answers who owes what, and names the tills', async () => {
-    await page.click('button[aria-label="Log out"]');
+    await signOut();
     await signIn('admin');
     await page.waitForSelector('text=Current sale', { timeout: 15000 });
 
-    await page.click('a[title="Accounts"]');
+    await goTo('Accounts');
     await page.waitForSelector('text=/everything owed to it/', { timeout: 15000 });
     await page.waitForSelector('text=In the tills');
     await page.waitForSelector('text=Owed to you');
@@ -2120,7 +2164,7 @@ try {
      * expected figure is withheld at the counter so the closing count means
      * something. It is the till ledger that has to be right, and it is.
      */
-    await page.click('a[title="Cashbox"]');
+    await goTo('Cashbox');
     await page.waitForSelector('text=Every sitting of the till', { timeout: 15000 });
     await page.click('tbody tr >> nth=0');
     await page.waitForSelector('[role=dialog] >> text=Every movement', { timeout: 15000 });
@@ -2144,7 +2188,7 @@ try {
    * the product is never duplicated to make the move work.
    */
   await step('a second branch is opened, with a drawer of its own', async () => {
-    await page.click('a[title="Branches"]');
+    await goTo('Branches');
     await page.waitForSelector('button:has-text("Open a branch")', { timeout: 15000 });
     await page.click('button:has-text("Open a branch")');
     await page.waitForSelector('[role=dialog] >> text=its own shelf and drawer', { timeout: 10000 });
@@ -2156,7 +2200,7 @@ try {
   });
 
   await step('stock sent to it leaves this shelf straight away', async () => {
-    await page.click('a[title="Move stock"]');
+    await goTo('Move stock');
     await page.waitForSelector('button:has-text("Send stock")', { timeout: 15000 });
     await page.click('button:has-text("Send stock")');
     await page.waitForSelector('[role=dialog] >> text=To which branch', { timeout: 10000 });
@@ -2175,7 +2219,7 @@ try {
   await step('and lands on the other shelf when it is received there', async () => {
     // Switching branch changes what every figure in the app means, so it is a
     // control on the rail rather than a setting buried in a page.
-    await page.click('button[aria-label*="Branch:"]');
+    await page.locator('button[aria-label*="Branch:"]:visible').first().click();
     await page.waitForTimeout(300);
     await page.locator('div.absolute button:has-text("Saida")').first().click();
     await page.waitForSelector('text=On the way to Saida', { timeout: 15000 });
@@ -2187,7 +2231,7 @@ try {
   });
 
   await step('the same product, on the second branch’s register — not a copy of it', async () => {
-    await page.click('a[title="Register"]');
+    await goTo('Register');
     await page.waitForSelector('text=Current sale', { timeout: 15000 });
     await page.waitForTimeout(600);
 
@@ -2199,7 +2243,7 @@ try {
     }
 
     // Back where the rest of the run expects to be.
-    await page.click('button[aria-label*="Branch:"]');
+    await page.locator('button[aria-label*="Branch:"]:visible').first().click();
     await page.waitForTimeout(300);
     await page.locator('div.absolute button').first().click();
     await page.waitForTimeout(800);
@@ -2207,7 +2251,7 @@ try {
   await shot('branches');
 
   await step('a cashier cannot reach an admin route by URL', async () => {
-    await page.click('button[aria-label="Log out"]');
+    await signOut();
     await signIn('cashier');
     await page.waitForSelector('text=Current sale', { timeout: 15000 });
     await page.goto(`${BASE_URL}/admin/inventory`, { waitUntil: 'networkidle' });
@@ -2215,6 +2259,96 @@ try {
     if (await page.locator('text=Units on hand').count()) {
       throw new Error('cashier reached an admin page');
     }
+  });
+
+  console.log('\nOn a small screen, and on a square counter monitor');
+
+  /*
+   * The counter monitor is the machine this app is actually used on, and it is
+   * usually square and small. Two hundred pixels of menu down the side of one
+   * is a column of products the cashier cannot see.
+   */
+  await step('the register keeps the whole window, with a way back to the menu', async () => {
+    // As the owner: a cashier has no Dashboard, so "the rail is not here" would
+    // pass on an empty rail and prove nothing.
+    await signOut();
+    await signIn('admin');
+    await page.goto(`${BASE_URL}/`, { waitUntil: 'networkidle' });
+    await page.waitForSelector('text=Current sale', { timeout: 15000 });
+
+    if (await page.locator('nav a:has-text("Dashboard"):visible').count()) {
+      throw new Error('the rail is still taking space on the register');
+    }
+    // And it is not simply gone: the way to everything else is on screen.
+    await page.waitForSelector('a[href="/menu"]:visible', { timeout: 10000 });
+  });
+
+  await step('and it comes back for whoever wants it, and stays back', async () => {
+    await page.click('button[aria-label="Show the menu"]');
+    await page.waitForSelector('nav a:has-text("Dashboard")', { timeout: 10000 });
+
+    // Remembered, or it is a setting that has to be set once per sale.
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.waitForSelector('nav a:has-text("Dashboard")', { timeout: 10000 });
+
+    await page.click('button[aria-label="Hide the menu"]');
+    await page.waitForSelector('a[href="/menu"]:visible', { timeout: 10000 });
+  });
+
+  await step('every screen is one press away, at a size a finger can hit', async () => {
+    await openMenu();
+    await page.waitForSelector('main a[title="Trade-ins"]', { timeout: 15000 });
+
+    // A tile on the page, not the rail's link with the same name — this is the
+    // menu built for a touch screen, and its size is the point of it.
+    const tile = await page.locator('main a[title="Products"]').first().boundingBox();
+    if (!tile || tile.height < 80) {
+      throw new Error(`the menu tiles are ${tile ? tile.height : 0}px tall, which is not a target`);
+    }
+    await page.locator('main a[title="Products"]').first().click();
+    await page.waitForSelector('text=Braided USB-C cable', { timeout: 15000 });
+  });
+  await shot('menu-page');
+
+  await step('on a phone the till still sells, and nothing runs off the side', async () => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(`${BASE_URL}/`, { waitUntil: 'networkidle' });
+    await page.waitForSelector('text=Current sale', { timeout: 15000 });
+
+    // The one thing that must never happen on a phone: the page wider than the
+    // screen, so every tap lands somewhere slightly wrong.
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    );
+    if (overflow > 2) throw new Error(`the page is ${overflow}px wider than the phone`);
+
+    // The shelf and the cart are both reachable, one under the other.
+    await page.click(scanBox);
+    await page.fill(scanBox, 'Espresso');
+    await page.waitForTimeout(400);
+    await page.click('button:has-text("Espresso")');
+    await page.waitForSelector('aside >> text=Espresso', { timeout: 10000 });
+  });
+  await shot('register-phone');
+
+  await step('and the menu on a phone is the page, not a rail', async () => {
+    if (await page.locator('nav a:has-text("Dashboard"):visible').count()) {
+      throw new Error('the rail is on screen on a phone');
+    }
+    await openMenu();
+    await page.waitForSelector('main a[title="Trade-ins"]', { timeout: 15000 });
+
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    );
+    if (overflow > 2) throw new Error(`the menu is ${overflow}px wider than the phone`);
+  });
+  await shot('menu-phone');
+
+  await step('back to a desk, and the shop is a shop again', async () => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(`${BASE_URL}/admin/products`, { waitUntil: 'networkidle' });
+    await page.waitForSelector('nav a:has-text("Dashboard")', { timeout: 15000 });
   });
 
   console.log('\nA visit from the vendor');
@@ -2240,7 +2374,7 @@ try {
     });
     control.close();
 
-    await page.click('button[aria-label="Log out"]');
+    await signOut();
     await page.goto(`${BASE_URL}/support?t=${token}`, { waitUntil: 'networkidle' });
 
     // Landed inside the shop, not on the sign-in screen.
@@ -2269,7 +2403,7 @@ try {
     // A link out of a browser history must not be a way back in, and neither
     // must a guess. Both land here, and the page has to say so rather than
     // bouncing to a sign-in screen that looks like an ordinary session ending.
-    await page.click('button[aria-label="Log out"]');
+    await signOut();
     await page.goto(`${BASE_URL}/support?t=${'a'.repeat(64)}`, { waitUntil: 'networkidle' });
     await page.waitForSelector('text=That link did not work', { timeout: 15000 });
 
@@ -2287,8 +2421,7 @@ try {
    * this starts, before any credentials are typed.
    */
   await step('the language is chosen before signing in, and turns the page round', async () => {
-    await page.click('button[aria-label="Log out"]');
-    await page.waitForSelector('input[name=username]');
+    await signOut();
 
     await page.click('button:has-text("العربية")');
     await page.waitForFunction(() => document.documentElement.dir === 'rtl', { timeout: 5000 });
@@ -2303,7 +2436,12 @@ try {
     await signIn('cashier');
     await page.waitForSelector('text=الفاتورة الحالية', { timeout: 15000 });
 
-    // The menu, which is the part a cashier reads all day.
+    /*
+     * The rail is away on the register now, so the menu is checked where it
+     * actually shows. Going to it also proves the way out of the register
+     * exists in Arabic, which is the thing a cashier would be stuck without.
+     */
+    await page.goto(`${BASE_URL}/orders`, { waitUntil: 'networkidle' });
     await page.waitForSelector('aside >> text=البيع', { timeout: 10000 });
     await page.waitForSelector('aside >> text=الحوالات', { timeout: 10000 });
 
