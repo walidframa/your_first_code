@@ -336,6 +336,88 @@ that should be somebody's decision rather than a side effect of a merge.
 
 Schema changes need no separate step: the database migrates itself on boot.
 
+## Renting this to other shops
+
+One shop per **subdomain**, per **process**, per **database file**. Nothing is
+shared between tenants except the code, which means there is no query anywhere
+that could show one shop another's stock — the isolation is the operating
+system's rather than a `WHERE` clause somebody has to remember.
+
+### Once, on the server
+
+```bash
+# A wildcard A record at your registrar: name *, value your server's IP.
+# Every future client's address then works without touching DNS again.
+
+sudo cp deploy/pos-tenant@.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo mkdir -p /var/lib/pos/tenants /etc/pos/tenants
+sudo ln -sf /srv/pos/server/src/tenants.js /usr/local/bin/pos-tenant
+
+# Where the licences live, and who to get certificates as
+echo 'POS_DOMAIN=xtechpos.com'                >> /etc/pos.env
+echo 'CONTROL_DB=/var/lib/pos/control.sqlite' >> /etc/pos.env
+echo 'POS_CERT_EMAIL=you@example.com'         >> /etc/pos.env
+```
+
+### A new client
+
+```bash
+pos-tenant add rami "Rami Mobile" --plan monthly --price 25 --trial 14
+```
+
+That gives them their own database, their own two secret keys, a process of
+their own on its own port, an address at `rami.xtechpos.com` with its own HTTPS
+certificate, and fourteen days on the clock. It prints the address and the
+first-time password; the app makes them choose a real one when they sign in.
+
+**Add `--dry-run` to any command** to see every file it would write and every
+command it would run, without touching anything. Worth doing the first time.
+
+### Day to day
+
+```bash
+pos-tenant list                       # everyone, and where their licence stands
+pos-tenant pay rami --amount 25       # take a payment, extend the licence
+pos-tenant suspend rami               # stop the till now, whatever the dates say
+pos-tenant resume rami
+pos-tenant remove rami                # stop it, keep every byte of their data
+pos-tenant purge rami --yes           # delete their data, on request
+```
+
+`pay` extends from the day already paid for rather than from today, so a client
+who pays a week late still gets a whole month and one who pays early keeps the
+remainder — unless the licence lapsed long ago, in which case it starts from
+today rather than selling them a month that has already passed.
+
+`remove` and `purge` are deliberately separate. "We are not renting to them any
+more" and "delete their books" are different decisions, and only one of them can
+be undone.
+
+### What a client sees
+
+Fourteen days out, a quiet bar in their till naming the date. Once the deadline
+passes, a red one naming the day selling will stop. Ten days after that, it
+stops: no sales, no stock, no reports.
+
+**They can still sign in and download their whole database.** That is
+deliberate. A shop's sales history is its accounting record, and a supplier
+holding one behind an unpaid invoice has a problem of their own rather than
+leverage — while the pressure to pay is identical either way, because they
+cannot trade.
+
+Taking the payment starts their till again within the minute, with nothing to
+reload and nothing to set up again.
+
+### Where the licence lives
+
+In **your** control database, never in the client's. A shop's own admin has
+full rights over every table in their own database, so an expiry date stored
+there is an expiry date they can edit. Their process opens yours **read-only**.
+
+A copy with no `CONTROL_DB` configured — your own shop — has no licence at all
+and runs unrestricted.
+
 ## On a Windows computer in the shop
 
 The other home for the data. **Do this instead of the cloud, not as well as it.**

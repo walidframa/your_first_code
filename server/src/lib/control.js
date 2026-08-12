@@ -48,6 +48,11 @@ export function ensureControlSchema(db) {
       plan         TEXT NOT NULL DEFAULT 'monthly',
       price        REAL NOT NULL DEFAULT 0,
 
+      -- Which port this shop's process listens on. Kept here rather than
+      -- guessed from the id, because a removed tenant frees its port and the
+      -- next one should be able to have it.
+      port         INTEGER UNIQUE,
+
       -- The last day covered. Null means nothing has been paid for yet, which
       -- locks rather than opens: a vendor who has not filled this in has not
       -- given anybody a licence.
