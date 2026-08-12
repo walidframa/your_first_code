@@ -28,12 +28,33 @@ die() { printf '\n\033[1;31m!! %s\033[0m\n' "$1" >&2; exit 1; }
 
 [ -f "$REPO/package.json" ] || die "This does not look like the POS checkout: $REPO"
 
+#
 # Uncommitted work here is almost always somebody having edited a file directly
 # on the server. Pulling over it either fails or throws it away; both are worse
 # than stopping and saying so.
-if ! git diff --quiet || ! git diff --cached --quiet; then
-  git status --short
-  die "There are uncommitted changes on the server. Commit or discard them first."
+#
+# With one exception, and it is not a loophole: npm rewrites the lock files
+# during its own install, so every deploy leaves them modified and the *next*
+# one refuses to start. Reading that message, a person's only move is to
+# discard exactly these files — so this does it for them, and says so, rather
+# than sending them to look for an edit nobody made.
+#
+# Safe because the install below reads the lock files from the commit being
+# deployed, not from whatever npm left behind.
+#
+CHANGED="$(git diff --name-only; git diff --cached --name-only)"
+CHANGED="$(printf '%s\n' "$CHANGED" | grep -v '^$' | sort -u || true)"
+
+if [ -n "$CHANGED" ]; then
+  NOT_LOCKS="$(printf '%s\n' "$CHANGED" | grep -v 'package-lock\.json$' || true)"
+  if [ -z "$NOT_LOCKS" ]; then
+    say "Putting npm's changes to the lock files back"
+    # shellcheck disable=SC2086
+    printf '%s\n' "$CHANGED" | while read -r f; do git checkout -- "$f"; done
+  else
+    git status --short
+    die "There are uncommitted changes on the server. Commit or discard them first."
+  fi
 fi
 
 # ------------------------------------------------------------- the backup
