@@ -194,7 +194,17 @@ app.use('/api/suppliers', partyRouter('supplier'));
  * exist, rather than handing back a page of HTML for something expecting JSON.
  */
 app.use((req, res) => {
-  if (serveClient && req.method === 'GET' && !req.path.startsWith('/api/')) {
+  /*
+   * HEAD as well as GET.
+   *
+   * A HEAD is a GET that stops before the body, and it is what every uptime
+   * monitor, load balancer and `curl -I` sends — so answering it with 404 means
+   * a perfectly healthy shop is reported as missing by everything that checks
+   * on it without opening a browser. Express already writes the headers and
+   * omits the body; it only had to be let through.
+   */
+  const isPageRequest = req.method === 'GET' || req.method === 'HEAD';
+  if (serveClient && isPageRequest && !req.path.startsWith('/api/')) {
     // Said here as well as in the static handler above, which never sees this
     // file: a cached index.html is a till permanently stuck on an old deploy,
     // asking for asset files that no longer exist.

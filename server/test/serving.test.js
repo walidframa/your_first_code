@@ -115,3 +115,26 @@ test('a mistyped API route still says so in JSON', async () => {
   assert.equal(res.status, 404);
   assert.equal((await res.json()).error, 'Not found');
 });
+
+test('a HEAD asks the same question as a GET, and gets the same answer', async () => {
+  /*
+   * A HEAD is a GET that stops before the body, and it is what every uptime
+   * monitor, load balancer and `curl -I` sends. Answering 404 means a perfectly
+   * healthy shop is reported as missing by everything that checks on it without
+   * opening a browser — and the first person to run `curl -I` on a new shop
+   * concludes the deployment failed.
+   */
+  for (const route of ['/', '/admin/cashbox']) {
+    const head = await fetch(`${BASE}${route}`, { method: 'HEAD' });
+    const get = await fetch(`${BASE}${route}`);
+    assert.equal(head.status, get.status, `HEAD ${route} disagreed with GET`);
+    assert.equal(head.status, 200);
+    assert.equal(head.headers.get('cache-control'), get.headers.get('cache-control'));
+  }
+});
+
+test('a HEAD to a mistyped API route is still a 404', async () => {
+  // Letting HEAD through must not turn the API into a page-server.
+  const res = await fetch(`${BASE}/api/nothing-here`, { method: 'HEAD' });
+  assert.equal(res.status, 404);
+});
