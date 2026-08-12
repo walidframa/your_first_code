@@ -416,6 +416,52 @@ systemctl restart pos-tenant@rami
 more" and "delete their books" are different decisions, and only one of them can
 be undone.
 
+### The console, at admin.xtechpos.com
+
+Day to day, the same work as the commands above without opening a terminal: who
+has paid, who is about to lapse, taking a payment, stopping and starting a shop.
+
+```bash
+# Once, on the server
+cd /srv/pos
+cp deploy/pos-console.service /etc/systemd/system/
+node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
+
+cat > /etc/pos-console.env <<'EOF'
+CONTROL_DB=/var/lib/pos/control.sqlite
+POS_DOMAIN=xtechpos.com
+CONSOLE_PORT=4090
+CONSOLE_SECRET=<paste the key printed above>
+EOF
+chown pos:pos /etc/pos-console.env && chmod 600 /etc/pos-console.env
+
+systemctl daemon-reload && systemctl enable --now pos-console
+
+sed 's/xtechpos.com/YOUR-DOMAIN/' deploy/nginx-console.conf \
+  > /etc/nginx/sites-available/pos-console
+ln -sf /etc/nginx/sites-available/pos-console /etc/nginx/sites-enabled/
+nginx -t && systemctl reload nginx
+certbot --nginx -d admin.xtechpos.com
+
+# And a login for it — 12 characters or more
+pos-tenant operator walid 'a long console password'
+```
+
+**Its signing key is its own.** Sharing one with the tills would mean a token
+minted at somebody's counter being accepted here, which is the whole thing this
+arrangement exists to prevent. Different database, different key, different
+address, and no route between them.
+
+**What it deliberately cannot do:** create a shop, take one off the air, or
+delete one's data. Those need root — they write systemd units, edit nginx and
+remove files — and a web page on the open internet that could run them would be
+worth breaking into. It shows you the exact command to paste instead. Deleting
+a shop's books should take somebody sitting at a terminal, not a mis-click on a
+phone.
+
+Five wrong passwords and that name is locked out for ten minutes, per address,
+so one person guessing cannot lock you out of your own console.
+
 ### What a client sees
 
 Fourteen days out, a quiet bar in their till naming the date. Once the deadline
