@@ -125,6 +125,47 @@ async function shot(name) {
 
 const scanBox = 'input[aria-label="Scan barcode or search products"]';
 
+/*
+ * Signing in, the way a real shop has to.
+ *
+ * A fresh copy ships with `admin/admin123`, and the app insists on a real
+ * password the first time each of those accounts is used — so the suite carries
+ * the current password for each and changes it on the way past the gate, rather
+ * than pretending the shipped ones keep working. Every later sign-in types the
+ * real one, because the one-tap demo buttons vanish once they stop being true.
+ */
+const PASSWORDS = { admin: 'admin123', cashier: 'cashier123' };
+const REAL = { admin: 'owner-real-password', cashier: 'till-real-password' };
+
+async function signIn(username) {
+  await page.waitForSelector('input[name=username]', { timeout: 15000 });
+  await page.fill('input[name=username]', username);
+  await page.fill('input[name=password]', PASSWORDS[username]);
+  await page.click('button[type=submit]');
+
+  /*
+   * First time for this account, the app stops here and asks for a real one.
+   *
+   * Waited for by the form going away rather than by any wording on the page
+   * after it — this same helper is used with the app in Arabic, where none of
+   * the English would match and the wait would burn its whole timeout.
+   */
+  const gate = page.locator('input[name=currentPassword]');
+  await Promise.race([
+    gate.waitFor({ timeout: 15000 }).catch(() => {}),
+    page.locator('input[name=username]').waitFor({ state: 'detached', timeout: 15000 }),
+  ]);
+
+  if (await gate.count()) {
+    await page.fill('input[name=currentPassword]', PASSWORDS[username]);
+    await page.fill('input[name=newPassword]', REAL[username]);
+    await page.fill('input[name=newPasswordAgain]', REAL[username]);
+    await page.click('button[type=submit]');
+    await gate.waitFor({ state: 'detached', timeout: 15000 });
+    PASSWORDS[username] = REAL[username];
+  }
+}
+
 try {
   console.log('\nRegister (cashier)');
 
@@ -135,7 +176,7 @@ try {
   await shot('login');
 
   await step('sign in as cashier', async () => {
-    await page.click('button:has-text("Cashier")');
+    await signIn('cashier');
     await page.waitForSelector('text=Current sale', { timeout: 15000 });
     await page.waitForSelector('text=Espresso', { timeout: 15000 });
   });
@@ -443,8 +484,7 @@ try {
 
   await step('sign in as admin', async () => {
     await page.click('button[aria-label="Log out"]');
-    await page.waitForSelector('text=Demo accounts');
-    await page.click('button:has-text("Store owner")');
+    await signIn('admin');
     await page.waitForSelector('text=Current sale', { timeout: 15000 });
   });
 
@@ -1919,8 +1959,7 @@ try {
 
   await step('the desk appears for the operator it was granted to', async () => {
     await page.click('button[aria-label="Log out"]');
-    await page.waitForSelector('text=Demo accounts');
-    await page.click('button:has-text("Cashier")');
+    await signIn('cashier');
     await page.waitForSelector('text=Current sale', { timeout: 15000 });
 
     await page.click('a[title="Transfers"]');
@@ -2048,8 +2087,7 @@ try {
 
   await step('the accounts screen answers who owes what, and names the tills', async () => {
     await page.click('button[aria-label="Log out"]');
-    await page.waitForSelector('text=Demo accounts');
-    await page.click('button:has-text("Admin")');
+    await signIn('admin');
     await page.waitForSelector('text=Current sale', { timeout: 15000 });
 
     await page.click('a[title="Accounts"]');
@@ -2167,8 +2205,7 @@ try {
 
   await step('a cashier cannot reach an admin route by URL', async () => {
     await page.click('button[aria-label="Log out"]');
-    await page.waitForSelector('text=Demo accounts');
-    await page.click('button:has-text("Cashier")');
+    await signIn('cashier');
     await page.waitForSelector('text=Current sale', { timeout: 15000 });
     await page.goto(`${BASE_URL}/admin/inventory`, { waitUntil: 'networkidle' });
     await page.waitForSelector('text=Current sale', { timeout: 15000 });
@@ -2186,7 +2223,7 @@ try {
    */
   await step('the language is chosen before signing in, and turns the page round', async () => {
     await page.click('button[aria-label="Log out"]');
-    await page.waitForSelector('text=Demo accounts');
+    await page.waitForSelector('input[name=username]');
 
     await page.click('button:has-text("العربية")');
     await page.waitForFunction(() => document.documentElement.dir === 'rtl', { timeout: 5000 });
@@ -2198,7 +2235,7 @@ try {
   await shot('login-arabic');
 
   await step('the register and its menu come up in Arabic', async () => {
-    await page.click('button:has-text("الكاشير")');
+    await signIn('cashier');
     await page.waitForSelector('text=الفاتورة الحالية', { timeout: 15000 });
 
     // The menu, which is the part a cashier reads all day.
@@ -2219,7 +2256,7 @@ try {
     await page.waitForSelector('text=العربية');
     await page.click('button:has-text("English")');
     await page.waitForFunction(() => document.documentElement.dir === 'ltr', { timeout: 5000 });
-    await page.waitForSelector('text=Demo accounts');
+    await page.waitForSelector('input[name=username]');
   });
 
   if (failedResponses.length) {

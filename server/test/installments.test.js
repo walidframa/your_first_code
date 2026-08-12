@@ -18,7 +18,7 @@ import { fileURLToPath } from 'node:url';
 import { split, monthlyDates } from '../src/lib/installments.js';
 
 const serverRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const PORT = 4604;
+const PORT = 4613;
 const BASE = `http://127.0.0.1:${PORT}/api`;
 
 let child;

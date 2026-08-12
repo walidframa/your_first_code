@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { KeyRound, ShieldCheck, Trash2, UserPlus } from 'lucide-react';
+import { KeyRound, RotateCcwKey, ShieldCheck, Trash2, UserPlus } from 'lucide-react';
 import api from '../../api';
 import PageHeader from '../../components/PageHeader';
 import { useAuth } from '../../context/AuthContext';
@@ -232,6 +232,69 @@ function PermissionsModal({ user, groups, onClose, onSaved }) {
   );
 }
 
+/**
+ * Give somebody a new password, when you do not have their old one.
+ *
+ * The two reasons this exists are the same button: a cashier who has forgotten
+ * theirs, and one who has left. So it says out loud what it does to the second
+ * case — every device that account is signed in on stops working the moment
+ * this is saved, which is the part people assume happens anyway and are then
+ * surprised by when it does not.
+ */
+function ResetPasswordModal({ user, onClose }) {
+  const toast = useToast();
+  const [password, setPassword] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  async function save() {
+    setSaving(true);
+    setError('');
+    try {
+      await api.put(`/users/${user.id}/password`, { password });
+      toast(`${user.name}'s password is set — tell it to them, and they are signed out elsewhere`);
+      onClose();
+    } catch (err) {
+      setError(err.response?.data?.error || 'Could not set that password');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={`A new password for ${user.name}`}
+      subtitle={user.username}
+      footer={
+        <ModalActions>
+          <Button variant="secondary" className="flex-1" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button className="flex-1" loading={saving} onClick={save} disabled={password.length < 8}>
+            Set it
+          </Button>
+        </ModalActions>
+      }
+    >
+      <Input
+        label="New password"
+        type="text"
+        value={password}
+        onChange={(e) => setPassword(e.target.value)}
+        hint="At least 8 characters. Shown as you type, since you have to pass it on."
+        autoFocus
+      />
+      <p className="mt-3 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900">
+        Saving this signs {user.name} out of every device they are on, including a phone in a
+        pocket. If they are mid-sale at another counter, that sale is lost.
+      </p>
+      {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
+    </Modal>
+  );
+}
+
 export default function Users() {
   const { user: currentUser } = useAuth();
   const toast = useToast();
@@ -239,6 +302,7 @@ export default function Users() {
   const [catalogue, setCatalogue] = useState(null);
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState(null);
+  const [resetting, setResetting] = useState(null);
 
   const load = useCallback(() => {
     api.get('/users').then((res) => setUsers(res.data.users));
@@ -328,14 +392,24 @@ export default function Users() {
                         <KeyRound size={14} /> Access
                       </Button>
                       {u.id !== currentUser.id && (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => remove(u)}
-                          aria-label={`Remove ${u.name}`}
-                        >
-                          <Trash2 size={14} />
-                        </Button>
+                        <>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => setResetting(u)}
+                            aria-label={`Reset the password for ${u.name}`}
+                          >
+                            <RotateCcwKey size={14} /> Password
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => remove(u)}
+                            aria-label={`Remove ${u.name}`}
+                          >
+                            <Trash2 size={14} />
+                          </Button>
+                        </>
                       )}
                     </td>
                   </tr>
@@ -361,6 +435,10 @@ export default function Users() {
             load();
           }}
         />
+      )}
+
+      {resetting && (
+        <ResetPasswordModal user={resetting} onClose={() => setResetting(null)} />
       )}
 
       {editing && catalogue && (

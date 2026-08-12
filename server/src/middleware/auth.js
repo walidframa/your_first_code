@@ -3,6 +3,7 @@ import jwt from 'jsonwebtoken';
 import { db } from '../db.js';
 import { can } from '../lib/permissions.js';
 import { branchFor } from '../lib/branches.js';
+import { tokenPredatesPassword } from '../lib/passwords.js';
 
 const isProduction = process.env.NODE_ENV === 'production';
 
@@ -45,6 +46,26 @@ export function requireAuth(req, res, next) {
     req.user = jwt.verify(token, JWT_SECRET);
   } catch {
     return res.status(401).json({ error: 'Invalid or expired token' });
+  }
+
+  /*
+   * A password that has changed ends every session that was signed in under the
+   * old one.
+   *
+   * Without this, "reset the password" is advice rather than an action: the
+   * phone in a departing cashier's pocket keeps selling until its token expires
+   * on its own, which is the exact twelve hours during which somebody actually
+   * wanted them out.
+   *
+   * Read from the database rather than the token, for the same reason
+   * permissions are.
+   */
+  const account = db.prepare('SELECT password_changed_at FROM users WHERE id = ?').get(req.user.id);
+  if (!account) {
+    return res.status(401).json({ error: 'This account no longer exists' });
+  }
+  if (tokenPredatesPassword(account, req.user.iat)) {
+    return res.status(401).json({ error: 'The password for this account changed — sign in again' });
   }
   /*
    * Every authenticated request happens somewhere. Resolved here rather than

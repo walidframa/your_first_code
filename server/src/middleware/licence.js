@@ -1,0 +1,82 @@
+import { isTenant, licenceForTenant } from '../lib/control.js';
+import { licenceMessage, licenceState } from '../lib/licence.js';
+
+/**
+ * A shop that has stopped paying stops selling — and keeps its books.
+ *
+ * The line is drawn at *trading*, not at access. Everything that takes money,
+ * moves stock or changes a record is refused. Signing in still works, the
+ * licence screen explains itself, and the owner can still take a copy of their
+ * own data away with them.
+ *
+ * That last part is deliberate and is not generosity. A shop's sales history is
+ * its accounting record — in most places, the thing a tax authority can demand
+ * of it — and a vendor holding it behind an unpaid invoice has a problem of
+ * their own rather than leverage. The pressure to pay is identical either way:
+ * they cannot trade.
+ */
+
+/*
+ * What still answers when the licence has run out.
+ *
+ * Prefixes, checked against the path. Deliberately short, and deliberately
+ * containing nothing that writes to the shop's own records.
+ */
+const OPEN_WHEN_LOCKED = [
+  '/api/health',
+  '/api/licence',
+  // Signing in, seeing who you are, and changing your password. Locking
+  // somebody out of their own account as well would be a second punishment for
+  // the same thing.
+  '/api/auth',
+  // Their data, on the way out. Making a fresh copy is a read of the shop's
+  // database and a write of a file beside it — it changes nothing in the books.
+  '/api/backups',
+];
+
+export function licenceStatus() {
+  const row = licenceForTenant();
+
+  /*
+   * Told it is a tenant, but there is no row for it.
+   *
+   * Locked, not free. A missing row means the vendor removed this shop, or the
+   * control database has been replaced by one that does not know about it —
+   * and "we lost your record" must never be the cheapest way to get the app.
+   */
+  if (!row && isTenant()) {
+    return { state: 'locked', reason: 'unknown_tenant', daysLeft: null, lockedOn: null };
+  }
+
+  return licenceState(row);
+}
+
+export function enforceLicence(req, res, next) {
+  const status = licenceStatus();
+  req.licence = status;
+
+  if (status.state !== 'locked') return next();
+
+  /*
+   * The app itself is always served, licence or no licence.
+   *
+   * Only the API is withheld. This same handler sits in front of the built
+   * client, so refusing everything would hand the shop a page of JSON where the
+   * screen explaining the lock should be — and a shopkeeper staring at
+   * `{"error":...}` has been given no way to pay, and no way to reach their own
+   * records either.
+   */
+  if (!req.path.startsWith('/api/')) return next();
+
+  if (OPEN_WHEN_LOCKED.some((prefix) => req.path.startsWith(prefix))) return next();
+
+  /*
+   * 402, which is the one status code that means exactly this and is otherwise
+   * never used — so nothing in the app can mistake it for an ordinary failure
+   * and retry it, the way it would a 500.
+   */
+  return res.status(402).json({
+    error: licenceMessage(status),
+    licence: status,
+  });
+}

@@ -8,6 +8,7 @@ import { useSettings, lbp } from '../../context/SettingsContext';
 import { TEXT_SIZES, applyTextSize, getTextSize } from '../../lib/textSize';
 import { useLanguage } from '../../context/LanguageContext';
 import { install, isInstalled, onInstallable } from '../../lib/install';
+import ChangePassword from '../ChangePassword';
 import {
   Button,
   Card,
@@ -225,8 +226,16 @@ export default function Settings() {
           <TextSize />
         </div>
 
-        <div className="mb-4 max-w-4xl">
+        <div className="mb-4 grid max-w-4xl grid-cols-2 gap-4">
           <InstallApp />
+          <Card className="p-5">
+            <h2 className="text-sm font-semibold text-slate-900">Your password</h2>
+            <p className="mt-0.5 mb-4 text-xs text-slate-500">
+              Changing it signs out every other device this account is open on — which is the point
+              of changing it. This screen stays signed in.
+            </p>
+            <ChangePassword />
+          </Card>
         </div>
 
         {/* Boring until the day it is the only thing that matters. */}

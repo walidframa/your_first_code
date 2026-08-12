@@ -1,5 +1,6 @@
 import { Navigate } from 'react-router';
 import { useAuth } from '../context/AuthContext';
+import ChangePassword from '../pages/ChangePassword';
 
 /**
  * Guard a route by permission rather than by role.
@@ -16,6 +17,18 @@ export default function ProtectedRoute({ roles, permission, children }) {
   }
   if (!user) {
     return <Navigate to="/login" replace />;
+  }
+  /*
+   * Still on the password the app ships with, so nothing else happens yet.
+   *
+   * Here rather than as a banner somebody can ignore: `admin/admin123` is in
+   * the README and on the sign-in screen of every copy of this, and a shop
+   * reachable from the internet with it is open rather than protected. Placed
+   * at the gate, so it is the first thing after signing in and never lands in
+   * the middle of somebody's sale.
+   */
+  if (user.mustChangePassword) {
+    return <ChangePassword forced />;
   }
   if (roles && !roles.includes(user.role)) {
     return <Navigate to="/" replace />;
