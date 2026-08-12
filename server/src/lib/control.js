@@ -87,6 +87,22 @@ export function ensureControlSchema(db) {
   return db;
 }
 
+/**
+ * Every file this database is actually made of, of the ones that exist.
+ *
+ * A SQLite database is not one file. It writes through a journal beside it, and
+ * in WAL mode through two more. That matters here for exactly one reason:
+ * `pos-tenant` runs as root and creates all of them, while the console runs as
+ * `pos` and has to write payments into them. Handing over the `.sqlite` alone
+ * and forgetting a root-owned `-wal` is the same "attempt to write a readonly
+ * database" as handing over nothing, and harder to spot.
+ */
+export function databaseFiles(dbFile) {
+  return [dbFile, `${dbFile}-journal`, `${dbFile}-wal`, `${dbFile}-shm`].filter((f) =>
+    existsSync(f),
+  );
+}
+
 let handle = null;
 
 /**

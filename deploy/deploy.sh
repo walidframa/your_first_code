@@ -101,6 +101,29 @@ else
   die "No systemd service called '$SERVICE' — install deploy/pos.service first (see the README)."
 fi
 
+#
+# Everything else running this same checkout.
+#
+# One machine now serves the vendor's own shop, a process per renting shop, and
+# the console — all from these files. Restarting only the first would leave every
+# client on the old code with no sign anything was missed, and the next person to
+# notice would be a shopkeeper whose bug was supposedly fixed last week.
+#
+# Only units that are already running are touched. A shop taken off the air with
+# `pos-tenant remove` stays off; a deploy is not the place to start it again.
+RUNNING="$(systemctl list-units --state=running --no-legend --plain 'pos-tenant@*.service' 'pos-console.service' 2>/dev/null | awk '{print $1}' || true)"
+
+if [ -n "$RUNNING" ]; then
+  say "Restarting everything else on this machine"
+  printf '%s\n' "$RUNNING" | while read -r unit; do
+    [ -n "$unit" ] || continue
+    printf '    %s\n' "$unit"
+    # One shop failing to come back must not stop the rest from being restarted,
+    # and must not be silent either — the check below says which.
+    sudo systemctl restart "$unit" || true
+  done
+fi
+
 # ----------------------------------------------------------------- check
 
 # A deploy that finished is not the same as a shop that is serving. Ask the
@@ -110,6 +133,23 @@ say "Waiting for it to answer"
 PORT="${PORT:-4000}"
 for attempt in $(seq 1 30); do
   if curl -fsS "http://127.0.0.1:${PORT}/api/health" >/dev/null 2>&1; then
+    # The main shop is answering. Now say plainly whether the others are, too:
+    # a deploy that quietly left one client's till down is the failure this
+    # whole section exists to catch, and it has to be visible before the person
+    # who ran this walks away from the keyboard.
+    FAILED=""
+    if [ -n "$RUNNING" ]; then
+      for unit in $RUNNING; do
+        systemctl is-active --quiet "$unit" || FAILED="$FAILED $unit"
+      done
+    fi
+
+    if [ -n "$FAILED" ]; then
+      printf '\n\033[1;31m!! Live, but these did not come back:%s\033[0m\n' "$FAILED"
+      printf '   Look at one with:  sudo journalctl -u <name> -n 50 --no-pager\n\n'
+      exit 1
+    fi
+
     printf '\n\033[1;32m==> Live at %s\033[0m\n\n' "$(git log --oneline -1)"
     exit 0
   fi

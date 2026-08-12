@@ -330,6 +330,11 @@ saying it worked — a deploy that finished is not the same as a shop that is
 serving. It refuses to run if somebody has edited files directly on the server,
 rather than pulling over their work or throwing it away.
 
+Once you are renting copies out, it restarts **every** shop on the machine and
+the console as well, then names any that did not come back. They all run from
+this one checkout, so restarting only your own would leave every client on last
+week's code with nothing to show for it.
+
 It is a command you choose to run rather than something that fires on every
 push, because a restart drops whoever is mid-sale back to a loading screen, and
 that should be somebody's decision rather than a side effect of a merge.

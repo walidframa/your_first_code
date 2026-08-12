@@ -25,7 +25,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ensureControlSchema } from './lib/control.js';
+import { databaseFiles, ensureControlSchema } from './lib/control.js';
 import { createOperator, ensureOperatorSchema, setOperatorPassword } from './lib/operators.js';
 import { PLANS, addDays, extend, licenceState, today } from './lib/licence.js';
 import {
@@ -146,7 +146,34 @@ function control() {
       : null;
   }
   mkdirSync(path.dirname(CONFIG.controlDb), { recursive: true });
-  return ensureControlSchema(new DatabaseSync(CONFIG.controlDb));
+  const db = ensureControlSchema(new DatabaseSync(CONFIG.controlDb));
+  handToService(CONFIG.controlDb);
+  return db;
+}
+
+/**
+ * Give the book of shops to the service user.
+ *
+ * This command runs as root, so every file it creates is root's. The console
+ * runs as `pos` and has to *write* to this one — it records payments. A
+ * root-owned control database means the first payment taken on the web console
+ * fails with "attempt to write a readonly database", which is exactly how the
+ * tills failed the first time round.
+ *
+ * The sidecar files matter as much as the database: SQLite writes through a
+ * journal beside it, and one of those left owned by root is the same failure
+ * with a less obvious name.
+ */
+function handToService(dbFile) {
+  // Only root can give a file away, and only root created it in the first
+  // place. Anywhere else — a developer's machine, the tests — this is neither
+  // possible nor wanted, and shouting about it would be noise.
+  if (process.getuid?.() !== 0) return;
+
+  const files = databaseFiles(dbFile);
+  if (files.length) {
+    spawnSync('chown', [`${CONFIG.user}:${CONFIG.user}`, ...files], { stdio: 'ignore' });
+  }
 }
 
 const tenantOr404 = (db, slug) => {
