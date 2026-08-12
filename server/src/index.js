@@ -35,6 +35,8 @@ import voucherRoutes from './routes/vouchers.js';
 import heldSaleRoutes from './routes/held.js';
 import branchRoutes from './routes/branches.js';
 import stockTransferRoutes from './routes/stockTransfers.js';
+import supportRoutes from './routes/support.js';
+import { recordSupportWrites } from './middleware/support.js';
 import { startShopifyWorker } from './lib/shopifyWorker.js';
 import { seedMissingPermissions } from './lib/permissions.js';
 
@@ -155,7 +157,21 @@ app.get('/api/licence', (req, res) => {
  */
 app.use(enforceLicence);
 
+/*
+ * Everything a support visit changes, written down as it goes.
+ *
+ * At the door rather than in each route. Twenty-odd route files would each have
+ * to remember to log, and the one that forgot would be invisible — which makes
+ * the log worse than useless, because it would be trusted and incomplete.
+ *
+ * Reads are not recorded. The interesting question a shopkeeper asks afterwards
+ * is "what did you change", and a log of every list the vendor scrolled past
+ * would bury the answer.
+ */
+app.use(recordSupportWrites);
+
 app.use('/api/auth', authRoutes);
+app.use('/api/support', supportRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/reports', reportRoutes);

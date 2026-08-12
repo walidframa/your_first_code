@@ -77,12 +77,39 @@ async function waitFor(url, label, child, timeoutMs = 60000) {
   throw new Error(`${label} did not become ready at ${url}`);
 }
 
+/*
+ * A book of shops, with this run's shop in it, paid up for years.
+ *
+ * Without it the app runs as nobody's tenant, and two things that only exist
+ * for tenants — the licence bar and the vendor's support visit — cannot be
+ * reached by a browser at all. Dated far out on purpose: an expiry that crept
+ * up on the calendar would one day lock the whole suite out of the register for
+ * reasons having nothing to do with the change being tested.
+ */
+const controlPath = path.join(workDir, 'control.sqlite');
+{
+  const { DatabaseSync } = await import('node:sqlite');
+  const { ensureControlSchema } = await import('../server/src/lib/control.js');
+  const control = ensureControlSchema(new DatabaseSync(controlPath));
+  control
+    .prepare(
+      `INSERT INTO tenants (slug, shop_name, plan, price, port, paid_through)
+       VALUES ('e2e', 'End To End Mobile', 'monthly', 25, ?, '2099-01-01')`,
+    )
+    .run(API_PORT);
+  control.close();
+}
+
 const env = {
   ...process.env,
   DB_PATH: path.join(workDir, 'e2e.sqlite'),
   JWT_SECRET: 'e2e-secret-long-enough-to-satisfy-the-production-guard',
   PORT: String(API_PORT),
   NODE_ENV: 'test',
+  CONTROL_DB: controlPath,
+  TENANT_SLUG: 'e2e',
+  // The smoke test writes a ticket into the book the way the console would.
+  E2E_CONTROL_DB: controlPath,
   // Points the client's dev/preview proxy at this run's API instance.
   API_TARGET: `http://127.0.0.1:${API_PORT}`,
 };

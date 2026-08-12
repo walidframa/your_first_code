@@ -89,6 +89,12 @@
       }
       input:focus { outline: 2px solid var(--brand); outline-offset: -1px; border-color: var(--brand); }
       .row { display: flex; gap: 10px; margin-top: 18px; }
+      /* The list of a shop's copies. Scrolls rather than growing the dialog off
+         the screen: a shop that has been open a fortnight has fourteen of them. */
+      .list { max-height: 46vh; overflow-y: auto; }
+      .bak { display: flex; align-items: center; justify-content: space-between;
+             gap: 12px; padding: 8px 0; border-top: 1px solid var(--line); }
+      .bak:first-child { border-top: 0; }
       .row button { flex: 1; padding: 9px; }
 
       .err { background: #fef2f2; color: #b91c1c; padding: 9px 12px; border-radius: 9px;
@@ -174,6 +180,47 @@
       </form>
     </dialog>
 
+    <!--
+      Going into somebody's shop.
+
+      The reason is required and is not a formality: it is what the shop reads on
+      the bar across their screen while you are in there, and what stands in
+      their log afterwards.
+    -->
+    <dialog id="inDlg">
+      <form class="dlg" method="dialog" id="inForm">
+        <h2 id="inTitle">Go into the shop</h2>
+        <p class="sub">
+          They will see a bar naming you for as long as you are in there, and every change you make
+          is written into their log. The link works once, for five minutes.
+        </p>
+        <label for="reason">What are you going in to do?</label>
+        <input id="reason" placeholder="Rami asked me to fix the iPhone price" required minlength="3" />
+        <div class="row">
+          <button type="button" id="inCancel">Cancel</button>
+          <button class="primary" type="submit">Open their shop</button>
+        </div>
+        <div id="inErr" class="err hide"></div>
+      </form>
+    </dialog>
+
+    <!-- Their copies, and the two things worth doing with one. -->
+    <dialog id="bakDlg">
+      <form class="dlg" method="dialog" id="bakForm">
+        <h2 id="bakTitle">Copies</h2>
+        <p class="sub" id="bakSub">
+          Taken by the shop each day it is open. Restoring puts it back to one of these — a copy of
+          where it is now is taken first, without asking.
+        </p>
+        <div id="bakList" class="list"></div>
+        <div class="row">
+          <button type="button" id="bakClose">Close</button>
+          <button type="button" id="bakNew">Take one now</button>
+        </div>
+        <div id="bakErr" class="err hide"></div>
+      </form>
+    </dialog>
+
     <script>
       const $ = (id) => document.getElementById(id);
       let token = localStorage.getItem('console_token');
@@ -238,7 +285,12 @@
         const stop = t.suspended
           ? `<button data-resume="${t.slug}">Let it sell</button>`
           : `<button data-suspend="${t.slug}">Stop it</button>`;
-        return pay + ' ' + stop;
+        // The three that reach inside the shop rather than into the book of
+        // shops. Every one of them is visible to the shop while it happens.
+        const go = `<button data-in="${t.slug}">Go in</button>`;
+        const copies = `<button data-bak="${t.slug}">Copies</button>`;
+        const reset = `<button data-pw="${t.slug}">Reset password</button>`;
+        return [pay, stop, go, copies, reset].join(' ');
       }
 
       async function load() {
@@ -284,6 +336,185 @@
         }
         for (const b of document.querySelectorAll('[data-resume]')) {
           b.onclick = () => setSuspended(b.dataset.resume, false);
+        }
+        for (const b of document.querySelectorAll('[data-in]')) {
+          b.onclick = () => openIn(tenants.find((t) => t.slug === b.dataset.in));
+        }
+        for (const b of document.querySelectorAll('[data-bak]')) {
+          b.onclick = () => openBackups(tenants.find((t) => t.slug === b.dataset.bak));
+        }
+        for (const b of document.querySelectorAll('[data-pw]')) {
+          b.onclick = () => resetPassword(tenants.find((t) => t.slug === b.dataset.pw));
+        }
+      }
+
+      /* ------------------------------------------------- going into a shop */
+
+      let going = null;
+
+      function openIn(t) {
+        going = t;
+        $('inTitle').textContent = 'Go into ' + t.shopName;
+        $('reason').value = '';
+        $('inErr').classList.add('hide');
+        $('inDlg').showModal();
+      }
+
+      $('inCancel').onclick = () => $('inDlg').close();
+
+      $('inForm').onsubmit = async (e) => {
+        e.preventDefault();
+        const err = $('inErr');
+        err.classList.add('hide');
+        try {
+          const res = await api('/api/tenants/' + going.slug + '/support', {
+            method: 'POST',
+            body: JSON.stringify({ reason: $('reason').value }),
+          });
+          $('inDlg').close();
+          /*
+           * Opened rather than shown as a link to copy. The ticket lives five
+           * minutes, and a link that has to be found, copied and pasted spends
+           * most of them.
+           */
+          window.open(res.url, '_blank', 'noopener');
+        } catch (e2) {
+          err.textContent = e2.message;
+          err.classList.remove('hide');
+        }
+      };
+
+      /* ------------------------------------------------------- their copies */
+
+      let copying = null;
+
+      const mb = (bytes) => (Number(bytes || 0) / 1024 / 1024).toFixed(1) + ' MB';
+
+      async function openBackups(t) {
+        copying = t;
+        $('bakTitle').textContent = 'Copies of ' + t.shopName;
+        $('bakErr').classList.add('hide');
+        $('bakList').textContent = 'Asking the shop…';
+        $('bakDlg').showModal();
+        await listBackups();
+      }
+
+      async function listBackups() {
+        try {
+          const { backups } = await api('/api/tenants/' + copying.slug + '/backups');
+          $('bakList').innerHTML = backups.length
+            ? backups
+                .map(
+                  (b) => `
+              <div class="bak">
+                <span>${b.takenAt || b.name}<span class="sub"> · ${mb(b.bytes)}</span></span>
+                <span>
+                  <button type="button" data-dl="${b.name}">Download</button>
+                  <button type="button" data-rs="${b.name}">Restore</button>
+                </span>
+              </div>`,
+                )
+                .join('')
+            : '<div class="sub">This shop has no copies yet.</div>';
+
+          for (const b of document.querySelectorAll('[data-dl]')) {
+            b.onclick = () => download(b.dataset.dl);
+          }
+          for (const b of document.querySelectorAll('[data-rs]')) {
+            b.onclick = () => restore(b.dataset.rs);
+          }
+        } catch (e) {
+          $('bakList').textContent = '';
+          $('bakErr').textContent = e.message;
+          $('bakErr').classList.remove('hide');
+        }
+      }
+
+      $('bakClose').onclick = () => $('bakDlg').close();
+
+      $('bakNew').onclick = async () => {
+        $('bakErr').classList.add('hide');
+        $('bakList').textContent = 'Taking one…';
+        try {
+          await api('/api/tenants/' + copying.slug + '/backups', { method: 'POST', body: '{}' });
+        } catch (e) {
+          $('bakErr').textContent = e.message;
+          $('bakErr').classList.remove('hide');
+        }
+        await listBackups();
+      };
+
+      /*
+       * Fetched with the session's token rather than linked: a plain link would
+       * arrive with no Authorization header and be refused.
+       */
+      async function download(name) {
+        const res = await fetch('/api/tenants/' + copying.slug + '/backups/' + encodeURIComponent(name), {
+          headers: { Authorization: 'Bearer ' + token },
+        });
+        if (!res.ok) {
+          $('bakErr').textContent = 'Could not download that copy.';
+          $('bakErr').classList.remove('hide');
+          return;
+        }
+        const url = URL.createObjectURL(await res.blob());
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = copying.slug + '-' + name;
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+
+      /*
+       * Two questions, and the second one types the shop's name.
+       *
+       * This throws away everything that has happened since the copy was taken.
+       * A safety copy is made first and the shop is told which one it is, but
+       * "are you sure" on its own is a box people click through.
+       */
+      async function restore(name) {
+        if (!confirm('Put ' + copying.shopName + ' back to ' + name + '?')) return;
+        const typed = prompt('This undoes everything since then. Type the shop name to confirm:');
+        if (typed !== copying.shopName) return;
+
+        $('bakErr').classList.add('hide');
+        try {
+          const res = await api('/api/tenants/' + copying.slug + '/restore', {
+            method: 'POST',
+            body: JSON.stringify({ name }),
+          });
+          $('bakDlg').close();
+          alert(
+            'Restoring ' + copying.shopName + '.\n\n' +
+              'Where it was a moment ago was saved as ' + res.safetyCopy + '.\n' +
+              'It restarts in a couple of seconds.',
+          );
+        } catch (e) {
+          $('bakErr').textContent = e.message;
+          $('bakErr').classList.remove('hide');
+        }
+      }
+
+      /* ------------------------------------------------ a way back in for them */
+
+      async function resetPassword(t) {
+        const username = prompt('Which account is locked out of ' + t.shopName + '?', 'admin');
+        if (!username) return;
+        try {
+          const res = await api('/api/tenants/' + t.slug + '/reset-password', {
+            method: 'POST',
+            body: JSON.stringify({ username }),
+          });
+          // Shown once, here, and never stored: the shop has to change it on
+          // the way in, so what is read out over the phone stops working the
+          // moment it is used.
+          alert(
+            'New password for ' + res.username + ' at ' + t.shopName + ':\n\n' +
+              res.password +
+              '\n\nRead it to them. They must change it when they sign in.',
+          );
+        } catch (e) {
+          alert(e.message);
         }
       }
 

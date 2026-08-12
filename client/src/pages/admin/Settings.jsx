@@ -4,6 +4,7 @@ import api from '../../api';
 import PageHeader from '../../components/PageHeader';
 import CompanySettings from '../../components/CompanySettings';
 import Backups from '../../components/Backups';
+import SupportVisits from '../../components/SupportVisits';
 import { useSettings, lbp } from '../../context/SettingsContext';
 import { TEXT_SIZES, applyTextSize, getTextSize } from '../../lib/textSize';
 import { useLanguage } from '../../context/LanguageContext';
@@ -241,6 +242,11 @@ export default function Settings() {
         {/* Boring until the day it is the only thing that matters. */}
         <div className="mb-4 max-w-4xl">
           <Backups />
+        </div>
+
+        {/* Nothing at all until somebody from outside the shop has been in it. */}
+        <div className="mb-4 max-w-4xl">
+          <SupportVisits />
         </div>
 
         <div className="grid max-w-4xl grid-cols-2 gap-4">

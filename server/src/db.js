@@ -1,4 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
+import { existsSync, renameSync, rmSync } from 'node:fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -7,6 +8,57 @@ const dbPath = process.env.DB_PATH || path.join(__dirname, '..', 'data.sqlite');
 
 /** Where the shop's books actually are, for anything that has to copy them. */
 export const databasePath = dbPath;
+
+/** A backup waiting to be put back, staged by the process that then stood down. */
+export const stagedRestorePath = `${dbPath}.restore`;
+
+/**
+ * Put back a backup, if one was left here for us.
+ *
+ * Restoring means replacing the file the server is holding open, which cannot
+ * be done safely by the server that is holding it. So it is done in two halves:
+ * the running process takes a fresh copy of the current books, writes the
+ * chosen backup down beside the database, and exits. systemd starts it again a
+ * second later, and *this* runs — before anything opens anything.
+ *
+ * Two seconds of downtime, no root, and no window in which the file is being
+ * rewritten under a live reader. The alternative designs all involve the
+ * console being able to run `systemctl` as root, which is the one thing the
+ * console is deliberately not allowed to do.
+ *
+ * The stale `-wal` and `-shm` belong to the *old* file. Leaving them beside the
+ * new one hands SQLite a journal describing a database that is no longer there,
+ * which is a corrupt shop rather than a restored one.
+ */
+function applyStagedRestore() {
+  if (!existsSync(stagedRestorePath)) return null;
+
+  try {
+    // Prove it is a database before standing on it. A truncated or half-copied
+    // file that replaces a working shop is worse than a failed restore, and the
+    // only moment this is cheap to check is before anything depends on it.
+    const candidate = new DatabaseSync(stagedRestorePath, { readOnly: true });
+    candidate.prepare('SELECT count(*) AS n FROM sqlite_master').get();
+    candidate.close();
+  } catch (err) {
+    // Leave the file alone and carry on with the shop we have. A restore that
+    // cannot be trusted is not a reason to refuse to open the till.
+    console.error(`Ignoring a staged restore that will not open: ${err.message}`);
+    rmSync(stagedRestorePath, { force: true });
+    return null;
+  }
+
+  rmSync(dbPath, { force: true });
+  rmSync(`${dbPath}-wal`, { force: true });
+  rmSync(`${dbPath}-shm`, { force: true });
+  renameSync(stagedRestorePath, dbPath);
+
+  console.log('Restored the database from a staged backup.');
+  return dbPath;
+}
+
+/** Set when this boot put a backup back, so the server can say so out loud. */
+export const restoredOnBoot = Boolean(applyStagedRestore());
 
 export const db = new DatabaseSync(dbPath);
 db.exec('PRAGMA journal_mode = WAL');

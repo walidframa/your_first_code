@@ -457,6 +457,44 @@ minted at somebody's counter being accepted here, which is the whole thing this
 arrangement exists to prevent. Different database, different key, different
 address, and no route between them.
 
+### Going into a client's shop
+
+When a client asks you to fix something — a wrong price, an import that went
+wrong, an owner locked out of his own till — **Go in** on their row gives you a
+link that signs you into their shop as an admin. It works once, for five
+minutes.
+
+You do not need their permission, and you cannot do it quietly. Both halves are
+deliberate:
+
+- **They see a bar across their screen naming you and your reason** for as long
+  as you are in there, and it cannot be dismissed.
+- **Every change you make is written into their log**, readable by them under
+  Settings → Support visits — including the things you tried and were refused.
+
+That protects you at least as much as them. "You deleted my sales" is a
+conversation when there is a list and an argument when there is not.
+
+The reason you type is not a formality: it is what they read on the bar and in
+the log a month later. "Rami asked me to fix the iPhone price" is worth typing.
+
+**How it works, and why it is built this way.** The console writes a ticket into
+the book of shops; the shop reads that book already, to check its own licence.
+The shop redeems the ticket **with its own signing key**, in its own process. The
+console never holds a key to any shop — so a console that was broken into could
+write tickets, and nothing more. The ticket is single-use, and it is the *shop*
+that enforces that, because the console can only read the book the shop reads.
+
+Alongside it, on each row:
+
+- **Copies** — list a client's backups, download one to your own machine, take a
+  fresh one, or **put the shop back** to one of them. A restore takes a copy of
+  where the shop is *now* first, then the shop restarts onto the old one about
+  two seconds later. It asks twice and makes you type the shop's name.
+- **Reset password** — for an owner locked out of his own shop. The password is
+  generated, shown to you once, and **must be changed when they sign in**, so
+  what you read down the phone is not a lasting key.
+
 **What it deliberately cannot do:** create a shop, take one off the air, or
 delete one's data. Those need root — they write systemd units, edit nginx and
 remove files — and a web page on the open internet that could run them would be

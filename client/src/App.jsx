@@ -1,5 +1,6 @@
 import { Navigate, Routes, Route } from 'react-router';
 import Login from './pages/Login';
+import SupportEntry from './pages/SupportEntry';
 import Transfers from './pages/Transfers';
 import Vouchers from './pages/Vouchers';
 import { useAuth } from './context/AuthContext';
@@ -74,6 +75,10 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+      {/* Outside the protected block on purpose: this is the route that *makes*
+          somebody signed in, so requiring a session to reach it would be a door
+          that can only be opened from inside. */}
+      <Route path="/support" element={<SupportEntry />} />
 
       <Route
         element={

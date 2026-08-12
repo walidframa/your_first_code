@@ -1,6 +1,8 @@
-import { CalendarClock, CloudOff, RefreshCw, TriangleAlert } from 'lucide-react';
+import { CalendarClock, CloudOff, LifeBuoy, RefreshCw, TriangleAlert } from 'lucide-react';
 import { useOffline } from '../context/OfflineContext';
 import { useLicence } from '../context/LicenceContext';
+import { useSupport } from '../context/SupportContext';
+import { useAuth } from '../context/AuthContext';
 import { Button, cx, money } from './ui';
 import { useT } from '../context/LanguageContext';
 
@@ -51,6 +53,39 @@ function LicenceBar() {
   );
 }
 
+/**
+ * Somebody who is not the shop is in the shop.
+ *
+ * Named, with their reason, and not dismissible. This is the whole bargain the
+ * support visit is built on: the vendor can come in without asking, and in
+ * exchange the shop is never in the dark about it. A bar that could be closed
+ * would be closed once and never thought about again, which turns "you can see
+ * me" into "you could have seen me".
+ *
+ * Purple rather than red. It is not a fault, and a shop that learns to read
+ * every coloured bar as something broken stops reading the red one.
+ */
+function SupportBar() {
+  const { support } = useSupport();
+  const { user } = useAuth();
+  const t = useT();
+  if (!support?.active) return null;
+
+  const mine = Boolean(user?.support);
+
+  return (
+    <div className="flex items-start gap-2 bg-violet-700 px-4 py-1.5 text-sm font-medium text-white">
+      <LifeBuoy size={15} className="mt-0.5 shrink-0" />
+      <span>
+        {mine
+          ? t('You are in this shop as support. They can see you, and every change is logged.')
+          : t('{name} from support is in your shop right now.', { name: support.operator })}
+        {support.reason && <span className="font-normal opacity-90"> — {support.reason}</span>}
+      </span>
+    </div>
+  );
+}
+
 /** How many sales are waiting, and — if it is worth saying — how much money. */
 function waiting(t, count, total) {
   if (total > 0) {
@@ -70,14 +105,22 @@ export default function OfflineBar() {
   const { reachable, sending, pending, refused, send } = useOffline();
   const t = useT();
 
-  // The licence bar has its own reasons to appear, so this one no longer gets
-  // to decide there is nothing to show.
-  if (reachable && pending.length === 0 && refused.length === 0) return <LicenceBar />;
+  // The licence and support bars have their own reasons to appear, so this one
+  // no longer gets to decide there is nothing to show.
+  if (reachable && pending.length === 0 && refused.length === 0) {
+    return (
+      <>
+        <SupportBar />
+        <LicenceBar />
+      </>
+    );
+  }
 
   const total = pending.reduce((sum, s) => sum + (s.total || 0), 0);
 
   return (
     <div className="no-print">
+      <SupportBar />
       <LicenceBar />
 
       {!reachable && (

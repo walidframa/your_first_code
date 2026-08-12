@@ -83,6 +83,29 @@ export function ensureControlSchema(db) {
     );
 
     CREATE INDEX IF NOT EXISTS idx_payments_tenant ON payments(tenant_id, taken_at);
+
+    -- One arranged visit by the vendor into one shop.
+    --
+    -- Here rather than in the shop's own database because this is the only
+    -- thing both sides can see: the console writes it, and the shop is already
+    -- reading this file read-only to check its licence. Nothing else has to be
+    -- shared for a support visit to work — and in particular not the shop's
+    -- signing key, which stays where it is.
+    CREATE TABLE IF NOT EXISTS support_tickets (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      -- The public name of the visit, which the shop records in its own log.
+      -- The secret is the token, and only its hash is kept.
+      ticket      TEXT UNIQUE NOT NULL,
+      slug        TEXT NOT NULL,
+      operator    TEXT NOT NULL,
+      token_hash  TEXT NOT NULL,
+      -- What the vendor said they were coming in to do, shown to the shop.
+      reason      TEXT,
+      created_at  TEXT NOT NULL,
+      expires_at  TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_tickets_hash ON support_tickets(token_hash);
   `);
   return db;
 }

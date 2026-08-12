@@ -25,10 +25,13 @@ const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
 // check the error is reported rather than the credentials quietly stored.
 // And deleting a category that still holds products is refused on purpose —
 // the 409 carries the count, which is what the confirmation is built from.
+// And a support ticket that is not good is offered on purpose: the 401 is the
+// thing being checked, because a spent or guessed link must not be a way in.
 const ALLOWED_FAILURES = [
   /\/api\/products\/lookup/,
   /\/api\/shopify\/connect/,
   /\/api\/products\/categories\/\d+$/,
+  /\/api\/support\/redeem/,
 ];
 
 const consoleErrors = [];
@@ -2212,6 +2215,68 @@ try {
     if (await page.locator('text=Units on hand').count()) {
       throw new Error('cashier reached an admin page');
     }
+  });
+
+  console.log('\nA visit from the vendor');
+
+  /*
+   * The one flow no unit test can reach: a link out of the vendor's console,
+   * opened in a browser, landing signed into somebody else's shop — and the bar
+   * that has to be on their screen while it lasts.
+   *
+   * The ticket is written straight into the book of shops, which is exactly
+   * what the console does. Going through the console itself would mean running
+   * a second server here to test the client half of the first.
+   */
+  await step('a support link signs the vendor into the shop', async () => {
+    const { DatabaseSync } = await import('node:sqlite');
+    const { mintTicket } = await import('../server/src/lib/supportTickets.js');
+
+    const control = new DatabaseSync(process.env.E2E_CONTROL_DB);
+    const { token } = mintTicket(control, {
+      slug: 'e2e',
+      operator: 'walid',
+      reason: 'They asked me to look at a price',
+    });
+    control.close();
+
+    await page.click('button[aria-label="Log out"]');
+    await page.goto(`${BASE_URL}/support?t=${token}`, { waitUntil: 'networkidle' });
+
+    // Landed inside the shop, not on the sign-in screen.
+    await page.waitForSelector('text=Current sale', { timeout: 15000 });
+  });
+
+  await step('the shop is told who is in it, and why', async () => {
+    await page.waitForSelector('text=You are in this shop as support', { timeout: 40000 });
+    await page.waitForSelector('text=They asked me to look at a price', { timeout: 10000 });
+  });
+  await shot('support-visit');
+
+  await step('and the shop keeps its own record of the visit', async () => {
+    await page.goto(`${BASE_URL}/admin/settings`, { waitUntil: 'networkidle' });
+    await page.waitForSelector('text=Support visits', { timeout: 15000 });
+    await page.waitForSelector('text=They asked me to look at a price', { timeout: 10000 });
+
+    // Opening the visit lists what was actually done, rather than only that
+    // somebody was here.
+    await page.click('text=They asked me to look at a price');
+    await page.waitForTimeout(300);
+  });
+  await shot('support-log');
+
+  await step('a ticket that is not good says so instead of letting anybody in', async () => {
+    // A link out of a browser history must not be a way back in, and neither
+    // must a guess. Both land here, and the page has to say so rather than
+    // bouncing to a sign-in screen that looks like an ordinary session ending.
+    await page.click('button[aria-label="Log out"]');
+    await page.goto(`${BASE_URL}/support?t=${'a'.repeat(64)}`, { waitUntil: 'networkidle' });
+    await page.waitForSelector('text=That link did not work', { timeout: 15000 });
+
+    // Back to an ordinary signed-in shop for whatever runs next.
+    await page.goto(`${BASE_URL}/login`, { waitUntil: 'networkidle' });
+    await signIn('cashier');
+    await page.waitForSelector('text=Current sale', { timeout: 15000 });
   });
 
   console.log('\nIn Arabic');

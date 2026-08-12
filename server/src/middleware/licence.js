@@ -32,6 +32,16 @@ const OPEN_WHEN_LOCKED = [
   // Their data, on the way out. Making a fresh copy is a read of the shop's
   // database and a write of a file beside it — it changes nothing in the books.
   '/api/backups',
+  /*
+   * And the vendor's own way in. A stopped shop is the likeliest moment to need
+   * it: the owner cannot sign in, or wants their data out, or has just paid and
+   * something is wrong. Locking the vendor out of a shop the vendor locked
+   * would leave nobody able to put it right.
+   *
+   * This opens the support routes only. Selling still goes through the routes
+   * above this line, so a visit cannot ring up a sale on a stopped till.
+   */
+  '/api/support',
 ];
 
 export function licenceStatus() {
