@@ -67,6 +67,23 @@ export function AuthProvider({ children }) {
   }
 
   /**
+   * The vendor, arriving on a ticket instead of a password.
+   *
+   * The same shape as signing in and deliberately so — from here on the app
+   * cannot tell the difference, and should not have to. What differs is behind
+   * it: the account is the shop's reserved `__support` row, the token says which
+   * visit it belongs to, and the shop is showing a bar about it the whole time.
+   */
+  async function signInWithTicket(ticket) {
+    const res = await api.post('/support/redeem', { token: ticket });
+    localStorage.setItem('pos_token', res.data.token);
+    localStorage.setItem('pos_user', JSON.stringify(res.data.user));
+    setAuthToken(res.data.token);
+    setToken(res.data.token);
+    setUser(res.data.user);
+  }
+
+  /**
    * Change your own password, and stay signed in.
    *
    * The server hands back a fresh token because the one this browser is holding
@@ -104,7 +121,9 @@ export function AuthProvider({ children }) {
   );
 
   return (
-    <AuthContext.Provider value={{ user, token, loading, login, logout, can, changePassword }}>
+    <AuthContext.Provider
+      value={{ user, token, loading, login, logout, can, changePassword, signInWithTicket }}
+    >
       {children}
     </AuthContext.Provider>
   );

@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ensureControlSchema } from '../lib/control.js';
+import { mintTicket, pruneTickets } from '../lib/supportTickets.js';
 import { PLANS, extend, licenceMessage, licenceState, today } from '../lib/licence.js';
 import {
   attemptKey,
@@ -191,6 +192,209 @@ export function createConsoleApp({ controlDb, secret, domain = 'xtechpos.com' })
     const suspended = req.body?.suspended ? 1 : 0;
     db.prepare('UPDATE tenants SET suspended = ? WHERE id = ?').run(suspended, tenant.id);
     res.json({ suspended: Boolean(suspended) });
+  });
+
+  /* ------------------------------------------------------- going into a shop */
+
+  /** A shop that is actually running, and where on this machine to reach it. */
+  function reachable(slug) {
+    const tenant = db.prepare('SELECT * FROM tenants WHERE slug = ?').get(slug);
+    if (!tenant) return { error: 'No such shop', status: 404 };
+    if (tenant.removed_at) return { error: 'That shop has been removed', status: 400 };
+    if (!tenant.port) return { error: 'That shop has no port recorded', status: 409 };
+    return { tenant, base: `http://127.0.0.1:${tenant.port}` };
+  }
+
+  /**
+   * Do something inside a shop, as the shop, on the vendor's behalf.
+   *
+   * Not by reaching into their database — by asking their own server, on a
+   * ticket, exactly as a browser would. Three things follow from that and all
+   * three are the point: the shop's own code enforces its own rules, the visit
+   * is written into the shop's log like any other, and this console never needs
+   * a key to anything.
+   *
+   * The reply is the shop's own. An error from in there is passed through
+   * rather than reworded, because a vendor debugging a shop wants what the shop
+   * said.
+   */
+  async function inside(slug, operator, reason, call) {
+    const found = reachable(slug);
+    if (found.error) return found;
+
+    const { token } = mintTicket(db, { slug, operator, reason });
+    let session;
+    try {
+      const res = await fetch(`${found.base}/api/support/redeem`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token }),
+        signal: AbortSignal.timeout(10000),
+      });
+      session = await res.json();
+      if (!res.ok) return { error: session?.error || 'That shop refused the visit', status: 502 };
+    } catch (err) {
+      // The commonest cause by far, and the one worth naming: the shop is down.
+      return { error: `Could not reach that shop: ${err.message}`, status: 502 };
+    }
+
+    return call(found.base, session.token);
+  }
+
+  /**
+   * A link that signs the vendor into a client's shop, once, within five
+   * minutes.
+   *
+   * The reason is required. Not as a formality — it is what the shop sees on
+   * the bar across their screen while the visit lasts, and what stands in their
+   * log afterwards. "Rami asked me to fix the iPhone price" is a different
+   * thing to read a month later than a blank.
+   */
+  app.post('/api/tenants/:slug/support', requireOperator, (req, res) => {
+    const found = reachable(req.params.slug);
+    if (found.error) return res.status(found.status).json({ error: found.error });
+
+    const reason = String(req.body?.reason || '').trim();
+    if (reason.length < 3) {
+      return res.status(400).json({ error: 'Say what you are going in to do' });
+    }
+
+    const { token, expiresAt } = mintTicket(db, {
+      slug: req.params.slug,
+      operator: req.operator.username,
+      reason,
+    });
+    pruneTickets(db);
+
+    res.json({
+      url: `https://${req.params.slug}.${domain}/support?t=${token}`,
+      expiresAt,
+      warning: 'They will see a bar naming you for as long as you are in there.',
+    });
+  });
+
+  /* --------------------------------------------------- their copies of things */
+
+  app.get('/api/tenants/:slug/backups', requireOperator, async (req, res) => {
+    const out = await inside(req.params.slug, req.operator.username, 'Listing backups', async (base, token) => {
+      const r = await fetch(`${base}/api/backups`, {
+        headers: { Authorization: `Bearer ${token}` },
+        signal: AbortSignal.timeout(15000),
+      });
+      return { status: r.status, body: await r.json() };
+    });
+    if (out.error) return res.status(out.status).json({ error: out.error });
+    res.status(out.status).json(out.body);
+  });
+
+  app.post('/api/tenants/:slug/backups', requireOperator, async (req, res) => {
+    const out = await inside(
+      req.params.slug,
+      req.operator.username,
+      req.body?.reason || 'Taking a backup',
+      async (base, token) => {
+        const r = await fetch(`${base}/api/support/backup`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: '{}',
+          signal: AbortSignal.timeout(120000),
+        });
+        return { status: r.status, body: await r.json() };
+      },
+    );
+    if (out.error) return res.status(out.status).json({ error: out.error });
+    res.status(out.status).json(out.body);
+  });
+
+  /**
+   * A client's whole shop, downloaded.
+   *
+   * Streamed through rather than read into memory: this is the file the entire
+   * business is in, and a console that loaded a 400MB database into a buffer to
+   * hand it over would fall over on exactly the shop that mattered most.
+   */
+  app.get('/api/tenants/:slug/backups/:name', requireOperator, async (req, res) => {
+    const out = await inside(
+      req.params.slug,
+      req.operator.username,
+      'Downloading a backup',
+      async (base, token) => {
+        const r = await fetch(`${base}/api/backups/${encodeURIComponent(req.params.name)}`, {
+          headers: { Authorization: `Bearer ${token}` },
+          signal: AbortSignal.timeout(300000),
+        });
+        return { status: r.status, upstream: r };
+      },
+    );
+    if (out.error) return res.status(out.status).json({ error: out.error });
+    if (out.status !== 200 || !out.upstream.body) {
+      return res.status(out.status).json(await out.upstream.json().catch(() => ({
+        error: 'That shop would not hand over the file',
+      })));
+    }
+
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${req.params.slug}-${req.params.name}"`,
+    );
+    const length = out.upstream.headers.get('content-length');
+    if (length) res.setHeader('Content-Length', length);
+
+    for await (const chunk of out.upstream.body) res.write(chunk);
+    res.end();
+  });
+
+  /**
+   * Put a shop back to one of its copies.
+   *
+   * The shop does this to itself: it takes a copy of where it is now, writes the
+   * chosen one down beside its database and restarts onto it. This console does
+   * not touch the file and could not — which is why a restore is a button here
+   * and a purge is not.
+   */
+  app.post('/api/tenants/:slug/restore', requireOperator, async (req, res) => {
+    const name = String(req.body?.name || '');
+    if (!name) return res.status(400).json({ error: 'Which copy?' });
+
+    const out = await inside(
+      req.params.slug,
+      req.operator.username,
+      `Restoring ${name}`,
+      async (base, token) => {
+        const r = await fetch(`${base}/api/support/restore`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name }),
+          signal: AbortSignal.timeout(120000),
+        });
+        return { status: r.status, body: await r.json() };
+      },
+    );
+    if (out.error) return res.status(out.status).json({ error: out.error });
+    res.status(out.status).json(out.body);
+  });
+
+  /** A way back in for an owner who is locked out of their own shop. */
+  app.post('/api/tenants/:slug/reset-password', requireOperator, async (req, res) => {
+    const username = String(req.body?.username || 'admin').trim();
+
+    const out = await inside(
+      req.params.slug,
+      req.operator.username,
+      `Resetting the password for ${username}`,
+      async (base, token) => {
+        const r = await fetch(`${base}/api/support/reset-password`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username }),
+          signal: AbortSignal.timeout(15000),
+        });
+        return { status: r.status, body: await r.json() };
+      },
+    );
+    if (out.error) return res.status(out.status).json({ error: out.error });
+    res.status(out.status).json(out.body);
   });
 
   /* ------------------------------------------------- the ones that need root */

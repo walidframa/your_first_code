@@ -39,33 +39,55 @@ export function backupDir() {
   return process.env.BACKUP_DIR || path.join(path.dirname(databasePath), 'backups');
 }
 
-const STAMP = /^pos-(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})\.sqlite$/;
+/*
+ * The name carries the second it was taken, and — only when it has to — which
+ * one within that second. See `makeBackup` for why the second half exists.
+ */
+const STAMP = /^pos-(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})(?:-(\d+))?\.sqlite$/;
 
-/** A name that sorts by age and says when it was taken. */
-function nameFor(now = new Date()) {
-  return `pos-${now.toISOString().slice(0, 19).replaceAll(':', '-')}.sqlite`;
+/** A name that says when it was taken, and tells two in one second apart. */
+function nameFor(now = new Date(), seq = 1) {
+  const stamp = now.toISOString().slice(0, 19).replaceAll(':', '-');
+  return `pos-${stamp}${seq > 1 ? `-${seq}` : ''}.sqlite`;
 }
 
 /**
  * Take one, now.
  *
- * `VACUUM INTO` refuses to overwrite, which is the behaviour we want: a name
- * collision means two backups within the same second, and the first one is
- * every bit as good as the second.
+ * The name has to be free, and finding a free one is not fussiness. This used
+ * to hand back the existing copy when the second collided, on the reasoning
+ * that two backups a second apart are the same backup. That reasoning is wrong
+ * in exactly one place, and it is the place that matters most: a restore takes
+ * a safety copy of where the shop is *now* immediately before standing on it.
+ * If a copy had been taken in the same second — which is precisely what happens
+ * when somebody takes one, looks at it, and decides to roll back — the "safety
+ * copy" was the old state, and the work being undone was saved nowhere at all.
+ *
+ * `VACUUM INTO` still refuses to overwrite, which is the backstop.
  */
 export function makeBackup() {
   const dir = backupDir();
   mkdirSync(dir, { recursive: true });
 
-  const name = nameFor();
-  const file = path.join(dir, name);
-  if (existsSync(file)) return describe(dir, name);
+  const now = new Date();
+  let name = nameFor(now);
+  // A second holding a hundred backups is a loop somewhere, not a shop.
+  for (let seq = 2; existsSync(path.join(dir, name)) && seq < 100; seq += 1) {
+    name = nameFor(now, seq);
+  }
 
+  const file = path.join(dir, name);
   // Quoted rather than bound: VACUUM INTO takes a literal, not a parameter.
   db.exec(`VACUUM INTO '${file.replaceAll("'", "''")}'`);
 
   prune(dir);
   return describe(dir, name);
+}
+
+/** Sortable: the second it was taken, then its place within that second. */
+function order(name) {
+  const [, stamp, seq] = STAMP.exec(name);
+  return `${stamp}-${String(seq ? Number(seq) : 1).padStart(3, '0')}`;
 }
 
 function describe(dir, name) {
@@ -79,14 +101,20 @@ function describe(dir, name) {
   };
 }
 
-/** Newest first, so the one somebody wants is the one at the top. */
+/**
+ * Newest first, so the one somebody wants is the one at the top.
+ *
+ * Sorted by the parsed name rather than by the string. Plain string order puts
+ * `pos-…-2.sqlite` *before* `pos-….sqlite`, because a hyphen sorts below a dot
+ * — so the second copy in a second would be listed as the older of the two, and
+ * "restore the newest" would reach for the wrong one.
+ */
 export function listBackups() {
   const dir = backupDir();
   if (!existsSync(dir)) return [];
   return readdirSync(dir)
     .filter((n) => STAMP.test(n))
-    .sort()
-    .reverse()
+    .sort((a, b) => order(b).localeCompare(order(a)))
     .map((n) => describe(dir, n));
 }
 
@@ -94,8 +122,9 @@ export function listBackups() {
 function prune(dir, keep = KEEP) {
   const old = readdirSync(dir)
     .filter((n) => STAMP.test(n))
-    .sort()
-    .reverse()
+    // The same order as the list, for the same reason: pruning by string order
+    // would drop the second copy in a second before an older one.
+    .sort((a, b) => order(b).localeCompare(order(a)))
     .slice(keep);
   for (const name of old) rmSync(path.join(dir, name), { force: true });
   return old.length;

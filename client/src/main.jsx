@@ -13,6 +13,7 @@ import { applyLanguage } from './lib/i18n.js';
 import { LanguageProvider } from './context/LanguageContext.jsx';
 import { watchForInstall } from './lib/install.js';
 import { LicenceProvider, useLicence } from './context/LicenceContext.jsx';
+import { SupportProvider } from './context/SupportContext.jsx';
 import Locked from './pages/Locked.jsx';
 
 /** The whole app, or the one screen that explains why there isn't one. */
@@ -65,7 +66,12 @@ createRoot(document.getElementById('root')).render(
               <BranchProvider>
                 <SettingsProvider>
                   <OfflineProvider>
-                    <App />
+                    {/* Innermost, and reading the token above it: the bar it
+                        feeds is drawn inside the app shell, and there is
+                        nothing to tell a signed-out screen. */}
+                    <SupportProvider>
+                      <App />
+                    </SupportProvider>
                   </OfflineProvider>
                 </SettingsProvider>
               </BranchProvider>

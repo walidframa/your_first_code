@@ -29,7 +29,24 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     const expired = error.response?.status === 401;
-    const signingIn = String(error.config?.url || '').includes('/auth/login');
+    /*
+     * Two 401s mean "you typed it wrong", not "your session ended", and both
+     * have a screen of their own that has to be able to say so in place: the
+     * login form, and the page a support ticket lands on.
+     */
+    const url = String(error.config?.url || '');
+    const signingIn = url.includes('/auth/login') || url.includes('/support/redeem');
+
+    /*
+     * And one that must never throw anybody out on its own.
+     *
+     * The support poll runs on a timer in the background. If a stray 401 from
+     * it could end the session, a cashier mid-sale would be sent to the login
+     * screen by a request nobody made and nothing was waiting for. A session
+     * that has really ended will be found by the next request that matters.
+     */
+    const background = url.includes('/support/state');
+    if (background) return Promise.reject(error);
 
     if (expired && !signingIn) {
       localStorage.removeItem('pos_token');

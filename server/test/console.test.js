@@ -261,6 +261,76 @@ test('the destructive commands are text to paste, not buttons to press', async (
   }
 });
 
+/* ------------------------------------------------- going into a shop */
+
+test('a visit needs a reason, because the shop is going to read it', async () => {
+  // Not a formality: it is what the shop sees on the bar across their screen
+  // while the visit lasts, and what stands in their log afterwards.
+  for (const body of [{}, { reason: '' }, { reason: 'ok' }]) {
+    const res = await req('POST', '/api/tenants/rami/support', body);
+    assert.equal(res.status, 400, `${JSON.stringify(body)} was accepted`);
+  }
+});
+
+test('a link is one address, for one shop, that expires', async () => {
+  const res = await req('POST', '/api/tenants/rami/support', {
+    reason: 'Rami asked me to fix a price',
+  });
+  assert.equal(res.status, 200);
+  assert.match(res.json.url, /^https:\/\/rami\.xtechpos\.com\/support\?t=[0-9a-f]{64}$/);
+  assert.ok(res.json.expiresAt);
+});
+
+test('the ticket in the link is not the one in the book', async () => {
+  /*
+   * The console hands the secret out once and keeps only its hash. A vendor's
+   * own backup of the book of shops is then not a set of keys to every till
+   * they have ever visited.
+   */
+  const { json } = await req('POST', '/api/tenants/rami/support', { reason: 'Checking something' });
+  const token = new URL(json.url).searchParams.get('t');
+
+  const rows = control.prepare('SELECT * FROM support_tickets').all();
+  const stored = JSON.stringify(rows);
+  assert.ok(!stored.includes(token), 'the token is stored in the clear');
+});
+
+test('there is no going into a shop that is not there', async () => {
+  const res = await req('POST', '/api/tenants/ghost/support', { reason: 'Anything at all' });
+  assert.equal(res.status, 404);
+});
+
+test('reaching a shop that is not running says so rather than hanging', async () => {
+  // Nothing is listening on the port in the fixture, which is the same thing a
+  // vendor sees when a client's shop is down — and the moment they most need to
+  // be told which of the two it is.
+  for (const [method, route] of [
+    ['GET', '/api/tenants/rami/backups'],
+    ['POST', '/api/tenants/rami/backups'],
+    ['POST', '/api/tenants/rami/reset-password'],
+  ]) {
+    const res = await req(method, route, method === 'POST' ? {} : null);
+    assert.equal(res.status, 502, `${method} ${route}`);
+    assert.match(res.json.error, /Could not reach that shop/);
+  }
+});
+
+test('a restore has to name a copy', async () => {
+  assert.equal((await req('POST', '/api/tenants/rami/restore', {})).status, 400);
+});
+
+test('none of it is open without a token', async () => {
+  for (const [method, route] of [
+    ['POST', '/api/tenants/rami/support'],
+    ['GET', '/api/tenants/rami/backups'],
+    ['POST', '/api/tenants/rami/restore'],
+    ['POST', '/api/tenants/rami/reset-password'],
+  ]) {
+    const res = await req(method, route, method === 'POST' ? {} : null, null);
+    assert.equal(res.status, 401, `${method} ${route} was open`);
+  }
+});
+
 test('the page itself is served, and is not an API 404', async () => {
   const res = await fetch(`${BASE}/`);
   assert.equal(res.status, 200);
