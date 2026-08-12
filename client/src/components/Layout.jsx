@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router';
 import OfflineBar from './OfflineBar';
+import { useT } from '../context/LanguageContext';
 import {
   ArrowLeftRight,
   BarChart3,
@@ -120,13 +121,20 @@ const ADMIN_NAV = [
  * height to say nothing.
  */
 function NavItem({ to, label, icon: Icon, end, expanded }) {
+  /*
+   * Translated here rather than at each of the thirty call sites: the label is
+   * the English word in the nav table above, which is also the key.
+   */
+  const t = useT();
+  const name = t(label);
+
   return (
     <NavLink
       to={to}
       end={end}
       /* Kept in both states: collapsed it is the only name the icon has, and
          expanded it still answers a truncated label. */
-      title={label}
+      title={name}
       className={({ isActive }) =>
         cx(
           'group relative flex items-center rounded-lg transition',
@@ -139,10 +147,10 @@ function NavItem({ to, label, icon: Icon, end, expanded }) {
     >
       <Icon size={18} className="shrink-0" aria-hidden="true" />
       {expanded ? (
-        <span className="truncate text-sm font-medium">{label}</span>
+        <span className="truncate text-sm font-medium">{name}</span>
       ) : (
         // Named for a screen reader even when the icon stands alone.
-        <span className="sr-only">{label}</span>
+        <span className="sr-only">{name}</span>
       )}
     </NavLink>
   );
@@ -151,6 +159,7 @@ function NavItem({ to, label, icon: Icon, end, expanded }) {
 export default function Layout() {
   const { user, logout, can } = useAuth();
   const { pathname } = useLocation();
+  const t = useT();
 
   /*
    * Wide by default, and a preference rather than a state: an icon nobody has
@@ -279,7 +288,7 @@ export default function Layout() {
                           className={cx('shrink-0 transition-transform', open && 'rotate-90')}
                           aria-hidden="true"
                         />
-                        {group.heading}
+                        {t(group.heading)}
                       </button>
                     ) : (
                       /* Narrow, a heading would be four unreadable letters, so the
@@ -302,15 +311,15 @@ export default function Layout() {
         <div className="mt-auto w-full shrink-0 space-y-1 pt-3">
           <button
             onClick={() => setExpanded((v) => !v)}
-            aria-label={expanded ? 'Collapse the menu' : 'Expand the menu'}
-            title={expanded ? 'Collapse the menu' : 'Expand the menu'}
+            aria-label={expanded ? t('Collapse the menu') : t('Expand the menu')}
+            title={expanded ? t('Collapse the menu') : t('Expand the menu')}
             className={cx(
               'flex h-9 w-full items-center rounded-lg text-slate-400 transition hover:bg-slate-800 hover:text-white',
               expanded ? 'gap-3 px-3' : 'justify-center',
             )}
           >
             {expanded ? <PanelLeftClose size={17} /> : <PanelLeftOpen size={17} />}
-            {expanded && <span className="text-sm font-medium">Collapse</span>}
+            {expanded && <span className="text-sm font-medium">{t('Collapse')}</span>}
           </button>
 
           <div className="border-t border-slate-800 pt-2">
@@ -331,15 +340,15 @@ export default function Layout() {
 
             <button
               onClick={logout}
-              title="Log out"
-              aria-label="Log out"
+              title={t('Log out')}
+              aria-label={t('Log out')}
               className={cx(
                 'mt-1 flex h-9 w-full items-center rounded-lg text-slate-400 transition hover:bg-slate-800 hover:text-white',
                 expanded ? 'gap-3 px-3' : 'justify-center',
               )}
             >
               <LogOut size={17} />
-              {expanded && <span className="text-sm font-medium">Log out</span>}
+              {expanded && <span className="text-sm font-medium">{t('Log out')}</span>}
             </button>
           </div>
         </div>

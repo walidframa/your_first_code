@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, Banknote, CreditCard, Delete, Wallet } from 'lucide-react';
 import { Button, Modal, cx, money } from './ui';
+import { useT } from '../context/LanguageContext';
 import { useSettings, lbp } from '../context/SettingsContext';
 import { splitStatus, suggestSplit } from '../lib/change';
 
@@ -16,6 +17,7 @@ const CHANGE_FIELDS = ['CHANGE_USD', 'CHANGE_LBP'];
  * the two — and the sheet shows the exact amounts to hand over.
  */
 export default function PaymentSheet({ open, total, customer, onClose, onConfirm, submitting }) {
+  const t = useT();
   const { rate, step, toLbp } = useSettings();
 
   const [method, setMethod] = useState(null);
@@ -198,7 +200,7 @@ export default function PaymentSheet({ open, total, customer, onClose, onConfirm
           loading={submitting}
           onClick={() => onConfirm({ paymentMethod: 'card' })}
         >
-          Confirm {money(total)}
+          {t('Confirm')} {money(total)}
         </Button>
       </div>
     ) : method === 'cash' ? (
@@ -226,7 +228,13 @@ export default function PaymentSheet({ open, total, customer, onClose, onConfirm
     <Modal
       open={open}
       onClose={submitting ? undefined : onClose}
-      title={method === null ? 'Take payment' : method === 'cash' ? 'Cash payment' : 'Card payment'}
+      title={
+        method === null
+          ? t('Take payment')
+          : method === 'cash'
+            ? t('Cash payment')
+            : t('Card payment')
+      }
       subtitle={`${money(total)} · ${lbp(totalLbp)}`}
       size={method === 'cash' ? 'lg' : 'sm'}
       footer={footer}
@@ -239,14 +247,14 @@ export default function PaymentSheet({ open, total, customer, onClose, onConfirm
               className="flex flex-col items-center gap-2 rounded-xl bg-white px-4 py-8 ring-1 ring-slate-300 transition hover:bg-slate-50 hover:ring-brand-400"
             >
               <CreditCard size={26} className="text-slate-700" />
-              <span className="font-medium text-slate-800">Card</span>
+              <span className="font-medium text-slate-800">{t('Card')}</span>
             </button>
             <button
               onClick={() => setMethod('cash')}
               className="flex flex-col items-center gap-2 rounded-xl bg-white px-4 py-8 ring-1 ring-slate-300 transition hover:bg-slate-50 hover:ring-brand-400"
             >
               <Banknote size={26} className="text-slate-700" />
-              <span className="font-medium text-slate-800">Cash</span>
+              <span className="font-medium text-slate-800">{t('Cash')}</span>
             </button>
           </div>
 
@@ -263,7 +271,9 @@ export default function PaymentSheet({ open, total, customer, onClose, onConfirm
           >
             <Wallet size={20} />
             <span className="font-medium">
-              {customer ? `Put on ${customer.name}'s account` : 'On account — pick a customer first'}
+              {customer
+                ? t("Put on {name}'s account", { name: customer.name })
+                : t('On account — pick a customer first')}
             </span>
           </button>
         </div>

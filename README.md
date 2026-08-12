@@ -923,6 +923,34 @@ out of things that stayed put. The steps stop at 120% for the same reason:
 further starts wrapping the register's own columns, and a cashier who cannot
 read a total is no better off if the total is in the wrong place.
 
+## Arabic — العربية
+
+The switch is **on the sign-in screen**, above the logo, and that placement is
+the whole point: somebody who needs the app in Arabic cannot read the English
+screen that would otherwise be asking them to choose. It is also in
+**Settings → Language** for changing your mind without signing out.
+
+The choice is kept on the device, not against the account, so a shop where the
+owner reads English and the cashier reads Arabic can have the back office in one
+and the till in the other on the same login.
+
+Choosing Arabic sets `dir="rtl"` on the document, so the browser lays the whole
+app out the other way round by itself — the menu moves to the right, the cart to
+the left, and every row reverses. The handful of classes the browser does *not*
+flip (`ml-2`, `pl-9`, `text-right`) are flipped in one block at the end of
+`client/src/index.css`.
+
+**The counter is translated; the deeper back office is not, yet.** The register,
+the payment sheet, the receipt, the cashbox, the customer picker and the whole
+menu are in Arabic. The accounting screens fall back to English. That is on
+purpose: the English string *is* the translation key, so anything not yet
+translated shows perfectly good English rather than a broken `checkout.total`,
+and a wrong Arabic word on a screen about money is worse than an English one.
+
+To translate more, add entries to the `AR` object in `client/src/lib/i18n.js`
+keyed by the English text exactly as it is written in the component, then wrap
+that text in `t(...)`.
+
 ## Dual currency
 
 Products are priced in **US dollars only**. Lebanese pounds are derived from a

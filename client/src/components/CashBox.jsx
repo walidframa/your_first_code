@@ -18,6 +18,7 @@ import { lbp, useSettings } from '../context/SettingsContext';
 import { combinedUsd } from '../lib/change.js';
 import { countDifference } from '../lib/cashCount.js';
 import { Button, Input, Modal, ModalActions, Select, cx, money, useToast } from './ui';
+import { useT } from '../context/LanguageContext';
 
 const IN_REASONS = [
   ['petty_cash', 'Petty cash'],
@@ -187,6 +188,7 @@ function OpenDrawer({ denominations, accountId, onClose, onOpened }) {
  * is the question they opened the dialog to answer.
  */
 function CloseDrawer({ denominations, accountId, expected, onClose, onClosed, onReport }) {
+  const t = useT();
   const toast = useToast();
   const { rate } = useSettings();
   const [usdNotes, setUsdNotes] = useState({});
@@ -356,7 +358,7 @@ function CloseDrawer({ denominations, accountId, expected, onClose, onClosed, on
     <Modal
       open
       onClose={onClose}
-      title="Close the cashbox"
+      title={t('Close the cashbox')}
       subtitle="Count what is in the drawer"
       size="lg"
     >
@@ -660,6 +662,7 @@ function MoveCash({ direction, accountId, onClose, onDone }) {
  * before there was more than one.
  */
 export default function CashBox({ onChanged, refreshOn = 0, accountId = null, showProfit = false }) {
+  const t = useT();
   const [state, setState] = useState(null);
   const [dialog, setDialog] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -722,14 +725,14 @@ export default function CashBox({ onChanged, refreshOn = 0, accountId = null, sh
               <Lock size={15} />
             </span>
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold text-amber-900">Cashbox closed</p>
+              <p className="text-sm font-semibold text-amber-900">{t('Cashbox closed')}</p>
               <p className="text-[11px] leading-snug text-amber-700">
-                {state.required ? 'Cash sales are refused until it is open' : 'Open it to track the drawer'}
+                {state.required ? t('Cash sales are refused until it is open') : 'Open it to track the drawer'}
               </p>
             </div>
           </div>
           <Button size="sm" className="mt-2.5 w-full" onClick={() => setDialog('open')}>
-            <LockOpen size={15} /> Open the cashbox
+            <LockOpen size={15} /> {t('Open the cashbox')}
           </Button>
         </div>
 
@@ -772,7 +775,7 @@ export default function CashBox({ onChanged, refreshOn = 0, accountId = null, sh
         <button
           onClick={toggleDetail}
           aria-expanded={detailOpen}
-          aria-label={detailOpen ? 'Hide the drawer detail' : 'Show the drawer detail'}
+          aria-label={detailOpen ? t('Hide the drawer detail') : t('Show the drawer detail')}
           className="flex w-full items-center gap-2 px-4 py-2 text-left transition hover:bg-slate-100"
         >
           <Banknote size={14} className={short ? 'text-red-500' : 'text-brand-600'} />
@@ -798,7 +801,7 @@ export default function CashBox({ onChanged, refreshOn = 0, accountId = null, sh
              * because a blank space where a number should be looks broken.
              */
             <span className="flex items-center gap-1.5 text-sm text-slate-500">
-              <EyeOff size={13} /> Counted at close
+              <EyeOff size={13} /> {t('Counted at close')}
             </span>
           )}
 
@@ -808,7 +811,7 @@ export default function CashBox({ onChanged, refreshOn = 0, accountId = null, sh
               <span className="tnum text-sm font-semibold text-brand-700">
                 {money(profit.netProfit)}
               </span>
-              <span className="text-[11px] text-brand-700/60">profit</span>
+              <span className="text-[11px] text-brand-700/60">{t('profit')}</span>
             </span>
           )}
 
@@ -869,7 +872,7 @@ export default function CashBox({ onChanged, refreshOn = 0, accountId = null, sh
               </span>
               <button
                 onClick={refresh}
-                aria-label="Refresh cash on hand"
+                aria-label={t('Refresh cash on hand')}
                 title="Refresh"
                 className="rounded p-1 text-slate-400 transition hover:bg-slate-200 hover:text-slate-700"
               >
@@ -879,10 +882,10 @@ export default function CashBox({ onChanged, refreshOn = 0, accountId = null, sh
 
             <div className="mt-2 flex items-center gap-1.5">
               <Button size="sm" variant="secondary" className="flex-1" onClick={() => setDialog('in')}>
-                <ArrowDownLeft size={15} /> Cash in
+                <ArrowDownLeft size={15} /> {t('Cash in')}
               </Button>
               <Button size="sm" variant="secondary" className="flex-1" onClick={() => setDialog('out')}>
-                <ArrowUpRight size={15} /> Cash out
+                <ArrowUpRight size={15} /> {t('Cash out')}
               </Button>
               {/* Icon-only to fit three controls in a narrow column, so it needs
                   a name of its own for anyone not looking at the icon. */}
@@ -890,7 +893,7 @@ export default function CashBox({ onChanged, refreshOn = 0, accountId = null, sh
                 size="sm"
                 variant="secondary"
                 onClick={() => setDialog('close')}
-                aria-label="Close the cashbox"
+                aria-label={t('Close the cashbox')}
                 title="Close the cashbox"
               >
                 <Lock size={15} />
