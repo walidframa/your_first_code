@@ -247,7 +247,15 @@ function add() {
    * ends up seeded into somebody else's shop — or into the vendor's own. The
    * seed skips anything already present, so the damage would be quiet.
    */
-  run(process.execPath, [path.join(srcDir, 'seed.js')], { env: { DB_PATH: dbPath } });
+  /*
+   * `--starter`, because this is somebody's actual shop rather than a demo.
+   * They get the shelves a phone shop files by and an empty catalogue; a new
+   * client finding sixteen imaginary coffees in their stock has to delete them
+   * before they can trust a single figure on the screen.
+   */
+  run(process.execPath, [path.join(srcDir, 'seed.js'), '--starter'], {
+    env: { DB_PATH: dbPath },
+  });
 
   /*
    * Hand it all to the user that will actually run it.

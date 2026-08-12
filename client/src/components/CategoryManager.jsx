@@ -109,6 +109,32 @@ export default function CategoryManager({ onClose, onChanged }) {
     );
   }
 
+  /**
+   * Add whatever of the standard list is missing.
+   *
+   * The server decides what "missing" means, matching without regard to case —
+   * a shop that already has "chargers" must not end up with a second shelf
+   * called "Chargers" and its stock split across the two.
+   */
+  async function addStarter() {
+    setBusy(true);
+    setError('');
+    try {
+      const res = await api.post('/products/categories/starter');
+      const { added } = res.data;
+      toast(
+        added.length
+          ? `Added ${added.length} categor${added.length === 1 ? 'y' : 'ies'}`
+          : 'You already have all of them',
+      );
+      await load();
+    } catch (err) {
+      setError(err.response?.data?.error || 'Could not add those');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <Modal open onClose={onClose} title="Categories" subtitle="How the catalogue is sorted">
       <form onSubmit={add} className="flex items-end gap-2">
@@ -124,6 +150,21 @@ export default function CategoryManager({ onClose, onChanged }) {
           <Plus size={16} /> Add
         </Button>
       </form>
+
+      {/*
+       * The list most phone shops end up typing by hand, offered rather than
+       * imposed. A brand-new shop gets these already; this is for the one that
+       * has been running six months on an empty category list because filling
+       * one in is sixteen trips through the box above.
+       */}
+      <button
+        type="button"
+        onClick={addStarter}
+        disabled={busy}
+        className="mt-2 text-sm font-medium text-brand-700 underline-offset-2 transition hover:underline disabled:opacity-50"
+      >
+        Add the usual ones for a phone shop
+      </button>
 
       {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
 

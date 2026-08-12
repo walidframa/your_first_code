@@ -74,6 +74,14 @@ test('a dry run writes nothing at all', () => {
   assert.equal(row('rami'), undefined, 'a dry run wrote to the book');
 });
 
+test('a real shop is set up as a shop, not as the demo', () => {
+  // Without `--starter` a paying client opens their new till and finds sixteen
+  // coffees and a Bakery shelf, and has to delete all of it before a single
+  // figure on the screen means anything.
+  const res = pos('add', 'rami', 'Rami Mobile', '--dry-run');
+  assert.match(res.out, /seed\.js --starter/, 'the new shop would be seeded with demo stock');
+});
+
 test('a dry run shows the database the seed would go into', () => {
   // Getting this wrong seeds a new client into somebody else's shop, and the
   // seed is quiet about it because it skips whatever is already there.

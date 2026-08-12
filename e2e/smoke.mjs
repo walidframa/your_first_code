@@ -987,13 +987,27 @@ try {
     const dialog = page.locator('[role=dialog]');
 
     await dialog.getByLabel('Add a category').fill('Chargrs');
-    await dialog.getByRole('button', { name: 'Add' }).click();
+    await dialog.getByRole('button', { name: 'Add', exact: true }).click();
     await dialog.locator('text=Chargrs').waitFor({ timeout: 15000 });
 
     await dialog.getByRole('button', { name: 'Rename Chargrs' }).click();
     await page.keyboard.type('Chargers');
     await page.keyboard.press('Enter');
     await dialog.locator('text=Chargers').waitFor({ timeout: 15000 });
+
+    /*
+     * The list a phone shop would have typed by hand, in one press. Twice,
+     * because the second press must be a quiet no-op rather than a second
+     * "Chargers" beside the one just renamed — which would split the shop's
+     * cables across two shelves that look identical in every list.
+     */
+    await dialog.getByRole('button', { name: 'Add the usual ones for a phone shop' }).click();
+    await dialog.locator('text=Power banks').waitFor({ timeout: 15000 });
+    await dialog.getByRole('button', { name: 'Add the usual ones for a phone shop' }).click();
+    await page.waitForSelector('text=You already have all of them', { timeout: 15000 });
+    if ((await dialog.locator('li', { hasText: 'Chargers' }).count()) !== 1) {
+      throw new Error('a second Chargers shelf was added beside the one already there');
+    }
 
     // One the import created, which still holds products — so it asks first.
     await dialog.getByRole('button', { name: 'Delete Accessories' }).click();
