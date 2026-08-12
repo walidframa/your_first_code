@@ -353,6 +353,16 @@ export default function Checkout() {
     );
   }
 
+  /*
+   * A phone handed over as part of this sale.
+   *
+   * Held here rather than saved when the dialog closes: the handset, the money
+   * and the sale have to land together. A trade-in written down against a sale
+   * that then failed leaves the shop holding stock it never bought and a
+   * customer holding a phone it thinks it sold.
+   */
+  const [tradeIn, setTradeIn] = useState(null);
+
   const subtotal = round2(
     cart.reduce(
       (sum, i) => sum + (i.isGift ? 0 : i.price * i.quantity - (i.discount || 0)),
@@ -363,7 +373,31 @@ export default function Checkout() {
   const taxableAmount = round2(subtotal - discountAmount);
   const tax = round2(taxableAmount * taxRate);
   const total = round2(taxableAmount + tax);
+  /*
+   * What somebody actually hands over — allowed to be negative, which is the
+   * whole point. `total` stays what the goods came to, because that is what the
+   * receipt and the day's takings are about.
+   */
+  const tradeInValue = tradeIn ? round2(Number(tradeIn.value) || 0) : 0;
+  const due = round2(total - tradeInValue);
+  const owedToCustomer = due < 0 ? round2(-due) : 0;
   const itemCount = cart.reduce((sum, i) => sum + i.quantity, 0);
+
+  /**
+   * Settle a sale where the shop owes the money.
+   *
+   * Deliberately not the payment sheet. That screen is built around counting
+   * out what a customer handed over and working out their change, and none of
+   * that exists here — there is one number, it goes the other way, and it comes
+   * out of the drawer. One question, then done.
+   */
+  async function payTheCustomer() {
+    const ok = window.confirm(
+      `${t('Hand the customer')} ${money(owedToCustomer)} ${t('out of the drawer?')}`,
+    );
+    if (!ok) return;
+    await handleConfirmPayment({ paymentMethod: 'cash', payments: [], changeCurrency: 'LBP' });
+  }
 
   async function handleConfirmPayment({
     paymentMethod,
@@ -406,6 +440,20 @@ export default function Checkout() {
         buyerName: buyer.name || null,
         buyerPhone: buyer.phone || null,
         accounts: accounts.filter((a) => a.username.trim()),
+        // The old phone, taken in as part of this sale rather than before it,
+        // so the handset and the money land together or not at all.
+        tradeIn: tradeIn
+          ? {
+              productId: tradeIn.productId,
+              imei: tradeIn.imei,
+              condition: tradeIn.condition,
+              value: tradeInValue,
+              sellerName: tradeIn.sellerName || buyer.name || null,
+              sellerPhone: tradeIn.sellerPhone || buyer.phone || null,
+              idPhoto: tradeIn.idPhoto || null,
+              note: tradeIn.note || null,
+            }
+          : null,
         /*
          * What the till believes it just sold. Only read when the sale has to
          * wait — the server is the authority on totals whenever it is there,
@@ -432,6 +480,7 @@ export default function Checkout() {
       setCustomer(null);
       setBuyer({ name: '', phone: '' });
       setAccounts([]);
+      setTradeIn(null);
       setPaymentOpen(false);
       /*
        * Only worth re-reading the catalogue when there is something to read it
@@ -699,7 +748,12 @@ export default function Checkout() {
                   <PauseCircle size={13} /> {t('Hold')}
                 </button>
                 <button
-                  onClick={() => setCart([])}
+                  onClick={() => {
+                    setCart([]);
+                    // The trade-in goes with it: a phone left attached to an
+                    // emptied cart would be taken in against the next customer.
+                    setTradeIn(null);
+                  }}
                   className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-slate-500 transition hover:bg-red-50 hover:text-red-600"
                 >
                   <Trash2 size={13} /> {t('Clear')}
@@ -724,7 +778,22 @@ export default function Checkout() {
             <CustomerPicker customer={customer} onChange={setCustomer} />
           </div>
           {[
-            [HandCoins, 'Buy in', 'Buy a used handset from a customer', () => setBuyingHandset(true)],
+            /*
+             * One button, two jobs, decided by the cart.
+             *
+             * With something in it the customer is standing there swapping a
+             * phone, so what they hand over comes off this sale. With an empty
+             * cart it is an ordinary purchase — somebody selling the shop a
+             * phone and walking out with the money.
+             */
+            [
+              HandCoins,
+              cart.length > 0 ? 'Part-exchange' : 'Buy in',
+              cart.length > 0
+                ? 'Take their old phone off this sale'
+                : 'Buy a used handset from a customer',
+              () => setBuyingHandset(true),
+            ],
             [Wrench, 'Repair', 'Take a phone in for repair (F6)', () => setTakingRepair(true)],
             [Smartphone, 'Sell a SIM', 'Sell a SIM card (F7)', () => setSellingSim(true)],
             [Send, 'Send credit', 'Send calling credit (F8)', () => setSendingCredit(true)],
@@ -891,10 +960,58 @@ export default function Checkout() {
               <dt className="font-semibold text-slate-900">{t('Total')}</dt>
               <dd className="text-2xl font-semibold text-slate-900">{money(total)}</dd>
             </div>
+
+            {/*
+              * The old phone, as a line of its own under the total.
+              *
+              * Not folded into the discount: a discount is the shop giving
+              * money away, and this is the shop buying something. Keeping them
+              * apart is what lets the receipt, the day's takings and the margin
+              * all still mean what they say.
+              */}
+            {tradeIn && (
+              <div className="flex items-start justify-between gap-2 rounded-lg bg-amber-50 px-2 py-1.5">
+                <dt className="min-w-0 text-amber-900">
+                  {t('Traded in')}
+                  <span className="block truncate text-xs text-amber-700">
+                    {tradeIn.modelName} · {tradeIn.imei}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setTradeIn(null)}
+                    className="text-xs font-medium text-amber-800 underline"
+                  >
+                    {t('Take it off')}
+                  </button>
+                </dt>
+                <dd className="tnum shrink-0 font-semibold text-amber-900">
+                  −{money(tradeInValue)}
+                </dd>
+              </div>
+            )}
+
+            {tradeIn && (
+              <div className="flex items-baseline justify-between border-t border-slate-100 pt-2">
+                <dt className="font-semibold text-slate-900">
+                  {owedToCustomer > 0 ? t('You pay the customer') : t('To pay')}
+                </dt>
+                <dd
+                  className={cx(
+                    'text-2xl font-semibold',
+                    owedToCustomer > 0 ? 'text-red-700' : 'text-slate-900',
+                  )}
+                >
+                  {money(owedToCustomer > 0 ? owedToCustomer : due)}
+                </dd>
+              </div>
+            )}
+
             {rate > 0 && (
               <div className="flex items-baseline justify-between">
                 <dt className="text-xs text-slate-400">{t('In LBP')}</dt>
-                <dd className="tnum text-base font-medium text-slate-600">{lbp(toLbp(total))}</dd>
+                <dd className="tnum text-base font-medium text-slate-600">
+                  {lbp(toLbp(owedToCustomer > 0 ? owedToCustomer : due))}
+                </dd>
               </div>
             )}
           </dl>
@@ -903,9 +1020,12 @@ export default function Checkout() {
             size="xl"
             className="mt-4 w-full"
             disabled={cart.length === 0}
-            onClick={() => setPaymentOpen(true)}
+            variant={owedToCustomer > 0 ? 'danger' : undefined}
+            onClick={() => (owedToCustomer > 0 ? payTheCustomer() : setPaymentOpen(true))}
           >
-            {t('Charge')} {money(total)}
+            {owedToCustomer > 0
+              ? `${t('Pay the customer')} ${money(owedToCustomer)}`
+              : `${t('Charge')} ${money(due)}`}
           </Button>
           <p className="mt-2 text-center text-[11px] text-slate-400">
             <kbd className="rounded bg-slate-100 px-1 font-sans">F2</kbd> charge ·{' '}
@@ -921,7 +1041,7 @@ export default function Checkout() {
 
       <PaymentSheet
         open={paymentOpen}
-        total={total}
+        total={due}
         customer={customer}
         submitting={submitting}
         onClose={() => setPaymentOpen(false)}
@@ -947,6 +1067,20 @@ export default function Checkout() {
             await loadData();
             setSalesMade((n) => n + 1);
           }}
+          /*
+           * Nothing is saved by the dialog in this mode — it hands the phone
+           * back here and the sale carries both. A trade-in written down
+           * against a sale that then failed is a shop holding stock it never
+           * bought.
+           */
+          onTakeAgainstSale={
+            cart.length > 0
+              ? (taken) => {
+                  setTradeIn(taken);
+                  setBuyingHandset(false);
+                }
+              : null
+          }
         />
       )}
 

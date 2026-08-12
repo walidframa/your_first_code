@@ -24,6 +24,7 @@ import { setIdPhoto } from '../lib/idPhotos.js';
 import { quote, describe as describeCredit } from '../lib/credit.js';
 import { creditCostBasis } from '../lib/wallets.js';
 import { orderMessage, sendable } from '../lib/whatsapp.js';
+import { takeTradeIn } from '../lib/repairs.js';
 import {
   CHANGE_MODES,
   round2,
@@ -128,6 +129,17 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
     buyerName = null,
     buyerPhone = null,
     accounts = [],
+    /*
+     * A handset handed over as part of this sale.
+     *
+     * The commonest sale in a phone shop is not a sale, it is a swap: an old
+     * phone in, a newer one out, and some money one way or the other. Doing
+     * that as a purchase and then a sale leaves the arithmetic to the cashier
+     * and the drawer moving twice for one exchange — and gets it wrong in the
+     * case the shop notices most, which is when the old phone is worth more
+     * than the new one and the shop is the one paying.
+     */
+    tradeIn = null,
     /*
      * The till's own name for this sale, when it has one.
      *
@@ -320,6 +332,42 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
       const tax = round2(taxableAmount * TAX_RATE);
       const total = round2(taxableAmount + tax);
 
+      /*
+       * What the goods came to, less what the old phone was worth, is what
+       * somebody actually has to hand over — and it is allowed to be negative.
+       *
+       * Everything below settles `due`, not `total`. `total` stays what the
+       * sale was worth, because that is what the receipt, the day's takings and
+       * the profit are all about; the trade-in is how it was paid for, not a
+       * discount on it.
+       */
+      const tradeInValue = tradeIn ? round2(Number(tradeIn.value)) : 0;
+      if (tradeIn && (!Number.isFinite(tradeInValue) || tradeInValue <= 0)) {
+        throw new Error('What is the old phone worth?');
+      }
+      const due = round2(total - tradeInValue);
+      // Money going the other way: the old phone was worth more than the new one.
+      const owedToCustomer = due < 0 ? round2(-due) : 0;
+
+      /*
+       * Money about to leave the drawer needs a drawer that is open, and this
+       * is the one path that pays out without going through the cash branch
+       * below — where that check already lives.
+       */
+      if (owedToCustomer > 0 && requiresSession() && !currentSession(null, branchId)) {
+        throw new Error('The cashbox is closed — open it before paying the difference');
+      }
+
+      if (owedToCustomer > 0 && paymentMethod !== 'cash') {
+        /*
+         * Paying a customer by card is not a thing, and putting it on their
+         * account would be the shop owing money to somebody who came in to buy
+         * something. Notes out of the drawer is the only honest way to settle
+         * this, so it is the only one offered.
+         */
+        throw new Error('Pay the difference in cash — the customer is owed money on this sale');
+      }
+
       let amountTenderedValue = null;
       let changeDue = null;
       let paidUsd = 0;
@@ -330,11 +378,11 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
       if (paymentMethod === 'account') {
         // Checked inside the transaction so a concurrent sale cannot slip the
         // customer past their limit between the check and the insert.
-        const check = creditCheck(customerId, total);
+        const check = creditCheck(customerId, due);
         if (!check.ok) throw new Error(check.error);
       }
 
-      if (paymentMethod === 'cash') {
+      if (paymentMethod === 'cash' && due > 0) {
         /*
          * Cash needs a drawer to go into. Card and account sales do not touch
          * it, so they are left alone — refusing those would stop the shop
@@ -350,16 +398,16 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
         if (invalid) throw new Error(invalid);
 
         const totals = tenderTotals(tender, exchangeRate);
-        if (totals.totalUsdEquivalent + 1e-9 < total) {
+        if (totals.totalUsdEquivalent + 1e-9 < due) {
           throw new Error(
-            `Tendered ${totals.totalUsdEquivalent.toFixed(2)} USD is less than the ${total.toFixed(2)} USD total`,
+            `Tendered ${totals.totalUsdEquivalent.toFixed(2)} USD is less than the ${due.toFixed(2)} USD due`,
           );
         }
 
         paidUsd = totals.paidUsd;
         paidLbp = totals.paidLbp;
         amountTenderedValue = totals.totalUsdEquivalent;
-        changeDue = round2(totals.totalUsdEquivalent - total);
+        changeDue = round2(totals.totalUsdEquivalent - due);
 
         const breakdown = changeBreakdown(
           changeDue,
@@ -389,6 +437,31 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
         }
       }
 
+      /*
+       * Take the old phone in before the order is written, so its cost is on
+       * the shelf whichever way the money went.
+       *
+       * Paid at its agreed value even though no notes changed hands for it:
+       * that is what the shop gave up to get it, and costing it at zero would
+       * report the whole of its eventual resale as profit.
+       *
+       * The drawer is deliberately *not* moved here. `takeTradeIn` records the
+       * purchase; the money is settled once, below, as the net of this sale.
+       */
+      let tradeInRecord = null;
+      if (tradeIn) {
+        tradeInRecord = takeTradeIn(
+          {
+            ...tradeIn,
+            paidUsd: tradeInValue,
+            paidLbp: 0,
+            customerId: tradeIn.customerId ?? customerId ?? null,
+            exchangeRate,
+          },
+          req.user.id,
+        );
+      }
+
       const orderNumber = `ORD-${Date.now()}-${crypto.randomBytes(2).toString('hex').toUpperCase()}`;
 
       const orderInfo = db.prepare(`
@@ -396,9 +469,10 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
           order_number, cashier_id, customer_id, subtotal, discount, tax, total, payment_method,
           amount_tendered, change_due, status,
           exchange_rate, paid_usd, paid_lbp, change_usd, change_lbp, change_currency,
-          buyer_name, buyer_phone, branch_id, cash_session_id, client_ref
+          buyer_name, buyer_phone, branch_id, cash_session_id, client_ref,
+          trade_in_value, trade_in_id
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         orderNumber, req.user.id, customerId || null, subtotal, discountAmount, tax, total, paymentMethod,
         amountTenderedValue, changeDue,
@@ -416,6 +490,8 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
          */
         currentSession(null, branchId)?.id ?? null,
         clientRef ? String(clientRef) : null,
+        tradeInValue,
+        tradeInRecord?.tradeInId ?? null,
       );
 
       const orderId = orderInfo.lastInsertRowid;
@@ -590,7 +666,9 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
           partyType: 'customer',
           partyId: customerId,
           kind: 'sale',
-          amountUsd: total,
+          // What they owe is the balance after the old phone came off it, not
+          // the ticket price of what they walked out with.
+          amountUsd: due,
           exchangeRate,
           orderId,
           note: orderNumber,
@@ -639,7 +717,40 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
         });
       }
 
-      return { orderId, orderNumber, subtotal, discountAmount, tax, total, changeDue };
+      /*
+       * The other direction: the old phone was worth more than the new one, so
+       * the customer leaves with notes.
+       *
+       * One movement for the net, not a purchase out and a sale in. The drawer
+       * is counted at the end of the shift against what actually happened at
+       * the counter, and what happened was one exchange with one difference
+       * paid — recording it as two would make the shift report describe two
+       * transactions nobody would recognise.
+       */
+      if (owedToCustomer > 0) {
+        recordMovement({
+          branchId,
+          kind: 'cash_out',
+          amountUsd: -owedToCustomer,
+          reason: 'supplier',
+          orderId,
+          note: `${orderNumber} — paid the difference on a trade-in`,
+          userId: req.user.id,
+        });
+      }
+
+      return {
+        orderId,
+        orderNumber,
+        subtotal,
+        discountAmount,
+        tax,
+        total,
+        changeDue,
+        tradeInValue,
+        due,
+        owedToCustomer,
+      };
     })();
 
     const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(result.orderId);
@@ -727,6 +838,23 @@ router.post('/:id/refund', requireAuth, requirePermission('refunds'), (req, res)
   const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(req.params.id);
   if (!order) return res.status(404).json({ error: 'Order not found' });
   if (order.status === 'refunded') return res.status(400).json({ error: 'Order already refunded' });
+
+  /*
+   * A swap cannot be undone by pressing refund.
+   *
+   * Reversing one means giving the customer their old phone back, taking the
+   * new one off them, and moving the difference the other way — and the old
+   * phone may already have been sold to somebody else this morning. Guessing at
+   * any of that would leave a shop with a stock count and a drawer that are
+   * both quietly wrong, which is worse than a refusal it can act on.
+   */
+  if (order.trade_in_value > 0) {
+    return res.status(400).json({
+      error:
+        'This sale took a phone in part-exchange. Undo it by buying the new phone back and ' +
+        'selling the old one on, so the handsets and the money both end up where they belong.',
+    });
+  }
 
   transaction(() => {
     const items = db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(order.id);

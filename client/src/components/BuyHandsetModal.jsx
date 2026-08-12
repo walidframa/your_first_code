@@ -19,7 +19,17 @@ const CONDITIONS = [
  * joins the shelf. The two figures the shop will care about later are what it
  * paid and which model it will be sold as, so those come first.
  */
-export default function BuyHandsetModal({ onClose, onSaved }) {
+/**
+ * Buying a phone, either on its own or as half of a swap.
+ *
+ * `onTakeAgainstSale` is what makes it the second thing. Given it, the dialog
+ * stops asking what was *paid* and starts asking what the phone is *worth* —
+ * because in a swap no notes change hands for the old phone. What is agreed
+ * comes off the sale on the way out, and the difference goes whichever way it
+ * goes.
+ */
+export default function BuyHandsetModal({ onClose, onSaved, onTakeAgainstSale = null }) {
+  const againstSale = Boolean(onTakeAgainstSale);
   const toast = useToast();
   const { rate, toLbp } = useSettings();
 
@@ -73,6 +83,21 @@ export default function BuyHandsetModal({ onClose, onSaved }) {
     setError('');
     setSaving(true);
     try {
+      /*
+       * Against a sale, nothing is saved here. The handset, the money and the
+       * sale have to succeed or fail as one thing — a phone taken in against a
+       * sale that then failed is a shop holding stock it never bought.
+       */
+      if (againstSale) {
+        onTakeAgainstSale({
+          ...form,
+          productId: Number(form.productId),
+          value: cost,
+          modelName: model?.name || '',
+        });
+        return;
+      }
+
       const res = await api.post('/repairs/trade-ins', {
         ...form,
         productId: Number(form.productId),
@@ -89,7 +114,17 @@ export default function BuyHandsetModal({ onClose, onSaved }) {
   }
 
   return (
-    <Modal open onClose={saving ? undefined : onClose} title="Buy a handset" size="lg">
+    <Modal
+      open
+      onClose={saving ? undefined : onClose}
+      title={againstSale ? 'Take a phone in part-exchange' : 'Buy a handset'}
+      subtitle={
+        againstSale
+          ? 'What it is worth comes off this sale — and if it is worth more, you pay the difference'
+          : undefined
+      }
+      size="lg"
+    >
       <form onSubmit={submit} className="grid grid-cols-2 gap-3">
         <div className="col-span-2">
           <label htmlFor="model" className="mb-1 block text-sm font-medium text-slate-700">
@@ -183,7 +218,7 @@ export default function BuyHandsetModal({ onClose, onSaved }) {
         </div>
 
         <Input
-          label="Paid in dollars"
+          label={againstSale ? 'Worth, in dollars' : 'Paid in dollars'}
           type="number"
           step="0.01"
           min="0"
@@ -191,7 +226,7 @@ export default function BuyHandsetModal({ onClose, onSaved }) {
           onChange={set('paidUsd')}
         />
         <Input
-          label="Paid in LBP"
+          label={againstSale ? 'Worth, in LBP' : 'Paid in LBP'}
           type="number"
           step="1000"
           min="0"
@@ -201,7 +236,8 @@ export default function BuyHandsetModal({ onClose, onSaved }) {
 
         {cost > 0 && (
           <p className="col-span-2 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">
-            Costs the shop <span className="font-semibold">{money(cost)}</span>
+            {againstSale ? 'Comes off the sale: ' : 'Costs the shop '}
+            <span className="font-semibold">{money(cost)}</span>
             {rate > 0 && <span className="text-slate-400"> · {lbp(toLbp(cost))}</span>}
             {model && (
               <span className={cx('ml-1', model.price > cost ? 'text-brand-700' : 'text-red-600')}>

@@ -2275,6 +2275,49 @@ try {
     }
   });
 
+  console.log('\nA phone in part-exchange');
+
+  /*
+   * The commonest sale in a phone shop is a swap, and the case worth testing in
+   * a browser is the one that used to have no flow at all: the old phone being
+   * worth more than the new one, so the shop is the one paying.
+   */
+  await step('the shop pays the difference when the old phone is worth more', async () => {
+    await signOut();
+    await signIn('admin');
+    await page.goto(`${BASE_URL}/`, { waitUntil: 'networkidle' });
+    await page.waitForSelector('text=Current sale', { timeout: 15000 });
+
+    // Anything on the cart will do; what is being tested is the balance.
+    await page.click(scanBox);
+    await page.fill(scanBox, 'Espresso');
+    await page.waitForTimeout(400);
+    await page.click('button:has-text("Espresso")');
+    await page.waitForSelector('aside >> text=Espresso', { timeout: 15000 });
+
+    // The button changes its mind once there is a cart: this is a swap now.
+    await page.click('button[title="Take their old phone off this sale"]');
+    await page.waitForSelector('text=What it is worth comes off this sale', { timeout: 15000 });
+
+    const dialog = page.locator('[role=dialog]');
+    await dialog.locator('#model').fill('Galaxy A15');
+    await dialog.locator('button', { hasText: 'Galaxy A15' }).first().click();
+    await dialog.getByRole('textbox', { name: 'IMEI' }).fill('359988776650001');
+    await dialog.getByRole('spinbutton', { name: 'Worth, in dollars' }).fill('40');
+    await dialog.getByRole('button', { name: 'Buy it in' }).click();
+
+    // A $40 phone against a $3.50 coffee: the shop owes the customer.
+    await page.waitForSelector('aside >> text=You pay the customer', { timeout: 15000 });
+    await page.waitForSelector('aside >> button:has-text("Pay the customer")', { timeout: 10000 });
+  });
+
+  await step('and the sale goes through with the money leaving the drawer', async () => {
+    page.once('dialog', (d) => d.accept());
+    await page.click('aside button:has-text("Pay the customer")');
+    await page.waitForSelector('text=Payment complete', { timeout: 20000 });
+    await page.keyboard.press('Escape');
+  });
+
   console.log('\nOn a small screen, and on a square counter monitor');
 
   /*
