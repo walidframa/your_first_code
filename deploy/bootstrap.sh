@@ -119,29 +119,82 @@ systemctl enable --now pos >/dev/null
 
 # --------------------------------------------------------------- the front
 
-say "Putting nginx in front of it for $DOMAIN"
-sed "s/pos.example.com/$DOMAIN/g" "$REPO_DIR/deploy/nginx.conf" > /etc/nginx/sites-available/pos
+#
+# `www.` too, but only if it is actually pointed here.
+#
+# Asking for a certificate covering a name that does not resolve fails the whole
+# request, not just that name — so a helpful default of "always include www"
+# would break the certificate for people who never set one up.
+#
+NAMES="$DOMAIN"
+if [ "$DOMAIN" != "www.$DOMAIN" ] && getent ahostsv4 "www.$DOMAIN" >/dev/null 2>&1; then
+  NAMES="$DOMAIN www.$DOMAIN"
+fi
+
+say "Putting nginx in front of it for $NAMES"
+sed "s/server_name pos.example.com;/server_name $NAMES;/; s/pos.example.com/$DOMAIN/g" \
+  "$REPO_DIR/deploy/nginx.conf" > /etc/nginx/sites-available/pos
 ln -sf /etc/nginx/sites-available/pos /etc/nginx/sites-enabled/pos
 rm -f /etc/nginx/sites-enabled/default
 nginx -t >/dev/null 2>&1 || die "nginx did not accept the config; run 'nginx -t' to see why."
 systemctl reload nginx
 
 #
-# HTTPS, if there is a real name to put it on.
+# The firewall, before anything tries to reach port 80 from outside.
+#
+# A cloud image with ufw switched on and only SSH allowed is the commonest
+# reason a brand-new server answers perfectly to `curl localhost` and not at all
+# to a browser — and the same closed port makes Let's Encrypt's check fail with
+# a message about the domain rather than about the firewall.
+#
+if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q '^Status: active'; then
+  say "Opening the firewall for web traffic"
+  ufw allow 'Nginx Full' >/dev/null 2>&1 || ufw allow 80,443/tcp >/dev/null 2>&1 || true
+fi
+
+#
+# HTTPS, if there is a real name pointed at this machine.
 #
 # Not optional in the long run: an installed app, a service worker and a saved
 # password all need https, and a till on a plain http address cannot be
 # installed on anybody's desktop.
 #
 # A bare IP address has no letters in it, and Let's Encrypt will not issue for
-# one — so that is the test, rather than trying to parse what a domain is.
-if [ -n "$EMAIL" ] && [[ "$DOMAIN" == *[a-zA-Z]* ]]; then
-  say "Getting an HTTPS certificate"
-  apt-get install -y -qq certbot python3-certbot-nginx >/dev/null
-  certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos -m "$EMAIL" --redirect \
-    || note "certbot did not finish — is $DOMAIN actually pointing at this machine yet?"
-else
+# one — so that is the first test, rather than trying to parse what a domain is.
+#
+if [ -z "$EMAIL" ]; then
   note "No email given, so no certificate. Re-run with one once DNS points here."
+elif [[ "$DOMAIN" != *[a-zA-Z]* ]]; then
+  note "$DOMAIN is an IP address, and there is no such thing as a certificate for one."
+else
+  #
+  # Check the name arrives here before asking, rather than after.
+  #
+  # A failed Let's Encrypt validation counts against an hourly limit for that
+  # hostname, so a script that cheerfully tries anyway can lock you out of
+  # retrying for an hour over a DNS record that simply has not propagated. The
+  # answer is to look first and say exactly what is wrong.
+  #
+  RESOLVED="$(getent ahostsv4 "$DOMAIN" | awk 'NR==1 {print $1}')"
+  PUBLIC="$(curl -fsS --max-time 10 https://api.ipify.org 2>/dev/null || true)"
+
+  if [ -z "$RESOLVED" ]; then
+    note "$DOMAIN does not resolve to anything yet."
+    note "Add an A record for it pointing at this machine, wait a few minutes,"
+    note "and run this same command again — it will pick up where it left off."
+  elif [ -n "$PUBLIC" ] && [ "$RESOLVED" != "$PUBLIC" ]; then
+    note "$DOMAIN currently points at $RESOLVED, and this machine is $PUBLIC."
+    note "Fix the A record, wait for it to propagate, then run this again."
+    note "Skipping the certificate rather than burning an attempt on a name that"
+    note "would fail the check."
+  else
+    say "Getting an HTTPS certificate for $NAMES"
+    apt-get install -y -qq certbot python3-certbot-nginx >/dev/null
+    CERT_ARGS=()
+    for name in $NAMES; do CERT_ARGS+=(-d "$name"); done
+    certbot --nginx "${CERT_ARGS[@]}" --non-interactive --agree-tos -m "$EMAIL" --redirect \
+      || note "certbot did not finish. Run 'certbot --nginx -d $DOMAIN' to see why."
+  fi
 fi
 
 # ------------------------------------------------------------ nightly copy
