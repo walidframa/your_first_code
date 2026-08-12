@@ -6,6 +6,7 @@ import CompanySettings from '../../components/CompanySettings';
 import Backups from '../../components/Backups';
 import { useSettings, lbp } from '../../context/SettingsContext';
 import { TEXT_SIZES, applyTextSize, getTextSize } from '../../lib/textSize';
+import { useLanguage } from '../../context/LanguageContext';
 import {
   Button,
   Card,
@@ -48,6 +49,47 @@ function TextSize() {
             className={cx(
               'flex-1 rounded-xl px-3 py-2.5 text-sm font-medium ring-1 transition',
               size === id
+                ? 'bg-brand-600 text-white ring-brand-600'
+                : 'bg-white text-slate-700 ring-slate-200 hover:bg-slate-50',
+            )}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
+/**
+ * Which language, for anybody already signed in.
+ *
+ * The switch that matters is the one on the sign-in screen, since somebody who
+ * needs Arabic cannot read the screen asking them to choose. This one is for
+ * changing your mind afterwards without signing out to do it.
+ */
+function LanguageChoice() {
+  const { language, choose, languages, t } = useLanguage();
+
+  return (
+    <Card className="p-5">
+      <h2 className="text-sm font-semibold text-slate-900">{t('Language')}</h2>
+      <p className="mt-0.5 mb-4 text-xs text-slate-500">
+        {t(
+          'Applies to this device and is remembered on it, so the counter and the back office can differ.',
+        )}
+      </p>
+
+      <div className="flex gap-2">
+        {languages.map(([id, label]) => (
+          <button
+            key={id}
+            onClick={() => choose(id)}
+            lang={id}
+            aria-pressed={language === id}
+            className={cx(
+              'flex-1 rounded-xl px-3 py-2.5 text-sm font-medium ring-1 transition',
+              language === id
                 ? 'bg-brand-600 text-white ring-brand-600'
                 : 'bg-white text-slate-700 ring-slate-200 hover:bg-slate-50',
             )}
@@ -127,7 +169,8 @@ export default function Settings() {
           <CompanySettings />
         </div>
 
-        <div className="mb-4 max-w-4xl">
+        <div className="mb-4 grid max-w-4xl grid-cols-2 gap-4">
+          <LanguageChoice />
           <TextSize />
         </div>
 

@@ -1,10 +1,12 @@
 import { CheckCircle2, Printer } from 'lucide-react';
 import { Button, Modal, ModalActions, money } from './ui';
+import { useT } from '../context/LanguageContext';
 import Letterhead, { ReceiptFooter } from './Letterhead';
 import WhatsAppButton from './WhatsAppButton';
 import { lbp } from '../context/SettingsContext';
 
 export default function Receipt({ receipt, onClose }) {
+  const t = useT();
   const { order, items } = receipt;
   // Use the rate stored on the order, not the current one — a receipt must
   // still reconcile after the rate moves.
@@ -126,7 +128,7 @@ export default function Receipt({ receipt, onClose }) {
           */}
         <WhatsAppButton path={`/orders/${order.id}/whatsapp`} label="WhatsApp" size="lg" />
         <Button size="lg" className="flex-1" onClick={onClose} autoFocus>
-          New sale
+          {t('New sale')}
         </Button>
       </ModalActions>
     </Modal>

@@ -2177,6 +2177,51 @@ try {
     }
   });
 
+  console.log('\nIn Arabic');
+
+  /*
+   * The switch is on the sign-in screen because somebody who needs Arabic
+   * cannot read the English screen asking them to choose — so that is where
+   * this starts, before any credentials are typed.
+   */
+  await step('the language is chosen before signing in, and turns the page round', async () => {
+    await page.click('button[aria-label="Log out"]');
+    await page.waitForSelector('text=Demo accounts');
+
+    await page.click('button:has-text("العربية")');
+    await page.waitForFunction(() => document.documentElement.dir === 'rtl', { timeout: 5000 });
+    if ((await page.evaluate(() => document.documentElement.lang)) !== 'ar') {
+      throw new Error('the document is right-to-left but not marked as Arabic');
+    }
+    await page.waitForSelector('text=تسجيل الدخول');
+  });
+  await shot('login-arabic');
+
+  await step('the register and its menu come up in Arabic', async () => {
+    await page.click('button:has-text("الكاشير")');
+    await page.waitForSelector('text=الفاتورة الحالية', { timeout: 15000 });
+
+    // The menu, which is the part a cashier reads all day.
+    await page.waitForSelector('aside >> text=البيع', { timeout: 10000 });
+    await page.waitForSelector('aside >> text=الحوالات', { timeout: 10000 });
+
+    // Laid out the other way round: the rail is on the right of the window.
+    const rail = await page.locator('aside').first().boundingBox();
+    const width = page.viewportSize().width;
+    if (!rail || rail.x < width / 2) {
+      throw new Error('Arabic did not move the menu to the right-hand side');
+    }
+  });
+  await shot('register-arabic');
+
+  await step('and English comes back, with nothing stuck right-to-left', async () => {
+    await page.click('button[aria-label="تسجيل الخروج"]');
+    await page.waitForSelector('text=العربية');
+    await page.click('button:has-text("English")');
+    await page.waitForFunction(() => document.documentElement.dir === 'ltr', { timeout: 5000 });
+    await page.waitForSelector('text=Demo accounts');
+  });
+
   if (failedResponses.length) {
     console.error(`\n✗ ${failedResponses.length} unexpected failed request(s):`);
     for (const r of failedResponses) console.error(`    ${r}`);

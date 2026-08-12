@@ -9,12 +9,17 @@ import { SettingsProvider } from './context/SettingsContext.jsx';
 import { BranchProvider } from './context/BranchContext.jsx';
 import { OfflineProvider } from './context/OfflineContext.jsx';
 import { applyTextSize } from './lib/textSize.js';
+import { applyLanguage } from './lib/i18n.js';
+import { LanguageProvider } from './context/LanguageContext.jsx';
 
 /*
  * Before the first render, so a screen set to large text never flashes the
  * default size on the way in.
  */
 applyTextSize();
+/* And the language, for the same reason: an Arabic till must not flash an
+   English page laid out backwards on its way in. */
+applyLanguage();
 
 /*
  * The worker that keeps the till on screen when the server is not there.
@@ -33,7 +38,8 @@ if ('serviceWorker' in navigator && import.meta.env.PROD) {
 createRoot(document.getElementById('root')).render(
   <StrictMode>
     <BrowserRouter>
-      <ToastProvider>
+      <LanguageProvider>
+        <ToastProvider>
         <AuthProvider>
           <BranchProvider>
             <SettingsProvider>
@@ -43,7 +49,8 @@ createRoot(document.getElementById('root')).render(
             </SettingsProvider>
           </BranchProvider>
         </AuthProvider>
-      </ToastProvider>
+        </ToastProvider>
+      </LanguageProvider>
     </BrowserRouter>
   </StrictMode>,
 );

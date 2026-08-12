@@ -2,12 +2,14 @@ import { useEffect, useState } from 'react';
 import { Search, UserPlus, UserRound, X } from 'lucide-react';
 import api from '../api';
 import { Badge, Button, EmptyState, Modal, cx, money } from './ui';
+import { useT } from '../context/LanguageContext';
 
 /**
  * Attaches a customer to the sale in progress. Optional for cash and card;
  * required before a sale can go on account.
  */
 export default function CustomerPicker({ customer, onChange }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [customers, setCustomers] = useState(null);
   const [search, setSearch] = useState('');
@@ -30,7 +32,7 @@ export default function CustomerPicker({ customer, onChange }) {
           <div className="min-w-0 flex-1">
             <p className="truncate text-xs font-medium text-brand-900">{customer.name}</p>
             {customer.balance > 0.005 && (
-              <p className="tnum text-[11px] text-brand-700">owes {money(customer.balance)}</p>
+              <p className="tnum text-[11px] text-brand-700">{t('owes')} {money(customer.balance)}</p>
             )}
           </div>
           <button
@@ -46,7 +48,7 @@ export default function CustomerPicker({ customer, onChange }) {
           onClick={() => setOpen(true)}
           className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs font-medium text-slate-500 transition hover:bg-slate-100"
         >
-          <UserPlus size={14} /> Add customer
+          <UserPlus size={14} /> {t('Add customer')}
         </button>
       )}
 
@@ -55,17 +57,17 @@ export default function CustomerPicker({ customer, onChange }) {
           onClick={() => setOpen(true)}
           className="mt-1 w-full text-left text-[11px] text-slate-400 transition hover:text-slate-600"
         >
-          Change customer
+          {t('Change customer')}
         </button>
       )}
 
-      <Modal open={open} onClose={() => setOpen(false)} title="Choose a customer" size="md">
+      <Modal open={open} onClose={() => setOpen(false)} title={t('Choose a customer')} size="md">
         <div className="relative mb-3">
           <Search size={16} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-slate-400" />
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by name or phone…"
+            placeholder={t('Search by name or phone…')}
             autoFocus
             className="h-10 w-full rounded-lg bg-slate-100 pr-3 pl-9 text-sm ring-1 ring-transparent transition focus:bg-white focus:ring-brand-600 focus:outline-none"
           />

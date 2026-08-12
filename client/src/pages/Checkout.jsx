@@ -29,6 +29,7 @@ import SendCredit from '../components/SendCredit';
 import SittingSales from '../components/SittingSales';
 import { ringUp } from '../lib/sales';
 import { useOffline } from '../context/OfflineContext';
+import { useT } from '../context/LanguageContext';
 import { Button, EmptyState, ProductThumb, Skeleton, cx, money, useToast } from '../components/ui';
 import { useSettings, lbp } from '../context/SettingsContext';
 
@@ -39,6 +40,7 @@ export default function Checkout() {
   const searchRef = useRef(null);
   const { rate, toLbp } = useSettings();
   const { refreshQueue } = useOffline();
+  const t = useT();
 
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
@@ -511,8 +513,8 @@ export default function Checkout() {
                 if (e.key === 'Enter' && search.trim()) handleScan(search.trim());
                 if (e.key === 'Escape') setSearch('');
               }}
-              placeholder="Scan barcode or search products…  (press / to focus)"
-              aria-label="Scan barcode or search products"
+              placeholder={`${t('Scan barcode or search products…')}  (${t('press / to focus')})`}
+              aria-label={t('Scan barcode or search products')}
               className="h-11 w-full rounded-xl bg-slate-100 pr-9 pl-10 text-sm ring-1 ring-transparent transition focus:bg-white focus:ring-brand-600 focus:outline-none"
             />
             {search && (
@@ -538,7 +540,7 @@ export default function Checkout() {
                     : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
                 )}
               >
-                {c.name}
+                {t(c.name)}
               </button>
             ))}
           </div>
@@ -608,11 +610,11 @@ export default function Checkout() {
                         >
                           {wallet
                             ? wallet.balance <= 0
-                              ? 'no credit'
-                              : 'card'
+                              ? t('no credit')
+                              : t('card')
                             : soldOut
-                              ? 'Sold out'
-                              : `${p.stock} left`}
+                              ? t('Sold out')
+                              : `${p.stock} ${t('left')}`}
                         </span>
                       </div>
                       {rate > 0 && (
@@ -646,7 +648,7 @@ export default function Checkout() {
 
         <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3.5">
           <div>
-            <h2 className="font-semibold text-slate-900">Current sale</h2>
+            <h2 className="font-semibold text-slate-900">{t('Current sale')}</h2>
             {rate > 0 && (
               <p className="tnum text-[11px] text-slate-400">
                 1 USD = {Number(rate).toLocaleString('en-US')} LL
@@ -665,7 +667,7 @@ export default function Checkout() {
               title="This register's sales, to void or return"
               className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
             >
-              <ReceiptIcon size={13} /> Sales
+              <ReceiptIcon size={13} /> {t('Sales')}
             </button>
             {/*
              * The shelf of parked sales, with its count on the face of it.
@@ -685,13 +687,13 @@ export default function Checkout() {
                   onClick={() => setHeldDialog('hold')}
                   className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
                 >
-                  <PauseCircle size={13} /> Hold
+                  <PauseCircle size={13} /> {t('Hold')}
                 </button>
                 <button
                   onClick={() => setCart([])}
                   className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-slate-500 transition hover:bg-red-50 hover:text-red-600"
                 >
-                  <Trash2 size={13} /> Clear
+                  <Trash2 size={13} /> {t('Clear')}
                 </button>
               </>
             )}
@@ -754,8 +756,8 @@ export default function Checkout() {
           {cart.length === 0 ? (
             <EmptyState
               icon={ShoppingCart}
-              title="No items yet"
-              description="Scan a barcode or tap a product to start the sale."
+              title={t('No items yet')}
+              description={t('Scan a barcode or tap a product to start the sale.')}
             />
           ) : (
             <ul className="space-y-1">
@@ -830,7 +832,7 @@ export default function Checkout() {
                             : 'text-slate-400 hover:bg-slate-100 hover:text-slate-600',
                         )}
                       >
-                        {item.isGift ? '★ Gift — free' : 'Make it a gift'}
+                        {item.isGift ? t('★ Gift — free') : t('Make it a gift')}
                       </button>
                     </div>
                   </div>
@@ -843,7 +845,7 @@ export default function Checkout() {
         <div className="border-t border-slate-100 px-5 py-4">
           <div className="mb-3 flex items-center justify-between">
             <label htmlFor="discount" className="text-sm text-slate-500">
-              Discount
+              {t('Discount')}
             </label>
             <div className="flex items-center gap-1">
               <input
@@ -862,7 +864,7 @@ export default function Checkout() {
           <dl className="space-y-1.5 text-sm">
             <div className="flex justify-between">
               <dt className="text-slate-500">
-                Subtotal <span className="text-slate-400">· {itemCount} item{itemCount === 1 ? '' : 's'}</span>
+                {t('Subtotal')} <span className="text-slate-400">· {itemCount} item{itemCount === 1 ? '' : 's'}</span>
               </dt>
               <dd className="tnum text-slate-700">{money(subtotal)}</dd>
             </div>
@@ -873,16 +875,16 @@ export default function Checkout() {
               </div>
             )}
             <div className="flex justify-between">
-              <dt className="text-slate-500">Tax ({(taxRate * 100).toFixed(0)}%)</dt>
+              <dt className="text-slate-500">{t('Tax')} ({(taxRate * 100).toFixed(0)}%)</dt>
               <dd className="tnum text-slate-700">{money(tax)}</dd>
             </div>
             <div className="flex items-baseline justify-between border-t border-slate-100 pt-2">
-              <dt className="font-semibold text-slate-900">Total</dt>
+              <dt className="font-semibold text-slate-900">{t('Total')}</dt>
               <dd className="text-2xl font-semibold text-slate-900">{money(total)}</dd>
             </div>
             {rate > 0 && (
               <div className="flex items-baseline justify-between">
-                <dt className="text-xs text-slate-400">In LBP</dt>
+                <dt className="text-xs text-slate-400">{t('In LBP')}</dt>
                 <dd className="tnum text-base font-medium text-slate-600">{lbp(toLbp(total))}</dd>
               </div>
             )}
@@ -894,7 +896,7 @@ export default function Checkout() {
             disabled={cart.length === 0}
             onClick={() => setPaymentOpen(true)}
           >
-            Charge {money(total)}
+            {t('Charge')} {money(total)}
           </Button>
           <p className="mt-2 text-center text-[11px] text-slate-400">
             <kbd className="rounded bg-slate-100 px-1 font-sans">F2</kbd> charge ·{' '}
