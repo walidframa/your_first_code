@@ -1,0 +1,10 @@
+# Windows will run a .cmd with Unix line endings, but it mangles a `pause` at
+# the end of one — so the two files a shopkeeper double-clicks are pinned to
+# CRLF whatever the machine that checks them out prefers.
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Icons are not text, and a line-ending conversion turns them into a file
+# Windows will not draw.
+*.ico binary
+*.png binary

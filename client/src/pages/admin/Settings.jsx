@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowRight, History, Save } from 'lucide-react';
+import { ArrowRight, History, MonitorCheck, MonitorDown, Save } from 'lucide-react';
 import api from '../../api';
 import PageHeader from '../../components/PageHeader';
 import CompanySettings from '../../components/CompanySettings';
@@ -7,6 +7,7 @@ import Backups from '../../components/Backups';
 import { useSettings, lbp } from '../../context/SettingsContext';
 import { TEXT_SIZES, applyTextSize, getTextSize } from '../../lib/textSize';
 import { useLanguage } from '../../context/LanguageContext';
+import { install, isInstalled, onInstallable } from '../../lib/install';
 import {
   Button,
   Card,
@@ -57,6 +58,56 @@ function TextSize() {
           </button>
         ))}
       </div>
+    </Card>
+  );
+}
+
+/**
+ * Putting the till on the desktop.
+ *
+ * Three states worth telling apart, because the honest answer differs: it is
+ * already installed and there is nothing to do; the browser is offering, and
+ * one press is the whole job; or the browser has no offer to make, in which
+ * case the menu item is named rather than pretended away — a button that does
+ * nothing is worse than a sentence saying where to look.
+ */
+function InstallApp() {
+  const [offered, setOffered] = useState(false);
+  const [installed, setInstalled] = useState(isInstalled);
+
+  useEffect(() => onInstallable(setOffered), []);
+
+  return (
+    <Card className="p-5">
+      <h2 className="text-sm font-semibold text-slate-900">On this computer</h2>
+      <p className="mt-0.5 mb-4 text-xs text-slate-500">
+        Installing puts Front Desk in the Start menu with an icon of its own and opens it in its own
+        window — no address bar, and nothing for a cashier to click out of. It stays the same app, so
+        there is no download to repeat: an update is live the next time it is opened.
+      </p>
+
+      {installed ? (
+        <p className="flex items-center gap-2 rounded-xl bg-brand-50 px-3 py-2.5 text-sm text-brand-800">
+          <MonitorCheck size={16} className="shrink-0" /> Installed — this is the app, not a tab.
+        </p>
+      ) : offered ? (
+        <Button
+          onClick={async () => {
+            if (await install()) setInstalled(true);
+          }}
+        >
+          <MonitorDown size={16} /> Install Front Desk
+        </Button>
+      ) : (
+        <p className="rounded-xl bg-slate-50 px-3 py-2.5 text-xs text-slate-600">
+          Your browser has not offered yet. In Chrome or Edge it is the install icon at the right of
+          the address bar, or <strong>⋮ → Cast, save and share → Install</strong>. On an iPad it is{' '}
+          <strong>Share → Add to Home Screen</strong>. Installing needs the app to be on{' '}
+          <strong>https://</strong> or on this same computer — a plain{' '}
+          <code className="rounded bg-slate-200 px-1">http://</code> address over the network cannot
+          be installed.
+        </p>
+      )}
     </Card>
   );
 }
@@ -172,6 +223,10 @@ export default function Settings() {
         <div className="mb-4 grid max-w-4xl grid-cols-2 gap-4">
           <LanguageChoice />
           <TextSize />
+        </div>
+
+        <div className="mb-4 max-w-4xl">
+          <InstallApp />
         </div>
 
         {/* Boring until the day it is the only thing that matters. */}

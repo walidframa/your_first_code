@@ -154,15 +154,60 @@ Change these before deploying anywhere real.
 
 ## Putting it live
 
-Everything for this is in `deploy/`. The target is one small VPS — €4–6 a month
-at Hetzner or DigitalOcean is plenty; this is a Node process and a file.
+### Where the shop's books are going to live — decide this first
 
-**Before you start, one thing worth knowing.** A till on a cloud server stops
-selling when the shop's internet drops. If that is a real risk where the shop
-is, the same setup runs on a mini PC at the counter with a
+There is one decision to make, and everything else follows from it. **Pick one
+home for the data.** Two servers means two stock figures, and the day they
+disagree is the day nobody trusts either.
+
+| | **On a cloud server** | **On a computer in the shop** |
+| --- | --- | --- |
+| Reachable from home | Yes | Only through a tunnel |
+| More than one branch | Naturally | Awkward |
+| When the shop's internet drops | The till keeps selling from cache, and queues sales | Nothing happens; it never left the building |
+| When the power goes | Server is fine; the till needs its own battery | Everything stops |
+| Backups | A cron job, off the machine | Somebody has to remember the USB stick |
+| Costs | €4–6 a month | Nothing |
+| Set-up | `deploy/bootstrap.sh` | `deploy/windows/Install Front Desk.cmd` |
+
+For a shop with **more than one branch, or an owner who wants to see today's
+takings from home, go cloud.** For a single shop where the line drops weekly,
+the computer at the counter is the more honest answer.
+
+There is a third arrangement that gets most of both: run it on a mini PC **in
+the shop**, and put a
 [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/)
-in front of it — the counter keeps working offline, and it is still reachable
-from anywhere. Nothing below changes except that the machine is in the shop.
+in front of it. The counter never depends on the internet, and it is still
+reachable from anywhere. Set it up as the Windows install below, then add the
+tunnel.
+
+### Cloud, in one command
+
+Get a VPS — the smallest Hetzner or DigitalOcean box is more than this needs —
+running Ubuntu 24.04. Point a domain at its IP address. Then:
+
+```bash
+ssh root@YOUR-SERVER
+git clone https://github.com/walidframa/your_first_code /srv/pos
+cd /srv/pos
+sudo ./deploy/bootstrap.sh pos.myshop.com you@example.com
+```
+
+That installs Node, nginx and the app; generates the two secrets; builds the
+client; creates the admin login; starts it as a service that comes back after a
+reboot; gets an HTTPS certificate; and schedules a nightly backup. It waits
+until the app actually answers before it says it worked, and it is safe to run
+again — it will not touch the database or regenerate the secrets a second time.
+
+Leave the email off while you are still testing on a bare IP address; without a
+domain there is no certificate to get. Add it later by running the same command
+again once DNS points at the machine.
+
+Then do the three things it prints, in that order: change both demo passwords,
+copy `ACCOUNT_SECRET` off the machine, and set `BACKUP_SYNC`.
+
+The long-hand version of the same thing is below, if you would rather do it a
+step at a time or the script hits something it does not expect.
 
 ### How it serves itself
 
@@ -197,8 +242,14 @@ chown pos:pos /etc/pos.env && chmod 600 /etc/pos.env
 node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"   # twice
 nano /etc/pos.env          # paste one into JWT_SECRET, the other into ACCOUNT_SECRET
 
-# Build, seed, and start
+# Build
 cd /srv/pos && sudo -u pos npm run setup && sudo -u pos npm run build
+
+# And seed THE SHOP'S database, which is a different file from the one
+# `npm run setup` just made next to the code. Miss this and everything comes up
+# perfectly with nobody able to sign in, because a brand-new file has no users.
+sudo -u pos DB_PATH=/var/lib/pos/data.sqlite npm run seed
+
 cp deploy/pos.service /etc/systemd/system/pos.service
 systemctl daemon-reload && systemctl enable --now pos
 
@@ -233,6 +284,63 @@ push, because a restart drops whoever is mid-sale back to a loading screen, and
 that should be somebody's decision rather than a side effect of a merge.
 
 Schema changes need no separate step: the database migrates itself on boot.
+
+## On a Windows computer in the shop
+
+The other home for the data. **Do this instead of the cloud, not as well as it.**
+
+1. Copy or clone this folder onto the shop's computer — anywhere except
+   `C:\Windows` or `C:\Program Files`, both of which Windows will fight you
+   over. `C:\Users\<you>\FrontDesk` is a good spot.
+2. Open `deploy\windows\`, right-click **Install Front Desk.cmd**, and choose
+   **Run as administrator**.
+3. Wait. The first run installs Node, builds the app and takes a few minutes.
+4. Double-click **Front Desk** on the desktop.
+
+The installer puts the till in its own window with no address bar, sets it to
+start with the computer, creates the admin login, and writes the two secrets
+once. It does not touch them or the database if you run it again.
+
+The books go in `%LOCALAPPDATA%\FrontDeskPOS\data.sqlite` — deliberately outside
+this folder, so that updating the app, or deleting the folder and starting over,
+cannot take the shop's history with it. Backups land beside it.
+
+**Other devices in the shop.** Run `ipconfig`, find the computer's address, and
+open `http://192.168.x.x:4000` on the tablet. Windows Firewall will ask once
+whether to allow Node; say yes for private networks. Note that a plain `http://`
+address over the network **cannot be installed as an app** — only `https://` and
+`localhost` can — so the tablet gets a browser tab rather than its own icon
+unless you put a tunnel in front of it.
+
+**To update:** right-click **Update Front Desk.cmd** → Run as administrator. It
+backs the database up first, pulls, rebuilds, restarts, and waits until the app
+answers before saying it worked.
+
+> These Windows scripts were written against the documented behaviour of
+> PowerShell and winget but have not been run on a Windows machine here, since
+> this repository is built and tested on Linux. Everything they do is reversible
+> — the scheduled task is `Front Desk POS` in Task Scheduler, the shortcut is on
+> the desktop, and the data folder is the one named above.
+
+## Installing it as an app
+
+However the server is hosted, the till can be **installed** on the computer or
+tablet that uses it: an icon in the Start menu, a window of its own, no address
+bar for a cashier to wander out of.
+
+Open **Settings → On this computer** and press **Install Front Desk**. If your
+browser has not offered yet, the same thing is on the right of Chrome or Edge's
+address bar; on an iPad it is **Share → Add to Home Screen**.
+
+The one requirement is that the app is on **`https://`** or on **that same
+computer**. A browser will not install a page served over plain `http://` from
+another machine on the network, which is the usual reason the button does not
+appear.
+
+**There is nothing to download, and nothing to update.** An installed web app is
+still the app on the server, so a deploy reaches every till on the next open.
+That is the whole reason it is built this way rather than as a `.exe` somebody
+has to go and re-install in each shop.
 
 ### Selling with the server away
 

@@ -2,8 +2,20 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <link rel="icon" href="/favicon.ico" sizes="48x48" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <!-- Installable: on a PC this becomes a Start-menu app in its own window,
+         with no address bar for a cashier to wander out of, and on a tablet an
+         icon on the home screen. There is nothing to download and nothing to
+         update — it is the same app, so a deploy reaches it on the next open. -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#059669" />
+    <link rel="apple-touch-icon" href="/icon-192.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Front Desk" />
+
     <title>Front Desk POS</title>
   </head>
   <body>
