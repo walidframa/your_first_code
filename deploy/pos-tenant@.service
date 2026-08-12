@@ -1,0 +1,56 @@
+# One rented shop, as a service the machine looks after.
+#
+#   sudo cp deploy/pos-tenant@.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#
+# Then `pos-tenant add` starts each shop with `systemctl enable --now
+# pos-tenant@<slug>`. The %i in the paths below is that slug, so one file
+# serves every shop and there is nothing per-tenant to keep in step.
+
+[Unit]
+Description=Front Desk POS — %i
+Documentation=https://github.com/walidframa/your_first_code
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pos
+Group=pos
+WorkingDirectory=/srv/pos/server
+ExecStart=/usr/bin/node src/index.js
+
+# Which shop this is: its port, its database, its own two secrets, and where
+# its licence is kept. Written by `pos-tenant add`, mode 600, because the
+# secrets in it are the shop's.
+EnvironmentFile=/etc/pos/tenants/%i.env
+
+# A till that dies at four o'clock has to come back on its own; nobody in a
+# shop is watching a service. Rate-limited so a boot loop shows up as a stopped
+# service rather than hammering a machine with other shops on it.
+Restart=always
+RestartSec=2
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+# Each shop can write its own database and its own backups, and nothing else.
+# One tenant reaching another's file is the failure this whole arrangement
+# exists to make impossible, so it is refused by the kernel rather than by
+# anybody remembering.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/pos/tenants
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=pos-%i
+
+[Install]
+WantedBy=multi-user.target
