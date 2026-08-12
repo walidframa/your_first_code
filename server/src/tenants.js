@@ -21,7 +21,7 @@
  */
 import { DatabaseSync } from 'node:sqlite';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ensureControlSchema } from './lib/control.js';
@@ -37,6 +37,43 @@ import {
 } from './lib/provision.js';
 
 const srcDir = path.dirname(fileURLToPath(import.meta.url));
+
+/**
+ * The settings file, read by this command rather than by the shell.
+ *
+ * Sourcing `/etc/pos.env` by hand lasts exactly as long as that one terminal.
+ * Come back tomorrow, or from another computer, and `POS_CERT_EMAIL` is empty
+ * again — at which point `add` cheerfully sets a shop up with no certificate
+ * and says so in one grey line among thirty. A step somebody has to remember
+ * before every use is a step that will be forgotten on the day it matters.
+ *
+ * Anything already in the environment wins, so an explicit `CONTROL_DB=...
+ * pos-tenant …` still overrides the file, and the tests keep their temporary
+ * directories.
+ */
+function loadSettings(file = process.env.POS_ENV_FILE || '/etc/pos.env') {
+  if (!existsSync(file)) return;
+  // Only the keys this command uses. The file also holds the vendor's own
+  // shop's signing keys, and there is no reason to pull those into a process
+  // that will never need them.
+  const WANTED = new Set([
+    'POS_DOMAIN',
+    'CONTROL_DB',
+    'POS_TENANT_DATA',
+    'POS_ENV_DIR',
+    'POS_NGINX_DIR',
+    'POS_NGINX_ENABLED',
+    'POS_CERT_EMAIL',
+  ]);
+  for (const line of readFileSync(file, 'utf8').split('\n')) {
+    const match = line.match(/^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.*?)\s*$/);
+    if (match && WANTED.has(match[1]) && process.env[match[1]] === undefined) {
+      process.env[match[1]] = match[2];
+    }
+  }
+}
+
+loadSettings();
 
 const CONFIG = {
   domain: process.env.POS_DOMAIN || 'xtechpos.com',

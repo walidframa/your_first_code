@@ -349,15 +349,20 @@ system's rather than a `WHERE` clause somebody has to remember.
 # A wildcard A record at your registrar: name *, value your server's IP.
 # Every future client's address then works without touching DNS again.
 
-sudo cp deploy/pos-tenant@.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo mkdir -p /var/lib/pos/tenants /etc/pos/tenants
-sudo ln -sf /srv/pos/server/src/tenants.js /usr/local/bin/pos-tenant
+cp deploy/pos-tenant@.service /etc/systemd/system/
+systemctl daemon-reload
+mkdir -p /var/lib/pos/tenants /etc/pos/tenants
+chmod +x /srv/pos/server/src/tenants.js
+ln -sf /srv/pos/server/src/tenants.js /usr/local/bin/pos-tenant
 
-# Where the licences live, and who to get certificates as
-echo 'POS_DOMAIN=xtechpos.com'                >> /etc/pos.env
-echo 'CONTROL_DB=/var/lib/pos/control.sqlite' >> /etc/pos.env
-echo 'POS_CERT_EMAIL=you@example.com'         >> /etc/pos.env
+# Where the licences live, and who to get certificates as. `pos-tenant` reads
+# this file itself, so there is nothing to source and nothing to remember on
+# the next machine you sign in from.
+cat >> /etc/pos.env <<'EOF'
+POS_DOMAIN=xtechpos.com
+CONTROL_DB=/var/lib/pos/control.sqlite
+POS_CERT_EMAIL=you@example.com
+EOF
 ```
 
 ### A new client
