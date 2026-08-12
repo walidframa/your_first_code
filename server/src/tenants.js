@@ -8,6 +8,7 @@
  *   pos-tenant suspend rami        /  resume rami
  *   pos-tenant remove rami         /  restore rami
  *   pos-tenant purge rami          # deletes their data, on request
+ *   pos-tenant operator walid      # a login for the console
  *
  * Run on the server as root. `--dry-run` prints every file it would write and
  * every command it would run, and touches nothing — which is the only way to
@@ -25,6 +26,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ensureControlSchema } from './lib/control.js';
+import { createOperator, ensureOperatorSchema, setOperatorPassword } from './lib/operators.js';
 import { PLANS, addDays, extend, licenceState, today } from './lib/licence.js';
 import {
   checkSlug,
@@ -454,6 +456,40 @@ function purge() {
   db.close();
 }
 
+/* -------------------------------------------------------- console logins */
+
+/**
+ * Make, or reset, a login for the console.
+ *
+ *   pos-tenant operator walid 'a long console password'
+ *
+ * Here rather than in the console itself, because the first one has to exist
+ * before anybody can sign in — and a web page that lets a stranger create the
+ * account that can stop every shop is not a web page worth having.
+ */
+function operator() {
+  const [, username, password] = positional;
+  if (!username || !password) {
+    die("Usage: pos-tenant operator <username> '<password>'  (12 characters or more)");
+  }
+  if (dryRun) return say(`    would create or reset the console login "${username}"`);
+
+  const db = ensureOperatorSchema(control());
+  const exists = db.prepare('SELECT 1 FROM operators WHERE username = ?').get(username);
+  try {
+    if (exists) {
+      setOperatorPassword(db, username, password);
+      say(`\n  Console password for ${username} changed.\n`);
+    } else {
+      createOperator(db, username, password);
+      say(`\n  Console login ${username} created. Sign in at https://admin.${CONFIG.domain}\n`);
+    }
+  } catch (err) {
+    die(err.message);
+  }
+  db.close();
+}
+
 /* ------------------------------------------------------------------ main */
 
 const commands = {
@@ -465,6 +501,7 @@ const commands = {
   remove,
   restore: () => setFlags({ removed_at: null }, 'restored to the book — start it with systemctl'),
   purge,
+  operator,
 };
 
 const command = positional[0];
@@ -481,6 +518,7 @@ if (!command || !commands[command]) {
     remove <slug>             stop it and take the address down, keeping the data
     restore <slug>
     purge <slug> --yes        delete their data, on request
+    operator <name> '<pw>'    make or reset a login for the web console
 
   Add --dry-run to any of these to see exactly what it would do.
 `);

@@ -1,0 +1,53 @@
+# The vendor's console — the book of shops, and what each has paid.
+#
+#   sudo cp deploy/pos-console.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now pos-console
+#
+# Its settings, including a signing key of its own, live in
+# /etc/pos-console.env. Separate from the shops' file on purpose: a key shared
+# with the tills would mean a token minted at a counter being accepted here.
+
+[Unit]
+Description=Front Desk POS — vendor console
+Documentation=https://github.com/walidframa/your_first_code
+After=network-online.target
+Wants=network-online.target
+
+# In [Unit], where systemd reads them. Five failures in a minute and it stays
+# stopped, rather than restarting for ever and looking busy.
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=pos
+Group=pos
+WorkingDirectory=/srv/pos/server
+ExecStart=/usr/bin/node src/control/index.js
+EnvironmentFile=/etc/pos-console.env
+
+Restart=always
+RestartSec=2
+
+# It reads the book of shops and writes payments to it. It has no business
+# anywhere else on the machine — and in particular no business running the
+# commands that create or delete a shop, which need root and stay on the
+# command line.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/pos
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=pos-console
+
+[Install]
+WantedBy=multi-user.target

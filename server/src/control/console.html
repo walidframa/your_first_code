@@ -1,0 +1,343 @@
+<!doctype html>
+<!--
+  The vendor's console, as one file.
+
+  Deliberately not a second React app: it is one table and four buttons, used by
+  one person, and a whole build pipeline for that would be more to keep working
+  than the thing it builds. In the same spirit as the PDF and spreadsheet
+  writers in this repo — no dependency where a hundred lines will do.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Shops — Front Desk</title>
+    <style>
+      :root {
+        --brand: #059669;
+        --brand-dark: #047857;
+        --ink: #0f172a;
+        --muted: #64748b;
+        --line: #e2e8f0;
+        --bg: #f8fafc;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
+      header {
+        background: #0f172a;
+        color: #fff;
+        padding: 14px 20px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      header h1 { font-size: 15px; margin: 0; font-weight: 600; }
+      header .who { margin-left: auto; font-size: 13px; color: #94a3b8; }
+      main { max-width: 1100px; margin: 0 auto; padding: 20px; }
+
+      .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 18px; }
+      .card { background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; }
+      .card .n { font-size: 26px; font-weight: 650; }
+      .card .l { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+
+      table { width: 100%; border-collapse: collapse; background: #fff;
+              border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+      th { text-align: left; font-size: 12px; color: var(--muted); text-transform: uppercase;
+           letter-spacing: .04em; padding: 10px 14px; background: #f1f5f9; font-weight: 600; }
+      td { padding: 12px 14px; border-top: 1px solid #f1f5f9; vertical-align: middle; }
+      td.right, th.right { text-align: right; white-space: nowrap; }
+      /* A date broken across two lines is unreadable at a glance, which is the
+         only way this column is ever read. */
+      td.when, th.when { white-space: nowrap; }
+      tr.removed td { opacity: .5; }
+      .shop { font-weight: 600; }
+      .sub { font-size: 12px; color: var(--muted); }
+      .sub a { color: var(--muted); }
+
+      .pill { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+      .active   { background: #ecfdf5; color: #047857; }
+      .due      { background: #fefce8; color: #854d0e; }
+      .overdue  { background: #fff7ed; color: #9a3412; }
+      .locked   { background: #fef2f2; color: #b91c1c; }
+      .removed  { background: #f1f5f9; color: #475569; }
+
+      button {
+        font: inherit; font-size: 13px; font-weight: 500; cursor: pointer;
+        border-radius: 9px; padding: 6px 11px; border: 1px solid var(--line);
+        background: #fff; color: var(--ink);
+      }
+      button:hover { background: #f8fafc; }
+      button.primary { background: var(--brand); border-color: var(--brand); color: #fff; }
+      button.primary:hover { background: var(--brand-dark); }
+      button:disabled { opacity: .5; cursor: default; }
+
+      dialog { border: none; border-radius: 16px; padding: 0; width: min(440px, 92vw);
+               box-shadow: 0 20px 50px rgba(15, 23, 42, .25); }
+      dialog::backdrop { background: rgba(15, 23, 42, .5); }
+      .dlg { padding: 20px; }
+      .dlg h2 { margin: 0 0 4px; font-size: 17px; }
+      .dlg p.sub { margin: 0 0 16px; }
+      label { display: block; font-size: 13px; font-weight: 500; margin: 12px 0 5px; }
+      input {
+        font: inherit; width: 100%; padding: 9px 11px; border: 1px solid #cbd5e1;
+        border-radius: 9px; background: #fff;
+      }
+      input:focus { outline: 2px solid var(--brand); outline-offset: -1px; border-color: var(--brand); }
+      .row { display: flex; gap: 10px; margin-top: 18px; }
+      .row button { flex: 1; padding: 9px; }
+
+      .err { background: #fef2f2; color: #b91c1c; padding: 9px 12px; border-radius: 9px;
+             font-size: 13px; margin-top: 12px; }
+      .ok  { background: #ecfdf5; color: #047857; padding: 9px 12px; border-radius: 9px;
+             font-size: 13px; margin-top: 12px; }
+
+      #signin { max-width: 380px; margin: 12vh auto; background: #fff; border: 1px solid var(--line);
+                border-radius: 16px; padding: 24px; }
+      #signin h1 { font-size: 18px; margin: 0 0 4px; }
+
+      code { background: #f1f5f9; padding: 2px 6px; border-radius: 5px; font-size: 13px; }
+      .note { margin-top: 18px; font-size: 13px; color: var(--muted); }
+      .note code { display: block; margin: 6px 0; padding: 8px 10px; }
+      .hide { display: none; }
+    </style>
+  </head>
+  <body>
+    <!-- Signing in -->
+    <div id="signin">
+      <h1>Shops</h1>
+      <p class="sub">The console for shops renting Front Desk.</p>
+      <form id="loginForm">
+        <label for="u">Username</label>
+        <input id="u" name="username" autocomplete="username" required autofocus />
+        <label for="p">Password</label>
+        <input id="p" name="password" type="password" autocomplete="current-password" required />
+        <div class="row"><button class="primary" type="submit">Sign in</button></div>
+        <div id="loginErr" class="err hide"></div>
+      </form>
+    </div>
+
+    <!-- The book -->
+    <div id="app" class="hide">
+      <header>
+        <h1>Shops</h1>
+        <span class="who" id="who"></span>
+        <button id="out">Sign out</button>
+      </header>
+      <main>
+        <div class="cards">
+          <div class="card"><div class="n" id="cTotal">—</div><div class="l">Shops</div></div>
+          <div class="card"><div class="n" id="cAttention">—</div><div class="l">Need attention</div></div>
+          <div class="card"><div class="n" id="cValue">—</div><div class="l">Per month</div></div>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Shop</th><th>Licence</th><th class="when">Paid to</th><th>Plan</th>
+              <th class="right">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
+
+        <div class="note">
+          <strong>These three run on the server, not here</strong> — they write system files or
+          delete a shop's data, and a page on the open internet should not.
+          <code id="cmdAdd"></code>
+          <code id="cmdRemove"></code>
+          <code id="cmdPurge"></code>
+        </div>
+      </main>
+    </div>
+
+    <!-- Taking a payment -->
+    <dialog id="payDlg">
+      <form class="dlg" method="dialog" id="payForm">
+        <h2 id="payTitle">Take a payment</h2>
+        <p class="sub" id="paySub"></p>
+        <label for="periods">How many periods</label>
+        <input id="periods" type="number" min="1" max="60" value="1" required />
+        <label for="amount">Amount taken</label>
+        <input id="amount" type="number" min="0" step="0.01" required />
+        <label for="note">Note (optional)</label>
+        <input id="note" placeholder="cash, OMT, bank…" />
+        <div class="row">
+          <button type="button" id="payCancel">Cancel</button>
+          <button class="primary" type="submit">Record it</button>
+        </div>
+        <div id="payErr" class="err hide"></div>
+      </form>
+    </dialog>
+
+    <script>
+      const $ = (id) => document.getElementById(id);
+      let token = localStorage.getItem('console_token');
+      let paying = null;
+
+      async function api(path, options = {}) {
+        const res = await fetch(path, {
+          ...options,
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: 'Bearer ' + token } : {}),
+            ...(options.headers || {}),
+          },
+        });
+        const body = await res.json().catch(() => ({}));
+        if (res.status === 401) { signOut(); throw new Error(body.error || 'Sign in again'); }
+        if (!res.ok) throw new Error(body.error || 'That did not work');
+        return body;
+      }
+
+      function show(which) {
+        $('signin').classList.toggle('hide', which !== 'signin');
+        $('app').classList.toggle('hide', which !== 'app');
+      }
+
+      function signOut() {
+        token = null;
+        localStorage.removeItem('console_token');
+        localStorage.removeItem('console_user');
+        show('signin');
+      }
+
+      $('out').onclick = signOut;
+
+      $('loginForm').onsubmit = async (e) => {
+        e.preventDefault();
+        const err = $('loginErr');
+        err.classList.add('hide');
+        try {
+          const body = await (await fetch('/api/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: $('u').value, password: $('p').value }),
+          })).json();
+          if (!body.token) throw new Error(body.error || 'Wrong username or password');
+          token = body.token;
+          localStorage.setItem('console_token', token);
+          localStorage.setItem('console_user', body.username);
+          $('p').value = '';
+          await load();
+        } catch (e2) {
+          err.textContent = e2.message;
+          err.classList.remove('hide');
+        }
+      };
+
+      const money = (n) => '$' + Number(n || 0).toFixed(2);
+
+      function actions(t) {
+        if (t.removedAt) return '<span class="sub">stopped</span>';
+        const pay = `<button data-pay="${t.slug}">Payment</button>`;
+        const stop = t.suspended
+          ? `<button data-resume="${t.slug}">Let it sell</button>`
+          : `<button data-suspend="${t.slug}">Stop it</button>`;
+        return pay + ' ' + stop;
+      }
+
+      async function load() {
+        const { tenants, summary } = await api('/api/tenants');
+        show('app');
+        $('who').textContent = localStorage.getItem('console_user') || '';
+
+        $('cTotal').textContent = summary.total;
+        $('cAttention').textContent = summary.needAttention;
+        $('cValue').textContent = money(summary.monthlyValue);
+
+        $('rows').innerHTML = tenants.length
+          ? tenants.map((t) => `
+            <tr class="${t.removedAt ? 'removed' : ''}">
+              <td>
+                <div class="shop">${t.shopName}</div>
+                <div class="sub"><a href="${t.address}" target="_blank" rel="noopener">${t.address}</a>${
+                  t.ownerPhone ? ' · ' + t.ownerPhone : ''
+                }</div>
+              </td>
+              <td>
+                <span class="pill ${t.licence.state}">${
+                  t.suspended && !t.removedAt ? 'suspended' : t.licence.state
+                }</span>
+                <div class="sub">${t.licence.message || ''}</div>
+              </td>
+              <td class="when">${t.paidThrough || '—'}</td>
+              <td>${t.plan} · ${money(t.price)}</td>
+              <td class="right">${actions(t)}</td>
+            </tr>`).join('')
+          : '<tr><td colspan="5" class="sub">No shops yet — add one on the server.</td></tr>';
+
+        const cmds = await api('/api/commands');
+        $('cmdAdd').textContent = cmds.add;
+        $('cmdRemove').textContent = cmds.remove;
+        $('cmdPurge').textContent = cmds.purge;
+
+        for (const b of document.querySelectorAll('[data-pay]')) {
+          b.onclick = () => openPay(tenants.find((t) => t.slug === b.dataset.pay));
+        }
+        for (const b of document.querySelectorAll('[data-suspend]')) {
+          b.onclick = () => setSuspended(b.dataset.suspend, true);
+        }
+        for (const b of document.querySelectorAll('[data-resume]')) {
+          b.onclick = () => setSuspended(b.dataset.resume, false);
+        }
+      }
+
+      function openPay(t) {
+        paying = t;
+        $('payTitle').textContent = 'Payment from ' + t.shopName;
+        $('paySub').textContent = 'Paid to ' + (t.paidThrough || 'never') + ' · ' + t.plan;
+        $('periods').value = 1;
+        $('amount').value = Number(t.price || 0).toFixed(2);
+        $('note').value = '';
+        $('payErr').classList.add('hide');
+        $('payDlg').showModal();
+      }
+
+      $('payCancel').onclick = () => $('payDlg').close();
+
+      $('periods').oninput = () => {
+        if (paying) $('amount').value = (Number(paying.price || 0) * Number($('periods').value || 1)).toFixed(2);
+      };
+
+      $('payForm').onsubmit = async (e) => {
+        e.preventDefault();
+        const err = $('payErr');
+        err.classList.add('hide');
+        try {
+          await api('/api/tenants/' + paying.slug + '/pay', {
+            method: 'POST',
+            body: JSON.stringify({
+              periods: Number($('periods').value),
+              amount: Number($('amount').value),
+              note: $('note').value || null,
+            }),
+          });
+          $('payDlg').close();
+          await load();
+        } catch (e2) {
+          err.textContent = e2.message;
+          err.classList.remove('hide');
+        }
+      };
+
+      async function setSuspended(slug, suspended) {
+        // Stopping a shop stops it selling to its customers, right now, so it is
+        // worth one question rather than a single stray click.
+        if (suspended && !confirm('Stop ' + slug + ' selling, right now?')) return;
+        await api('/api/tenants/' + slug + '/suspend', {
+          method: 'POST',
+          body: JSON.stringify({ suspended }),
+        });
+        await load();
+      }
+
+      if (token) load().catch(signOut);
+      else show('signin');
+    </script>
+  </body>
+</html>
