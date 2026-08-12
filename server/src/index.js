@@ -5,6 +5,8 @@ import { fileURLToPath } from 'node:url';
 import express from 'express';
 import cors from 'cors';
 import { db } from './db.js';
+import { enforceLicence, licenceStatus } from './middleware/licence.js';
+import { licenceMessage } from './lib/licence.js';
 import authRoutes from './routes/auth.js';
 import productRoutes from './routes/products.js';
 import orderRoutes from './routes/orders.js';
@@ -131,6 +133,28 @@ app.get('/api/health', (req, res) => {
   const demo = db.prepare('SELECT COUNT(*) AS n FROM users WHERE must_change_password = 1').get();
   res.json({ ok: true, demoAccounts: demo.n > 0 });
 });
+/*
+ * Where the licence stands, before anybody has signed in.
+ *
+ * Unauthenticated on purpose: a till that has stopped has to be able to say why
+ * on the screen a cashier is looking at, and the answer — a date, and whether
+ * it has passed — is the shop's own business rather than a secret. It also
+ * means the sign-in screen itself can carry the warning.
+ */
+app.get('/api/licence', (req, res) => {
+  const status = licenceStatus();
+  res.json({ licence: { ...status, message: licenceMessage(status) } });
+});
+
+/*
+ * And from here down, nothing trades without one.
+ *
+ * Mounted before the routes rather than inside each of them: a rule that has to
+ * be remembered on every new endpoint is a rule that will be missed on one, and
+ * the one it is missed on will be the one that takes money.
+ */
+app.use(enforceLicence);
+
 app.use('/api/auth', authRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/orders', orderRoutes);

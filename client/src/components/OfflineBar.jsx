@@ -1,5 +1,6 @@
-import { CloudOff, RefreshCw, TriangleAlert } from 'lucide-react';
+import { CalendarClock, CloudOff, RefreshCw, TriangleAlert } from 'lucide-react';
 import { useOffline } from '../context/OfflineContext';
+import { useLicence } from '../context/LicenceContext';
 import { Button, cx, money } from './ui';
 import { useT } from '../context/LanguageContext';
 
@@ -15,6 +16,41 @@ import { useT } from '../context/LanguageContext';
  * person: the money was taken and the books will not have it until somebody
  * decides what to do.
  */
+/**
+ * How long this shop has left on its licence.
+ *
+ * Two weeks of quiet notice, then a louder one naming the day the till stops.
+ * A shopkeeper should never learn about this from a customer standing at the
+ * counter, which is what happens when the only warning is the lock itself.
+ *
+ * The overdue bar is not dismissible on purpose: it is the last thing between
+ * the shop and a stopped till, and somebody who closes it will not think about
+ * it again until the morning it matters.
+ */
+function LicenceBar() {
+  const { licence } = useLicence();
+  if (!licence || (licence.state !== 'due' && licence.state !== 'overdue')) return null;
+
+  const overdue = licence.state === 'overdue';
+
+  return (
+    <div
+      className={cx(
+        'flex items-center gap-2 px-4 py-1.5 text-sm font-medium text-white',
+        overdue ? 'bg-red-600' : 'bg-slate-700',
+      )}
+    >
+      <CalendarClock size={15} className="shrink-0" />
+      <span>{licence.message}</span>
+      {overdue && (
+        <span className="ml-auto shrink-0 text-xs opacity-90">
+          {licence.graceLeft} day{licence.graceLeft === 1 ? '' : 's'} left
+        </span>
+      )}
+    </div>
+  );
+}
+
 /** How many sales are waiting, and — if it is worth saying — how much money. */
 function waiting(t, count, total) {
   if (total > 0) {
@@ -34,12 +70,16 @@ export default function OfflineBar() {
   const { reachable, sending, pending, refused, send } = useOffline();
   const t = useT();
 
-  if (reachable && pending.length === 0 && refused.length === 0) return null;
+  // The licence bar has its own reasons to appear, so this one no longer gets
+  // to decide there is nothing to show.
+  if (reachable && pending.length === 0 && refused.length === 0) return <LicenceBar />;
 
   const total = pending.reduce((sum, s) => sum + (s.total || 0), 0);
 
   return (
     <div className="no-print">
+      <LicenceBar />
+
       {!reachable && (
         <div className="flex items-center gap-2 bg-amber-500 px-4 py-1.5 text-sm font-medium text-white">
           <CloudOff size={15} className="shrink-0" />

@@ -12,6 +12,14 @@ import { applyTextSize } from './lib/textSize.js';
 import { applyLanguage } from './lib/i18n.js';
 import { LanguageProvider } from './context/LanguageContext.jsx';
 import { watchForInstall } from './lib/install.js';
+import { LicenceProvider, useLicence } from './context/LicenceContext.jsx';
+import Locked from './pages/Locked.jsx';
+
+/** The whole app, or the one screen that explains why there isn't one. */
+function LicenceGate({ children }) {
+  const { locked } = useLicence();
+  return locked ? <Locked /> : children;
+}
 
 /*
  * Before the first render, so a screen set to large text never flashes the
@@ -47,13 +55,22 @@ createRoot(document.getElementById('root')).render(
       <LanguageProvider>
         <ToastProvider>
         <AuthProvider>
-          <BranchProvider>
-            <SettingsProvider>
-              <OfflineProvider>
-                <App />
-              </OfflineProvider>
-            </SettingsProvider>
-          </BranchProvider>
+          {/* Above the providers that fetch the shop's own data, and below the
+              one that knows who is signed in: a stopped till answers 402 to all
+              of those, and there is no point in four of them discovering that
+              separately when one screen already explains it. Signing in still
+              works, because taking a copy of the records needs it. */}
+          <LicenceProvider>
+            <LicenceGate>
+              <BranchProvider>
+                <SettingsProvider>
+                  <OfflineProvider>
+                    <App />
+                  </OfflineProvider>
+                </SettingsProvider>
+              </BranchProvider>
+            </LicenceGate>
+          </LicenceProvider>
         </AuthProvider>
         </ToastProvider>
       </LanguageProvider>
