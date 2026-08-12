@@ -1690,6 +1690,36 @@ if (!db.prepare(`SELECT value FROM settings WHERE key = 'renamed_mtc_to_touch'`)
   db.prepare(`INSERT INTO settings (key, value) VALUES ('renamed_mtc_to_touch', 'done')`).run();
 }
 
+/*
+ * When somebody's password last changed, and whether it is still the one the
+ * seed put there.
+ *
+ * `password_changed_at` is what makes a reset actually throw somebody out: a
+ * token issued before it is refused, so an owner who resets a departing
+ * cashier's password does not have to wonder whether the phone in their pocket
+ * is still signed in.
+ *
+ * `must_change_password` marks the demo accounts. `admin/admin123` is in the
+ * README, on the sign-in screen, and in every copy of this app — on a public
+ * address that is not a password, it is a doorbell.
+ */
+addColumn('users', 'password_changed_at', 'TEXT');
+addColumn('users', 'must_change_password', 'INTEGER NOT NULL DEFAULT 0');
+
+/*
+ * Existing installations were seeded before that flag existed, and the two demo
+ * accounts are the whole reason for it. Guarded so that somebody who has since
+ * changed their password — and cleared the flag — is not nagged again on the
+ * next deploy.
+ */
+if (!db.prepare(`SELECT value FROM settings WHERE key = 'flagged_demo_passwords'`).get()) {
+  db.prepare(`
+    UPDATE users SET must_change_password = 1
+    WHERE username IN ('admin', 'cashier') AND password_changed_at IS NULL
+  `).run();
+  db.prepare(`INSERT INTO settings (key, value) VALUES ('flagged_demo_passwords', 'done')`).run();
+}
+
 export const ADJUSTMENT_REASONS = [
   'received',
   'damaged',

@@ -4,12 +4,21 @@ import { db } from './db.js';
 const userCount = db.prepare('SELECT COUNT(*) AS n FROM users').get().n;
 
 if (userCount === 0) {
+  /*
+   * Flagged as needing a change on the way in, not by a migration afterwards.
+   *
+   * These two passwords are in the README, on the sign-in screen and in every
+   * copy of this app, so on anything reachable from the internet they are a
+   * doorbell rather than a lock. The app makes whoever signs in with one change
+   * it before they can do anything else.
+   */
   const insertUser = db.prepare(
-    'INSERT INTO users (username, password_hash, name, role) VALUES (?, ?, ?, ?)',
+    `INSERT INTO users (username, password_hash, name, role, must_change_password)
+     VALUES (?, ?, ?, ?, 1)`,
   );
   insertUser.run('admin', bcrypt.hashSync('admin123', 10), 'Store Owner', 'admin');
   insertUser.run('cashier', bcrypt.hashSync('cashier123', 10), 'Front Register', 'cashier');
-  console.log('Seeded users: admin/admin123, cashier/cashier123');
+  console.log('Seeded users: admin/admin123, cashier/cashier123 — both must be changed on sign-in');
 } else {
   console.log('Users already exist, skipping user seed');
 }

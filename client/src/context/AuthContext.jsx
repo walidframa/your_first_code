@@ -66,6 +66,21 @@ export function AuthProvider({ children }) {
     setUser(res.data.user);
   }
 
+  /**
+   * Change your own password, and stay signed in.
+   *
+   * The server hands back a fresh token because the one this browser is holding
+   * is now older than the password behind it — which is exactly what it refuses.
+   */
+  async function changePassword(currentPassword, newPassword) {
+    const res = await api.post('/auth/password', { currentPassword, newPassword });
+    localStorage.setItem('pos_token', res.data.token);
+    localStorage.setItem('pos_user', JSON.stringify(res.data.user));
+    setAuthToken(res.data.token);
+    setToken(res.data.token);
+    setUser(res.data.user);
+  }
+
   function logout() {
     localStorage.removeItem('pos_token');
     localStorage.removeItem('pos_user');
@@ -89,7 +104,7 @@ export function AuthProvider({ children }) {
   );
 
   return (
-    <AuthContext.Provider value={{ user, token, loading, login, logout, can }}>
+    <AuthContext.Provider value={{ user, token, loading, login, logout, can, changePassword }}>
       {children}
     </AuthContext.Provider>
   );

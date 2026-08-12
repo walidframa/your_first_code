@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { db } from '../db.js';
+import { checkPassword, setPassword } from '../lib/passwords.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
 import {
   DEFAULT_PERMISSIONS,
@@ -84,6 +85,39 @@ router.delete('/:id', requireAuth, requirePermission('users'), (req, res) => {
   } catch {
     return res.status(409).json({ error: 'Cannot delete a user with existing order history' });
   }
+  res.json({ ok: true });
+});
+
+/**
+ * Reset somebody else's password.
+ *
+ * No current password asked for, because the whole point is that the owner does
+ * not have it — a cashier who has forgotten theirs, or one who has left and
+ * whose session needs ending now. Setting it signs them out everywhere, which
+ * is the half of "reset the password" that people assume already happens.
+ */
+router.put('/:id/password', requireAuth, requirePermission('users'), (req, res) => {
+  /*
+   * Your own goes through the other route, before anything is written here.
+   *
+   * This one hands back no token, so using it on yourself would sign this
+   * browser out mid-click — the session it is holding predates the password it
+   * just set. Changing your own asks for the current one and returns a fresh
+   * token, which is the whole difference between the two.
+   */
+  if (Number(req.params.id) === req.user.id) {
+    return res.status(400).json({
+      error: 'Use Settings to change your own password — it asks for your current one.',
+    });
+  }
+
+  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.params.id);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+
+  const problem = checkPassword(req.body?.password);
+  if (problem) return res.status(400).json({ error: problem });
+
+  setPassword(user.id, req.body.password);
   res.json({ ok: true });
 });
 

@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
 import cors from 'cors';
-import './db.js';
+import { db } from './db.js';
 import authRoutes from './routes/auth.js';
 import productRoutes from './routes/products.js';
 import orderRoutes from './routes/orders.js';
@@ -114,7 +114,23 @@ if (serveClient) {
   );
 }
 
-app.get('/api/health', (req, res) => res.json({ ok: true }));
+/*
+ * Health, and the one thing the sign-in screen needs before anybody has signed
+ * in: whether this is still a fresh copy with the demo logins in it.
+ *
+ * The one-tap demo buttons print `admin/admin123` on the front door. That is
+ * exactly right on a demo and exactly wrong on a shop, so they are shown only
+ * while those passwords are actually still in use — and the moment somebody
+ * sets a real one, the hint goes with it.
+ *
+ * Saying so out loud gives an attacker nothing they could not learn by typing
+ * the two passwords from the README, and it removes them from the page for
+ * everybody else.
+ */
+app.get('/api/health', (req, res) => {
+  const demo = db.prepare('SELECT COUNT(*) AS n FROM users WHERE must_change_password = 1').get();
+  res.json({ ok: true, demoAccounts: demo.n > 0 });
+});
 app.use('/api/auth', authRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/orders', orderRoutes);

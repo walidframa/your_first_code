@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router';
 import { ScanLine } from 'lucide-react';
+import api from '../api';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 import { Button, Input, cx } from '../components/ui';
@@ -19,6 +20,21 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+
+  /*
+   * Whether the shipped logins are still the real ones.
+   *
+   * Assumed absent until the server says otherwise, so a shop whose server is
+   * slow — or away — never flashes `admin/admin123` onto the screen on the way
+   * to hiding it.
+   */
+  const [demoAvailable, setDemoAvailable] = useState(false);
+  useEffect(() => {
+    api
+      .get('/health')
+      .then((res) => setDemoAvailable(Boolean(res.data.demoAccounts)))
+      .catch(() => setDemoAvailable(false));
+  }, []);
 
   /*
    * Sent here by a dead session rather than by choosing to sign out. Worth
@@ -113,6 +129,10 @@ export default function Login() {
           </form>
         </div>
 
+        {/* Only while they are still the real passwords. Printing
+            `admin/admin123` on the door of a working shop is worse than not
+            having the shortcut at all. */}
+        {demoAvailable && (
         <div className="mt-4 rounded-xl bg-slate-800/60 p-3">
           <p className="mb-2 px-1 text-xs font-medium tracking-wide text-slate-400 uppercase">
             {t('Demo accounts')}
@@ -134,6 +154,7 @@ export default function Login() {
             ))}
           </div>
         </div>
+        )}
       </div>
     </div>
   );

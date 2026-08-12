@@ -16,7 +16,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const serverRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const PORT = 4603;
+const PORT = 4601;
 const BASE = `http://127.0.0.1:${PORT}/api`;
 
 let child;
