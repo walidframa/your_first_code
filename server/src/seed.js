@@ -1,5 +1,20 @@
 import bcrypt from 'bcryptjs';
 import { db } from './db.js';
+import { addStarterCategories } from './lib/starterCategories.js';
+
+/*
+ * Two different jobs wearing one name.
+ *
+ * Without an argument this fills a **demo**: sixteen products with barcodes
+ * that actually scan, which is what the screenshots, the development copy and
+ * the end-to-end run are all standing on.
+ *
+ * With `--starter` it sets up a **real shop somebody has just paid for**. That
+ * shop wants its own stock, not a catalogue of espresso and croissants it has
+ * to find and delete before it can trust anything on the screen — so it gets
+ * the shelves a phone shop files by, and nothing on them.
+ */
+const starter = process.argv.includes('--starter');
 
 const userCount = db.prepare('SELECT COUNT(*) AS n FROM users').get().n;
 
@@ -25,7 +40,14 @@ if (userCount === 0) {
 
 const categoryCount = db.prepare('SELECT COUNT(*) AS n FROM categories').get().n;
 
-if (categoryCount === 0) {
+if (starter) {
+  const added = addStarterCategories(db);
+  console.log(
+    added.length
+      ? `Set up ${added.length} categories for a phone shop, and no products — the shop adds its own`
+      : 'Categories already exist, leaving them alone',
+  );
+} else if (categoryCount === 0) {
   const insertCategory = db.prepare('INSERT INTO categories (name) VALUES (?)');
   const categories = ['Beverages', 'Bakery', 'Snacks', 'Apparel'];
   const ids = Object.fromEntries(categories.map((name) => [name, insertCategory.run(name).lastInsertRowid]));

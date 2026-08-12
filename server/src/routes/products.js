@@ -4,6 +4,7 @@ import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { activityFor, costHistoryFor, recordCostChange } from '../lib/costHistory.js';
 import { barcodeMap, barcodesFor, barcodesFromBody, setBarcodes } from '../lib/barcodes.js';
 import { clearStockEverywhere, setStock, stockAt, stockByBranch, stockMap } from '../lib/stock.js';
+import { addStarterCategories } from '../lib/starterCategories.js';
 
 const router = Router();
 
@@ -69,6 +70,20 @@ router.post('/categories', requireAuth, requirePermission('catalogue'), (req, re
   } catch {
     res.status(409).json({ error: 'Category already exists' });
   }
+});
+
+/**
+ * The shelves a phone shop usually files by, in one press.
+ *
+ * A shop that has been running a while and never got round to categories is
+ * looking at the same blank list a new one is, and typing sixteen names into a
+ * dialog is the reason it stays blank. Anything already there is left exactly
+ * as it is — including a shelf the shop spelled its own way, which must not be
+ * duplicated under this list's spelling.
+ */
+router.post('/categories/starter', requireAuth, requirePermission('catalogue'), (req, res) => {
+  const added = addStarterCategories(db);
+  res.status(added.length ? 201 : 200).json({ added });
 });
 
 /**
