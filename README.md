@@ -55,9 +55,17 @@ orders and staff.
   between two of its own it is just money **moved**
 - Each posts to both accounts and prints a numbered slip with two signature lines
 
+- **Tax is the shop's own setting**, off until somebody turns it on — most
+  shops here charge none, and it used to be pinned at 8% with nowhere to change
+  it. Rate and name (VAT, TVA) are under Settings; off means no tax line at all
+  rather than a line reading zero
+- **A discount in whichever way it was agreed** — a percentage, a number of
+  dollars, or an amount in pounds. Nobody works out what "call it fifty
+  dollars" is as a percentage while a customer waits
 - **A phone in part-exchange** — with a cart open, `Buy in` becomes
   `Part-exchange`: what the old phone is worth comes off this sale, and the
-  balance goes **either way**. Worth less than the new one and the customer pays
+  balance goes **either way**, spelled out in the dialog before anybody commits
+  to it. Worth less than the new one and the customer pays
   the difference; worth more and the till shows *You pay the customer* and hands
   it over from the drawer. One sale, one movement of money, and the old handset
   on the shelf at what it was agreed to be worth

@@ -94,7 +94,7 @@ function TypeIcon({ type, size = 16 }) {
  */
 function DocumentForm({ existing, onClose, onSaved }) {
   const toast = useToast();
-  const { rate, toLbp } = useSettings();
+  const { rate, toLbp, taxRate } = useSettings();
   const editing = !!existing;
   const doc = existing?.document;
 
@@ -222,7 +222,7 @@ function DocumentForm({ existing, onClose, onSaved }) {
   }));
   const subtotal = priced.reduce((sum, l) => sum + l.lineTotal, 0);
   const discount = subtotal * ((Number(discountPercent) || 0) / 100);
-  const tax = (subtotal - discount) * 0.08;
+  const tax = (subtotal - discount) * taxRate;
   const total = subtotal - discount + tax;
 
   /*

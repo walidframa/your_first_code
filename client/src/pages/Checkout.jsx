@@ -51,12 +51,22 @@ export default function Checkout() {
    */
   const [wallets, setWallets] = useState([]);
   const [taxRate, setTaxRate] = useState(0);
+  // What the shop calls it on a receipt — VAT, TVA, or its own word.
+  const [taxName, setTaxName] = useState('Tax');
   const [loading, setLoading] = useState(true);
 
   const [search, setSearch] = useState('');
   const [activeCategory, setActiveCategory] = useState('all');
   const [cart, setCart] = useState([]);
-  const [discountPercent, setDiscountPercent] = useState(0);
+  /*
+   * A discount, and which of the three things it is.
+   *
+   * "Ten per cent off", "call it fifty dollars" and "knock off two hundred
+   * thousand" are all normal at a counter, and none of them should need the
+   * cashier to work out what the other two come to.
+   */
+  const [discountValue, setDiscountValue] = useState(0);
+  const [discountMode, setDiscountMode] = useState('percent');
 
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -109,6 +119,7 @@ export default function Checkout() {
     setProducts(productsRes.data.products);
     setCategories(categoriesRes.data.categories);
     setTaxRate(taxRes.data.taxRate);
+    setTaxName(taxRes.data.taxName || 'Tax');
     setWallets(walletsRes.data.wallets);
     setHeldCount(heldRes.data.count);
     setLoading(false);
@@ -308,7 +319,7 @@ export default function Checkout() {
    * for the phone, the discount already agreed. A cart restored without them is
    * a sale that has to be set up twice.
    */
-  const saleContext = () => ({ discountPercent, customer, buyer, accounts });
+  const saleContext = () => ({ discountValue, discountMode, customer, buyer, accounts });
 
   function applyHeldSale(held, issues, count) {
     const context = held.context || {};
@@ -327,7 +338,12 @@ export default function Checkout() {
         return { ...linefromHold, stock: product.stock, unlimited: Boolean(product.wallet_id) };
       }),
     );
-    setDiscountPercent(context.discountPercent || 0);
+    /*
+     * `discountPercent` is what a sale held before any of this existed carries,
+     * so an old one picked up today still comes back with its discount.
+     */
+    setDiscountValue(context.discountValue ?? context.discountPercent ?? 0);
+    setDiscountMode(context.discountMode || 'percent');
     setCustomer(context.customer ?? null);
     setBuyer(context.buyer ?? { name: '', phone: '' });
     setAccounts(context.accounts ?? []);
@@ -369,7 +385,16 @@ export default function Checkout() {
       0,
     ),
   );
-  const discountAmount = round2(subtotal * (Number(discountPercent) / 100));
+  const discountAmount = Math.min(
+    subtotal,
+    round2(
+      discountMode === 'percent'
+        ? subtotal * (Number(discountValue) / 100)
+        : discountMode === 'lbp'
+          ? (rate > 0 ? Number(discountValue) / rate : 0)
+          : Number(discountValue) || 0,
+    ),
+  );
   const taxableAmount = round2(subtotal - discountAmount);
   const tax = round2(taxableAmount * taxRate);
   const total = round2(taxableAmount + tax);
@@ -428,7 +453,9 @@ export default function Checkout() {
           price: i.price,
           discount: i.discount,
         })),
-        discountPercent: Number(discountPercent) || 0,
+        // The shape the server settles on; it converts pounds with its own
+        // rate rather than trusting the one this browser happens to hold.
+        discount: { mode: discountMode, value: Number(discountValue) || 0 },
         paymentMethod,
         payments,
         changeCurrency,
@@ -476,7 +503,7 @@ export default function Checkout() {
       setReceipt({ order: res.order, items: res.items });
       setSalesMade((n) => n + 1);
       setCart([]);
-      setDiscountPercent(0);
+      setDiscountValue(0);
       setCustomer(null);
       setBuyer({ name: '', phone: '' });
       setAccounts([]);
@@ -930,12 +957,36 @@ export default function Checkout() {
                 id="discount"
                 type="number"
                 min="0"
-                max="100"
-                value={discountPercent}
-                onChange={(e) => setDiscountPercent(e.target.value)}
-                className="tnum h-8 w-16 rounded-lg bg-slate-100 px-2 text-right text-sm ring-1 ring-transparent focus:bg-white focus:ring-brand-600 focus:outline-none"
+                max={discountMode === 'percent' ? 100 : undefined}
+                step={discountMode === 'lbp' ? 1000 : discountMode === 'usd' ? 0.5 : 1}
+                value={discountValue}
+                onChange={(e) => setDiscountValue(e.target.value)}
+                className="tnum h-8 w-24 rounded-lg bg-slate-100 px-2 text-right text-sm ring-1 ring-transparent focus:bg-white focus:ring-brand-600 focus:outline-none"
               />
-              <span className="text-sm text-slate-400">%</span>
+              {/* Three buttons rather than a dropdown: it is three short words,
+                  and on a touch screen a select is a menu to open and aim at. */}
+              <div className="flex overflow-hidden rounded-lg bg-slate-100">
+                {[
+                  ['percent', '%'],
+                  ['usd', '$'],
+                  ['lbp', 'LL'],
+                ].map(([mode, label]) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => setDiscountMode(mode)}
+                    aria-pressed={discountMode === mode}
+                    className={cx(
+                      'h-8 px-2 text-xs font-semibold transition',
+                      discountMode === mode
+                        ? 'bg-brand-600 text-white'
+                        : 'text-slate-500 hover:text-slate-800',
+                    )}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 
@@ -952,10 +1003,17 @@ export default function Checkout() {
                 <dd className="tnum text-brand-700">−{money(discountAmount)}</dd>
               </div>
             )}
-            <div className="flex justify-between">
-              <dt className="text-slate-500">{t('Tax')} ({(taxRate * 100).toFixed(0)}%)</dt>
-              <dd className="tnum text-slate-700">{money(tax)}</dd>
-            </div>
+            {/* No tax means no line, rather than a line reading zero: a shop
+                that does not charge it should not have to explain a nought on
+                every receipt it hands over. */}
+            {taxRate > 0 && (
+              <div className="flex justify-between">
+                <dt className="text-slate-500">
+                  {t(taxName)} ({(taxRate * 100).toFixed(taxRate * 100 % 1 ? 2 : 0)}%)
+                </dt>
+                <dd className="tnum text-slate-700">{money(tax)}</dd>
+              </div>
+            )}
             <div className="flex items-baseline justify-between border-t border-slate-100 pt-2">
               <dt className="font-semibold text-slate-900">{t('Total')}</dt>
               <dd className="text-2xl font-semibold text-slate-900">{money(total)}</dd>
@@ -1073,6 +1131,7 @@ export default function Checkout() {
            * against a sale that then failed is a shop holding stock it never
            * bought.
            */
+          saleTotal={total}
           onTakeAgainstSale={
             cart.length > 0
               ? (taken) => {
@@ -1106,8 +1165,12 @@ export default function Checkout() {
           onHeld={({ count }) => {
             // The counter is free again, so the screen has to be too.
             setCart([]);
-            setDiscountPercent(0);
+            setDiscountValue(0);
+            setDiscountMode('percent');
             setCustomer(null);
+            // The old phone goes with it: a trade-in left attached to a cleared
+            // counter would be taken in against the next customer.
+            setTradeIn(null);
             setBuyer({ name: '', phone: '' });
             setAccounts([]);
             setHeldCount(count);
