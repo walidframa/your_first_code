@@ -325,7 +325,19 @@ sed -i 's/pos.example.com/YOUR-DOMAIN/' /etc/nginx/sites-available/pos
 ln -sf /etc/nginx/sites-available/pos /etc/nginx/sites-enabled/pos
 rm -f /etc/nginx/sites-enabled/default
 nginx -t && systemctl reload nginx
-apt install -y certbot python3-certbot-nginx && certbot --nginx -d YOUR-DOMAIN
+apt install -y certbot python3-certbot-nginx
+certbot --nginx -d YOUR-DOMAIN --redirect
+```
+
+`--redirect` is what turns port 80 into a redirect instead of leaving it serving
+the same pages unencrypted. Without it you get a certificate and no padlock,
+which looks like it worked. If you have already run certbot without it, add
+`--reinstall` — certbot will otherwise see a valid certificate, decide there is
+nothing to do, and leave the config exactly as it was:
+
+```bash
+certbot --nginx -d YOUR-DOMAIN --redirect --reinstall
+nginx -t && systemctl reload nginx
 ```
 
 Then **change the demo passwords immediately** — `admin` / `admin123` on a public
@@ -461,7 +473,11 @@ sed 's/xtechpos.com/YOUR-DOMAIN/' deploy/nginx-console.conf \
   > /etc/nginx/sites-available/pos-console
 ln -sf /etc/nginx/sites-available/pos-console /etc/nginx/sites-enabled/
 nginx -t && systemctl reload nginx
-certbot --nginx -d admin.xtechpos.com
+# --redirect is not optional on this one. This login can suspend every shop on
+# the machine, and without it the password crosses the network in the clear.
+# Already ran it without? Add --reinstall, or certbot sees a valid certificate
+# and changes nothing.
+certbot --nginx -d admin.xtechpos.com --redirect --reinstall
 
 # And a login for it — 12 characters or more
 pos-tenant operator walid 'a long console password'
