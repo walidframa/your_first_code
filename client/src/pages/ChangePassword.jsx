@@ -35,7 +35,20 @@ export default function ChangePassword({ forced = false }) {
     setBusy(true);
     try {
       await changePassword(current, next);
-      toast.success(t('Password changed'));
+      /*
+       * `toast(...)`, not `toast.success(...)`.
+       *
+       * `useToast` hands back a function. The `.success` spelling exists
+       * nowhere else in this app and does not exist on it, so this line threw
+       * a TypeError — *after* the password had been changed, from inside the
+       * try, where the catch below picked it up, found no `response` on it,
+       * and reported "the server did not answer" for work the server had
+       * already done and done correctly.
+       *
+       * Three rounds of looking for a race, a proxy and an expired token, and
+       * it was the success message.
+       */
+      toast(t('Password changed'));
       setCurrent('');
       setNext('');
       setAgain('');
