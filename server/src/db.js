@@ -458,6 +458,34 @@ addColumn('document_items', 'cost', 'REAL');
 addColumn('products', 'tracks_units', 'INTEGER NOT NULL DEFAULT 0');
 
 db.exec(`
+  /*
+   * A product made of other products.
+   *
+   * A "starter pack" is a phone, a case and a screen protector sold as one line
+   * at one price. The pack is not stock in its own right — nothing sits on a
+   * shelf called "starter pack" — so selling one has to take a phone, a case
+   * and a protector off the shelves they really are on.
+   *
+   * Rows here rather than a flag on the product, because "is a bundle" and
+   * "has parts" would be two answers to one question and would eventually
+   * disagree. A product with rows in this table is a bundle; a product with
+   * none is not.
+   */
+  CREATE TABLE IF NOT EXISTS product_bundles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- The thing that is sold.
+    bundle_id    INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    -- One of the things that comes off the shelf when it is.
+    component_id INTEGER NOT NULL REFERENCES products(id),
+    -- How many of that component are in one bundle. Two cables in a pack is 2.
+    quantity     REAL NOT NULL DEFAULT 1 CHECK (quantity > 0),
+    -- The same component twice in one bundle is a quantity, not a second row.
+    UNIQUE (bundle_id, component_id)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_bundles_bundle ON product_bundles(bundle_id);
+  CREATE INDEX IF NOT EXISTS idx_bundles_component ON product_bundles(component_id);
+
   CREATE TABLE IF NOT EXISTS product_units (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     product_id INTEGER NOT NULL REFERENCES products(id),

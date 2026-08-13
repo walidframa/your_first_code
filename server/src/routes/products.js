@@ -5,6 +5,13 @@ import { activityFor, costHistoryFor, recordCostChange } from '../lib/costHistor
 import { barcodeMap, barcodesFor, barcodesFromBody, setBarcodes } from '../lib/barcodes.js';
 import { clearStockEverywhere, setStock, stockAt, stockByBranch, stockMap } from '../lib/stock.js';
 import { addStarterCategories } from '../lib/starterCategories.js';
+import {
+  availableBundles,
+  bundleCost,
+  bundleIds,
+  componentsOf,
+  setBundle,
+} from '../lib/bundles.js';
 
 const router = Router();
 
@@ -169,11 +176,59 @@ router.get('/', requireAuth, (req, res) => {
   // One query each for barcodes and for this branch's shelf, rather than two
   // per product: the register loads the whole catalogue every visit.
   const here = stockMap(req.branchId);
+  /*
+   * Which of these are made of other products, in one query rather than one per
+   * row. A bundle's own shelf is always empty, so the register needs to be told
+   * how many can be made up or it will show every pack as out of stock.
+   */
+  const bundles = bundleIds();
   res.json({
-    products: rows.map((p) =>
-      serializeProduct(p, { codes: codes.get(p.id) || [], here: here.get(p.id) ?? 0, branchId: req.branchId }),
-    ),
+    products: rows.map((p) => {
+      const base = serializeProduct(p, {
+        codes: codes.get(p.id) || [],
+        here: here.get(p.id) ?? 0,
+        branchId: req.branchId,
+      });
+      if (!bundles.has(p.id)) return base;
+      const parts = componentsOf(p.id);
+      return {
+        ...base,
+        isBundle: true,
+        bundleOf: parts,
+        // What the shelves allow, standing in for a stock figure this product
+        // does not have one of.
+        stock: availableBundles(req.branchId, p.id, parts),
+        cost: bundleCost(p.id, parts),
+      };
+    }),
   });
+});
+
+/**
+ * What a bundle is made of, and what it may be made of.
+ *
+ * The candidate list leaves out bundles — a pack of packs is a tree somebody
+ * has to hold in their head at a counter — and leaves out the bundle itself.
+ */
+router.get('/:id/bundle', requireAuth, (req, res) => {
+  const id = Number(req.params.id);
+  const product = db.prepare('SELECT id, name FROM products WHERE id = ?').get(id);
+  if (!product) return res.status(404).json({ error: 'Product not found' });
+  res.json({ components: componentsOf(id), canMake: availableBundles(req.branchId, id) });
+});
+
+/** Set what is in a bundle. An empty list makes it an ordinary product again. */
+router.put('/:id/bundle', requireAuth, requirePermission('catalogue'), (req, res) => {
+  const id = Number(req.params.id);
+  const product = db.prepare('SELECT id, name FROM products WHERE id = ?').get(id);
+  if (!product) return res.status(404).json({ error: 'Product not found' });
+
+  try {
+    setBundle(id, req.body?.components || []);
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
+  }
+  res.json({ components: componentsOf(id), canMake: availableBundles(req.branchId, id) });
 });
 
 /**

@@ -19,6 +19,7 @@ import PageHeader from '../../components/PageHeader';
 import ItemActivity from '../../components/ItemActivity';
 import CategoryManager from '../../components/CategoryManager';
 import ProductImageField from '../../components/ProductImageField';
+import BundleEditor from '../../components/BundleEditor';
 import UnitsPanel from '../../components/UnitsPanel';
 import { useSettings, lbp } from '../../context/SettingsContext';
 import {
@@ -53,7 +54,7 @@ const emptyForm = {
   is_sim: false,
 };
 
-function ProductModal({ product, categories, onClose, onSaved }) {
+function ProductModal({ product, categories, allProducts, onClose, onSaved }) {
   const toast = useToast();
   const [form, setForm] = useState(
     product
@@ -101,6 +102,13 @@ function ProductModal({ product, categories, onClose, onSaved }) {
 
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
 
+  /*
+   * What this product is made of, if anything. Held beside the form rather
+   * than inside it because it is saved through its own endpoint — the recipe
+   * is a relationship between products, not a column on one.
+   */
+  const [bundle, setBundle] = useState([]);
+
   async function submit(e) {
     e.preventDefault();
     setError('');
@@ -117,8 +125,24 @@ function ProductModal({ product, categories, onClose, onSaved }) {
       is_sim: form.tracks_units && form.is_sim,
     };
     try {
-      if (product) await api.put(`/products/${product.id}`, payload);
-      else await api.post('/products', payload);
+      const saved = product
+        ? (await api.put(`/products/${product.id}`, payload)).data.product
+        : (await api.post('/products', payload)).data.product;
+
+      /*
+       * The recipe goes second, and only when there is one or there was one —
+       * a brand-new ordinary product has no need of an empty PUT, and an
+       * existing bundle emptied on screen has to be told it is empty now.
+       */
+      const id = saved?.id ?? product?.id;
+      if (id && (bundle.length > 0 || product)) {
+        await api.put(`/products/${id}/bundle`, {
+          components: bundle.map((c) => ({
+            productId: c.productId,
+            quantity: Number(c.quantity) || 0,
+          })),
+        });
+      }
       toast(product ? 'Product updated' : 'Product created');
       onSaved();
     } catch (err) {
@@ -276,6 +300,17 @@ function ProductModal({ product, categories, onClose, onSaved }) {
             onChange={(v) => setForm((f) => ({ ...f, image_url: v }))}
             className="col-span-2"
           />
+
+          {/* Serialised products are one identified handset each — a recipe
+              made of them would have to say which IMEI, which it cannot. */}
+          {!form.tracks_units && (
+            <BundleEditor
+              productId={product?.id}
+              value={bundle}
+              onChange={setBundle}
+              products={allProducts}
+            />
+          )}
         </div>
 
         {error && <p className="text-sm text-red-600">{error}</p>}
@@ -506,6 +541,7 @@ export default function Products() {
         <ProductModal
           product={editing}
           categories={categories}
+          allProducts={products || []}
           onClose={() => setEditing(undefined)}
           onSaved={() => {
             setEditing(undefined);

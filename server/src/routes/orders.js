@@ -19,6 +19,7 @@ import {
   refundOrderLine as refundWalletLine,
 } from '../lib/wallets.js';
 import { moveStock, stockAt, stockElsewhere } from '../lib/stock.js';
+import { availableBundles, componentsOf, moveBundleStock } from '../lib/bundles.js';
 import { encryptSecret } from '../lib/secrets.js';
 import { setIdPhoto } from '../lib/idPhotos.js';
 import { quote, describe as describeCredit } from '../lib/credit.js';
@@ -303,6 +304,29 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
            * At this counter, not across the company: a phone sitting in the
            * other branch cannot be handed to the customer standing here.
            */
+          /*
+           * A bundle has no shelf of its own — nothing sits in the stockroom
+           * called "starter pack". What limits it is whichever of its parts
+           * runs out first, so that is what is counted and that is what the
+           * refusal names.
+           *
+           * Counting the bundle's own row instead would refuse every bundle
+           * sale ever attempted, because that row is always zero and always
+           * will be.
+           */
+          const parts = componentsOf(product.id);
+          if (parts.length) {
+            const canMake = availableBundles(branchId, product.id, parts);
+            if (canMake < quantity) {
+              const short = parts
+                .filter((c) => stockAt(branchId, c.productId) < c.quantity * quantity)
+                .map((c) => `${c.name} (${stockAt(branchId, c.productId)} left)`);
+              throw new Error(
+                `Only ${canMake} × ${product.name} can be made up — short of ${short.join(', ')}`,
+              );
+            }
+          }
+
           const here = stockAt(branchId, product.id);
           /*
            * A validity card has no shelf of its own either. What limits it is
@@ -310,7 +334,7 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
            * spent — counting a quantity here would refuse a sale the shop can
            * perfectly well make.
            */
-          if (!product.wallet_id && !product.validity_days && here < quantity) {
+          if (!parts.length && !product.wallet_id && !product.validity_days && here < quantity) {
             const elsewhere = stockElsewhere(branchId, product.id);
             const alsoAt = elsewhere.length
               ? ` — ${elsewhere.map((b) => `${b.stock} at ${b.branch_name}`).join(', ')}`
@@ -708,7 +732,13 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
             orderId,
             userId: req.user.id,
           });
-        } else {
+        } else if (!moveBundleStock({ branchId, bundleId: li.product.id, quantity: li.quantity })) {
+          /*
+           * A bundle comes off the shelves its parts are on, not off a shelf of
+           * its own — `moveBundleStock` says whether this was one, so an
+           * ordinary product still takes the ordinary path and there is no flag
+           * to keep in step with the rows that decide it.
+           */
           moveStock({ branchId, productId: li.product.id, delta: -li.quantity });
         }
       }
@@ -929,7 +959,16 @@ router.post('/:id/refund', requireAuth, requirePermission('refunds'), (req, res)
       // Serialised lines are put back by identity below; adding to `stock` here
       // as well would count the returned handset twice.
       if (item.product_id && !item.unit_id && !fromWallet.has(item.product_id)) {
-        moveStock({ branchId: order.branch_id, productId: item.product_id, delta: item.quantity });
+        if (
+          !moveBundleStock({
+            branchId: order.branch_id,
+            bundleId: item.product_id,
+            quantity: item.quantity,
+            sign: 1,
+          })
+        ) {
+          moveStock({ branchId: order.branch_id, productId: item.product_id, delta: item.quantity });
+        }
       }
     }
     returnUnitsOfOrder(order.id);
@@ -1042,7 +1081,16 @@ router.post('/:id/return-line', requireAuth, requirePermission('refunds'), (req,
         userId: req.user.id,
       });
     } else if (item.product_id) {
-      moveStock({ branchId: order.branch_id, productId: item.product_id, delta: returning });
+      if (
+        !moveBundleStock({
+          branchId: order.branch_id,
+          bundleId: item.product_id,
+          quantity: returning,
+          sign: 1,
+        })
+      ) {
+        moveStock({ branchId: order.branch_id, productId: item.product_id, delta: returning });
+      }
     }
 
     db.prepare('UPDATE order_items SET returned_qty = returned_qty + ? WHERE id = ?').run(
