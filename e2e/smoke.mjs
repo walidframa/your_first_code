@@ -36,6 +36,15 @@ const ALLOWED_FAILURES = [
   // is the thing being checked, because the owner passes every permission and
   // must still be turned away.
   /\/api\/transfers/,
+  /*
+   * Deliberately wrong current password, so the panel can be seen refusing it
+   * in place. The 401 is the assertion, not an accident.
+   *
+   * Only this one. The 401s that used to follow it — products and categories
+   * caught in flight while the password rotated — are the bug that was found by
+   * this listener complaining about them, and they must never be allowed here.
+   */
+  /\/api\/auth\/password/,
 ];
 
 const consoleErrors = [];
@@ -48,9 +57,30 @@ page.on('console', (m) => {
   }
 });
 page.on('pageerror', (e) => consoleErrors.push(`PAGEERROR: ${e.message}`));
+/*
+ * A failure that healed itself is not a failure.
+ *
+ * Changing a password invalidates tokens issued before it, so a request already
+ * in flight comes back 401 and is sent again with the new one. The first
+ * attempt is on the wire and this listener sees it — but the app recovered, the
+ * screen was right, and nobody at a counter could tell. What must never be
+ * forgiven is a 401 that stayed a 401, which is the bug this whole listener
+ * caught in the first place.
+ *
+ * So a later success for the same method and URL cancels the earlier failure,
+ * and anything left at the end genuinely failed.
+ */
 page.on('response', (res) => {
-  if (res.status() >= 400 && !ALLOWED_FAILURES.some((re) => re.test(res.url()))) {
-    failedResponses.push(`${res.status()} ${res.request().method()} ${res.url()}`);
+  const key = `${res.request().method()} ${res.url()}`;
+  if (res.status() >= 400) {
+    if (!ALLOWED_FAILURES.some((re) => re.test(res.url()))) {
+      failedResponses.push(`${res.status()} ${key}`);
+    }
+    return;
+  }
+  if (res.status() < 300) {
+    const healed = failedResponses.findIndex((f) => f.endsWith(` ${key}`));
+    if (healed !== -1) failedResponses.splice(healed, 1);
   }
 });
 
@@ -2564,6 +2594,73 @@ try {
     await signIn('cashier');
     await page.waitForSelector('text=Current sale', { timeout: 15000 });
   });
+
+  /*
+   * Changing your own password, through the form a shopkeeper actually uses.
+   *
+   * Reported three times from a live shop and never reproduced, because every
+   * layer between the button and the database was a suspect and none of them
+   * could be ruled out from a screenshot. This drives the real panel in a real
+   * browser against a real server, so "the form works" stops being an opinion.
+   *
+   * The whole round trip, in the order it matters: the panel refuses the wrong
+   * current password *in place* rather than throwing the person back to the
+   * sign-in screen; it accepts the right one; the session it hands back still
+   * works; and the new password is the one that opens the account afterwards.
+   */
+  await step('a shopkeeper can change their own password from Settings', async () => {
+    // Whoever the step before left signed in, this one is about the owner.
+    await signOut();
+    await signIn('admin');
+    await goTo('Settings');
+
+    const CHANGED = 'owner-changed-password';
+
+    // The wrong current password: refused, with the reason, still on Settings.
+    await page.fill('input[name=currentPassword]', 'not-the-right-one');
+    await page.fill('input[name=newPassword]', CHANGED);
+    await page.fill('input[name=newPasswordAgain]', CHANGED);
+    await page.getByRole('button', { name: /set the new password/i }).click();
+
+    await page.waitForSelector('[role=alert]', { timeout: 10000 });
+    const refusal = await page.locator('[role=alert]').first().innerText();
+    if (!/current password/i.test(refusal)) {
+      throw new Error(`expected the panel to name the wrong current password, got: ${refusal}`);
+    }
+    if (page.url().includes('/login')) {
+      throw new Error('a mistyped current password threw the person out to the sign-in screen');
+    }
+
+    // The right one: accepted, and the screen stays signed in.
+    await page.fill('input[name=currentPassword]', REAL.admin);
+    await page.fill('input[name=newPassword]', CHANGED);
+    await page.fill('input[name=newPasswordAgain]', CHANGED);
+    await page.getByRole('button', { name: /set the new password/i }).click();
+
+    // The session it handed back has to keep working, or the change signs you
+    // out of the screen you are standing at.
+    await goTo('Products');
+    await page.waitForSelector('main', { timeout: 10000 });
+    if (page.url().includes('/login')) {
+      throw new Error('changing the password signed this screen out');
+    }
+
+    // And the new password is the one that opens the account.
+    await signOut();
+    await page.fill('input[name=username]', 'admin');
+    await page.fill('input[name=password]', CHANGED);
+    await page.click('button[type=submit]');
+    await page.waitForSelector('main', { timeout: 15000 });
+
+    // Put it back, so the steps after this one still know the password.
+    await goTo('Settings');
+    await page.fill('input[name=currentPassword]', CHANGED);
+    await page.fill('input[name=newPassword]', REAL.admin);
+    await page.fill('input[name=newPasswordAgain]', REAL.admin);
+    await page.getByRole('button', { name: /set the new password/i }).click();
+    await page.waitForTimeout(500);
+  });
+
 
   console.log('\nIn Arabic');
 

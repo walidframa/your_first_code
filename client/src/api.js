@@ -51,6 +51,33 @@ api.interceptors.response.use(
       url.includes('/auth/password');
 
     /*
+     * A 401 caused by our own token being replaced is not an expired session.
+     *
+     * Changing a password invalidates every token issued before it — including
+     * requests that were already in flight when the change landed. Those come
+     * back 401 through no fault of the person at the counter, and treating them
+     * as an ended session wipes the *new* token and navigates to the sign-in
+     * screen. That navigation then cancels the change-password request itself,
+     * which surfaces as an error with no response at all: "the server did not
+     * answer", from a change that had already succeeded.
+     *
+     * The whole story from the shop was this: the password changed, the app
+     * threw them out, they signed in again with the old one, and concluded that
+     * changing a password breaks it.
+     *
+     * So: if the request went out with a different token than the one we hold
+     * now, the token was rotated underneath it. Send it again with the current
+     * one. Once only — a second 401 with the same token is a real one.
+     */
+    const sentWith = error.config?.headers?.Authorization;
+    const holding = api.defaults.headers.common.Authorization;
+    if (expired && sentWith && holding && sentWith !== holding && !error.config.__retried) {
+      error.config.__retried = true;
+      error.config.headers.Authorization = holding;
+      return api.request(error.config);
+    }
+
+    /*
      * And one that must never throw anybody out on its own.
      *
      * The support poll runs on a timer in the background. If a stray 401 from
