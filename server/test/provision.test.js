@@ -196,5 +196,13 @@ test('a shop with no certificate is not advertised over https', () => {
   });
   assert.match(plain, /http:\/\/rami\.xtechpos\.com/);
   assert.ok(!plain.includes('https://'), 'it offered an address that will warn');
-  assert.match(plain, /certbot --nginx -d rami\.xtechpos\.com/, 'and how to fix it');
+  // Both flags, because the command is copied and pasted exactly as printed.
+  // Without --redirect it leaves the shop served in the clear beside its new
+  // certificate; without --reinstall a name that already has one is a no-op
+  // reported as a success.
+  assert.match(
+    plain,
+    /certbot --nginx -d rami\.xtechpos\.com --redirect --reinstall/,
+    'and how to fix it, with the flags that make it actually do the thing',
+  );
 });
