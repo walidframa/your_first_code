@@ -15,7 +15,10 @@ export const SHOTS = [
     id: 'signin',
     route: '/login',
     anon: true,
-    wait: 'text=Sign in',
+    // The field, not the word on the button. This runs once per language, and
+    // waiting for "Sign in" finds nothing on the Arabic page — which cost the
+    // Arabic quick start its opening figure the first time it built.
+    wait: 'input[name=username]',
     title: 'Signing in',
   },
   {
