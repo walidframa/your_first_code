@@ -109,9 +109,27 @@ fi
 # client on the old code with no sign anything was missed, and the next person to
 # notice would be a shopkeeper whose bug was supposedly fixed last week.
 #
-# Only units that are already running are touched. A shop taken off the air with
-# `pos-tenant remove` stays off; a deploy is not the place to start it again.
-RUNNING="$(systemctl list-units --state=running --no-legend --plain 'pos-tenant@*.service' 'pos-console.service' 2>/dev/null | awk '{print $1}' || true)"
+# Only *shops* that are already running are touched. A shop taken off the air
+# with `pos-tenant remove` stays off; a deploy is not the place to start it
+# again.
+RUNNING="$(systemctl list-units --state=running --no-legend --plain 'pos-tenant@*.service' 2>/dev/null | awk '{print $1}' || true)"
+
+#
+# The console is not a shop, and the rule above is wrong for it.
+#
+# It is one installation-wide service that should always be on, so "only if it
+# is already running" turns a console that has crashed — or that is refusing to
+# start against a database it cannot write — into one that silently keeps the
+# old code through every future deploy. That is not hypothetical: a console
+# stayed on a build from before the fix for its own bug, and the only clue was
+# an unchanged PID in the log.
+#
+# Restarted whenever the unit is installed, running or not.
+if systemctl list-unit-files --no-legend --plain 'pos-console.service' 2>/dev/null | grep -q .; then
+  RUNNING="$(printf '%s\npos-console.service\n' "$RUNNING")"
+fi
+
+RUNNING="$(printf '%s\n' "$RUNNING" | grep -v '^$' || true)"
 
 if [ -n "$RUNNING" ]; then
   say "Restarting everything else on this machine"
