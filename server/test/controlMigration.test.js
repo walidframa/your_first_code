@@ -14,6 +14,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { ensureControlSchema, missingColumns } from '../src/lib/control.js';
 import { MODULE_KEYS, parseModules, serialiseModules } from '../src/lib/modules.js';
 
@@ -91,6 +94,29 @@ test('asking a database with no tenants table at all is not an error', () => {
   // A control file that was never set up. The console still has to render.
   const db = new DatabaseSync(':memory:');
   assert.deepEqual(missingColumns(db), ['modules']);
+});
+
+test('a book it cannot write to does not stop the console starting', () => {
+  /*
+   * The realistic failure is ownership: `pos-tenant` runs as root and makes
+   * these files, the console runs as `pos`. Before the migration existed that
+   * was a button that did not work. It must not become a console that will not
+   * boot — that is the same problem, made worse, at the moment somebody is
+   * trying to fix it.
+   */
+  const file = join(mkdtempSync(join(tmpdir(), 'control-')), 'control.sqlite');
+  ensureControlSchema(new DatabaseSync(file)).close();
+
+  // Take the column back out, then reopen with no way to put it back.
+  const strip = new DatabaseSync(file);
+  strip.exec('ALTER TABLE tenants DROP COLUMN modules');
+  strip.close();
+
+  const readOnly = new DatabaseSync(file, { readOnly: true });
+  assert.doesNotThrow(() => ensureControlSchema(readOnly));
+  // And it reports the gap rather than pretending the column is there.
+  assert.deepEqual(missingColumns(readOnly), ['modules']);
+  readOnly.close();
 });
 
 test('running it again over an up-to-date book changes nothing', () => {

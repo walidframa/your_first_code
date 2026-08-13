@@ -154,8 +154,31 @@ export function ensureControlSchema(db) {
    */
   for (const [column, type] of LATE_COLUMNS) {
     const present = db.prepare(`PRAGMA table_info(tenants)`).all();
-    if (!present.some((c) => c.name === column)) {
+    if (present.some((c) => c.name === column)) continue;
+
+    /*
+     * A failure here must not stop the console coming up.
+     *
+     * The realistic reason for one is ownership: `pos-tenant` runs as root and
+     * creates these files, the console runs as `pos`, and a root-owned
+     * `control.sqlite-wal` is enough to make every write fail. Before this loop
+     * existed that showed up as a button that did not work. If it were allowed
+     * to throw it would instead be a console that will not start at all — the
+     * same problem, made worse, at the exact moment somebody is trying to fix
+     * it.
+     *
+     * So: carry on, say so where a person will see it, and let
+     * `missingColumns` put the banner on the page.
+     */
+    try {
       db.exec(`ALTER TABLE tenants ADD COLUMN ${column} ${type}`);
+    } catch (err) {
+      console.error(
+        `Could not add the '${column}' column to the book of shops: ${err.message}\n` +
+          'Anything that writes to it will fail until this is sorted. Usually this is ' +
+          'ownership — check that every file of the database belongs to the user this ' +
+          'process runs as, including any -wal and -shm beside it.',
+      );
     }
   }
 
