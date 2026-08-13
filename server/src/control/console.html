@@ -40,6 +40,13 @@
       header .who { margin-left: auto; font-size: 13px; color: #94a3b8; }
       main { max-width: 1100px; margin: 0 auto; padding: 20px; }
 
+      /* The database is behind the code. Loud, because every button that writes
+         is about to fail and the reason is not on any of them. */
+      .stale { background: #fef3c7; border: 1px solid #f59e0b; color: #78350f;
+               border-radius: 12px; padding: 12px 14px; margin-bottom: 18px;
+               font-size: 13px; line-height: 1.55; }
+      .stale code { background: #fde68a; border-radius: 5px; padding: 1px 5px; }
+
       .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 18px; }
       .card { background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; }
       .card .n { font-size: 26px; font-weight: 650; }
@@ -143,6 +150,7 @@
         <button id="out">Sign out</button>
       </header>
       <main>
+        <div id="stale" class="stale hide"></div>
         <div class="cards">
           <div class="card"><div class="n" id="cTotal">—</div><div class="l">Shops</div></div>
           <div class="card"><div class="n" id="cAttention">—</div><div class="l">Need attention</div></div>
@@ -350,10 +358,36 @@
         return [pay, stop, go, copies, reset, feats, plan].join(' ');
       }
 
+      /*
+       * Say so on the page when the book of shops is older than the code.
+       *
+       * Every button that writes is about to fail, and none of them can explain
+       * why — the reason is one restart away and lives on the server. Checked
+       * on each load rather than once, because the fix is a restart and the
+       * banner clearing is how you know the restart worked.
+       *
+       * Never fatal: an old console talking to this page has no /api/version at
+       * all, and a missing warning must not take the shop list with it.
+       */
+      async function checkSchema() {
+        try {
+          const { missing } = await api('/api/version');
+          const box = $('stale');
+          if (!missing || !missing.length) return box.classList.add('hide');
+          box.innerHTML =
+            '<strong>This console is newer than its database.</strong><br>' +
+            'The book of shops is missing: <code>' + missing.join('</code> <code>') + '</code>. ' +
+            'Saving anything that uses these will fail. On the server run ' +
+            '<code>sudo systemctl restart pos-console</code> — it adds them on the way up.';
+          box.classList.remove('hide');
+        } catch { /* Nothing to say is better than a wrong thing to say. */ }
+      }
+
       async function load() {
         const { tenants, summary } = await api('/api/tenants');
         show('app');
         $('who').textContent = localStorage.getItem('console_user') || '';
+        checkSchema();
 
         $('cTotal').textContent = summary.total;
         $('cAttention').textContent = summary.needAttention;

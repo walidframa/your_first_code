@@ -14,7 +14,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
-import { ensureControlSchema } from '../src/lib/control.js';
+import { ensureControlSchema, missingColumns } from '../src/lib/control.js';
 import { MODULE_KEYS, parseModules, serialiseModules } from '../src/lib/modules.js';
 
 /** The book of shops exactly as it was before modules were a thing. */
@@ -75,6 +75,22 @@ test('a shop that was already there keeps everything until it is told otherwise'
   const row = db.prepare('SELECT modules FROM tenants WHERE slug = ?').get('rami');
   assert.equal(row.modules, null);
   assert.deepEqual(parseModules(row.modules), MODULE_KEYS);
+});
+
+test('and the console can say which columns are missing before anyone presses Save', () => {
+  // The question that could not be answered from a browser: is this console
+  // running old code, or new code against a database that never caught up?
+  const db = yesterdaysControlDb();
+  assert.deepEqual(missingColumns(db), ['modules']);
+
+  ensureControlSchema(db);
+  assert.deepEqual(missingColumns(db), []);
+});
+
+test('asking a database with no tenants table at all is not an error', () => {
+  // A control file that was never set up. The console still has to render.
+  const db = new DatabaseSync(':memory:');
+  assert.deepEqual(missingColumns(db), ['modules']);
 });
 
 test('running it again over an up-to-date book changes nothing', () => {
