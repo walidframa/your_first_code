@@ -13,6 +13,7 @@ import {
   RESERVED,
   checkSlug,
   nextPort,
+  renameEnv,
   renderEnv,
   renderNginx,
   slugify,
@@ -205,4 +206,79 @@ test('a shop with no certificate is not advertised over https', () => {
     /certbot --nginx -d rami\.xtechpos\.com --redirect --reinstall/,
     'and how to fix it, with the flags that make it actually do the thing',
   );
+});
+
+/* ------------------------------------------------------------ renaming one */
+
+test('a rename repoints the settings file and keeps the secrets', () => {
+  /*
+   * The assertion this file exists for.
+   *
+   * ACCOUNT_SECRET encrypts every customer password and repair passcode the
+   * shop holds. Regenerating it during a rename would destroy all of them,
+   * permanently, in an operation nobody thinks of as dangerous — and the shop
+   * would not find out until somebody asked for a passcode weeks later.
+   */
+  const before = renderEnv({
+    slug: 'rami',
+    port: 4100,
+    dbPath: '/var/lib/pos/tenants/rami.sqlite',
+    backupDir: '/var/lib/pos/tenants/rami-backups',
+    controlDb: '/var/lib/pos/control.sqlite',
+    jwtSecret: 'jjj',
+    accountSecret: 'aaa',
+  });
+
+  const after = renameEnv(before, {
+    slug: 'protech',
+    dbPath: '/var/lib/pos/tenants/protech.sqlite',
+    backupDir: '/var/lib/pos/tenants/protech-backups',
+  });
+
+  assert.match(after, /^ACCOUNT_SECRET=aaa$/m);
+  assert.match(after, /^JWT_SECRET=jjj$/m);
+  assert.match(after, /^TENANT_SLUG=protech$/m);
+  assert.match(after, /^DB_PATH=\/var\/lib\/pos\/tenants\/protech\.sqlite$/m);
+  assert.match(after, /^BACKUP_DIR=\/var\/lib\/pos\/tenants\/protech-backups$/m);
+
+  // The things a rename has no business touching.
+  assert.match(after, /^PORT=4100$/m);
+  assert.match(after, /^CONTROL_DB=\/var\/lib\/pos\/control\.sqlite$/m);
+
+  // And no settings line still points at the old shop's files.
+  const settings = after.split('\n').filter((l) => l && !l.startsWith('#'));
+  assert.ok(!settings.some((l) => l.includes('rami')), settings.join('\n'));
+});
+
+test('a rename leaves comments and hand-edits alone', () => {
+  // Somebody has been in this file. That is not a reason to throw their work
+  // away, and a key named inside a comment is prose, not a setting.
+  const before = [
+    '# DB_PATH is explained here and must not be rewritten',
+    'NODE_ENV=production',
+    'TENANT_SLUG=rami',
+    '# a note somebody left',
+    'HTTP_PROXY=http://10.0.0.1:3128',
+  ].join('\n');
+
+  const after = renameEnv(before, { slug: 'protech', dbPath: '/d/p.sqlite', backupDir: '/d/p-b' });
+
+  assert.match(after, /^# DB_PATH is explained here and must not be rewritten$/m);
+  assert.match(after, /^# a note somebody left$/m);
+  assert.match(after, /^HTTP_PROXY=http:\/\/10\.0\.0\.1:3128$/m);
+  assert.match(after, /^TENANT_SLUG=protech$/m);
+});
+
+test('a settings file missing a line gains it rather than going without', () => {
+  // Hand-edited, or written by a version that did not have BACKUP_DIR. The
+  // service needs all three to start.
+  const after = renameEnv('TENANT_SLUG=rami\n', {
+    slug: 'protech',
+    dbPath: '/d/protech.sqlite',
+    backupDir: '/d/protech-backups',
+  });
+
+  assert.match(after, /^TENANT_SLUG=protech$/m);
+  assert.match(after, /^DB_PATH=\/d\/protech\.sqlite$/m);
+  assert.match(after, /^BACKUP_DIR=\/d\/protech-backups$/m);
 });

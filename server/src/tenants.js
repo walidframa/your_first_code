@@ -6,6 +6,7 @@
  *   pos-tenant list
  *   pos-tenant pay rami --periods 1 --amount 25
  *   pos-tenant suspend rami        /  resume rami
+ *   pos-tenant rename rami protech # a new address, same shop and same data
  *   pos-tenant remove rami         /  restore rami
  *   pos-tenant purge rami          # deletes their data, on request
  *   pos-tenant operator walid      # a login for the console
@@ -22,7 +23,14 @@
  */
 import { DatabaseSync } from 'node:sqlite';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { databaseFiles, ensureControlSchema } from './lib/control.js';
@@ -32,6 +40,7 @@ import {
   checkSlug,
   newSecret,
   nextPort,
+  renameEnv,
   renderEnv,
   renderNginx,
   slugify,
@@ -176,6 +185,30 @@ function handToService(dbFile) {
   }
 }
 
+/*
+ * Steps that failed, and what to type to finish them.
+ *
+ * Both `add` and `rename` reach a point past which dying would be worse than
+ * carrying on: the shop exists, or it has already half moved, and stopping
+ * midway leaves that in place with no service running and no word about which
+ * step to do by hand. So from that point they report rather than exit, and
+ * whatever did not work is printed at the end as a command to run.
+ */
+const unfinished = [];
+const attempt = (label, command, argv) => {
+  const res = run(command, argv, { allowFail: true });
+  if (res.status !== 0) unfinished.push(`${label}:  ${command} ${argv.join(' ')}`);
+};
+
+/** Say which steps were left, if any. */
+function reportUnfinished(what) {
+  if (!unfinished.length) return;
+  say(`  Some steps did not finish. ${what}`);
+  say('  Run these by hand:\n');
+  for (const line of unfinished) say(`    ${line}`);
+  say('');
+}
+
 const tenantOr404 = (db, slug) => {
   const row = db.prepare('SELECT * FROM tenants WHERE slug = ?').get(slug);
   if (!row) die(`No shop called "${slug}". Try: pos-tenant list`);
@@ -225,20 +258,6 @@ function add() {
       accountSecret: newSecret(),
     }),
   );
-
-  /*
-   * From here on, a failure is reported rather than fatal.
-   *
-   * Past this point the shop exists — keys written, database about to be
-   * seeded, licence about to be recorded. Dying midway would leave all of that
-   * in place with no service running, no word about which step to finish by
-   * hand, and a name that can no longer be re-added.
-   */
-  const unfinished = [];
-  const attempt = (label, command, argv) => {
-    const res = run(command, argv, { allowFail: true });
-    if (res.status !== 0) unfinished.push(`${label}:  ${command} ${argv.join(' ')}`);
-  };
 
   step('Creating their database');
   if (!dryRun) mkdirSync(CONFIG.tenantData, { recursive: true });
@@ -356,12 +375,7 @@ function add() {
     }),
   );
 
-  if (unfinished.length) {
-    say('  Some steps did not finish. The shop is recorded and its database exists;');
-    say('  run these by hand to put it on the air:\n');
-    for (const line of unfinished) say(`    ${line}`);
-    say('');
-  }
+  reportUnfinished('The shop is recorded and its database exists.');
 }
 
 /* ------------------------------------------------------------------ list */
@@ -434,6 +448,148 @@ function setFlags(fields, message) {
   db.prepare(`UPDATE tenants SET ${sets} WHERE id = ?`).run(...Object.values(fields), tenant.id);
   say(`\n  ${tenant.shop_name}: ${message}\n`);
   db.close();
+}
+
+/** Move a file, or say what would have been moved. */
+function move(from, to) {
+  if (!existsSync(from)) return false;
+  if (dryRun) {
+    say(`    would move ${from} -> ${to}`);
+    return true;
+  }
+  mkdirSync(path.dirname(to), { recursive: true });
+  renameSync(from, to);
+  say(`    moved ${from} -> ${to}`);
+  return true;
+}
+
+/**
+ * Give a shop a different address.
+ *
+ * The slug is not just the subdomain. It names the database file, the backups
+ * beside it, the settings file, the nginx block and the systemd instance, so
+ * changing it is six moves that have to agree with each other, and a shop whose
+ * database says one thing and whose service says another does not start.
+ *
+ * Three things this is careful about, in the order they can hurt:
+ *
+ * **The secrets survive.** The settings file is rewritten line by line, not
+ * regenerated. `ACCOUNT_SECRET` encrypts every customer password and repair
+ * passcode the shop holds; a rename that quietly re-rolled it would destroy all
+ * of them, permanently, in the course of an operation nobody thinks of as
+ * dangerous.
+ *
+ * **The process is stopped first.** SQLite is a file and a journal beside it,
+ * and moving those out from under a running process is how a database gets
+ * corrupted rather than moved.
+ *
+ * **The old name stays taken.** The row keeps its history and simply answers to
+ * something else, so a renamed shop cannot collide with a new one later.
+ *
+ * What it deliberately does not do is keep the old address working. A redirect
+ * would need its own certificate for a name nobody is going to use again, and
+ * the honest version of "this shop moved" is telling the shop.
+ */
+function rename() {
+  const [, from, to] = positional;
+  if (!from || !to) die('Usage: pos-tenant rename <current-name> <new-name>');
+  if (from === to) die(`"${from}" is already its name.`);
+
+  const problem = checkSlug(to);
+  if (problem) die(problem);
+
+  const db = control();
+  const tenant = tenantOr404(db, from);
+
+  /*
+   * Removed shops count as taken.
+   *
+   * Their row is still there and so is their database, so handing the name to
+   * somebody else would put two shops' files on top of each other. `purge` is
+   * how a name is really given back.
+   */
+  if (db.prepare('SELECT 1 FROM tenants WHERE slug = ?').get(to)) {
+    die(`"${to}" is already taken. Try: pos-tenant list`);
+  }
+
+  const oldDb = path.join(CONFIG.tenantData, `${from}.sqlite`);
+  const newDb = path.join(CONFIG.tenantData, `${to}.sqlite`);
+  const oldEnv = path.join(CONFIG.envDir, `${from}.env`);
+  const newEnv = path.join(CONFIG.envDir, `${to}.env`);
+  const newBackups = path.join(CONFIG.tenantData, `${to}-backups`);
+
+  step(`Renaming ${tenant.shop_name}: ${from}.${CONFIG.domain} -> ${to}.${CONFIG.domain}`);
+
+  // Stopped, and stopped by name: the instance is called after the old slug and
+  // there will be nothing by that name once this is done.
+  run('systemctl', ['disable', '--now', `pos-tenant@${from}`], { allowFail: true });
+
+  // The database and everything SQLite keeps beside it. Leaving a `-wal` behind
+  // loses whatever had not been checkpointed into the file yet — which on a
+  // busy till is the last few sales.
+  for (const suffix of ['', '-journal', '-wal', '-shm']) {
+    move(`${oldDb}${suffix}`, `${newDb}${suffix}`);
+  }
+  move(path.join(CONFIG.tenantData, `${from}-backups`), newBackups);
+
+  // The settings file, rewritten rather than rebuilt — see above.
+  if (existsSync(oldEnv)) {
+    const before = readFileSync(oldEnv, 'utf8');
+    put(newEnv, renameEnv(before, { slug: to, dbPath: newDb, backupDir: newBackups }));
+    if (!dryRun) rmSync(oldEnv, { force: true });
+  } else {
+    say(`    no settings file at ${oldEnv} — the service will not start without one`);
+  }
+
+  // A new server block, and the old one gone from both directories. Left in
+  // place it would keep answering for a name whose process no longer exists.
+  put(path.join(CONFIG.nginxDir, `pos-${to}`), renderNginx({
+    slug: to,
+    domain: CONFIG.domain,
+    port: tenant.port,
+  }));
+  if (!dryRun) mkdirSync(CONFIG.nginxEnabled, { recursive: true });
+  attempt('link the new site', 'ln', [
+    '-sf',
+    path.join(CONFIG.nginxDir, `pos-${to}`),
+    path.join(CONFIG.nginxEnabled, `pos-${to}`),
+  ]);
+  attempt('unlink the old site', 'rm', [
+    '-f',
+    path.join(CONFIG.nginxEnabled, `pos-${from}`),
+    path.join(CONFIG.nginxDir, `pos-${from}`),
+  ]);
+  attempt('check nginx', 'nginx', ['-t']);
+  attempt('reload nginx', 'systemctl', ['reload', 'nginx']);
+
+  if (!dryRun) {
+    // The book of shops, and the support visits that name this shop — a ticket
+    // pointing at a slug that no longer exists cannot be redeemed.
+    db.prepare('UPDATE tenants SET slug = ? WHERE id = ?').run(to, tenant.id);
+    db.prepare('UPDATE support_tickets SET slug = ? WHERE slug = ?').run(to, from);
+  }
+
+  if (CONFIG.certEmail) {
+    step('Getting a certificate for the new address');
+    run(
+      'certbot',
+      ['--nginx', '-d', `${to}.${CONFIG.domain}`, '--non-interactive', '--agree-tos', '-m', CONFIG.certEmail, '--redirect', '--reinstall'],
+      { allowFail: true },
+    );
+  }
+
+  attempt('start it under the new name', 'systemctl', ['enable', '--now', `pos-tenant@${to}`]);
+
+  db?.close();
+
+  if (dryRun) return;
+  reportUnfinished(`The shop has moved and its data is at ${newDb}.`);
+  say(`\n  ${tenant.shop_name} is now at https://${to}.${CONFIG.domain}`);
+  say(`\n  Two things this command cannot do for you:`);
+  say(`    · ${to}.${CONFIG.domain} needs to resolve. With a wildcard DNS record it`);
+  say(`      already does; without one, add an A record before telling the shop.`);
+  say(`    · The old address is gone, not redirected. Anyone with a bookmark or an`);
+  say(`      installed app pointing at ${from}.${CONFIG.domain} has to be told.\n`);
 }
 
 /**
@@ -546,6 +702,7 @@ const commands = {
   pay,
   suspend: () => setFlags({ suspended: 1 }, 'suspended — the till stops now'),
   resume: () => setFlags({ suspended: 0 }, 'running again'),
+  rename,
   remove,
   restore: () => setFlags({ removed_at: null }, 'restored to the book — start it with systemctl'),
   purge,
@@ -563,6 +720,7 @@ if (!command || !commands[command]) {
     pay <slug> [--periods 1] [--amount 25] [--note "cash"]
     suspend <slug>            stop the till now, whatever the dates say
     resume <slug>
+    rename <slug> <new-slug>  change their address, keeping their data
     remove <slug>             stop it and take the address down, keeping the data
     restore <slug>
     purge <slug> --yes        delete their data, on request

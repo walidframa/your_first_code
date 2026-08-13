@@ -211,3 +211,50 @@ export function welcome({
     '',
   ].join('\n');
 }
+
+/**
+ * One shop's settings file, pointed at a new name.
+ *
+ * A rewrite of the three lines a rename changes, rather than a fresh
+ * `renderEnv`, and the distinction is the whole point: **the secrets have to
+ * survive.** `ACCOUNT_SECRET` encrypts every customer password and repair
+ * passcode this shop holds, so generating a new one during a rename would lose
+ * all of them permanently — a change of address quietly destroying the data it
+ * was not supposed to touch. `JWT_SECRET` is milder (everyone signs in again)
+ * but there is no reason to move it either.
+ *
+ * Lines that are not these three are passed through untouched, comments and
+ * hand-edits included. Somebody has been in this file; that is not a reason to
+ * throw their work away.
+ */
+export function renameEnv(contents, { slug, dbPath, backupDir }) {
+  const replacements = {
+    TENANT_SLUG: slug,
+    DB_PATH: dbPath,
+    BACKUP_DIR: backupDir,
+  };
+
+  const seen = new Set();
+  const lines = String(contents ?? '')
+    .split('\n')
+    .map((line) => {
+      // Only a real assignment at the start of a line. A key mentioned inside
+      // a comment explaining what it does is prose, not settings.
+      const at = line.indexOf('=');
+      if (at < 1 || line.startsWith('#')) return line;
+
+      const key = line.slice(0, at);
+      if (!Object.hasOwn(replacements, key)) return line;
+
+      seen.add(key);
+      return `${key}=${replacements[key]}`;
+    });
+
+  // A file missing one of them — hand-edited, or written by a version that did
+  // not have it — gets it added rather than silently going without.
+  for (const [key, value] of Object.entries(replacements)) {
+    if (!seen.has(key)) lines.push(`${key}=${value}`);
+  }
+
+  return lines.join('\n');
+}

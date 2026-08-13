@@ -418,9 +418,41 @@ pos-tenant list                       # everyone, and where their licence stands
 pos-tenant pay rami --amount 25       # take a payment, extend the licence
 pos-tenant suspend rami               # stop the till now, whatever the dates say
 pos-tenant resume rami
+pos-tenant rename rami protech        # a new address, same shop and same data
 pos-tenant remove rami                # stop it, keep every byte of their data
 pos-tenant purge rami --yes           # delete their data, on request
 ```
+
+### Changing a shop's address
+
+```bash
+pos-tenant rename rami protech --dry-run   # read it first
+pos-tenant rename rami protech
+```
+
+The name in the address is not only the address. It also names the database
+file, the backups beside it, the settings file, the nginx block and the systemd
+instance — six things that have to agree with each other, because a shop whose
+database says one thing and whose service says another does not start. That is
+what this command is for, and why moving the files by hand is a bad afternoon.
+
+It stops the shop first, on purpose: SQLite is a file with a journal beside it,
+and moving those out from under a running process corrupts a database rather
+than moving it. The settings file is rewritten line by line rather than made
+again, so **`ACCOUNT_SECRET` survives** — regenerating it would make every
+customer password and repair passcode the shop holds permanently unreadable,
+and nobody would notice until somebody asked for one.
+
+Two things it cannot do for you:
+
+- **The new name has to resolve.** With a wildcard `*.xtechpos.com` record it
+  already does. Without one, add the A record before telling the shop.
+- **The old address stops working**, rather than redirecting — a redirect would
+  need its own certificate for a name nobody will use again. Anyone with a
+  bookmark, or with the app installed to their home screen, has to be told.
+
+The old name stays taken in the book, so a renamed shop can never collide with
+a new one later. `purge` is what really gives a name back.
 
 `pay` extends from the day already paid for rather than from today, so a client
 who pays a week late still gets a whole month and one who pays early keeps the
