@@ -40,7 +40,22 @@ export default function ChangePassword({ forced = false }) {
       setNext('');
       setAgain('');
     } catch (err) {
-      setError(err.response?.data?.error || t('Could not change the password'));
+      /*
+       * Three different failures, told apart, because "could not change the
+       * password" sent somebody looking in the wrong place for a day.
+       *
+       * A refusal carries its reason and is shown as it arrives. A reply with
+       * no reason means the server answered but not with anything we
+       * understand, and the status is worth more than a shrug. No reply at all
+       * is the network, not the password.
+       */
+      const status = err.response?.status;
+      setError(
+        err.response?.data?.error ||
+          (status
+            ? `${t('Could not change the password')} (${status})`
+            : t('The server did not answer — check the connection and try again')),
+      );
     } finally {
       setBusy(false);
     }

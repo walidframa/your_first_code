@@ -35,7 +35,20 @@ api.interceptors.response.use(
      * login form, and the page a support ticket lands on.
      */
     const url = String(error.config?.url || '');
-    const signingIn = url.includes('/auth/login') || url.includes('/support/redeem');
+    /*
+     * Changing your password is the third of these, and it was missed.
+     *
+     * Getting the *current* password wrong answers 401, which is the same
+     * "you typed it wrong" as the login form — not "your session ended". Left
+     * in the general case, mistyping it wiped the token and threw the person
+     * out to the sign-in screen, from a form they were successfully signed in
+     * to, with no idea what they had done. Which reads exactly like the
+     * password change being broken.
+     */
+    const signingIn =
+      url.includes('/auth/login') ||
+      url.includes('/support/redeem') ||
+      url.includes('/auth/password');
 
     /*
      * And one that must never throw anybody out on its own.
