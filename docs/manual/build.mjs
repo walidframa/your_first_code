@@ -232,3 +232,17 @@ for (const language of LANGUAGES) {
 await browser.close();
 
 console.log(`\n\x1b[1;32m==> ${made.length} documents in docs/manual/out\x1b[0m\n`);
+
+/*
+ * Said explicitly, because the last line printed is not the same as the process
+ * ending.
+ *
+ * The API and the preview server are still spawned children, and a child with
+ * an open port keeps its parent's event loop alive for ever. So this finished
+ * its work, printed its four documents, and then sat there holding 4620 and
+ * 4621 — which the next build refuses to start against, correctly, and which
+ * looked from outside like the build having hung.
+ *
+ * The `exit` handler above does the tidying up.
+ */
+process.exit(0);
