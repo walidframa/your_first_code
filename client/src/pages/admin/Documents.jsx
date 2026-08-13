@@ -21,6 +21,7 @@ import api from '../../api';
 import PageHeader from '../../components/PageHeader';
 import Letterhead from '../../components/Letterhead';
 import { useSettings, lbp } from '../../context/SettingsContext';
+import { useAuth } from '../../context/AuthContext';
 import ProductLineSearch, { AddFreeTextButton } from '../../components/ProductLineSearch';
 import ProductQuickCreate from '../../components/ProductQuickCreate';
 import {
@@ -95,6 +96,14 @@ function TypeIcon({ type, size = 16 }) {
 function DocumentForm({ existing, onClose, onSaved }) {
   const toast = useToast();
   const { rate, toLbp, taxRate } = useSettings();
+  /*
+   * Behind the same permission as the Profit screen and the drawer's profit
+   * figure. A cashier writing a quotation for a customer should not be shown
+   * the shop's margin on it — it is on screen at a counter, and the customer is
+   * standing on the other side of it.
+   */
+  const { can } = useAuth();
+  const canSeeProfit = can('reports');
   const editing = !!existing;
   const doc = existing?.document;
 
@@ -224,6 +233,36 @@ function DocumentForm({ existing, onClose, onSaved }) {
   const discount = subtotal * ((Number(discountPercent) || 0) / 100);
   const tax = (subtotal - discount) * taxRate;
   const total = subtotal - discount + tax;
+
+  /*
+   * What the shop makes on this document, while it is still being written.
+   *
+   * The moment to know whether a quotation is worth sending is before it is
+   * sent — a discount agreed on the phone can quietly take a line below what
+   * the phone cost, and finding that out at the end of the month is finding it
+   * out too late.
+   *
+   * Costs come from the catalogue rather than from anything typed here, so
+   * changing the selling price on a line moves the margin and nothing else.
+   * Tax is left out of both halves: it is the government's, never the shop's,
+   * and counting it as revenue would flatter every figure on this panel.
+   */
+  const costOf = (l) =>
+    (Number(l.quantity) || 0) * (Number(l.product?.cost ?? l.cost ?? 0) || 0);
+  const totalCost = priced.reduce((sum, l) => sum + costOf(l), 0);
+  const revenue = subtotal - discount;
+  const profit = revenue - totalCost;
+  const margin = revenue > 0 ? (profit / revenue) * 100 : 0;
+  /*
+   * A line with no cost recorded is not a line with no cost.
+   *
+   * Counting it as zero would show the full price as profit, which is the one
+   * wrong answer that looks like good news. So the panel says how many lines it
+   * could not account for rather than quietly averaging them in.
+   */
+  const linesWithoutCost = priced.filter(
+    (l) => l.lineTotal > 0 && !(Number(l.product?.cost ?? l.cost ?? 0) > 0),
+  ).length;
 
   /*
    * What the payment comes to in dollars. A part payment is entered in whichever
@@ -544,6 +583,37 @@ function DocumentForm({ existing, onClose, onSaved }) {
                 <div className="flex justify-between text-xs">
                   <dt className="text-slate-400">In LBP</dt>
                   <dd className="tnum text-slate-500">{lbp(toLbp(total))}</dd>
+                </div>
+              )}
+
+              {/*
+                * Behind the same permission as every other profit figure in the
+                * app, and not on a purchase invoice — what you make on your own
+                * buying is not a number that exists.
+                */}
+              {canSeeProfit && docType !== 'purchase_invoice' && lines.length > 0 && (
+                <div className="mt-2 border-t border-slate-200 pt-2">
+                  <div className="flex justify-between">
+                    <dt className="text-slate-500">Cost</dt>
+                    <dd className="tnum text-slate-500">{money(totalCost)}</dd>
+                  </div>
+                  <div className="flex justify-between font-semibold">
+                    <dt className={profit < 0 ? 'text-red-700' : 'text-emerald-700'}>
+                      {profit < 0 ? 'Loss' : 'Profit'}
+                    </dt>
+                    <dd className={cx('tnum', profit < 0 ? 'text-red-700' : 'text-emerald-700')}>
+                      {money(Math.abs(profit))}
+                      <span className="ml-1.5 text-xs font-normal opacity-70">
+                        {margin.toFixed(1)}%
+                      </span>
+                    </dd>
+                  </div>
+                  {linesWithoutCost > 0 && (
+                    <p className="mt-1 text-xs text-amber-700">
+                      {linesWithoutCost} line{linesWithoutCost === 1 ? '' : 's'} without a cost
+                      price — the real profit is lower than this.
+                    </p>
+                  )}
                 </div>
               )}
               {isInvoice && settleAs !== 'account' && (
