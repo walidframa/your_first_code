@@ -490,5 +490,25 @@ export function createConsoleApp({ controlDb, secret, domain = 'xtechpos.com' })
     res.type('html').send(page);
   });
 
+  /*
+   * Anything that went wrong and was not expected. Last, because Express only
+   * offers an error to handlers registered after the route that threw.
+   *
+   * Without this a throw becomes Express's default HTML 500 with no JSON in it,
+   * and the console — which reads `body.error` and falls back to a shrug —
+   * shows "That did not work". That is exactly what the vendor saw when a
+   * column was missing from the book of shops, and it cost a day to work out
+   * from the outside what one line of the message would have said.
+   *
+   * The message is shown rather than swallowed because the only person who ever
+   * reaches this page is the vendor, signed in, looking at their own machines.
+   */
+  // The unused fourth argument is not an oversight: Express identifies an error
+  // handler by its arity, and a three-argument version of this is never called.
+  app.use((err, req, res, _next) => {
+    console.error('Console error:', err);
+    res.status(500).json({ error: err?.message || 'Something went wrong' });
+  });
+
   return app;
 }
