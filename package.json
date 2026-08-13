@@ -18,7 +18,8 @@
     "start": "npm --prefix server start",
     "deploy": "./deploy/deploy.sh",
     "test": "npm --prefix server test && npm --prefix client test",
-    "e2e": "node e2e/run.mjs"
+    "e2e": "node e2e/run.mjs",
+    "manual": "node docs/manual/build.mjs"
   },
   "devDependencies": {
     "concurrently": "^9.1.0",

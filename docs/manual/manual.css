@@ -1,0 +1,187 @@
+/*
+ * Print styling for the manual.
+ *
+ * Written for paper first: this is a document that gets emailed to a shop and
+ * then, often enough, printed and left by the till. So the type is large enough
+ * to read at arm's length, the pictures are never split across a page break,
+ * and nothing depends on colour — a page that only makes sense in colour is a
+ * page that stops making sense on the first black-and-white printer it meets.
+ */
+
+@page {
+  size: A4;
+  margin: 18mm 16mm 20mm;
+}
+
+:root {
+  --ink: #0f172a;
+  --muted: #64748b;
+  --line: #e2e8f0;
+  --brand: #0f766e;
+  --tint: #f0fdfa;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  color: var(--ink);
+  background: #fff;
+  font: 11.5pt/1.65 "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+/* Arabic wants a little more room between lines: the diacritics and the
+   descenders sit closer together than in Latin type, and 1.65 that reads
+   comfortably in English reads cramped here. */
+html[dir='rtl'] body {
+  font-family: "Segoe UI", "Noto Naskh Arabic", "Amiri", system-ui, Tahoma, Arial, sans-serif;
+  line-height: 1.95;
+  font-size: 12pt;
+}
+
+/* ------------------------------------------------------------------ cover */
+
+.cover {
+  height: 247mm; /* the printable height of A4 at these margins */
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  page-break-after: always;
+  border-top: 6mm solid var(--brand);
+  padding-top: 10mm;
+}
+
+.cover .mark {
+  font-size: 13pt;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--brand);
+}
+
+.cover h1 {
+  font-size: 40pt;
+  line-height: 1.1;
+  margin: 6mm 0 0;
+  font-weight: 650;
+}
+
+.cover .tagline {
+  font-size: 15pt;
+  color: var(--muted);
+  margin: 4mm 0 0;
+}
+
+.cover .subtitle {
+  font-size: 12pt;
+  color: var(--ink);
+  margin: 12mm 0 0;
+  max-width: 110mm;
+}
+
+.cover .foot {
+  margin-top: auto;
+  font-size: 10pt;
+  color: var(--muted);
+  letter-spacing: 0.06em;
+}
+
+/* -------------------------------------------------------------- contents */
+
+.toc {
+  page-break-after: always;
+}
+
+.toc h2 {
+  font-size: 20pt;
+  margin: 0 0 8mm;
+  color: var(--brand);
+}
+
+ol.contents {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  font-size: 12.5pt;
+}
+
+ol.contents li {
+  padding: 2.6mm 0;
+  border-bottom: 1px solid var(--line);
+}
+
+ol.contents .n {
+  display: inline-block;
+  width: 9mm;
+  color: var(--brand);
+  font-weight: 700;
+}
+
+/* -------------------------------------------------------------- chapters */
+
+.chapter {
+  /* Each one starts its own page. A manual read by somebody looking for one
+     answer is a manual navigated by flicking, and a chapter that begins
+     two-thirds down a page is one nobody finds. */
+  page-break-before: always;
+  page-break-inside: avoid;
+}
+
+.chapter h2 {
+  font-size: 21pt;
+  line-height: 1.25;
+  margin: 0 0 5mm;
+  color: var(--brand);
+  border-bottom: 2px solid var(--tint);
+  padding-bottom: 3mm;
+}
+
+.chapter p {
+  margin: 0 0 4.5mm;
+  max-width: 165mm;
+}
+
+.chapter ol {
+  margin: 0 0 5mm;
+  padding-inline-start: 7mm;
+}
+
+.chapter ol li {
+  margin-bottom: 2.2mm;
+  padding-inline-start: 1mm;
+}
+
+/* --------------------------------------------------------------- figures */
+
+figure {
+  margin: 6mm 0 0;
+  page-break-inside: avoid;
+}
+
+figure img {
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--line);
+  border-radius: 2mm;
+  /* Screenshots of a white app on a white page need an edge, or they float. */
+  box-shadow: 0 1mm 3mm rgba(15, 23, 42, 0.08);
+}
+
+/* ------------------------------------------------------------------ back */
+
+.back {
+  page-break-before: always;
+  padding-top: 60mm;
+  text-align: center;
+  color: var(--muted);
+}
+
+.back .site {
+  color: var(--brand);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
