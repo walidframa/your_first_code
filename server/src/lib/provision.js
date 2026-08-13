@@ -105,7 +105,7 @@ export const newSecret = () => randomBytes(48).toString('hex');
  */
 export function renderEnv({ slug, port, dbPath, controlDb, backupDir, jwtSecret, accountSecret }) {
   return [
-    `# ${slug} — written by "pos-tenant add". Keep ACCOUNT_SECRET backed up.`,
+    `# ${slug} — written by pos-tenant. Keep ACCOUNT_SECRET backed up.`,
     '#',
     '# ACCOUNT_SECRET encrypts the customer passwords and repair passcodes this',
     '# shop holds. Replace it and every one of them becomes unreadable, for good.',
@@ -134,7 +134,7 @@ export function renderEnv({ slug, port, dbPath, controlDb, backupDir, jwtSecret,
  */
 export function renderNginx({ slug, domain, port }) {
   const host = `${slug}.${domain}`;
-  return `# ${host} — written by "pos-tenant add". certbot adds the HTTPS block.
+  return `# ${host} — written by pos-tenant. certbot adds the HTTPS block.
 server {
     listen 80;
     listen [::]:80;
@@ -257,4 +257,23 @@ export function renameEnv(contents, { slug, dbPath, backupDir }) {
   }
 
   return lines.join('\n');
+}
+
+/**
+ * The same text, with the secrets taken out.
+ *
+ * For `--dry-run`, whose whole job is to show you the file before it is
+ * written — and which was therefore printing two 96-character keys to a
+ * terminal every time anybody read what a command was about to do. Terminal
+ * scrollback is not a safe place: it gets scrolled back through, copied into a
+ * chat window to ask what went wrong, and photographed.
+ *
+ * The keys are the only thing hidden. Paths, ports and the slug are the whole
+ * reason for looking, and blanking those would make the mode useless.
+ */
+export function redactSecrets(text) {
+  return String(text ?? '').replace(
+    /^([A-Z_]*(?:SECRET|PASSWORD|TOKEN|KEY))=(.+)$/gm,
+    (_line, key, value) => `${key}=<${value.length} characters, hidden>`,
+  );
 }
