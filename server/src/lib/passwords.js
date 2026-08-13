@@ -26,10 +26,78 @@ export function checkPassword(password) {
   if (typeof password !== 'string' || password.length < MIN_LENGTH) {
     return `Password must be at least ${MIN_LENGTH} characters`;
   }
+  /*
+   * A space at either end is refused rather than quietly removed.
+   *
+   * It is invisible in a field of dots, it survives being typed once and never
+   * again, and phone keyboards add one after an autocorrected word without
+   * being asked. Somebody sets `secret12 `, the confirm box gets the same
+   * space because they typed it the same way, and then every sign-in
+   * afterwards is "wrong password" against a password they are typing
+   * correctly.
+   *
+   * Trimming it for them would be worse: it would mean the password stored is
+   * not the password typed, which is the same trap one level down.
+   */
+  if (password !== password.trim()) {
+    return 'Password cannot start or end with a space — it is invisible here and impossible to type again on purpose.';
+  }
   if (SEEDED_PASSWORDS.includes(password)) {
     return 'That is the demo password this app ships with. Pick another.';
   }
   return null;
+}
+
+/**
+ * The same password, written the same way twice.
+ *
+ * Unicode has more than one way to spell the same character: `é` is either one
+ * code point or an `e` followed by a combining accent, and the two look
+ * identical in every font and differ in every byte. Which one a keyboard
+ * produces depends on the device — so a password set on a phone and typed on
+ * the counter PC can be the same password and fail to match.
+ *
+ * That is not theoretical here. These are shops in Lebanon; passwords have
+ * Arabic and French letters in them, and "I changed my password and now it
+ * says wrong password" is exactly what this produces.
+ *
+ * NFC because it is the form the web has settled on.
+ */
+export const normalisePassword = (password) =>
+  typeof password === 'string' ? password.normalize('NFC') : '';
+
+/**
+ * Does this password open this account?
+ *
+ * Tries the normalised form first, then the exact bytes supplied. The second
+ * attempt is for hashes written before any of this existed: somebody whose
+ * stored hash was made from decomposed input types the same keys and must
+ * still get in. `stale` says the hash is one of those, so the caller can
+ * quietly write it back in the settled form and the fallback stops being
+ * needed.
+ *
+ * Both attempts are made every time, so a wrong password costs the same work
+ * as a right one and the timing says nothing.
+ */
+export function verifyPassword(supplied, hash) {
+  if (typeof hash !== 'string' || !hash) return { ok: false, stale: false };
+  const settled = bcrypt.compareSync(normalisePassword(supplied), hash);
+  const asTyped = bcrypt.compareSync(String(supplied ?? ''), hash);
+  return { ok: settled || asTyped, stale: !settled && asTyped };
+}
+
+/**
+ * Write the hash in the settled form, without touching anything else.
+ *
+ * Deliberately not `setPassword`: this is the same password, so it must not
+ * move `password_changed_at` — that would sign the person out of the very
+ * session they just signed into, over a repair they did not ask for.
+ */
+export function restorePasswordHash(userId, password) {
+  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(
+    bcrypt.hashSync(normalisePassword(password), 10),
+    userId,
+  );
 }
 
 /**
@@ -56,7 +124,7 @@ export function setPassword(userId, password) {
     `UPDATE users
         SET password_hash = ?, password_changed_at = ?, must_change_password = 0
       WHERE id = ?`,
-  ).run(bcrypt.hashSync(password, 10), changedAt, userId);
+  ).run(bcrypt.hashSync(normalisePassword(password), 10), changedAt, userId);
   return changedAt;
 }
 

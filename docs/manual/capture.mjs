@@ -15,7 +15,7 @@ import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { SHOTS } from './shots.mjs';
 
-const BASE = process.env.MANUAL_BASE_URL || 'http://127.0.0.1:4621';
+const BASE = process.env.MANUAL_BASE_URL || 'http://127.0.0.1:4641';
 const OUT = process.env.MANUAL_SHOTS || path.join(process.cwd(), 'docs/manual/shots');
 const LANGUAGES = (process.env.MANUAL_LANGS || 'en,ar').split(',');
 

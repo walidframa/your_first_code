@@ -84,7 +84,20 @@ export const MODULE_ROUTES = [
   ['/api/wallets', 'cards'],
   ['/api/installments', 'installments'],
   ['/api/documents', 'documents'],
-  ['/api/branches', 'branches'],
+  /*
+   * `/api/branches` is deliberately absent, and putting it here once took a
+   * live shop's register down to a page of grey rectangles.
+   *
+   * Every shop has a branch — the one it is standing in — whether or not it
+   * ever bought the second one. The app asks which before it can show a shelf,
+   * because stock is held per branch, so a 403 here is not a feature being
+   * withheld: it is the till failing to load, with no message, on a screen
+   * whose whole job is selling.
+   *
+   * What the module actually sells is *more than one* branch, and that lives
+   * behind the routes below and behind the `branches` permission on the ones
+   * that create and rename them.
+   */
   ['/api/stock-transfers', 'branches'],
   ['/api/shopify', 'shopify'],
   ['/api/imports', 'imports'],
