@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { KeyRound, ShieldAlert } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { Button, Input, useToast } from '../components/ui';
+import { Button, PasswordInput, useToast } from '../components/ui';
 import { useT } from '../context/LanguageContext';
 
 /**
@@ -63,18 +63,16 @@ export default function ChangePassword({ forced = false }) {
 
   const form = (
     <form onSubmit={submit} className="space-y-3">
-      <Input
+      <PasswordInput
         label={t('Your current password')}
-        type="password"
         name="currentPassword"
         autoComplete="current-password"
         value={current}
         onChange={(e) => setCurrent(e.target.value)}
         required
       />
-      <Input
+      <PasswordInput
         label={t('New password')}
-        type="password"
         name="newPassword"
         autoComplete="new-password"
         value={next}
@@ -82,9 +80,8 @@ export default function ChangePassword({ forced = false }) {
         hint={t('At least 8 characters')}
         required
       />
-      <Input
+      <PasswordInput
         label={t('New password again')}
-        type="password"
         name="newPasswordAgain"
         autoComplete="new-password"
         value={again}

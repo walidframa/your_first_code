@@ -524,6 +524,59 @@ function password() {
   say(`  Every other session that account had open has ended.\n`);
 }
 
+/**
+ * Does this password open this account?
+ *
+ *     pos-tenant checkpassword protech admin 'what they think it is'
+ *
+ * Changes nothing. It exists because "that is not your current password" and
+ * "I am sure of my password" is an argument nobody can win from either side of
+ * a counter: the field shows dots, the browser fills it from whatever it saved
+ * last, and neither person can see what is actually in the box.
+ *
+ * This asks the database directly. Yes means the password is right and the
+ * problem is the box; no means it is not the password, whatever anybody
+ * remembers.
+ */
+function checkpassword() {
+  const [, slug, username, secret] = positional;
+  if (!slug || !username || secret === undefined) {
+    die("Usage: pos-tenant checkpassword <shop> <username> '<password>'");
+  }
+
+  const dbFile = path.join(CONFIG.tenantData, `${slug}.sqlite`);
+  if (!existsSync(dbFile)) die(`No database for "${slug}" at ${dbFile}. Try: pos-tenant list`);
+
+  const shop = new DatabaseSync(dbFile, { readOnly: true });
+  const user = shop.prepare('SELECT * FROM users WHERE username = ?').get(username);
+  if (!user) {
+    const known = shop.prepare('SELECT username FROM users ORDER BY username').all();
+    shop.close();
+    die(`No user "${username}" in ${slug}. There is: ${known.map((u) => u.username).join(', ')}`);
+  }
+
+  /*
+   * Both spellings, the same as the app: a hash written before passwords were
+   * normalised was made from whatever bytes the keyboard produced.
+   */
+  const settled = bcrypt.compareSync(secret.normalize('NFC'), user.password_hash);
+  const asTyped = bcrypt.compareSync(secret, user.password_hash);
+  shop.close();
+
+  if (settled || asTyped) {
+    say(`\n  Yes — that opens ${username} at ${slug}.`);
+    say('  So whatever is failing is not this password.\n');
+    return;
+  }
+
+  say(`\n  No — that is not the password for ${username} at ${slug}.`);
+  if (secret !== secret.trim()) {
+    say('  Note it starts or ends with a space, which is easy to add by accident.');
+  }
+  say(`  Set a new one with: pos-tenant password ${slug} ${username} '<new password>'\n`);
+  process.exitCode = 1;
+}
+
 /** Move a file, or say what would have been moved. */
 function move(from, to) {
   if (!existsSync(from)) return false;
@@ -778,6 +831,7 @@ const commands = {
   resume: () => setFlags({ suspended: 0 }, 'running again'),
   rename,
   password,
+  checkpassword,
   remove,
   restore: () => setFlags({ removed_at: null }, 'restored to the book — start it with systemctl'),
   purge,
@@ -797,6 +851,7 @@ if (!command || !commands[command]) {
     resume <slug>
     rename <slug> <new-slug>  change their address, keeping their data
     password <slug> <user> '<pw>'  set a password, when nobody can sign in to do it
+    checkpassword <slug> <user> '<pw>'   does that password open that account?
     remove <slug>             stop it and take the address down, keeping the data
     restore <slug>
     purge <slug> --yes        delete their data, on request

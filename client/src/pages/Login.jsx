@@ -4,7 +4,7 @@ import { ScanLine } from 'lucide-react';
 import api from '../api';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
-import { Button, Input, cx } from '../components/ui';
+import { Button, Input, PasswordInput, cx } from '../components/ui';
 
 const DEMO_ACCOUNTS = [
   { username: 'admin', password: 'admin123', label: 'Store owner', hint: 'Full back office' },
@@ -140,10 +140,10 @@ export default function Login() {
               autoFocus
               required
             />
-            <Input
+            <PasswordInput
               label={t('Password')}
               name="password"
-              type="password"
+              autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
