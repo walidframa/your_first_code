@@ -57,9 +57,30 @@ page.on('console', (m) => {
   }
 });
 page.on('pageerror', (e) => consoleErrors.push(`PAGEERROR: ${e.message}`));
+/*
+ * A failure that healed itself is not a failure.
+ *
+ * Changing a password invalidates tokens issued before it, so a request already
+ * in flight comes back 401 and is sent again with the new one. The first
+ * attempt is on the wire and this listener sees it — but the app recovered, the
+ * screen was right, and nobody at a counter could tell. What must never be
+ * forgiven is a 401 that stayed a 401, which is the bug this whole listener
+ * caught in the first place.
+ *
+ * So a later success for the same method and URL cancels the earlier failure,
+ * and anything left at the end genuinely failed.
+ */
 page.on('response', (res) => {
-  if (res.status() >= 400 && !ALLOWED_FAILURES.some((re) => re.test(res.url()))) {
-    failedResponses.push(`${res.status()} ${res.request().method()} ${res.url()}`);
+  const key = `${res.request().method()} ${res.url()}`;
+  if (res.status() >= 400) {
+    if (!ALLOWED_FAILURES.some((re) => re.test(res.url()))) {
+      failedResponses.push(`${res.status()} ${key}`);
+    }
+    return;
+  }
+  if (res.status() < 300) {
+    const healed = failedResponses.findIndex((f) => f.endsWith(` ${key}`));
+    if (healed !== -1) failedResponses.splice(healed, 1);
   }
 });
 
