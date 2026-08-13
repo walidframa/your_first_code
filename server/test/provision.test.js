@@ -13,6 +13,7 @@ import {
   RESERVED,
   checkSlug,
   nextPort,
+  redactSecrets,
   renameEnv,
   renderEnv,
   renderNginx,
@@ -281,4 +282,52 @@ test('a settings file missing a line gains it rather than going without', () => 
   assert.match(after, /^TENANT_SLUG=protech$/m);
   assert.match(after, /^DB_PATH=\/d\/protech\.sqlite$/m);
   assert.match(after, /^BACKUP_DIR=\/d\/protech-backups$/m);
+});
+
+/* ------------------------------------------------------- what a dry run shows */
+
+test('a dry run does not print the shop signing keys', () => {
+  /*
+   * A dry run exists to be read before anything happens, which means it is
+   * read often — scrolled back through, pasted into a chat window to ask what
+   * went wrong, and photographed. None of those are places for a key that
+   * mints admin tokens for somebody's till.
+   */
+  const env = renderEnv({
+    slug: 'rami',
+    port: 4100,
+    dbPath: '/var/lib/pos/tenants/rami.sqlite',
+    backupDir: '/var/lib/pos/tenants/rami-backups',
+    controlDb: '/var/lib/pos/control.sqlite',
+    jwtSecret: 'j'.repeat(96),
+    accountSecret: 'a'.repeat(96),
+  });
+
+  const shown = redactSecrets(env);
+  assert.ok(!shown.includes('j'.repeat(96)), 'the signing key was printed');
+  assert.ok(!shown.includes('a'.repeat(96)), 'the account key was printed');
+  assert.match(shown, /^JWT_SECRET=<96 characters, hidden>$/m);
+  assert.match(shown, /^ACCOUNT_SECRET=<96 characters, hidden>$/m);
+});
+
+test('and still shows everything worth reading', () => {
+  // Blanking the paths and the port would make the mode useless — they are the
+  // whole reason for looking.
+  const shown = redactSecrets(
+    renderEnv({
+      slug: 'rami',
+      port: 4100,
+      dbPath: '/var/lib/pos/tenants/rami.sqlite',
+      backupDir: '/b',
+      controlDb: '/c',
+      jwtSecret: 'x',
+      accountSecret: 'y',
+    }),
+  );
+
+  assert.match(shown, /^PORT=4100$/m);
+  assert.match(shown, /^TENANT_SLUG=rami$/m);
+  assert.match(shown, /^DB_PATH=\/var\/lib\/pos\/tenants\/rami\.sqlite$/m);
+  // And the comment explaining ACCOUNT_SECRET is prose, not a key.
+  assert.match(shown, /^# ACCOUNT_SECRET encrypts the customer passwords/m);
 });

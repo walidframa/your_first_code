@@ -40,6 +40,7 @@ import {
   checkSlug,
   newSecret,
   nextPort,
+  redactSecrets,
   renameEnv,
   renderEnv,
   renderNginx,
@@ -117,7 +118,11 @@ const die = (m) => {
 /** Write a file, or say what would have been written. */
 function put(file, contents) {
   if (dryRun) {
-    say(`\n--- would write ${file} ---\n${contents}`);
+    // Shown with the keys taken out. A dry run exists to be read before
+    // anything happens, which means it is read often, scrolled back through,
+    // pasted into a chat to ask what went wrong, and photographed. None of
+    // those are places for a shop's signing keys.
+    say(`\n--- would write ${file} ---\n${redactSecrets(contents)}`);
     return;
   }
   mkdirSync(path.dirname(file), { recursive: true });
