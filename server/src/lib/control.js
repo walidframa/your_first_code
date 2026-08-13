@@ -33,6 +33,33 @@ export function isTenant() {
 }
 
 /**
+ * Columns added to `tenants` after the table already existed somewhere.
+ *
+ * One list, used twice: to add them, and to answer "did that actually reach
+ * this file?" — which is the question you want a straight answer to when a
+ * button on a live console is failing and you cannot tell from the outside
+ * whether the code is old or the database is.
+ */
+export const LATE_COLUMNS = [['modules', 'TEXT']];
+
+/**
+ * The ones this code expects and this file has not got.
+ *
+ * Empty is the healthy answer. Anything else means a process is running newer
+ * code than the database it was pointed at — almost always a deploy that built
+ * and restarted the tills but not the console, or the other way round.
+ */
+export function missingColumns(db) {
+  let present;
+  try {
+    present = db.prepare('PRAGMA table_info(tenants)').all();
+  } catch {
+    return LATE_COLUMNS.map(([name]) => name);
+  }
+  return LATE_COLUMNS.map(([name]) => name).filter((name) => !present.some((c) => c.name === name));
+}
+
+/**
  * The schema, kept here rather than in the console so that a tenant process can
  * be pointed at a control database and read it without the console being
  * installed anywhere near it.
@@ -125,10 +152,33 @@ export function ensureControlSchema(db) {
    * them, which is why the shops kept working while the console could not
    * save. That made this quieter, not smaller.
    */
-  for (const [column, type] of [['modules', 'TEXT']]) {
+  for (const [column, type] of LATE_COLUMNS) {
     const present = db.prepare(`PRAGMA table_info(tenants)`).all();
-    if (!present.some((c) => c.name === column)) {
+    if (present.some((c) => c.name === column)) continue;
+
+    /*
+     * A failure here must not stop the console coming up.
+     *
+     * The realistic reason for one is ownership: `pos-tenant` runs as root and
+     * creates these files, the console runs as `pos`, and a root-owned
+     * `control.sqlite-wal` is enough to make every write fail. Before this loop
+     * existed that showed up as a button that did not work. If it were allowed
+     * to throw it would instead be a console that will not start at all — the
+     * same problem, made worse, at the exact moment somebody is trying to fix
+     * it.
+     *
+     * So: carry on, say so where a person will see it, and let
+     * `missingColumns` put the banner on the page.
+     */
+    try {
       db.exec(`ALTER TABLE tenants ADD COLUMN ${column} ${type}`);
+    } catch (err) {
+      console.error(
+        `Could not add the '${column}' column to the book of shops: ${err.message}\n` +
+          'Anything that writes to it will fail until this is sorted. Usually this is ' +
+          'ownership — check that every file of the database belongs to the user this ' +
+          'process runs as, including any -wal and -shm beside it.',
+      );
     }
   }
 

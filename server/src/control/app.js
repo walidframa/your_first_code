@@ -4,7 +4,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ensureControlSchema } from '../lib/control.js';
+import { ensureControlSchema, missingColumns } from '../lib/control.js';
 import { mintTicket, pruneTickets } from '../lib/supportTickets.js';
 import { MODULES, MODULE_KEYS, parseModules, serialiseModules } from '../lib/modules.js';
 import { PLANS, extend, licenceMessage, licenceState, today } from '../lib/licence.js';
@@ -472,6 +472,21 @@ export function createConsoleApp({ controlDb, secret, domain = 'xtechpos.com' })
    * database — and a page on the open internet that can do those is a page
    * worth breaking into.
    */
+  /**
+   * Whether the code and the book of shops agree.
+   *
+   * Exists because of a day spent unable to answer one question from a browser:
+   * when Save fails, is this console running old code, or new code against a
+   * database that never got the column? Both look identical from the outside —
+   * a button that does not work — and the difference is the whole fix.
+   *
+   * Behind the login, because which columns a table has is nobody's business
+   * but the vendor's, and the vendor is the only one who ever signs in here.
+   */
+  app.get('/api/version', requireOperator, (req, res) => {
+    res.json({ missing: missingColumns(db), db: controlDb });
+  });
+
   app.get('/api/commands', requireOperator, (req, res) => {
     res.json({
       add: 'pos-tenant add <name> "Shop Name" --plan monthly --price 25 --trial 14',
