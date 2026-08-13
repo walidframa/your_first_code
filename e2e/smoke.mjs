@@ -2637,6 +2637,24 @@ try {
     await page.fill('input[name=newPasswordAgain]', CHANGED);
     await page.getByRole('button', { name: /set the new password/i }).click();
 
+    /*
+     * It has to *say* it worked, and say nothing else.
+     *
+     * This step passed for three rounds while the shop was still being shown
+     * "the server did not answer", because it only ever checked that the
+     * password changed — which it always had. The failure was one line after
+     * the work: `toast.success(...)` on a toast that is a plain function,
+     * throwing inside the try and landing in the catch, which reported a
+     * network error for a change that had already succeeded.
+     *
+     * So: the confirmation is present, and no error is.
+     */
+    await page.waitForSelector('text=Password changed', { timeout: 10000 });
+    if (await page.locator('[role=alert]').count()) {
+      const complaint = await page.locator('[role=alert]').first().innerText();
+      throw new Error(`the password changed but the panel complained: ${complaint}`);
+    }
+
     // The session it handed back has to keep working, or the change signs you
     // out of the screen you are standing at.
     await goTo('Products');
