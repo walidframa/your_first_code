@@ -8,6 +8,67 @@ export function setAuthToken(token) {
   } else {
     delete api.defaults.headers.common.Authorization;
   }
+  /*
+   * A rotation is over when the new token is *in place*, not when the reply
+   * carrying it arrived — those are two different moments, and anything
+   * retried in between would go out holding the token that just died.
+   */
+  releaseRotation();
+}
+
+/*
+ * Is a password change on its way to the server right now?
+ *
+ * Changing a password kills every token issued before it, including ones on
+ * requests that left this same tab a moment earlier. Those come back 401 while
+ * the new token is still in the post — so at that instant the app is holding
+ * the *old* token, nothing looks rotated, and the plain reading is "the session
+ * ended". Signing out then navigates away, which cancels the password change's
+ * own reply, and the form reports a server that did not answer for a change the
+ * server had already made.
+ *
+ * So the rotation is tracked while it is happening, not only after. A 401 that
+ * arrives during one waits for the new token and is sent again with it.
+ */
+const rotates = (url) => String(url || '').includes('/auth/password');
+
+let rotating = 0;
+let rotationSettled = null;
+let rotationDone = null;
+
+api.interceptors.request.use((config) => {
+  if (rotates(config.url)) {
+    rotating += 1;
+    if (rotating === 1) {
+      rotationSettled = new Promise((resolve) => {
+        rotationDone = resolve;
+      });
+    }
+  }
+  return config;
+});
+
+/** Let anything waiting on the new token go. */
+function releaseRotation() {
+  if (rotationDone) {
+    rotationDone();
+    rotationDone = null;
+  }
+}
+
+/**
+ * Called however the change ends — a new token, or a refusal.
+ *
+ * The release is deferred by a turn so the normal path wins: a successful
+ * change calls `setAuthToken` immediately after this, and waiters should see
+ * that token rather than the one it replaced. This is only the safety net, for
+ * a change that was refused and so never sets one — without it, a request that
+ * happened to 401 alongside a rejected password change would wait for ever.
+ */
+function finishedRotating(config) {
+  if (!rotates(config?.url)) return;
+  rotating = Math.max(0, rotating - 1);
+  if (rotating === 0) setTimeout(releaseRotation, 0);
 }
 
 /**
@@ -26,8 +87,12 @@ export function setAuthToken(token) {
  * has to be able to report in place.
  */
 api.interceptors.response.use(
-  (response) => response,
-  (error) => {
+  (response) => {
+    finishedRotating(response.config);
+    return response;
+  },
+  async (error) => {
+    finishedRotating(error.config);
     const expired = error.response?.status === 401;
     /*
      * Two 401s mean "you typed it wrong", not "your session ended", and both
@@ -69,6 +134,18 @@ api.interceptors.response.use(
      * now, the token was rotated underneath it. Send it again with the current
      * one. Once only — a second 401 with the same token is a real one.
      */
+    /*
+     * Caught by a rotation that has not finished yet. Wait for the new token
+     * and send it again — the request was never really refused, it was simply
+     * carrying a token that stopped being valid while it was in the air.
+     */
+    if (expired && rotating > 0 && !rotates(url) && error.config && !error.config.__retried) {
+      error.config.__retried = true;
+      await rotationSettled;
+      error.config.headers.Authorization = api.defaults.headers.common.Authorization;
+      return api.request(error.config);
+    }
+
     const sentWith = error.config?.headers?.Authorization;
     const holding = api.defaults.headers.common.Authorization;
     if (expired && sentWith && holding && sentWith !== holding && !error.config.__retried) {

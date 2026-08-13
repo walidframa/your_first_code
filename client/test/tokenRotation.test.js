@@ -68,3 +68,71 @@ test('a request sent with no token at all is not retried', () => {
 test('and neither is one made while signed out', () => {
   assert.equal(shouldRetry({ status: 401, sentWith: 'Bearer old', holding: undefined }), false);
 });
+
+/* ------------------------------------- caught by a rotation still in flight */
+
+/**
+ * The half the first fix missed, and the reason the form still said "the
+ * server did not answer" for a password change that had already worked.
+ *
+ * The password POST leaves with token A. Before its reply arrives, another
+ * request also sent with A comes back 401 — and at that instant the app is
+ * still holding A, because the new token is in the post. Nothing looks
+ * rotated, so the plain reading is "the session ended", and signing out
+ * navigates away and cancels the password reply.
+ *
+ * Knowing a rotation is *underway* is what tells those apart.
+ */
+function decide({ status, url, rotating, sentWith, holding, alreadyRetried = false }) {
+  if (status !== 401) return 'pass through';
+  if (alreadyRetried) return 'sign out';
+  // A form that checks a password reports its own refusal in place.
+  if (/\/auth\/(login|password)|\/support\/redeem/.test(url)) return 'report in place';
+  if (rotating > 0) return 'wait for the new token, then retry';
+  if (sentWith && holding && sentWith !== holding) return 'retry with the current token';
+  return 'sign out';
+}
+
+test('a 401 arriving during a password change waits rather than signing out', () => {
+  assert.equal(
+    decide({ status: 401, url: '/products', rotating: 1, sentWith: 'Bearer A', holding: 'Bearer A' }),
+    'wait for the new token, then retry',
+  );
+});
+
+test('the same 401 with no change in flight is a real expiry', () => {
+  assert.equal(
+    decide({ status: 401, url: '/products', rotating: 0, sentWith: 'Bearer A', holding: 'Bearer A' }),
+    'sign out',
+  );
+});
+
+test('the password request itself still reports its own refusal', () => {
+  // Wrong current password. It must say so in the form, not wait on itself.
+  assert.equal(
+    decide({ status: 401, url: '/auth/password', rotating: 1, sentWith: 'Bearer A', holding: 'Bearer A' }),
+    'report in place',
+  );
+});
+
+test('a request already retried once is not retried again', () => {
+  // Otherwise a server that keeps refusing becomes a loop.
+  assert.equal(
+    decide({
+      status: 401,
+      url: '/products',
+      rotating: 1,
+      sentWith: 'Bearer A',
+      holding: 'Bearer B',
+      alreadyRetried: true,
+    }),
+    'sign out',
+  );
+});
+
+test('and after the change has landed, the mismatch path still catches stragglers', () => {
+  assert.equal(
+    decide({ status: 401, url: '/products', rotating: 0, sentWith: 'Bearer A', holding: 'Bearer B' }),
+    'retry with the current token',
+  );
+});
