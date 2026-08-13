@@ -6,8 +6,13 @@ import { recordCostChange } from './costHistory.js';
 import { isAvailable, receiveUnits, syncStockFromUnits } from './units.js';
 import { costOfLine } from './wallets.js';
 import { moveStock, stockAt } from './stock.js';
+import { taxRate } from './settings.js';
 
-const TAX_RATE = Number(process.env.TAX_RATE || 0.08);
+/*
+ * The shop's own rate, read when a document is priced rather than at boot —
+ * see settings.js. Kept as a function so the export below stays a live figure
+ * instead of whatever it happened to be when this file was first imported.
+ */
 
 /**
  * What each document type is for, and what confirming it does.
@@ -134,7 +139,7 @@ export function totalsFor(lines, discountPercent = 0) {
   const subtotal = round2(lines.reduce((sum, l) => sum + l.lineTotal, 0));
   const discount = round2(subtotal * (pct / 100));
   const taxable = round2(subtotal - discount);
-  const tax = round2(taxable * TAX_RATE);
+  const tax = round2(taxable * taxRate());
 
   return { subtotal, discountPercent: pct, discount, tax, total: round2(taxable + tax) };
 }
@@ -593,4 +598,4 @@ export function getDocument(id) {
   };
 }
 
-export { TAX_RATE };
+export { taxRate };

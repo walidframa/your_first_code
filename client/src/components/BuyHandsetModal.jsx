@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Plus, Search } from 'lucide-react';
+import { ArrowDownLeft, ArrowUpRight, Plus, Search } from 'lucide-react';
 import api from '../api';
 import ProductQuickCreate from './ProductQuickCreate';
 import IdPhotoField from './IdPhotoField';
@@ -28,7 +28,12 @@ const CONDITIONS = [
  * comes off the sale on the way out, and the difference goes whichever way it
  * goes.
  */
-export default function BuyHandsetModal({ onClose, onSaved, onTakeAgainstSale = null }) {
+export default function BuyHandsetModal({
+  onClose,
+  onSaved,
+  onTakeAgainstSale = null,
+  saleTotal = 0,
+}) {
   const againstSale = Boolean(onTakeAgainstSale);
   const toast = useToast();
   const { rate, toLbp } = useSettings();
@@ -70,6 +75,14 @@ export default function BuyHandsetModal({ onClose, onSaved, onTakeAgainstSale = 
   // What the handset will have cost the shop, however the money went out.
   const cost =
     (Number(form.paidUsd) || 0) + (rate > 0 ? (Number(form.paidLbp) || 0) / rate : 0);
+  /*
+   * The sum the cashier is about to do in their head, done here instead.
+   * Negative means the old phone is worth more than what is being bought, so
+   * the shop is the one handing money over.
+   */
+  const balance = Math.round((saleTotal - cost) * 100) / 100;
+  const owed = balance < 0 ? Math.round(-balance * 100) / 100 : 0;
+
   const model = products.find((p) => p.id === Number(form.productId));
   const chosen = model;
 
@@ -218,7 +231,9 @@ export default function BuyHandsetModal({ onClose, onSaved, onTakeAgainstSale = 
         </div>
 
         <Input
-          label={againstSale ? 'Worth, in dollars' : 'Paid in dollars'}
+          label={
+            againstSale ? 'What is their phone worth?' : 'Paid in dollars'
+          }
           type="number"
           step="0.01"
           min="0"
@@ -226,7 +241,7 @@ export default function BuyHandsetModal({ onClose, onSaved, onTakeAgainstSale = 
           onChange={set('paidUsd')}
         />
         <Input
-          label={againstSale ? 'Worth, in LBP' : 'Paid in LBP'}
+          label={againstSale ? 'Or in LBP' : 'Paid in LBP'}
           type="number"
           step="1000"
           min="0"
@@ -234,10 +249,40 @@ export default function BuyHandsetModal({ onClose, onSaved, onTakeAgainstSale = 
           onChange={set('paidLbp')}
         />
 
-        {cost > 0 && (
+        {/*
+          * Which way the money goes, in words, before anybody commits to it.
+          *
+          * "Paid in dollars" answered the wrong question in a swap: nothing is
+          * being paid yet, and the number on its own does not say whether the
+          * customer is about to hand money over or take some. So the sum is
+          * spelled out — sale, less the old phone, equals who owes whom — and
+          * it changes as the figure is typed.
+          */}
+        {againstSale && cost > 0 && (
+          <div
+            className={cx(
+              'col-span-2 rounded-xl px-3 py-2.5 text-sm',
+              owed > 0 ? 'bg-red-50 text-red-900' : 'bg-emerald-50 text-emerald-900',
+            )}
+          >
+            <div className="flex items-center gap-2 font-semibold">
+              {owed > 0 ? <ArrowDownLeft size={16} /> : <ArrowUpRight size={16} />}
+              {owed > 0
+                ? `You pay the customer ${money(owed)}`
+                : `The customer pays you ${money(balance)}`}
+            </div>
+            <p className="mt-0.5 text-xs opacity-80">
+              {money(saleTotal)} of goods − {money(cost)} for their phone
+              {rate > 0 && (
+                <span> · {lbp(toLbp(owed > 0 ? owed : balance))}</span>
+              )}
+            </p>
+          </div>
+        )}
+
+        {!againstSale && cost > 0 && (
           <p className="col-span-2 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">
-            {againstSale ? 'Comes off the sale: ' : 'Costs the shop '}
-            <span className="font-semibold">{money(cost)}</span>
+            Costs the shop <span className="font-semibold">{money(cost)}</span>
             {rate > 0 && <span className="text-slate-400"> · {lbp(toLbp(cost))}</span>}
             {model && (
               <span className={cx('ml-1', model.price > cost ? 'text-brand-700' : 'text-red-600')}>
@@ -287,7 +332,7 @@ export default function BuyHandsetModal({ onClose, onSaved, onTakeAgainstSale = 
             Cancel
           </Button>
           <Button type="submit" className="flex-1" loading={saving} disabled={!form.productId || !form.imei}>
-            Buy it in
+            {againstSale ? 'Take it off the sale' : 'Buy it in'}
           </Button>
         </ModalActions>
       </form>

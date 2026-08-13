@@ -1983,13 +1983,50 @@ try {
   await step('admin can change the exchange rate', async () => {
     await goTo('Settings');
     await page.waitForSelector('text=Exchange rate', { timeout: 15000 });
-    await page.fill('input[type=number] >> nth=0', '95000');
-    await page.click('button:has-text("Save changes")');
+
+    // Scoped to its own card: the settings page has more than one form with a
+    // Save on it now, and the tax one is disabled until it is touched.
+    const rateCard = page.locator('form', {
+      has: page.getByLabel('Lebanese pounds per 1 US dollar'),
+    });
+    await rateCard.getByLabel('Lebanese pounds per 1 US dollar').fill('95000');
+    await rateCard.getByRole('button', { name: 'Save changes' }).click();
     await page.waitForSelector('text=Exchange rate updated', { timeout: 15000 });
     // The preview and history reflect the new rate.
     await page.waitForSelector('text=95,000');
   });
   await shot('settings');
+
+  /*
+   * Tax was an environment variable pinned at eight per cent, so every shop
+   * sold a copy charged it whether or not it should. Turning it off is the
+   * thing most shops here will do first, so it is worth doing in a browser.
+   */
+  await step('tax can be turned off, and the register stops charging it', async () => {
+    const taxCard = page.locator('form', { has: page.getByRole('checkbox', { name: /Charge tax/ }) });
+    await taxCard.getByRole('checkbox', { name: /Charge tax/ }).uncheck();
+    await taxCard.getByRole('button', { name: 'Save changes' }).click();
+    await page.waitForSelector('text=Tax turned off', { timeout: 15000 });
+
+    await goTo('Register');
+    await page.waitForSelector('text=Current sale', { timeout: 15000 });
+    await page.getByRole('button', { name: /^Espresso/ }).first().click();
+    await page.waitForSelector('aside >> text=Espresso', { timeout: 10000 });
+    // No tax line at all, rather than a line reading zero.
+    if (await page.locator('aside >> text=/^Tax/').count()) {
+      throw new Error('the register still shows a tax line with tax switched off');
+    }
+    await page.click('aside button:has-text("Clear")');
+  });
+
+  await step('and back on again, at the shop’s own rate', async () => {
+    await goTo('Settings');
+    const taxCard = page.locator('form', { has: page.getByRole('checkbox', { name: /Charge tax/ }) });
+    await taxCard.getByRole('checkbox', { name: /Charge tax/ }).check();
+    await taxCard.getByLabel('Rate').fill('8');
+    await taxCard.getByRole('button', { name: 'Save changes' }).click();
+    await page.waitForSelector('text=/set to 8%/', { timeout: 15000 });
+  });
 
   await step('the register picks up the new rate', async () => {
     await goTo('Register');
@@ -2303,8 +2340,12 @@ try {
     await dialog.locator('#model').fill('Galaxy A15');
     await dialog.locator('button', { hasText: 'Galaxy A15' }).first().click();
     await dialog.getByRole('textbox', { name: 'IMEI' }).fill('359988776650001');
-    await dialog.getByRole('spinbutton', { name: 'Worth, in dollars' }).fill('40');
-    await dialog.getByRole('button', { name: 'Buy it in' }).click();
+    await dialog.getByRole('spinbutton', { name: 'What is their phone worth?' }).fill('40');
+
+    // The dialog says which way the money goes before anybody commits to it —
+    // a $40 phone against a $3.50 coffee means the shop is the one paying.
+    await page.waitForSelector('[role=dialog] >> text=/You pay the customer/', { timeout: 10000 });
+    await dialog.getByRole('button', { name: 'Take it off the sale' }).click();
 
     // A $40 phone against a $3.50 coffee: the shop owes the customer.
     await page.waitForSelector('aside >> text=You pay the customer', { timeout: 15000 });

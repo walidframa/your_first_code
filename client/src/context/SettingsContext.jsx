@@ -30,12 +30,25 @@ export function SettingsProvider({ children }) {
   const value = useMemo(() => {
     const rate = settings?.exchange_rate ?? 0;
     const step = settings?.lbp_rounding ?? 1000;
+    /*
+     * The shop's tax, as a fraction, in one place.
+     *
+     * It used to be `* 0.08` written into whichever screen needed it, which is
+     * how the documents dialog ended up quietly charging eight per cent after
+     * the shop had turned tax off — and then sending the server a payment
+     * bigger than the total it had worked out.
+     */
+    const taxOn = String(settings?.tax_enabled) === 'true';
+    const taxPercent = Number(settings?.tax_percent) || 0;
+    const taxRate = taxOn && taxPercent > 0 ? Math.min(taxPercent, 100) / 100 : 0;
 
     return {
       settings,
       refresh,
       rate,
       step,
+      taxRate,
+      taxName: settings?.tax_name || 'Tax',
       /** Convert a USD amount to LBP, rounded to the display step. */
       toLbp: (usd) => {
         if (!rate) return 0;

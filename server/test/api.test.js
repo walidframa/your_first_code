@@ -64,6 +64,14 @@ before(async () => {
   await waitForServer();
 
   adminToken = (await req('POST', '/auth/login', { username: 'admin', password: 'admin123' })).json.token;
+
+  /*
+   * The figures below are an eight-per-cent shop's. Said out loud, because tax
+   * is now the shop's own setting and it is off until somebody turns it on —
+   * these tests should assert what they set up rather than lean on a default.
+   */
+  await req('PUT', '/settings', { tax_enabled: 'true', tax_percent: 8 }, adminToken);
+
   cashierToken = (await req('POST', '/auth/login', { username: 'cashier', password: 'cashier123' })).json.token;
 
   // Cash cannot be taken with the drawer shut, so the suite opens one first —

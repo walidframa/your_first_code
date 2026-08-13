@@ -4,6 +4,7 @@ import api from '../../api';
 import PageHeader from '../../components/PageHeader';
 import CompanySettings from '../../components/CompanySettings';
 import Backups from '../../components/Backups';
+import TaxSettings from '../../components/TaxSettings';
 import SupportVisits from '../../components/SupportVisits';
 import { useSettings, lbp } from '../../context/SettingsContext';
 import { TEXT_SIZES, applyTextSize, getTextSize } from '../../lib/textSize';
@@ -242,6 +243,11 @@ export default function Settings() {
         {/* Boring until the day it is the only thing that matters. */}
         <div className="mb-4 max-w-4xl">
           <Backups />
+        </div>
+
+        {/* Set once and then forgotten — but wrong by default until it is. */}
+        <div className="mb-4 max-w-4xl">
+          <TaxSettings />
         </div>
 
         {/* Nothing at all until somebody from outside the shop has been in it. */}

@@ -2,7 +2,7 @@ import { Router } from 'express';
 import crypto from 'crypto';
 import { db, transaction } from '../db.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
-import { getSettings } from '../lib/settings.js';
+import { getSettings, taxRate } from '../lib/settings.js';
 import { addEntry, creditCheck } from '../lib/accounts.js';
 import { currentSession, recordMovement, requiresSession } from '../lib/cash.js';
 import {
@@ -34,14 +34,28 @@ import {
   validatePayments,
 } from '../lib/currency.js';
 
+/** The three ways a counter agrees a discount. */
+export const DISCOUNT_MODES = ['percent', 'usd', 'lbp'];
+
 /** What kind of account the shop set up for the customer. */
 export const ACCOUNT_KINDS = ['icloud', 'gmail', 'other'];
 
 const router = Router();
-const TAX_RATE = Number(process.env.TAX_RATE || 0.08);
 
+/*
+ * Read per request, not once at boot.
+ *
+ * A shop turning tax off has to see it gone from the next sale, not after
+ * somebody restarts the server — and on a machine running a shop, nobody is
+ * going to.
+ */
 router.get('/tax-rate', requireAuth, (req, res) => {
-  res.json({ taxRate: TAX_RATE });
+  const settings = getSettings();
+  res.json({
+    taxRate: taxRate(settings),
+    taxName: settings.tax_name || 'Tax',
+    taxEnabled: String(settings.tax_enabled) === 'true',
+  });
 });
 
 /**
@@ -130,6 +144,11 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
     buyerPhone = null,
     accounts = [],
     /*
+     * How the discount was agreed: `{ mode: 'percent' | 'usd' | 'lbp', value }`.
+     * `discountPercent` above is the older shape and still works.
+     */
+    discount = null,
+    /*
      * A handset handed over as part of this sale.
      *
      * The commonest sale in a phone shop is not a sale, it is a swap: an old
@@ -179,9 +198,28 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
   if (paymentMethod === 'account' && !customerId) {
     return res.status(400).json({ error: 'A customer is required for an account sale' });
   }
-  const discount = Number(discountPercent);
-  if (!Number.isFinite(discount) || discount < 0 || discount > 100) {
-    return res.status(400).json({ error: 'discountPercent must be between 0 and 100' });
+  /*
+   * A discount is three different things depending on how it was agreed.
+   *
+   * "Ten per cent off" and "call it fifty dollars" and "knock off two hundred
+   * thousand" are all normal at a counter, and the cashier should not have to
+   * work out which percentage the last two come to. The percentage is still
+   * accepted on its own, because a till that made a sale offline is holding
+   * payloads written before any of this existed.
+   *
+   * A discount in pounds is converted with the *server's* rate, not the
+   * browser's: what the shop is owed is not the browser's to assert.
+   */
+  const discountMode = discount?.mode ?? (discountPercent ? 'percent' : 'percent');
+  const discountValue = Number(discount?.value ?? discountPercent ?? 0);
+  if (!DISCOUNT_MODES.includes(discountMode)) {
+    return res.status(400).json({ error: `discount.mode must be one of: ${DISCOUNT_MODES.join(', ')}` });
+  }
+  if (!Number.isFinite(discountValue) || discountValue < 0) {
+    return res.status(400).json({ error: 'A discount cannot be less than nothing' });
+  }
+  if (discountMode === 'percent' && discountValue > 100) {
+    return res.status(400).json({ error: 'A discount cannot be more than 100%' });
   }
   // 'SPLIT' is a third way of giving change, not a third currency.
   if (!CHANGE_MODES.includes(changeCurrency)) {
@@ -327,9 +365,23 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
       }
 
       subtotal = round2(subtotal);
-      const discountAmount = round2(subtotal * (discount / 100));
+      /*
+       * Never more than the goods came to. A discount bigger than the sale
+       * would make the total negative, which is a different thing entirely —
+       * money owed to the customer — and it has one honest cause, a trade-in.
+       */
+      const discountAmount = Math.min(
+        subtotal,
+        round2(
+          discountMode === 'percent'
+            ? subtotal * (discountValue / 100)
+            : discountMode === 'lbp'
+              ? (exchangeRate > 0 ? discountValue / exchangeRate : 0)
+              : discountValue,
+        ),
+      );
       const taxableAmount = round2(subtotal - discountAmount);
-      const tax = round2(taxableAmount * TAX_RATE);
+      const tax = round2(taxableAmount * taxRate());
       const total = round2(taxableAmount + tax);
 
       /*

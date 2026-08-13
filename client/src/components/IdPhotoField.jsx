@@ -1,16 +1,20 @@
 import { useRef, useState } from 'react';
 import { Camera, ImageUp, Trash2 } from 'lucide-react';
 import { Button } from './ui';
+import CameraCapture from './CameraCapture';
 import { shrink } from '../lib/shrink';
 
 /**
  * Photograph the seller's ID at the counter.
  *
- * `capture` on the file input means a tablet or a phone opens the camera
- * straight away rather than a file browser, which is how this is actually used:
- * the seller is standing there holding the card. On a desktop the attribute is
- * ignored and it behaves as an ordinary file picker, for a shop with a scanner
- * or a photo already taken.
+ * Two ways in, because the counter machine decides which one is possible.
+ *
+ * The file input's `capture` attribute is a phone feature; on the desktop most
+ * shops actually use it does nothing, so the only route was a file picker
+ * pointing at photos that had to reach the machine some other way — which in
+ * practice meant the ID never got photographed at all. **Use the camera** opens
+ * whatever the machine has, webcam included. **Upload a photo** is for a
+ * scanner, a phone that already took it, or a shop that keeps them on file.
  *
  * The value is a `data:` URI held in the parent's form state, so the photo goes
  * up with the purchase in one request. Nothing is stored until the purchase is
@@ -21,6 +25,7 @@ export default function IdPhotoField({ value, onChange, disabled = false }) {
   const fileRef = useRef(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [cameraOpen, setCameraOpen] = useState(false);
 
   async function pick(e) {
     const file = e.target.files?.[0];
@@ -59,6 +64,21 @@ export default function IdPhotoField({ value, onChange, disabled = false }) {
 
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap gap-2">
+            {/*
+              * Both offered up front rather than hidden behind one button and a
+              * menu. There are exactly two, the right one depends on what is
+              * plugged into the machine, and a cashier should not have to open
+              * something to find that out.
+              */}
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              disabled={disabled}
+              onClick={() => setCameraOpen(true)}
+            >
+              <Camera size={14} /> {value ? 'Retake' : 'Use the camera'}
+            </Button>
             <Button
               type="button"
               size="sm"
@@ -67,8 +87,7 @@ export default function IdPhotoField({ value, onChange, disabled = false }) {
               disabled={disabled}
               onClick={() => fileRef.current?.click()}
             >
-              {value ? <ImageUp size={14} /> : <Camera size={14} />}
-              {value ? 'Retake' : 'Photograph the ID'}
+              <ImageUp size={14} /> Upload a photo
             </Button>
             {value && (
               <Button
@@ -87,10 +106,9 @@ export default function IdPhotoField({ value, onChange, disabled = false }) {
             ref={fileRef}
             type="file"
             accept="image/*"
-            capture="environment"
             onChange={pick}
             className="hidden"
-            aria-label="Photograph the seller’s ID"
+            aria-label="Upload a photo of the seller’s ID"
           />
 
           {error ? (
@@ -108,6 +126,16 @@ export default function IdPhotoField({ value, onChange, disabled = false }) {
           )}
         </div>
       </div>
+
+      {cameraOpen && (
+        <CameraCapture
+          onCancel={() => setCameraOpen(false)}
+          onTaken={(photo) => {
+            onChange(photo);
+            setCameraOpen(false);
+          }}
+        />
+      )}
     </div>
   );
 }

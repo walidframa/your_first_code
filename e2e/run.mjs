@@ -129,6 +129,24 @@ if (seed.status !== 0) {
   process.exit(1);
 }
 
+/*
+ * This suite's figures are an eight-per-cent shop's.
+ *
+ * Tax is the shop's own setting now and starts off, which is right for a new
+ * shop and wrong for a fixture whose expected totals were all written with it
+ * on. Set here rather than clicked through the settings screen, so the tax
+ * arithmetic under test is not also testing the form that turns it on — there
+ * is a step for that further down.
+ */
+{
+  const { DatabaseSync } = await import('node:sqlite');
+  const shop = new DatabaseSync(env.DB_PATH);
+  const put = shop.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)');
+  put.run('tax_enabled', 'true');
+  put.run('tax_percent', '8');
+  shop.close();
+}
+
 console.log('Starting API…');
 const api = track(
   spawn(process.execPath, ['src/index.js'], {

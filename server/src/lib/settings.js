@@ -38,6 +38,22 @@ export const SETTING_DEFAULTS = {
   phone_country_code: '961',
 
   /*
+   * Tax, as the shop's own number rather than the machine's.
+   *
+   * This was an environment variable, which meant a shop that charges no tax —
+   * most small shops here — had eight per cent added to every sale and no way
+   * to reach the setting that did it. A figure that appears on every receipt a
+   * customer keeps belongs on the settings screen.
+   *
+   * Off by default, and stored as a percentage rather than a fraction because
+   * that is what somebody types: `11` is eleven per cent, not eleven hundred.
+   */
+  tax_enabled: 'false',
+  tax_percent: 0,
+  /* What it is called on a receipt — VAT, TVA, or the shop's own word. */
+  tax_name: 'Tax',
+
+  /*
    * Whether a cash sale needs an open drawer. On by default: a till that can
    * take money with nothing to put it in cannot be counted at the end of the
    * day, which is the whole point of a cashbox.
@@ -59,7 +75,23 @@ export const SETTING_DEFAULTS = {
 /** Never leaves the server. Redacted to a boolean for the UI. */
 export const SECRET_SETTINGS = new Set(['shopify_token']);
 
-const NUMERIC = new Set(['exchange_rate', 'lbp_rounding']);
+const NUMERIC = new Set(['exchange_rate', 'lbp_rounding', 'tax_percent']);
+
+/**
+ * The rate to actually multiply by, as a fraction.
+ *
+ * One function so the register, the invoices and the receipt cannot disagree
+ * about it — three copies of `percent / 100` is three chances to ship a shop
+ * that charges eight hundred per cent. Switched off means zero, not "skip the
+ * arithmetic", so every total keeps the same shape whether tax is on or not.
+ */
+export function taxRate(settings = getSettings()) {
+  if (String(settings.tax_enabled) !== 'true') return 0;
+  const percent = Number(settings.tax_percent);
+  if (!Number.isFinite(percent) || percent <= 0) return 0;
+  // A shop cannot mistype its way to charging more tax than the price.
+  return Math.min(percent, 100) / 100;
+}
 
 export function getSettings() {
   const rows = db.prepare('SELECT key, value FROM settings').all();

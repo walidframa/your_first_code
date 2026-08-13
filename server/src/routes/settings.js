@@ -64,6 +64,40 @@ router.put('/', requireAuth, requirePermission('settings'), (req, res) => {
     setSetting('lbp_rounding', Math.round(step), req.user.id);
   }
 
+  /*
+   * Tax, which is the shop's own number rather than the machine's.
+   *
+   * Validated here rather than trusted from the browser, because it lands on
+   * every receipt a customer keeps: a slipped decimal is a shop charging eleven
+   * hundred per cent and only finding out from the person at the counter.
+   */
+  /*
+   * Checked before any of it is written.
+   *
+   * These arrive together — switch, rate and name are one form — so applying
+   * the switch and then refusing the rate would turn tax *on* at whatever the
+   * old rate was, which is the opposite of what the person pressing Save
+   * asked for and lands on the next customer's receipt.
+   */
+  if (req.body.tax_percent !== undefined) {
+    const percent = Number(req.body.tax_percent);
+    if (!Number.isFinite(percent) || percent < 0 || percent > 100) {
+      return res.status(400).json({ error: 'Tax must be between 0 and 100 per cent' });
+    }
+  }
+
+  if (req.body.tax_enabled !== undefined) {
+    const on = req.body.tax_enabled === true || req.body.tax_enabled === 'true';
+    setSetting('tax_enabled', on ? 'true' : 'false', req.user.id);
+  }
+  if (req.body.tax_percent !== undefined) {
+    setSetting('tax_percent', Number(req.body.tax_percent), req.user.id);
+  }
+  if (req.body.tax_name !== undefined) {
+    // Blank falls back rather than printing an unlabelled line on a receipt.
+    setSetting('tax_name', String(req.body.tax_name || '').trim() || 'Tax', req.user.id);
+  }
+
   for (const field of COMPANY_FIELDS) {
     if (req.body[field] === undefined) continue;
     const value = String(req.body[field] ?? '').trim();
