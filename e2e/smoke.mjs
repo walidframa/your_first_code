@@ -2579,6 +2579,8 @@ try {
    * works; and the new password is the one that opens the account afterwards.
    */
   await step('a shopkeeper can change their own password from Settings', async () => {
+    // Whoever the step before left signed in, this one is about the owner.
+    await signOut();
     await signIn('admin');
     await goTo('Settings');
 
