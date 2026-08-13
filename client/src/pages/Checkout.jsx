@@ -34,6 +34,15 @@ import { useT } from '../context/LanguageContext';
 import { Button, EmptyState, ProductThumb, Skeleton, cx, money, useToast } from '../components/ui';
 import { useSettings, lbp } from '../context/SettingsContext';
 
+/**
+ * A request the screen can open without.
+ *
+ * Resolves to `fallback` instead of throwing, so one feature a shop has not
+ * bought cannot take down the screen that sells everything else.
+ */
+const optional = (request, fallback) => request.then((res) => res.data).catch(() => fallback);
+
+
 const round2 = (n) => Math.round(n * 100) / 100;
 
 export default function Checkout() {
@@ -111,21 +120,43 @@ export default function Checkout() {
   const [heldDialog, setHeldDialog] = useState(null);
   const [resumeIssues, setResumeIssues] = useState(null);
 
+  /*
+   * What the till needs, and what it merely likes to have.
+   *
+   * These were one `Promise.all`, which means they were one thing: any of the
+   * five failing threw before the first `setState`, so the products were never
+   * put on the screen and the grid sat on its loading skeletons for ever, with
+   * no error and nothing to press.
+   *
+   * That is not hypothetical. `/wallets` is behind the `cards` module, and a
+   * shop that had not bought recharge cards got a 403 there — so a feature it
+   * had never asked for silently took away the ability to sell anything at all.
+   * The screen showed grey rectangles where its own stock should be.
+   *
+   * So: three requests that the register cannot open without, and two that it
+   * can. An optional one that fails costs its own feature — the wallet button,
+   * the held-sales count — and nothing else.
+   */
   const loadData = useCallback(async () => {
-    const [productsRes, categoriesRes, taxRes, walletsRes, heldRes] = await Promise.all([
+    const [productsRes, categoriesRes, taxRes] = await Promise.all([
       api.get('/products', { params: { activeOnly: 'true' } }),
       api.get('/products/categories'),
       api.get('/orders/tax-rate'),
-      api.get('/wallets', { params: { activeOnly: 'true' } }),
-      api.get('/held-sales'),
     ]);
     setProducts(productsRes.data.products);
     setCategories(categoriesRes.data.categories);
     setTaxRate(taxRes.data.taxRate);
     setTaxName(taxRes.data.taxName || 'Tax');
-    setWallets(walletsRes.data.wallets);
-    setHeldCount(heldRes.data.count);
+    // Shown as soon as there is something to sell, rather than waiting on the
+    // parts of the screen that are allowed to be missing.
     setLoading(false);
+
+    const [wallets, held] = await Promise.all([
+      optional(api.get('/wallets', { params: { activeOnly: 'true' } }), { wallets: [] }),
+      optional(api.get('/held-sales'), { count: 0 }),
+    ]);
+    setWallets(wallets.wallets ?? []);
+    setHeldCount(held.count ?? 0);
   }, []);
 
   useEffect(() => {
