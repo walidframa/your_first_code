@@ -61,7 +61,21 @@ export function BranchProvider({ children }) {
       setState(null);
       return;
     }
-    refresh().catch(() => setState(null));
+    /*
+     * If asking which branch we are in fails, carry on as one shop.
+     *
+     * `setState(null)` here used to mean `loaded` stayed false for ever, and
+     * the register — which waits for a branch before it can show a shelf,
+     * because stock is held per branch — sat on its loading skeletons with no
+     * message and no way forward. One endpoint answering badly took the till
+     * down.
+     *
+     * Falling back is safe: with no branch header the server resolves the main
+     * branch itself, which is the right answer for the shops this affects,
+     * since a shop with one branch is most of them. The switcher disappears
+     * rather than lying about a list we could not fetch.
+     */
+    refresh().catch(() => setState({ branches: [], current: null, canSwitch: false }));
   }, [user, refresh]);
 
   const value = useMemo(() => {

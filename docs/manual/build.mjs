@@ -25,9 +25,17 @@ import { render } from './render.mjs';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.dirname(path.dirname(here));
 
-// Its own ports, clear of the dev server (4000/5173) and the e2e run (4610/4611).
-const API_PORT = 4620;
-const WEB_PORT = 4621;
+/*
+ * Its own ports, and "its own" checked rather than assumed.
+ *
+ * The first pair picked here was 4620/4621, which `modules.test.js` already
+ * owns — so a manual build left a server behind and the next test run fetched
+ * the wrong one and failed on an assertion about licences. The suites reach up
+ * to 4621; the dev server is 4000 and 5173, the e2e run 4610/4611. 4640 is
+ * clear of all of it with room to spare.
+ */
+const API_PORT = 4640;
+const WEB_PORT = 4641;
 
 const OUT = path.join(here, 'out');
 const SHOTS = path.join(here, 'shots');

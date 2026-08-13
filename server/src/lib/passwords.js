@@ -1,5 +1,10 @@
 import bcrypt from 'bcryptjs';
 import { db } from '../db.js';
+import { checkPassword, normalisePassword, SEEDED_PASSWORDS } from './passwordRules.js';
+
+// Re-exported so the callers that already ask this module for them do not have
+// to care that the rules moved somewhere with no database attached.
+export { checkPassword, normalisePassword, SEEDED_PASSWORDS };
 
 /**
  * Setting a password, in the one place that knows the rules.
@@ -10,26 +15,38 @@ import { db } from '../db.js';
  * ends old sessions, and the flag that stops the nagging.
  */
 
-/** The passwords this app ships with, which are therefore public knowledge. */
-export const SEEDED_PASSWORDS = ['admin123', 'cashier123'];
-
-const MIN_LENGTH = 8;
+/**
+ * Does this password open this account?
+ *
+ * Tries the normalised form first, then the exact bytes supplied. The second
+ * attempt is for hashes written before any of this existed: somebody whose
+ * stored hash was made from decomposed input types the same keys and must
+ * still get in. `stale` says the hash is one of those, so the caller can
+ * quietly write it back in the settled form and the fallback stops being
+ * needed.
+ *
+ * Both attempts are made every time, so a wrong password costs the same work
+ * as a right one and the timing says nothing.
+ */
+export function verifyPassword(supplied, hash) {
+  if (typeof hash !== 'string' || !hash) return { ok: false, stale: false };
+  const settled = bcrypt.compareSync(normalisePassword(supplied), hash);
+  const asTyped = bcrypt.compareSync(String(supplied ?? ''), hash);
+  return { ok: settled || asTyped, stale: !settled && asTyped };
+}
 
 /**
- * Is this good enough to put on a shop that is open to the internet?
+ * Write the hash in the settled form, without touching anything else.
  *
- * Deliberately short of a policy with symbol counts and forced rotation. Those
- * produce `Summer2024!` on a sticky note under the till. Length, and a refusal
- * to accept the ones already printed in the manual, is most of the value.
+ * Deliberately not `setPassword`: this is the same password, so it must not
+ * move `password_changed_at` — that would sign the person out of the very
+ * session they just signed into, over a repair they did not ask for.
  */
-export function checkPassword(password) {
-  if (typeof password !== 'string' || password.length < MIN_LENGTH) {
-    return `Password must be at least ${MIN_LENGTH} characters`;
-  }
-  if (SEEDED_PASSWORDS.includes(password)) {
-    return 'That is the demo password this app ships with. Pick another.';
-  }
-  return null;
+export function restorePasswordHash(userId, password) {
+  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(
+    bcrypt.hashSync(normalisePassword(password), 10),
+    userId,
+  );
 }
 
 /**
@@ -56,7 +73,7 @@ export function setPassword(userId, password) {
     `UPDATE users
         SET password_hash = ?, password_changed_at = ?, must_change_password = 0
       WHERE id = ?`,
-  ).run(bcrypt.hashSync(password, 10), changedAt, userId);
+  ).run(bcrypt.hashSync(normalisePassword(password), 10), changedAt, userId);
   return changedAt;
 }
 

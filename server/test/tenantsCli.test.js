@@ -10,6 +10,7 @@
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import bcrypt from 'bcryptjs';
 import { DatabaseSync } from 'node:sqlite';
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -477,4 +478,65 @@ test('a dry run of a rename changes nothing at all', () => {
   assert.ok(existsSync(path.join(workDir, 'tenants', 'pretend.sqlite')));
   assert.ok(existsSync(path.join(workDir, 'env', 'pretend.env')));
   assert.ok(!existsSync(path.join(workDir, 'env', 'pretend2.env')));
+});
+
+/* --------------------------------------------------- the way back in */
+
+test('a password can be set from the server when nobody can sign in', () => {
+  /*
+   * The door on the inside of the room. A forgotten password is normally reset
+   * by an admin from the Staff screen — but when the account locked out *is*
+   * the only admin, there is no admin to do it.
+   */
+  pos('add', 'lockedout', 'Locked Out Mobile');
+
+  const res = pos('password', 'lockedout', 'admin', 'a-brand-new-password');
+  assert.equal(res.status, 0, res.out);
+  assert.match(res.out, /can sign in with the new password/);
+
+  const shop = new DatabaseSync(path.join(workDir, 'tenants', 'lockedout.sqlite'));
+  const user = shop.prepare('SELECT * FROM users WHERE username = ?').get('admin');
+  shop.close();
+
+  // The real check: the stored hash opens with the new password and not the old.
+  assert.equal(bcrypt.compareSync('a-brand-new-password', user.password_hash), true);
+  assert.equal(bcrypt.compareSync('admin123', user.password_hash), false);
+
+  // And the bookkeeping the app's own route does, done here too — otherwise a
+  // session opened with the old password would outlive it.
+  assert.ok(user.password_changed_at, 'old sessions were left open');
+  assert.equal(user.must_change_password, 0, 'it would ask them to change it again');
+});
+
+test('setting a password normalises it, so the counter PC agrees with the phone', () => {
+  pos('add', 'accents', 'Accented Phones');
+  const typed = 'Café-Beirut-1'.normalize('NFD');
+  assert.equal(pos('password', 'accents', 'admin', typed).status, 0);
+
+  const shop = new DatabaseSync(path.join(workDir, 'tenants', 'accents.sqlite'));
+  const user = shop.prepare('SELECT * FROM users WHERE username = ?').get('admin');
+  shop.close();
+
+  // Set with the decomposed spelling, opens with the composed one.
+  assert.equal(bcrypt.compareSync('Café-Beirut-1'.normalize('NFC'), user.password_hash), true);
+});
+
+test('it refuses a password too weak to be worth setting', () => {
+  pos('add', 'weak', 'Weak Phones');
+  for (const bad of ['short', 'admin123', 'trailing  ']) {
+    assert.notEqual(pos('password', 'weak', 'admin', bad).status, 0, `"${bad}" was accepted`);
+  }
+});
+
+test('it says who is actually in the shop rather than just failing', () => {
+  pos('add', 'whoisthere', 'Who Is There');
+  const res = pos('password', 'whoisthere', 'nobody', 'a-good-password');
+  assert.notEqual(res.status, 0);
+  assert.match(res.out, /admin/, 'it did not say which usernames exist');
+});
+
+test('and refuses a shop it cannot find', () => {
+  const res = pos('password', 'no-such-shop', 'admin', 'a-good-password');
+  assert.notEqual(res.status, 0);
+  assert.match(res.out, /No database/);
 });

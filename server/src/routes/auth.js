@@ -1,10 +1,14 @@
 import { Router } from 'express';
-import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { db } from '../db.js';
 import { JWT_SECRET, requireAuth } from '../middleware/auth.js';
 import { effectivePermissions } from '../lib/permissions.js';
-import { checkPassword, setPassword } from '../lib/passwords.js';
+import {
+  checkPassword,
+  restorePasswordHash,
+  setPassword,
+  verifyPassword,
+} from '../lib/passwords.js';
 
 const router = Router();
 
@@ -15,9 +19,20 @@ router.post('/login', (req, res) => {
   }
 
   const user = db.prepare('SELECT * FROM users WHERE username = ?').get(username);
-  if (!user || !bcrypt.compareSync(password, user.password_hash)) {
+  const attempt = user ? verifyPassword(password, user.password_hash) : { ok: false };
+  if (!user || !attempt.ok) {
     return res.status(401).json({ error: 'Invalid username or password' });
   }
+
+  /*
+   * A hash written before passwords were normalised is quietly rewritten in the
+   * settled form, now that somebody has proved they know the password.
+   *
+   * Without this the fallback in `verifyPassword` would be load-bearing for
+   * ever. With it, each account repairs itself the next time its owner signs
+   * in, and the fallback becomes what it should be — a bridge, not a feature.
+   */
+  if (attempt.stale) restorePasswordHash(user.id, password);
 
   /*
    * Permissions are deliberately not in the token. They travel with the reply
@@ -87,14 +102,14 @@ router.post('/password', requireAuth, (req, res) => {
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
   if (!user) return res.status(401).json({ error: 'This account no longer exists' });
 
-  if (!currentPassword || !bcrypt.compareSync(currentPassword, user.password_hash)) {
+  if (!currentPassword || !verifyPassword(currentPassword, user.password_hash).ok) {
     return res.status(401).json({ error: 'That is not your current password' });
   }
 
   const problem = checkPassword(newPassword);
   if (problem) return res.status(400).json({ error: problem });
 
-  if (bcrypt.compareSync(newPassword, user.password_hash)) {
+  if (verifyPassword(newPassword, user.password_hash).ok) {
     return res.status(400).json({ error: 'That is the password you already have' });
   }
 

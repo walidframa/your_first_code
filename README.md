@@ -419,6 +419,7 @@ pos-tenant pay rami --amount 25       # take a payment, extend the licence
 pos-tenant suspend rami               # stop the till now, whatever the dates say
 pos-tenant resume rami
 pos-tenant rename rami protech        # a new address, same shop and same data
+pos-tenant password rami admin 'x'    # set a password when nobody can sign in
 pos-tenant remove rami                # stop it, keep every byte of their data
 pos-tenant purge rami --yes           # delete their data, on request
 ```
