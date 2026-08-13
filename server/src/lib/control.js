@@ -112,6 +112,26 @@ export function ensureControlSchema(db) {
 
     CREATE INDEX IF NOT EXISTS idx_tickets_hash ON support_tickets(token_hash);
   `);
+
+  /*
+   * Columns added to a table that already exists.
+   *
+   * `CREATE TABLE IF NOT EXISTS` above does nothing at all once the table is
+   * there, so a column added later never reaches a control database that was
+   * made before it — and the first vendor to press the button finds out, from
+   * a 500 with no explanation, on a live console.
+   *
+   * The tenant side reads these inside a try/catch and carries on without
+   * them, which is why the shops kept working while the console could not
+   * save. That made this quieter, not smaller.
+   */
+  for (const [column, type] of [['modules', 'TEXT']]) {
+    const present = db.prepare(`PRAGMA table_info(tenants)`).all();
+    if (!present.some((c) => c.name === column)) {
+      db.exec(`ALTER TABLE tenants ADD COLUMN ${column} ${type}`);
+    }
+  }
+
   return db;
 }
 
