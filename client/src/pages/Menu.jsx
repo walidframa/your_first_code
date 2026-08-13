@@ -2,6 +2,7 @@ import { Link } from 'react-router';
 import { useAuth } from '../context/AuthContext';
 import { useT } from '../context/LanguageContext';
 import { COUNTER_NAV, allowedGroups, allowedItems } from '../lib/nav';
+import { useLicence } from '../context/LicenceContext';
 
 /**
  * Everywhere you can go, as something you can hit with a thumb.
@@ -26,18 +27,18 @@ function Tile({ to, label, icon: Icon }) {
       /* The same name the rail uses, so anything looking for a screen by name
          finds it here too — and so a truncated tile still answers a hover. */
       title={t(label)}
-      className="flex flex-col items-center justify-center gap-2 rounded-2xl bg-white p-4 text-center ring-1 ring-slate-900/[0.07] transition active:scale-[0.97] hover:ring-brand-300 hover:shadow-sm"
+      className="flex flex-col items-center justify-center gap-3 rounded-2xl bg-white p-5 text-center ring-1 ring-slate-900/[0.07] transition active:scale-[0.97] hover:ring-brand-300 hover:shadow-sm"
       /*
-       * Tall enough to be a target rather than a link. Roughly a fingertip plus
-       * the room to miss by a little, which is the difference between a till
-       * somebody trusts and one they lean in to poke.
+       * Big enough to hit without aiming, and big enough to read across a
+       * counter. A tile the size of a fingertip is a tile you lean in to poke;
+       * this is one you can hit while looking at the customer.
        */
-      style={{ minHeight: '104px' }}
+      style={{ minHeight: '140px' }}
     >
-      <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-brand-50 text-brand-700">
-        <Icon size={24} aria-hidden="true" />
+      <span className="flex h-16 w-16 items-center justify-center rounded-2xl bg-brand-50 text-brand-700">
+        <Icon size={32} aria-hidden="true" />
       </span>
-      <span className="text-sm leading-tight font-medium text-slate-800">{t(label)}</span>
+      <span className="text-base leading-tight font-medium text-slate-800">{t(label)}</span>
     </Link>
   );
 }
@@ -48,7 +49,7 @@ function Section({ heading, items }) {
 
   return (
     <section className="mb-6">
-      <h2 className="mb-2 text-[11px] font-semibold tracking-wider text-slate-500 uppercase">
+      <h2 className="mb-2.5 text-xs font-semibold tracking-wider text-slate-500 uppercase">
         {t(heading)}
       </h2>
       {/*
@@ -56,7 +57,7 @@ function Section({ heading, items }) {
        * rather than by a fixed count, so a square counter monitor and a wide
        * desk one both fill their row.
        */}
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(104px,1fr))] gap-2.5">
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-3">
         {items.map((item) => (
           <Tile key={item.to} {...item} />
         ))}
@@ -67,6 +68,8 @@ function Section({ heading, items }) {
 
 export default function Menu() {
   const { user, can } = useAuth();
+  // Same two questions as the rail — see lib/nav.js.
+  const { hasModule } = useLicence();
   const t = useT();
 
   return (
@@ -84,8 +87,8 @@ export default function Menu() {
           </p>
         </div>
 
-        <Section heading="Counter" items={allowedItems(COUNTER_NAV, can)} />
-        {allowedGroups(can).map((group) => (
+        <Section heading="Counter" items={allowedItems(COUNTER_NAV, can, hasModule)} />
+        {allowedGroups(can, hasModule).map((group) => (
           <Section key={group.heading} {...group} />
         ))}
       </div>

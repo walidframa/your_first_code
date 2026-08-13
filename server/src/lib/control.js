@@ -65,6 +65,11 @@ export function ensureControlSchema(db) {
       -- The vendor's own switch, independent of the dates.
       suspended    INTEGER NOT NULL DEFAULT 0,
 
+      -- What this shop bought, as a JSON array of module keys. NULL means all
+      -- of them, which is what every shop already running was sold — a column
+      -- added underneath them must not take the transfer desk away.
+      modules      TEXT,
+
       created_at   TEXT NOT NULL DEFAULT (datetime('now')),
       removed_at   TEXT
     );
@@ -169,7 +174,7 @@ export function licenceForTenant(slug = tenantSlug) {
     return (
       db
         .prepare(
-          `SELECT slug, shop_name, plan, paid_through, grace_days, suspended
+          `SELECT slug, shop_name, plan, paid_through, grace_days, suspended, modules
              FROM tenants
             WHERE slug = ? AND removed_at IS NULL`,
         )

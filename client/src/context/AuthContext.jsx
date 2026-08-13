@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import api, { setAuthToken } from '../api';
+import { applyTextSize } from '../lib/textSize';
 
 const AuthContext = createContext(null);
 
@@ -35,6 +36,12 @@ export function AuthProvider({ children }) {
       .then((res) => {
         setUser(res.data.user);
         localStorage.setItem('pos_user', JSON.stringify(res.data.user));
+        /*
+         * The size this person reads at, on whatever machine they are sitting
+         * at. Only when the account has one — otherwise this device's own
+         * choice stands, which is what a shared counter tablet wants.
+         */
+        if (res.data.user.textSize) applyTextSize(res.data.user.textSize);
       })
       .catch((err) => {
         /*
@@ -64,6 +71,9 @@ export function AuthProvider({ children }) {
     setAuthToken(res.data.token);
     setToken(res.data.token);
     setUser(res.data.user);
+    // See the effect above: a machine this person has never used comes up at
+    // the size they read at rather than the last person's.
+    if (res.data.user.textSize) applyTextSize(res.data.user.textSize);
   }
 
   /**

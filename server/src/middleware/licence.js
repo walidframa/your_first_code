@@ -1,4 +1,5 @@
 import { isTenant, licenceForTenant } from '../lib/control.js';
+import { MODULE_KEYS, moduleForPath, moduleName, parseModules } from '../lib/modules.js';
 import { licenceMessage, licenceState } from '../lib/licence.js';
 
 /**
@@ -59,6 +60,44 @@ export function licenceStatus() {
   }
 
   return licenceState(row);
+}
+
+/**
+ * What this shop bought, as a list the client can hide screens with.
+ *
+ * A copy that is nobody's tenant has everything — that is the vendor's own
+ * shop, and anybody running this for themselves.
+ */
+export function enabledModules() {
+  const row = licenceForTenant();
+  if (!isTenant()) return [...MODULE_KEYS];
+  return parseModules(row?.modules);
+}
+
+/**
+ * Refuse what the shop has not paid for.
+ *
+ * A different axis from permissions, and the difference matters: permissions
+ * decide whether *this cashier* may open the drawer, and the shop's own owner
+ * passes all of them. This decides whether the shop has the transfer desk at
+ * all, so the owner is refused too.
+ *
+ * 403 rather than 402: 402 means "your licence has run out, pay and it comes
+ * back", and the client turns that into a lock screen. This is "you never
+ * bought this", which is a different conversation and a different screen.
+ */
+export function enforceModules(req, res, next) {
+  if (!isTenant()) return next();
+  if (!req.path.startsWith('/api/')) return next();
+
+  const needed = moduleForPath(req.path);
+  if (!needed) return next();
+  if (enabledModules().includes(needed)) return next();
+
+  return res.status(403).json({
+    error: `${moduleName(needed)} is not part of this shop's plan.`,
+    module: needed,
+  });
 }
 
 export function enforceLicence(req, res, next) {

@@ -6,6 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ensureControlSchema } from '../lib/control.js';
 import { mintTicket, pruneTickets } from '../lib/supportTickets.js';
+import { MODULES, MODULE_KEYS, parseModules, serialiseModules } from '../lib/modules.js';
 import { PLANS, extend, licenceMessage, licenceState, today } from '../lib/licence.js';
 import {
   attemptKey,
@@ -113,6 +114,7 @@ export function createConsoleApp({ controlDb, secret, domain = 'xtechpos.com' })
         paidThrough: row.paid_through,
         graceDays: row.grace_days,
         suspended: Boolean(row.suspended),
+        modules: parseModules(row.modules),
         removedAt: row.removed_at,
         address: `https://${row.slug}.${domain}`,
         licence: { ...status, message: licenceMessage(status) },
@@ -395,6 +397,69 @@ export function createConsoleApp({ controlDb, secret, domain = 'xtechpos.com' })
     );
     if (out.error) return res.status(out.status).json({ error: out.error });
     res.status(out.status).json(out.body);
+  });
+
+  /* -------------------------------------------- what the shop is allowed */
+
+  /** Everything that can be sold separately, so the console can list it. */
+  app.get('/api/modules', requireOperator, (req, res) => {
+    res.json({ modules: MODULES.map(([key, name, what]) => ({ key, name, what })) });
+  });
+
+  /**
+   * Turn a feature on or off for one shop.
+   *
+   * Takes effect on their next request — the shop's process reads this table on
+   * every call, so nothing has to be restarted and nobody has to be told to
+   * refresh. Turning one off hides it from their menu and refuses the routes
+   * behind it, including for their own owner.
+   */
+  app.post('/api/tenants/:slug/modules', requireOperator, (req, res) => {
+    const tenant = db.prepare('SELECT * FROM tenants WHERE slug = ?').get(req.params.slug);
+    if (!tenant) return res.status(404).json({ error: 'No such shop' });
+
+    const wanted = req.body?.modules;
+    if (!Array.isArray(wanted)) return res.status(400).json({ error: 'Send a list of modules' });
+
+    const unknown = wanted.filter((key) => !MODULE_KEYS.includes(key));
+    if (unknown.length) {
+      return res.status(400).json({ error: `Not a feature: ${unknown.join(', ')}` });
+    }
+
+    db.prepare('UPDATE tenants SET modules = ? WHERE id = ?').run(
+      serialiseModules(wanted),
+      tenant.id,
+    );
+    res.json({ modules: parseModules(serialiseModules(wanted)) });
+  });
+
+  /**
+   * What this shop pays, and how often.
+   *
+   * Changed here rather than by editing the database, because a price is
+   * something that gets renegotiated — and because the figure the console adds
+   * up as "per month" is read straight off these two.
+   *
+   * It does not move the licence. A shop that has paid to March has paid to
+   * March whatever it agrees to pay from now on, and quietly re-dating that
+   * from a price change is how somebody loses a month they paid for.
+   */
+  app.post('/api/tenants/:slug/plan', requireOperator, (req, res) => {
+    const tenant = db.prepare('SELECT * FROM tenants WHERE slug = ?').get(req.params.slug);
+    if (!tenant) return res.status(404).json({ error: 'No such shop' });
+
+    const plan = String(req.body?.plan ?? tenant.plan);
+    if (!PLANS[plan]) {
+      return res.status(400).json({ error: `Plan must be one of: ${Object.keys(PLANS).join(', ')}` });
+    }
+
+    const price = Number(req.body?.price ?? tenant.price);
+    if (!Number.isFinite(price) || price < 0) {
+      return res.status(400).json({ error: 'That is not a price' });
+    }
+
+    db.prepare('UPDATE tenants SET plan = ?, price = ? WHERE id = ?').run(plan, price, tenant.id);
+    res.json({ plan, price, paidThrough: tenant.paid_through });
   });
 
   /* ------------------------------------------------- the ones that need root */

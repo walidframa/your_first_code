@@ -331,6 +331,75 @@ test('none of it is open without a token', async () => {
   }
 });
 
+/* ------------------------------------------- what the shop is allowed */
+
+test('the console lists what can be sold separately', async () => {
+  const { json } = await req('GET', '/api/modules');
+  const keys = json.modules.map((m) => m.key);
+  assert.ok(keys.includes('repairs'));
+  assert.ok(keys.includes('transfers'));
+  // The till itself is never on the list — a shop with the register switched
+  // off has bought nothing, and a switch for it invites somebody to try.
+  for (const never of ['register', 'catalogue', 'cashbox', 'settings']) {
+    assert.ok(!keys.includes(never), `${never} is offered as something to withhold`);
+  }
+});
+
+test('a shop starts with everything, and can be cut back', async () => {
+  const before = (await req('GET', '/api/tenants')).json.tenants.find((t) => t.slug === 'rami');
+  assert.ok(before.modules.includes('transfers'), 'a new shop was sold less than the whole app');
+
+  const set = await req('POST', '/api/tenants/rami/modules', { modules: ['repairs', 'sims'] });
+  assert.equal(set.status, 200);
+  assert.deepEqual(set.json.modules, ['repairs', 'sims']);
+
+  const after = (await req('GET', '/api/tenants')).json.tenants.find((t) => t.slug === 'rami');
+  assert.deepEqual(after.modules, ['repairs', 'sims']);
+});
+
+test('a feature that does not exist is refused rather than stored', async () => {
+  const res = await req('POST', '/api/tenants/rami/modules', { modules: ['repairs', 'telegrams'] });
+  assert.equal(res.status, 400);
+  assert.match(res.json.error, /telegrams/);
+});
+
+test('the fee can be renegotiated without moving what they have paid for', async () => {
+  /*
+   * A shop that has paid to March has paid to March whatever it agrees to pay
+   * from now on. Quietly re-dating the licence off a price change is how
+   * somebody loses a month they already paid for.
+   */
+  const before = (await req('GET', '/api/tenants')).json.tenants.find((t) => t.slug === 'rami');
+
+  const res = await req('POST', '/api/tenants/rami/plan', { plan: 'yearly', price: 240 });
+  assert.equal(res.status, 200);
+
+  const after = (await req('GET', '/api/tenants')).json.tenants.find((t) => t.slug === 'rami');
+  assert.equal(after.plan, 'yearly');
+  assert.equal(after.price, 240);
+  assert.equal(after.paidThrough, before.paidThrough, 'changing the fee moved their licence');
+});
+
+test('a nonsense fee is refused', async () => {
+  for (const body of [{ plan: 'weekly' }, { price: -5 }, { price: 'free' }]) {
+    const res = await req('POST', '/api/tenants/rami/plan', body);
+    assert.equal(res.status, 400, `${JSON.stringify(body)} was accepted`);
+  }
+});
+
+test('neither is open without a token', async () => {
+  // No body on the GET — fetch refuses to send one, and a request that never
+  // leaves is not a test of anything.
+  for (const [method, route] of [
+    ['GET', '/api/modules'],
+    ['POST', '/api/tenants/rami/modules'],
+    ['POST', '/api/tenants/rami/plan'],
+  ]) {
+    const res = await req(method, route, method === 'POST' ? {} : null, null);
+    assert.equal(res.status, 401, `${method} ${route} was open`);
+  }
+});
+
 test('the page itself is served, and is not an API 404', async () => {
   const res = await fetch(`${BASE}/`);
   assert.equal(res.status, 200);

@@ -168,7 +168,11 @@ export default function Dashboard() {
             <div className="grid grid-cols-4 gap-4">
               <StatTile label="Orders" value={summary.orderCount} />
               <StatTile label="Average order" value={money(summary.averageOrderValue)} />
-              <StatTile label="Tax collected" value={money(summary.taxCollected)} />
+              {/* A tile reading $0.00 every day is a tile that teaches people
+                  to stop reading the row it is in. */}
+              {summary.taxCollected > 0 && (
+                <StatTile label="Tax collected" value={money(summary.taxCollected)} />
+              )}
               <StatTile label="Discounts given" value={money(summary.discountsGiven)} />
             </div>
 

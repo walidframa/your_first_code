@@ -5,8 +5,9 @@ import { fileURLToPath } from 'node:url';
 import express from 'express';
 import cors from 'cors';
 import { db } from './db.js';
-import { enforceLicence, licenceStatus } from './middleware/licence.js';
+import { enabledModules, enforceLicence, enforceModules, licenceStatus } from './middleware/licence.js';
 import { licenceMessage } from './lib/licence.js';
+import { getSettings } from './lib/settings.js';
 import authRoutes from './routes/auth.js';
 import productRoutes from './routes/products.js';
 import orderRoutes from './routes/orders.js';
@@ -143,9 +144,35 @@ app.get('/api/health', (req, res) => {
  * it has passed — is the shop's own business rather than a secret. It also
  * means the sign-in screen itself can carry the warning.
  */
+/**
+ * Who this shop is, for the screen that runs before anybody has signed in.
+ *
+ * The sign-in page is the first thing a cashier sees every morning and it says
+ * "Front Desk POS" on it, which is the name of the software rather than the
+ * name of the shop. Both of these are already on every receipt that leaves the
+ * counter, so neither is a secret being handed to a stranger.
+ */
+app.get('/api/branding', (req, res) => {
+  const settings = getSettings();
+  res.json({
+    companyName: settings.company_name || '',
+    logoUrl: settings.company_logo_url || '',
+  });
+});
+
 app.get('/api/licence', (req, res) => {
   const status = licenceStatus();
-  res.json({ licence: { ...status, message: licenceMessage(status) } });
+  res.json({
+    licence: { ...status, message: licenceMessage(status) },
+    /*
+     * What this shop bought, alongside whether it has paid.
+     *
+     * On the same unauthenticated call the app already makes before anybody
+     * signs in, so the menu is right on the first paint rather than showing a
+     * Repairs screen for half a second and then taking it away.
+     */
+    modules: enabledModules(),
+  });
 });
 
 /*
@@ -168,6 +195,15 @@ app.use(enforceLicence);
  * is "what did you change", and a log of every list the vendor scrolled past
  * would bury the answer.
  */
+/*
+ * And nothing the shop did not buy.
+ *
+ * After the licence, because "you have stopped paying" is the more urgent
+ * answer of the two, and before the routes for the same reason the licence is:
+ * a rule each new endpoint has to remember is a rule one of them will miss.
+ */
+app.use(enforceModules);
+
 app.use(recordSupportWrites);
 
 app.use('/api/auth', authRoutes);

@@ -65,10 +65,20 @@ export default function Receipt({ receipt, onClose }) {
             <dd className="tnum text-slate-700">−{money(order.discount)}</dd>
           </div>
         )}
-        <div className="flex justify-between">
-          <dt className="text-slate-500">Tax</dt>
-          <dd className="tnum text-slate-700">{money(order.tax)}</dd>
-        </div>
+        {/*
+          * Shown only when there was tax on it — not "shown as zero".
+          *
+          * Keyed off what this sale actually carried rather than off today's
+          * setting, so a receipt reprinted next year still shows what the
+          * customer was charged, and a shop that has never charged tax never
+          * has to explain a nought to anybody.
+          */}
+        {order.tax > 0 && (
+          <div className="flex justify-between">
+            <dt className="text-slate-500">Tax</dt>
+            <dd className="tnum text-slate-700">{money(order.tax)}</dd>
+          </div>
+        )}
         <div className="flex justify-between border-t border-slate-100 pt-1.5 text-base font-semibold">
           <dt className="text-slate-900">Total</dt>
           <dd className="tnum text-slate-900">{money(order.total)}</dd>
