@@ -1,5 +1,10 @@
 import bcrypt from 'bcryptjs';
 import { db } from '../db.js';
+import { checkPassword, normalisePassword, SEEDED_PASSWORDS } from './passwordRules.js';
+
+// Re-exported so the callers that already ask this module for them do not have
+// to care that the rules moved somewhere with no database attached.
+export { checkPassword, normalisePassword, SEEDED_PASSWORDS };
 
 /**
  * Setting a password, in the one place that knows the rules.
@@ -9,62 +14,6 @@ import { db } from '../db.js';
  * forgotten in a second copy is always the bookkeeping: the timestamp that
  * ends old sessions, and the flag that stops the nagging.
  */
-
-/** The passwords this app ships with, which are therefore public knowledge. */
-export const SEEDED_PASSWORDS = ['admin123', 'cashier123'];
-
-const MIN_LENGTH = 8;
-
-/**
- * Is this good enough to put on a shop that is open to the internet?
- *
- * Deliberately short of a policy with symbol counts and forced rotation. Those
- * produce `Summer2024!` on a sticky note under the till. Length, and a refusal
- * to accept the ones already printed in the manual, is most of the value.
- */
-export function checkPassword(password) {
-  if (typeof password !== 'string' || password.length < MIN_LENGTH) {
-    return `Password must be at least ${MIN_LENGTH} characters`;
-  }
-  /*
-   * A space at either end is refused rather than quietly removed.
-   *
-   * It is invisible in a field of dots, it survives being typed once and never
-   * again, and phone keyboards add one after an autocorrected word without
-   * being asked. Somebody sets `secret12 `, the confirm box gets the same
-   * space because they typed it the same way, and then every sign-in
-   * afterwards is "wrong password" against a password they are typing
-   * correctly.
-   *
-   * Trimming it for them would be worse: it would mean the password stored is
-   * not the password typed, which is the same trap one level down.
-   */
-  if (password !== password.trim()) {
-    return 'Password cannot start or end with a space — it is invisible here and impossible to type again on purpose.';
-  }
-  if (SEEDED_PASSWORDS.includes(password)) {
-    return 'That is the demo password this app ships with. Pick another.';
-  }
-  return null;
-}
-
-/**
- * The same password, written the same way twice.
- *
- * Unicode has more than one way to spell the same character: `é` is either one
- * code point or an `e` followed by a combining accent, and the two look
- * identical in every font and differ in every byte. Which one a keyboard
- * produces depends on the device — so a password set on a phone and typed on
- * the counter PC can be the same password and fail to match.
- *
- * That is not theoretical here. These are shops in Lebanon; passwords have
- * Arabic and French letters in them, and "I changed my password and now it
- * says wrong password" is exactly what this produces.
- *
- * NFC because it is the form the web has settled on.
- */
-export const normalisePassword = (password) =>
-  typeof password === 'string' ? password.normalize('NFC') : '';
 
 /**
  * Does this password open this account?

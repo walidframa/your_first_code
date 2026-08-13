@@ -7,6 +7,7 @@
  *   pos-tenant pay rami --periods 1 --amount 25
  *   pos-tenant suspend rami        /  resume rami
  *   pos-tenant rename rami protech # a new address, same shop and same data
+ *   pos-tenant password rami admin 'x'  # the way back in when there is none
  *   pos-tenant remove rami         /  restore rami
  *   pos-tenant purge rami          # deletes their data, on request
  *   pos-tenant operator walid      # a login for the console
@@ -21,6 +22,7 @@
  * after that — payments, suspending, restoring — is rows in a database, and the
  * console does those.
  */
+import bcrypt from 'bcryptjs';
 import { DatabaseSync } from 'node:sqlite';
 import { spawnSync } from 'node:child_process';
 import {
@@ -36,6 +38,7 @@ import { fileURLToPath } from 'node:url';
 import { databaseFiles, ensureControlSchema } from './lib/control.js';
 import { createOperator, ensureOperatorSchema, setOperatorPassword } from './lib/operators.js';
 import { PLANS, addDays, extend, licenceState, today } from './lib/licence.js';
+import { checkPassword } from './lib/passwordRules.js';
 import {
   checkSlug,
   newSecret,
@@ -455,6 +458,72 @@ function setFlags(fields, message) {
   db.close();
 }
 
+/**
+ * Set somebody's password in one shop, from the server.
+ *
+ *     pos-tenant password rami admin 'a new password'
+ *
+ * The way back in when there is no way in. Normally a forgotten password is
+ * reset by an admin from the Staff screen — but when the account that has been
+ * locked out *is* the only admin, that door is on the inside of the room.
+ *
+ * Runs against the shop's own database, through the same `setPassword` the app
+ * uses, so it observes every rule the app does: the same hashing, the same
+ * normalisation, and the timestamp that ends the sessions this password had
+ * open. Nothing about doing it from a terminal makes it a different password.
+ */
+function password() {
+  const [, slug, username, secret] = positional;
+  if (!slug || !username || !secret) {
+    die("Usage: pos-tenant password <shop> <username> '<new password>'");
+  }
+
+  const problem = checkPassword(secret);
+  if (problem) die(problem);
+
+  const dbFile = path.join(CONFIG.tenantData, `${slug}.sqlite`);
+  if (!existsSync(dbFile)) die(`No database for "${slug}" at ${dbFile}. Try: pos-tenant list`);
+
+  if (dryRun) return say(`    would set the password for ${username} in ${slug}`);
+
+  /*
+   * Opened here rather than through the app's own `db.js`, which binds itself
+   * to one database at import time — this command has to be able to open any
+   * shop's, and pointing a module-level singleton at a different file by
+   * setting an environment variable first is the kind of thing that works
+   * until the day it does not.
+   */
+  const shop = new DatabaseSync(dbFile);
+  const user = shop.prepare('SELECT id, username FROM users WHERE username = ?').get(username);
+  if (!user) {
+    const known = shop
+      .prepare('SELECT username FROM users ORDER BY username')
+      .all()
+      .map((u) => u.username);
+    shop.close();
+    die(`No user "${username}" in ${slug}. There is: ${known.join(', ') || 'nobody'}`);
+  }
+
+  // The same second-rounding and the same session-ending as the app's own
+  // route, kept in one place on purpose.
+  const changedAt = new Date(Math.floor(Date.now() / 1000) * 1000).toISOString();
+  shop
+    .prepare(
+      `UPDATE users
+          SET password_hash = ?, password_changed_at = ?, must_change_password = 0
+        WHERE id = ?`,
+    )
+    .run(bcrypt.hashSync(secret.normalize('NFC'), 10), changedAt, user.id);
+  shop.close();
+
+  // Root wrote to a file the service owns, and a root-owned journal beside it
+  // is "attempt to write a readonly database" the next time the shop sells.
+  handToService(dbFile);
+
+  say(`\n  ${username} at ${slug} can sign in with the new password.`);
+  say(`  Every other session that account had open has ended.\n`);
+}
+
 /** Move a file, or say what would have been moved. */
 function move(from, to) {
   if (!existsSync(from)) return false;
@@ -708,6 +777,7 @@ const commands = {
   suspend: () => setFlags({ suspended: 1 }, 'suspended — the till stops now'),
   resume: () => setFlags({ suspended: 0 }, 'running again'),
   rename,
+  password,
   remove,
   restore: () => setFlags({ removed_at: null }, 'restored to the book — start it with systemctl'),
   purge,
@@ -726,6 +796,7 @@ if (!command || !commands[command]) {
     suspend <slug>            stop the till now, whatever the dates say
     resume <slug>
     rename <slug> <new-slug>  change their address, keeping their data
+    password <slug> <user> '<pw>'  set a password, when nobody can sign in to do it
     remove <slug>             stop it and take the address down, keeping the data
     restore <slug>
     purge <slug> --yes        delete their data, on request

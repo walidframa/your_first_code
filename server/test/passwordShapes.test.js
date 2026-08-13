@@ -9,11 +9,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import bcrypt from 'bcryptjs';
-import {
-  checkPassword,
-  normalisePassword,
-  verifyPassword,
-} from '../src/lib/passwords.js';
+import { checkPassword, normalisePassword } from '../src/lib/passwordRules.js';
+import { verifyPassword } from '../src/lib/passwords.js';
 
 /* ------------------------------------------------------- the same letters */
 
