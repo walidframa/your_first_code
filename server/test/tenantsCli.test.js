@@ -540,3 +540,35 @@ test('and refuses a shop it cannot find', () => {
   assert.notEqual(res.status, 0);
   assert.match(res.out, /No database/);
 });
+
+test('a password can be checked without changing anything', () => {
+  /*
+   * "That is not your current password" against "I am sure of my password" is
+   * an argument nobody can win from either side of a counter: the field shows
+   * dots and the browser fills it from whatever it saved last. This asks the
+   * database instead.
+   */
+  pos('add', 'checkme', 'Check Me Mobile');
+  assert.equal(pos('password', 'checkme', 'admin', 'the-real-password').status, 0);
+
+  const right = pos('checkpassword', 'checkme', 'admin', 'the-real-password');
+  assert.equal(right.status, 0, right.out);
+  assert.match(right.out, /Yes/);
+
+  const wrong = pos('checkpassword', 'checkme', 'admin', 'not-the-password');
+  assert.notEqual(wrong.status, 0);
+  assert.match(wrong.out, /No —/);
+});
+
+test('checking a password changes nothing about it', () => {
+  // It is read-only on purpose: a support call must not be able to alter the
+  // thing it is investigating.
+  pos('checkpassword', 'checkme', 'admin', 'not-the-password');
+  assert.equal(pos('checkpassword', 'checkme', 'admin', 'the-real-password').status, 0);
+});
+
+test('a trailing space is pointed out rather than left to be guessed at', () => {
+  const res = pos('checkpassword', 'checkme', 'admin', 'the-real-password ');
+  assert.notEqual(res.status, 0);
+  assert.match(res.out, /space/);
+});

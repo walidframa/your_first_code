@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useId, useMemo, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Info, Loader2, X, XCircle } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Eye, EyeOff, Info, Loader2, X, XCircle } from 'lucide-react';
 
 export function cx(...parts) {
   return parts.filter(Boolean).join(' ');
@@ -78,6 +78,70 @@ export function Input({ className, label, hint, error, id, ...props }) {
         )}
         {...props}
       />
+      {error ? (
+        <p className="mt-1 text-xs text-red-600">{error}</p>
+      ) : (
+        hint && <p className="mt-1 text-xs text-slate-500">{hint}</p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * A password box you are allowed to look at.
+ *
+ * Every password field is a row of dots, which is right when somebody is
+ * standing behind you and wrong every other minute. Two things it costs:
+ *
+ * A typo is invisible. Caps lock, a keyboard left in Arabic, a stray space
+ * from a phone keyboard — all produce a field that looks exactly like a
+ * correct one and a refusal that reads as the app being broken.
+ *
+ * And the browser's saved password is invisible too. `autocomplete` fills
+ * these, and what it fills is whatever was saved the last time — which after a
+ * password change is the old one. Somebody perfectly sure of their password
+ * gets told it is wrong, because the box does not contain what they think it
+ * contains and there is no way to find that out.
+ *
+ * The eye is off by default and never remembered. Showing it is a decision
+ * made once, for one field, at a moment the person judged safe.
+ */
+export function PasswordInput({ label, hint, error, className, id, ...props }) {
+  const [shown, setShown] = useState(false);
+  const generated = useId();
+  const inputId = id || props.name || generated;
+
+  return (
+    <div className={cx('w-full', className)}>
+      {label && (
+        <label htmlFor={inputId} className="mb-1.5 block text-sm font-medium text-slate-700">
+          {label}
+        </label>
+      )}
+      <div className="relative">
+        <input
+          id={inputId}
+          type={shown ? 'text' : 'password'}
+          className={cx(
+            'h-10 w-full rounded-lg bg-white pr-10 pl-3 text-sm text-slate-900 ring-1 transition placeholder:text-slate-400',
+            'focus:outline-none focus:ring-2',
+            error ? 'ring-red-400 focus:ring-red-500' : 'ring-slate-300 focus:ring-brand-600',
+          )}
+          {...props}
+        />
+        <button
+          type="button"
+          onClick={() => setShown((v) => !v)}
+          // Not in the tab order: somebody tabbing from the password to the
+          // submit button should not land here on the way.
+          tabIndex={-1}
+          className="absolute top-1/2 right-1 -translate-y-1/2 rounded-md p-2 text-slate-400 hover:text-slate-700"
+          aria-label={shown ? 'Hide the password' : 'Show the password'}
+          aria-pressed={shown}
+        >
+          {shown ? <EyeOff size={16} /> : <Eye size={16} />}
+        </button>
+      </div>
       {error ? (
         <p className="mt-1 text-xs text-red-600">{error}</p>
       ) : (
