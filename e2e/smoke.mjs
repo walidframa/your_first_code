@@ -2565,6 +2565,71 @@ try {
     await page.waitForSelector('text=Current sale', { timeout: 15000 });
   });
 
+  /*
+   * Changing your own password, through the form a shopkeeper actually uses.
+   *
+   * Reported three times from a live shop and never reproduced, because every
+   * layer between the button and the database was a suspect and none of them
+   * could be ruled out from a screenshot. This drives the real panel in a real
+   * browser against a real server, so "the form works" stops being an opinion.
+   *
+   * The whole round trip, in the order it matters: the panel refuses the wrong
+   * current password *in place* rather than throwing the person back to the
+   * sign-in screen; it accepts the right one; the session it hands back still
+   * works; and the new password is the one that opens the account afterwards.
+   */
+  await step('a shopkeeper can change their own password from Settings', async () => {
+    await signIn('admin');
+    await goTo('Settings');
+
+    const CHANGED = 'owner-changed-password';
+
+    // The wrong current password: refused, with the reason, still on Settings.
+    await page.fill('input[name=currentPassword]', 'not-the-right-one');
+    await page.fill('input[name=newPassword]', CHANGED);
+    await page.fill('input[name=newPasswordAgain]', CHANGED);
+    await page.getByRole('button', { name: /set the new password/i }).click();
+
+    await page.waitForSelector('[role=alert]', { timeout: 10000 });
+    const refusal = await page.locator('[role=alert]').first().innerText();
+    if (!/current password/i.test(refusal)) {
+      throw new Error(`expected the panel to name the wrong current password, got: ${refusal}`);
+    }
+    if (page.url().includes('/login')) {
+      throw new Error('a mistyped current password threw the person out to the sign-in screen');
+    }
+
+    // The right one: accepted, and the screen stays signed in.
+    await page.fill('input[name=currentPassword]', REAL.admin);
+    await page.fill('input[name=newPassword]', CHANGED);
+    await page.fill('input[name=newPasswordAgain]', CHANGED);
+    await page.getByRole('button', { name: /set the new password/i }).click();
+
+    // The session it handed back has to keep working, or the change signs you
+    // out of the screen you are standing at.
+    await goTo('Products');
+    await page.waitForSelector('main', { timeout: 10000 });
+    if (page.url().includes('/login')) {
+      throw new Error('changing the password signed this screen out');
+    }
+
+    // And the new password is the one that opens the account.
+    await signOut();
+    await page.fill('input[name=username]', 'admin');
+    await page.fill('input[name=password]', CHANGED);
+    await page.click('button[type=submit]');
+    await page.waitForSelector('main', { timeout: 15000 });
+
+    // Put it back, so the steps after this one still know the password.
+    await goTo('Settings');
+    await page.fill('input[name=currentPassword]', CHANGED);
+    await page.fill('input[name=newPassword]', REAL.admin);
+    await page.fill('input[name=newPasswordAgain]', REAL.admin);
+    await page.getByRole('button', { name: /set the new password/i }).click();
+    await page.waitForTimeout(500);
+  });
+
+
   console.log('\nIn Arabic');
 
   /*
