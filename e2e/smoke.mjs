@@ -32,6 +32,10 @@ const ALLOWED_FAILURES = [
   /\/api\/shopify\/connect/,
   /\/api\/products\/categories\/\d+$/,
   /\/api\/support\/redeem/,
+  // And a feature the shop has not bought answers 403 on purpose: that refusal
+  // is the thing being checked, because the owner passes every permission and
+  // must still be turned away.
+  /\/api\/transfers/,
 ];
 
 const consoleErrors = [];
@@ -2312,6 +2316,56 @@ try {
     }
   });
 
+  console.log('\nA feature the shop did not buy');
+
+  /*
+   * Modules are what the shop *bought*, as against what anybody in it may do.
+   * The difference only shows in a browser: the owner passes every permission
+   * there is, so the check worth making is that the screen is gone for them.
+   */
+  await step('a feature switched off disappears from the menu', async () => {
+    const { DatabaseSync } = await import('node:sqlite');
+    const control = new DatabaseSync(process.env.E2E_CONTROL_DB);
+    // Everything except the transfer desk, as the console would write it.
+    const { MODULE_KEYS, serialiseModules } = await import('../server/src/lib/modules.js');
+    control
+      .prepare('UPDATE tenants SET modules = ? WHERE slug = ?')
+      .run(serialiseModules(MODULE_KEYS.filter((k) => k !== 'transfers')), 'e2e');
+    control.close();
+
+    await signOut();
+    await signIn('admin');
+    await openMenu();
+    await page.waitForSelector('main a[title="Products"]', { timeout: 15000 });
+
+    if (await page.locator('main a[title="Transfers"]').count()) {
+      throw new Error('the transfer desk is still on the menu for a shop that has not bought it');
+    }
+  });
+
+  await step('and the till refuses it even if the address is typed in', async () => {
+    // The owner passes every permission, so this is the check that matters.
+    const refused = await page.evaluate(async () => {
+      const r = await fetch('/api/transfers', {
+        headers: { Authorization: `Bearer ${localStorage.getItem('pos_token')}` },
+      });
+      return r.status;
+    });
+    if (refused !== 403) throw new Error(`the transfer desk answered ${refused}, not 403`);
+  });
+
+  await step('and comes back the moment it is sold to them', async () => {
+    const { DatabaseSync } = await import('node:sqlite');
+    const control = new DatabaseSync(process.env.E2E_CONTROL_DB);
+    control.prepare('UPDATE tenants SET modules = NULL WHERE slug = ?').run('e2e');
+    control.close();
+
+    // No restart, no redeploy — the shop reads the book on every call.
+    await page.reload({ waitUntil: 'networkidle' });
+    await openMenu();
+    await page.waitForSelector('main a[title="Transfers"]', { timeout: 15000 });
+  });
+
   console.log('\nA phone in part-exchange');
 
   /*
@@ -2400,7 +2454,7 @@ try {
     // A tile on the page, not the rail's link with the same name — this is the
     // menu built for a touch screen, and its size is the point of it.
     const tile = await page.locator('main a[title="Products"]').first().boundingBox();
-    if (!tile || tile.height < 80) {
+    if (!tile || tile.height < 120) {
       throw new Error(`the menu tiles are ${tile ? tile.height : 0}px tall, which is not a target`);
     }
     await page.locator('main a[title="Products"]').first().click();

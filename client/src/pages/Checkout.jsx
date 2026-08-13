@@ -29,6 +29,7 @@ import SendCredit from '../components/SendCredit';
 import SittingSales from '../components/SittingSales';
 import { ringUp } from '../lib/sales';
 import { useOffline } from '../context/OfflineContext';
+import { useLicence } from '../context/LicenceContext';
 import { useT } from '../context/LanguageContext';
 import { Button, EmptyState, ProductThumb, Skeleton, cx, money, useToast } from '../components/ui';
 import { useSettings, lbp } from '../context/SettingsContext';
@@ -40,6 +41,8 @@ export default function Checkout() {
   const searchRef = useRef(null);
   const { rate, toLbp } = useSettings();
   const { refreshQueue } = useOffline();
+  // What this shop actually bought — see lib/nav.js.
+  const { hasModule } = useLicence();
   const t = useT();
 
   const [products, setProducts] = useState([]);
@@ -821,10 +824,14 @@ export default function Checkout() {
                 : 'Buy a used handset from a customer',
               () => setBuyingHandset(true),
             ],
-            [Wrench, 'Repair', 'Take a phone in for repair (F6)', () => setTakingRepair(true)],
-            [Smartphone, 'Sell a SIM', 'Sell a SIM card (F7)', () => setSellingSim(true)],
-            [Send, 'Send credit', 'Send calling credit (F8)', () => setSendingCredit(true)],
-          ].map(([Icon, name, tip, onClick]) => (
+            [Wrench, 'Repair', 'Take a phone in for repair (F6)', () => setTakingRepair(true), 'repairs'],
+            [Smartphone, 'Sell a SIM', 'Sell a SIM card (F7)', () => setSellingSim(true), 'sims'],
+            [Send, 'Send credit', 'Send calling credit (F8)', () => setSendingCredit(true), 'credit'],
+          ]
+            // Nothing the shop did not buy: the till would refuse it anyway,
+            // and a button that always fails is worse than no button.
+            .filter(([, , , , module]) => !module || hasModule(module))
+            .map(([Icon, name, tip, onClick]) => (
             <button
               key={name}
               onClick={onClick}

@@ -1780,6 +1780,17 @@ if (!db.prepare(`SELECT value FROM settings WHERE key = 'flagged_demo_passwords'
  * was knocked off for the phone they handed over, and the difference is the
  * money that actually crossed the counter — in whichever direction.
  */
+/*
+ * How big this person likes the text.
+ *
+ * Against the account rather than only the browser, because a shopkeeper signs
+ * in on the counter tablet, the office laptop and their phone, and setting it
+ * again on each one is the kind of small friction that makes somebody stop
+ * bothering. The device still keeps its own copy so the size is right before
+ * the first paint; this is what a new device starts from.
+ */
+addColumn('users', 'text_size', 'TEXT');
+
 addColumn('orders', 'trade_in_value', 'REAL NOT NULL DEFAULT 0');
 addColumn('orders', 'trade_in_id', 'INTEGER REFERENCES trade_ins(id)');
 

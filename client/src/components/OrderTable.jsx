@@ -154,10 +154,13 @@ export default function OrderTable({ orders, showCashier = false, canRefund = fa
                 <dd className="tnum text-slate-700">−{money(selected.order.discount)}</dd>
               </div>
             )}
-            <div className="flex justify-between">
-              <dt className="text-slate-500">Tax</dt>
-              <dd className="tnum text-slate-700">{money(selected.order.tax)}</dd>
-            </div>
+            {/* Only when the sale carried any — see Receipt.jsx. */}
+            {selected.order.tax > 0 && (
+              <div className="flex justify-between">
+                <dt className="text-slate-500">Tax</dt>
+                <dd className="tnum text-slate-700">{money(selected.order.tax)}</dd>
+              </div>
+            )}
             <div className="flex justify-between border-t border-slate-100 pt-1.5 font-semibold">
               <dt className="text-slate-900">Total</dt>
               <dd className="tnum text-slate-900">{money(selected.order.total)}</dd>

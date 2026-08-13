@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import api from '../api';
+import { useAuth } from './AuthContext';
 
 const LicenceContext = createContext(null);
 
@@ -15,13 +16,24 @@ const LicenceContext = createContext(null);
  */
 export function LicenceProvider({ children }) {
   const [licence, setLicence] = useState(null);
+  /*
+   * What this shop bought, from the same call.
+   *
+   * `null` until the first answer comes back, and every screen is shown while
+   * it is — a menu that flashed empty and then filled in would be worse than a
+   * menu that briefly offers one screen too many.
+   */
+  const [modules, setModules] = useState(null);
   const [checked, setChecked] = useState(false);
 
   const refresh = useCallback(
     () =>
       api
         .get('/licence')
-        .then((res) => setLicence(res.data.licence))
+        .then((res) => {
+          setLicence(res.data.licence);
+          setModules(res.data.modules ?? null);
+        })
         /*
          * A server that cannot be reached says nothing about the licence, so
          * nothing is what this reports. Locking a till because the machine in
@@ -33,6 +45,17 @@ export function LicenceProvider({ children }) {
     [],
   );
 
+  /*
+   * Asked again whenever somebody signs in or out.
+   *
+   * The list of what this shop bought comes back on this call, and the vendor
+   * can change it at any moment from the console. Without this the menu is
+   * whatever it was when the tab was opened — a feature switched on this
+   * morning would not appear until an hour later or a reload, and the
+   * shopkeeper on the phone would be told it is not there.
+   */
+  const { token } = useAuth();
+
   useEffect(() => {
     refresh();
     /*
@@ -42,22 +65,33 @@ export function LicenceProvider({ children }) {
      */
     const timer = setInterval(refresh, 60 * 60 * 1000);
     return () => clearInterval(timer);
-  }, [refresh]);
+  }, [refresh, token]);
 
   const value = useMemo(
     () => ({
       licence,
       checked,
       refresh,
+      modules,
+      /** Does this shop have that feature? Unknown yet counts as yes. */
+      hasModule: (key) => !modules || modules.includes(key),
       locked: licence?.state === 'locked',
       warning: licence?.state === 'due' || licence?.state === 'overdue',
     }),
-    [licence, checked, refresh],
+    [licence, checked, refresh, modules],
   );
 
   return <LicenceContext.Provider value={value}>{children}</LicenceContext.Provider>;
 }
 
 export function useLicence() {
-  return useContext(LicenceContext) || { licence: null, checked: true, locked: false };
+  return (
+    useContext(LicenceContext) || {
+      licence: null,
+      checked: true,
+      locked: false,
+      modules: null,
+      hasModule: () => true,
+    }
+  );
 }

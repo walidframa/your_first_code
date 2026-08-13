@@ -37,6 +37,23 @@ export default function Login() {
   }, []);
 
   /*
+   * Whose shop this is.
+   *
+   * The first screen a cashier sees every morning said "Front Desk POS", which
+   * is the name of the software rather than the name of the shop they work in.
+   * Both of these are already printed on every receipt that leaves the counter,
+   * so neither is a secret — and a shop that never uploaded a logo simply keeps
+   * the icon it had.
+   */
+  const [branding, setBranding] = useState(null);
+  useEffect(() => {
+    api
+      .get('/branding')
+      .then((res) => setBranding(res.data))
+      .catch(() => {});
+  }, []);
+
+  /*
    * Sent here by a dead session rather than by choosing to sign out. Worth
    * saying, because otherwise the login screen appearing mid-job looks like the
    * app threw the work away — and in development it happens on every restart,
@@ -84,10 +101,26 @@ export default function Login() {
         </div>
 
         <div className="mb-6 text-center">
-          <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-600 text-white">
-            <ScanLine size={24} />
-          </div>
-          <h1 className="text-xl font-semibold text-white">{t('Front Desk')} POS</h1>
+          {branding?.logoUrl ? (
+            /*
+             * Round, and cropped to fill it. A shop's logo arrives at whatever
+             * shape the shop had it made in, and a frame that stretched it
+             * would make the shop look worse on its own front door than on its
+             * receipts.
+             */
+            <img
+              src={branding.logoUrl}
+              alt={branding.companyName || ''}
+              className="mx-auto mb-3 h-20 w-20 rounded-full bg-white object-cover ring-2 ring-white/20"
+            />
+          ) : (
+            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-600 text-white">
+              <ScanLine size={24} />
+            </div>
+          )}
+          <h1 className="text-xl font-semibold text-white">
+            {branding?.companyName || `${t('Front Desk')} POS`}
+          </h1>
           <p className="mt-1 text-sm text-slate-400">{t('Sign in to open the register')}</p>
         </div>
 

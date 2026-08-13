@@ -88,6 +88,10 @@
         border-radius: 9px; background: #fff;
       }
       input:focus { outline: 2px solid var(--brand); outline-offset: -1px; border-color: var(--brand); }
+      select {
+        font: inherit; width: 100%; padding: 9px 11px; border: 1px solid #cbd5e1;
+        border-radius: 9px; background: #fff;
+      }
       .row { display: flex; gap: 10px; margin-top: 18px; }
       /* The list of a shop's copies. Scrolls rather than growing the dialog off
          the screen: a shop that has been open a fortnight has fourteen of them. */
@@ -95,6 +99,10 @@
       .bak { display: flex; align-items: center; justify-content: space-between;
              gap: 12px; padding: 8px 0; border-top: 1px solid var(--line); }
       .bak:first-child { border-top: 0; }
+      .feat { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0;
+              border-top: 1px solid var(--line); cursor: pointer; }
+      .feat:first-child { border-top: 0; }
+      .feat input { margin-top: 3px; }
       .row button { flex: 1; padding: 9px; }
 
       .err { background: #fef2f2; color: #b91c1c; padding: 9px 12px; border-radius: 9px;
@@ -204,6 +212,52 @@
       </form>
     </dialog>
 
+    <!--
+      What this shop bought.
+
+      Not the same as who in the shop may do what — that is theirs to decide.
+      This is what they are paying for, so their own owner is refused too.
+    -->
+    <dialog id="modDlg">
+      <form class="dlg" method="dialog" id="modForm">
+        <h2 id="modTitle">Features</h2>
+        <p class="sub">
+          Unticked means gone from their menu and refused by their till — for everybody there,
+          including the owner. The register, the catalogue, stock and the cashbox are the till
+          itself and are always on.
+        </p>
+        <div id="modList" class="list"></div>
+        <div class="row">
+          <button type="button" id="modCancel">Cancel</button>
+          <button class="primary" type="submit">Save</button>
+        </div>
+        <div id="modErr" class="err hide"></div>
+      </form>
+    </dialog>
+
+    <!-- What they pay, and how often. -->
+    <dialog id="planDlg">
+      <form class="dlg" method="dialog" id="planForm">
+        <h2 id="planTitle">Subscription</h2>
+        <p class="sub">
+          Changing this does not move the date they have paid to — a shop that has paid to March
+          has paid to March, whatever it agrees to pay from now on.
+        </p>
+        <label for="planKind">How often</label>
+        <select id="planKind">
+          <option value="monthly">Monthly</option>
+          <option value="yearly">Yearly</option>
+        </select>
+        <label for="planPrice">Price each time</label>
+        <input id="planPrice" type="number" min="0" step="0.01" required />
+        <div class="row">
+          <button type="button" id="planCancel">Cancel</button>
+          <button class="primary" type="submit">Save</button>
+        </div>
+        <div id="planErr" class="err hide"></div>
+      </form>
+    </dialog>
+
     <!-- Their copies, and the two things worth doing with one. -->
     <dialog id="bakDlg">
       <form class="dlg" method="dialog" id="bakForm">
@@ -290,7 +344,10 @@
         const go = `<button data-in="${t.slug}">Go in</button>`;
         const copies = `<button data-bak="${t.slug}">Copies</button>`;
         const reset = `<button data-pw="${t.slug}">Reset password</button>`;
-        return [pay, stop, go, copies, reset].join(' ');
+        // What they bought, and what they pay for it.
+        const feats = `<button data-mod="${t.slug}">Features</button>`;
+        const plan = `<button data-plan="${t.slug}">Fee</button>`;
+        return [pay, stop, go, copies, reset, feats, plan].join(' ');
       }
 
       async function load() {
@@ -318,11 +375,12 @@
                 <div class="sub">${t.licence.message || ''}</div>
               </td>
               <td class="when">${t.paidThrough || '—'}</td>
-              <td>${t.plan} · ${money(t.price)}</td>
+              <td>${t.plan} · ${money(t.price)}<div class="sub">${t.modules.length} of ${MODULE_COUNT} features</div></td>
               <td class="right">${actions(t)}</td>
             </tr>`).join('')
           : '<tr><td colspan="5" class="sub">No shops yet — add one on the server.</td></tr>';
 
+        await loadCatalogue();
         const cmds = await api('/api/commands');
         $('cmdAdd').textContent = cmds.add;
         $('cmdRemove').textContent = cmds.remove;
@@ -345,6 +403,12 @@
         }
         for (const b of document.querySelectorAll('[data-pw]')) {
           b.onclick = () => resetPassword(tenants.find((t) => t.slug === b.dataset.pw));
+        }
+        for (const b of document.querySelectorAll('[data-mod]')) {
+          b.onclick = () => openModules(tenants.find((t) => t.slug === b.dataset.mod));
+        }
+        for (const b of document.querySelectorAll('[data-plan]')) {
+          b.onclick = () => openPlan(tenants.find((t) => t.slug === b.dataset.plan));
         }
       }
 
@@ -494,6 +558,91 @@
           $('bakErr').classList.remove('hide');
         }
       }
+
+      /* ------------------------------------------------- what they bought */
+
+      let catalogue = [];
+      let editingModules = null;
+      let MODULE_COUNT = 0;
+
+      async function loadCatalogue() {
+        if (catalogue.length) return catalogue;
+        catalogue = (await api('/api/modules')).modules;
+        MODULE_COUNT = catalogue.length;
+        return catalogue;
+      }
+
+      async function openModules(t) {
+        editingModules = t;
+        await loadCatalogue();
+        $('modTitle').textContent = 'What ' + t.shopName + ' has';
+        $('modErr').classList.add('hide');
+        $('modList').innerHTML = catalogue
+          .map(
+            (m) => `
+          <label class="feat">
+            <input type="checkbox" value="${m.key}" ${t.modules.includes(m.key) ? 'checked' : ''} />
+            <span><strong>${m.name}</strong><span class="sub"> — ${m.what}</span></span>
+          </label>`,
+          )
+          .join('');
+        $('modDlg').showModal();
+      }
+
+      $('modCancel').onclick = () => $('modDlg').close();
+
+      $('modForm').onsubmit = async (e) => {
+        e.preventDefault();
+        const err = $('modErr');
+        err.classList.add('hide');
+        const wanted = [...$('modList').querySelectorAll('input:checked')].map((i) => i.value);
+        try {
+          await api('/api/tenants/' + editingModules.slug + '/modules', {
+            method: 'POST',
+            body: JSON.stringify({ modules: wanted }),
+          });
+          $('modDlg').close();
+          await load();
+        } catch (e2) {
+          err.textContent = e2.message;
+          err.classList.remove('hide');
+        }
+      };
+
+      /* ------------------------------------------------------ what they pay */
+
+      let editingPlan = null;
+
+      function openPlan(t) {
+        editingPlan = t;
+        $('planTitle').textContent = 'What ' + t.shopName + ' pays';
+        $('planKind').value = t.plan;
+        $('planPrice').value = Number(t.price || 0).toFixed(2);
+        $('planErr').classList.add('hide');
+        $('planDlg').showModal();
+      }
+
+      $('planCancel').onclick = () => $('planDlg').close();
+
+      $('planForm').onsubmit = async (e) => {
+        e.preventDefault();
+        const err = $('planErr');
+        err.classList.add('hide');
+        try {
+          await api('/api/tenants/' + editingPlan.slug + '/plan', {
+            method: 'POST',
+            body: JSON.stringify({
+              plan: $('planKind').value,
+              price: Number($('planPrice').value),
+            }),
+          });
+          $('planDlg').close();
+          await load();
+        } catch (e2) {
+          err.textContent = e2.message;
+          err.classList.remove('hide');
+        }
+      };
 
       /* ------------------------------------------------ a way back in for them */
 

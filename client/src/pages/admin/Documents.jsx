@@ -529,10 +529,13 @@ function DocumentForm({ existing, onClose, onSaved }) {
                   <dd className="tnum text-slate-700">−{money(discount)}</dd>
                 </div>
               )}
-              <div className="flex justify-between">
-                <dt className="text-slate-500">Tax</dt>
-                <dd className="tnum text-slate-700">{money(tax)}</dd>
-              </div>
+              {/* Nothing to show when the shop charges none — see Receipt.jsx. */}
+              {tax > 0 && (
+                <div className="flex justify-between">
+                  <dt className="text-slate-500">Tax</dt>
+                  <dd className="tnum text-slate-700">{money(tax)}</dd>
+                </div>
+              )}
               <div className="flex justify-between border-t border-slate-200 pt-1 font-semibold">
                 <dt className="text-slate-900">Total</dt>
                 <dd className="tnum text-slate-900">{money(total)}</dd>
@@ -861,10 +864,13 @@ function DocumentDetail({ id, onClose, onChanged, onDeleted }) {
             <dd className="tnum text-slate-700">−{money(doc.discount)}</dd>
           </div>
         )}
-        <div className="flex justify-between">
-          <dt className="text-slate-500">Tax</dt>
-          <dd className="tnum text-slate-700">{money(doc.tax)}</dd>
-        </div>
+        {/* What this document actually carried, not today's setting. */}
+        {doc.tax > 0 && (
+          <div className="flex justify-between">
+            <dt className="text-slate-500">Tax</dt>
+            <dd className="tnum text-slate-700">{money(doc.tax)}</dd>
+          </div>
+        )}
         <div className="flex justify-between text-base font-semibold">
           <dt className="text-slate-900">Total</dt>
           <dd className="tnum text-slate-900">{money(doc.total)}</dd>

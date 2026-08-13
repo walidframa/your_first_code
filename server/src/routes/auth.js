@@ -34,19 +34,43 @@ router.post('/login', (req, res) => {
       // Sign-in is the safe moment to insist: no sale is in progress, and a
       // cashier is not halfway through a customer.
       mustChangePassword: Boolean(user.must_change_password),
+      // So a machine this person has never used comes up at the size they read
+      // at, rather than at the size the last person to touch it chose.
+      textSize: user.text_size || null,
     },
   });
 });
 
 router.get('/me', requireAuth, (req, res) => {
-  const account = db.prepare('SELECT must_change_password FROM users WHERE id = ?').get(req.user.id);
+  const account = db
+    .prepare('SELECT must_change_password, text_size FROM users WHERE id = ?')
+    .get(req.user.id);
   res.json({
     user: {
       ...req.user,
       permissions: effectivePermissions(req.user),
       mustChangePassword: Boolean(account?.must_change_password),
+      textSize: account?.text_size || null,
     },
   });
+});
+
+/**
+ * Remember how big this person likes the text.
+ *
+ * On the account rather than only in the browser: a shopkeeper signs in on the
+ * counter tablet, the office laptop and their phone, and setting it again on
+ * each is the kind of small friction that ends with nobody bothering.
+ *
+ * Anything unrecognised is stored as nothing rather than refused — the worst
+ * this can do is show somebody the wrong size, and a 400 in the middle of a
+ * settings screen over a display preference is a worse outcome than that.
+ */
+router.put('/text-size', requireAuth, (req, res) => {
+  const wanted = String(req.body?.textSize || '');
+  const size = ['default', 'medium', 'large'].includes(wanted) ? wanted : null;
+  db.prepare('UPDATE users SET text_size = ? WHERE id = ?').run(size, req.user.id);
+  res.json({ textSize: size });
 });
 
 /**

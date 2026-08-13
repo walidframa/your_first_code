@@ -36,6 +36,25 @@ const PREVIEW_AMOUNTS = [1, 5, 10, 25, 100];
 function TextSize() {
   const [size, setSize] = useState(getTextSize);
 
+  /**
+   * Kept on the device *and* against the account.
+   *
+   * The device copy is what makes the size right before the first paint. The
+   * account copy is what makes it right on a machine this person has never sat
+   * at — a shopkeeper uses the counter tablet, the office laptop and their
+   * phone, and setting this again on each one is how somebody stops bothering.
+   *
+   * Saved on the press, with no Save button: there is nothing to review, the
+   * result is already on screen, and a preference behind a button is a
+   * preference half the shop leaves unsaved.
+   */
+  function choose(id) {
+    setSize(applyTextSize(id));
+    // A display preference is not worth a red message if it does not reach the
+    // server — this device is already showing the right thing.
+    api.put('/auth/text-size', { textSize: id }).catch(() => {});
+  }
+
   return (
     <Card className="p-5">
       <h2 className="text-sm font-semibold text-slate-900">Text size</h2>
@@ -48,7 +67,7 @@ function TextSize() {
         {TEXT_SIZES.map(([id, label]) => (
           <button
             key={id}
-            onClick={() => setSize(applyTextSize(id))}
+            onClick={() => choose(id)}
             aria-pressed={size === id}
             className={cx(
               'flex-1 rounded-xl px-3 py-2.5 text-sm font-medium ring-1 transition',

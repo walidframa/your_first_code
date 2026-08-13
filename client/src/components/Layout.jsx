@@ -15,6 +15,7 @@ import { useAuth } from '../context/AuthContext';
 import BranchSwitcher from './BranchSwitcher';
 import { cx } from './ui';
 import { COUNTER_NAV, allowedGroups, allowedItems } from '../lib/nav';
+import { useLicence } from '../context/LicenceContext';
 
 /**
  * One row of the rail.
@@ -110,8 +111,14 @@ export default function Layout() {
     );
   }, [expanded, showRail]);
 
-  const counter = allowedItems(COUNTER_NAV, can);
-  const groups = allowedGroups(can);
+  /*
+   * What this person may do, and what the shop actually bought. Both have to
+   * say yes — the owner passes every permission and still cannot be shown a
+   * screen the shop is not paying for.
+   */
+  const { hasModule } = useLicence();
+  const counter = allowedItems(COUNTER_NAV, can, hasModule);
+  const groups = allowedGroups(can, hasModule);
 
   /*
    * Which back-office groups are folded away.

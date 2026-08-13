@@ -472,6 +472,25 @@ minted at somebody's counter being accepted here, which is the whole thing this
 arrangement exists to prevent. Different database, different key, different
 address, and no route between them.
 
+### What each client is allowed to use
+
+**Features** on their row ticks what that shop bought. Unticked means gone from
+their menu and refused by their till — for everybody there, including their own
+owner. That is the difference between this and the permissions inside a shop:
+permissions decide what one cashier may do, this decides what the shop has.
+
+The register, the catalogue, stock and the cashbox are the till itself and are
+never on the list. A shop with those switched off has not bought a cheaper copy
+of this app; it has bought nothing.
+
+Changes land on their next tap — the shop reads the book on every request, so
+nothing restarts and nobody has to be told to refresh. A shop set up before any
+of this has everything, which is what it was sold.
+
+**Fee** changes what they pay and how often. It deliberately does **not** move
+the date they have paid to: a shop that has paid to March has paid to March
+whatever it agrees to pay from now on.
+
 ### Going into a client's shop
 
 When a client asks you to fix something — a wrong price, an import that went
