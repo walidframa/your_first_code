@@ -18,6 +18,7 @@ import MoneyInput from '../../components/MoneyInput';
 import PageHeader from '../../components/PageHeader';
 import ItemActivity from '../../components/ItemActivity';
 import CategoryManager from '../../components/CategoryManager';
+import ProductImageField from '../../components/ProductImageField';
 import UnitsPanel from '../../components/UnitsPanel';
 import { useSettings, lbp } from '../../context/SettingsContext';
 import {
@@ -270,7 +271,11 @@ function ProductModal({ product, categories, onClose, onSaved }) {
           </label>
 
           <Input label="Supplier" value={form.supplier} onChange={set('supplier')} />
-          <Input label="Image URL" value={form.image_url} onChange={set('image_url')} className="col-span-2" />
+          <ProductImageField
+            value={form.image_url}
+            onChange={(v) => setForm((f) => ({ ...f, image_url: v }))}
+            className="col-span-2"
+          />
         </div>
 
         {error && <p className="text-sm text-red-600">{error}</p>}

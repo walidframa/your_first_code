@@ -7,6 +7,8 @@ import {
   Pencil,
   Plus,
   Search,
+  Trash2,
+  Undo2,
   Users as UsersIcon,
 } from 'lucide-react';
 import api from '../../api';
@@ -344,16 +346,108 @@ function PartyDetail({ partyId, config, onClose, onChanged }) {
   );
 }
 
+
+/**
+ * Removing somebody, and putting them back.
+ *
+ * "Delete" is archiving, and the difference matters: their name is on invoices
+ * and on ledger entries that have to keep adding up. Wiping the row would take
+ * the name off a sale that happened and leave a hole in the books.
+ *
+ * The server refuses outright while there is money outstanding either way,
+ * which is the case where filing somebody away is how a debt gets quietly
+ * forgotten. That message is shown as it comes back rather than translated
+ * into something vaguer.
+ */
+function RemoveParty({ party, restore, config, onClose, onDone }) {
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  async function go() {
+    setError('');
+    setBusy(true);
+    try {
+      if (restore) await api.put(`/${config.path}/${party.id}`, { active: true });
+      else await api.delete(`/${config.path}/${party.id}`);
+      toast(restore ? `${party.name} is back` : `${party.name} removed`);
+      onDone();
+    } catch (err) {
+      setError(err.response?.data?.error || 'Could not do that');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={restore ? `Bring back ${party.name}?` : `Remove ${party.name}?`}
+      subtitle={config.single === 'customer' ? 'Customer' : 'Supplier'}
+    >
+      <div className="space-y-4">
+        <p className="text-sm text-slate-600">
+          {restore
+            ? `They will show in the list again and can be picked at the counter.`
+            : `They will be taken out of the list and can no longer be picked at the counter. Nothing is deleted — every sale, bill and payment keeps their name, and you can bring them back at any time.`}
+        </p>
+
+        {!restore && Math.abs(party.balance) > 0.005 && (
+          <p className="rounded-xl bg-amber-50 px-3 py-2.5 text-sm text-amber-800">
+            This {config.single} is not settled — {config.owesLabel.toLowerCase()}{' '}
+            {money(Math.abs(party.balance))}. Settle it first; the shop will refuse otherwise.
+          </p>
+        )}
+
+        {error && (
+          <p className="rounded-xl bg-red-50 px-3 py-2.5 text-sm text-red-700" role="alert">
+            {error}
+          </p>
+        )}
+
+        <ModalActions>
+          <Button type="button" variant="secondary" onClick={onClose} className="flex-1">
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            onClick={go}
+            loading={busy}
+            variant={restore ? 'primary' : 'danger'}
+            className="flex-1"
+          >
+            {restore ? 'Bring back' : 'Remove'}
+          </Button>
+        </ModalActions>
+      </div>
+    </Modal>
+  );
+}
+
 export default function Parties({ type }) {
   const config = CONFIG[type];
   const [parties, setParties] = useState(null);
   const [search, setSearch] = useState('');
   const [editing, setEditing] = useState(undefined);
   const [viewing, setViewing] = useState(null);
+  // The one being removed or brought back, waiting on an answer.
+  const [removing, setRemoving] = useState(null);
+  /*
+   * Archived ones are out of the way by default.
+   *
+   * A shop that has been open two years has a list of people who bought one
+   * charger in 2024, and the list is meant to be the ones you deal with. They
+   * are one toggle away rather than gone, because "removed" here means filed,
+   * not deleted — their invoices still name them.
+   */
+  const [showArchived, setShowArchived] = useState(false);
 
   const load = useCallback(() => {
-    api.get(`/${config.path}`).then((res) => setParties(res.data.parties));
-  }, [config.path]);
+    api
+      .get(`/${config.path}`, { params: showArchived ? { includeArchived: 'true' } : {} })
+      .then((res) => setParties(res.data.parties));
+  }, [config.path, showArchived]);
 
   useEffect(() => {
     setParties(null);
@@ -399,8 +493,8 @@ export default function Parties({ type }) {
         </Card>
 
         <Card>
-          <div className="border-b border-slate-100 px-5 py-3">
-            <div className="relative">
+          <div className="flex items-center gap-3 border-b border-slate-100 px-5 py-3">
+            <div className="relative flex-1">
               <Search size={16} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-slate-400" />
               <input
                 value={search}
@@ -409,6 +503,17 @@ export default function Parties({ type }) {
                 className="h-9 w-full rounded-lg bg-slate-100 pr-3 pl-9 text-sm ring-1 ring-transparent transition focus:bg-white focus:ring-brand-600 focus:outline-none"
               />
             </div>
+            {/* Off by default: this list is the people you deal with, not
+                everyone who ever bought a charger. */}
+            <label className="flex shrink-0 cursor-pointer items-center gap-2 text-xs text-slate-500">
+              <input
+                type="checkbox"
+                checked={showArchived}
+                onChange={(e) => setShowArchived(e.target.checked)}
+                className="h-4 w-4 rounded border-slate-300"
+              />
+              Show removed
+            </label>
           </div>
 
           {!parties ? (
@@ -436,8 +541,24 @@ export default function Parties({ type }) {
               </thead>
               <tbody className="divide-y divide-slate-50">
                 {visible.map((p) => (
-                  <tr key={p.id} className="cursor-pointer hover:bg-slate-50/60" onClick={() => setViewing(p.id)}>
-                    <td className="px-5 py-2.5 font-medium text-slate-800">{p.name}</td>
+                  <tr
+                    key={p.id}
+                    className={cx(
+                      'cursor-pointer hover:bg-slate-50/60',
+                      p.active === false && 'bg-slate-50/70 text-slate-400',
+                    )}
+                    onClick={() => setViewing(p.id)}
+                  >
+                    <td className="px-5 py-2.5 font-medium text-slate-800">
+                      <span className={cx(p.active === false && 'text-slate-400 line-through')}>
+                        {p.name}
+                      </span>
+                      {p.active === false && (
+                        <Badge tone="neutral" className="ml-2">
+                          Removed
+                        </Badge>
+                      )}
+                    </td>
                     <td className="px-3 py-2.5 text-slate-500">{p.phone || p.email || '—'}</td>
                     {config.hasCreditLimit && (
                       <td className="tnum px-3 py-2.5 text-right text-slate-500">{money(p.credit_limit)}</td>
@@ -445,7 +566,7 @@ export default function Parties({ type }) {
                     <td className="px-3 py-2.5">
                       <BalanceBadge balance={p.balance} config={config} />
                     </td>
-                    <td className="px-5 py-2.5 text-right">
+                    <td className="px-5 py-2.5 text-right whitespace-nowrap">
                       <Button
                         size="sm"
                         variant="ghost"
@@ -457,6 +578,31 @@ export default function Parties({ type }) {
                       >
                         <Pencil size={14} />
                       </Button>
+                      {p.active === false ? (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setRemoving({ party: p, restore: true });
+                          }}
+                          aria-label={`Bring ${p.name} back`}
+                        >
+                          <Undo2 size={14} />
+                        </Button>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setRemoving({ party: p, restore: false });
+                          }}
+                          aria-label={`Remove ${p.name}`}
+                        >
+                          <Trash2 size={14} className="text-red-600" />
+                        </Button>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -480,6 +626,19 @@ export default function Parties({ type }) {
 
       {viewing && (
         <PartyDetail partyId={viewing} config={config} onClose={() => setViewing(null)} onChanged={load} />
+      )}
+
+      {removing && (
+        <RemoveParty
+          party={removing.party}
+          restore={removing.restore}
+          config={config}
+          onClose={() => setRemoving(null)}
+          onDone={() => {
+            setRemoving(null);
+            load();
+          }}
+        />
       )}
     </div>
   );
