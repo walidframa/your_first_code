@@ -322,6 +322,19 @@ function add() {
         '-m',
         CONFIG.certEmail,
         '--redirect',
+        //
+        // Without this, a name that already has a certificate takes a shortcut
+        // nobody wants: certbot finds one that is not due for renewal, decides
+        // there is nothing to do, and returns success having changed no config
+        // at all — so `--redirect` above is quietly skipped and the shop serves
+        // in the clear.
+        //
+        // Reached whenever a slug is used a second time: a shop removed and put
+        // back, or a re-run after something else in this command failed. The
+        // certificate is not re-issued, so this costs nothing against Let's
+        // Encrypt's rate limits.
+        //
+        '--reinstall',
       ],
       { allowFail: true },
     );

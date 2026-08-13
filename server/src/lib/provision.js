@@ -200,7 +200,10 @@ export function welcome({
       : [
           '  No certificate, so that address is http and cannot be installed as an',
           '  app. Set POS_CERT_EMAIL in /etc/pos.env and run:',
-          `    certbot --nginx -d ${slug}.${domain}`,
+          // --redirect, or port 80 keeps serving the shop unencrypted beside
+          // the new certificate. --reinstall, or a name that already has one
+          // gets a success with no config written and neither flag applied.
+          `    certbot --nginx -d ${slug}.${domain} --redirect --reinstall`,
           '',
         ]),
     '  They will be asked to choose their own password the first time they sign in.',

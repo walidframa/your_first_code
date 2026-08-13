@@ -483,6 +483,30 @@ certbot --nginx -d admin.xtechpos.com --redirect --reinstall
 pos-tenant operator walid 'a long console password'
 ```
 
+**Check the padlock before you trust it.** From the server itself, so no browser
+cache is in the way:
+
+```bash
+curl -sSI http://admin.xtechpos.com/ | head -3
+```
+
+`301` is right. `200` means port 80 is still serving the console in the clear,
+whatever the address bar showed you. Certbot edits these files in place and
+edits them differently depending on what it finds, so after a couple of passes
+the result is not something you can read and be sure about. Rather than a third
+run, write the shape you want:
+
+```bash
+cp /etc/nginx/sites-available/pos-console /root/pos-console.bak
+sed 's/xtechpos.com/YOUR-DOMAIN/' deploy/nginx-console-https.conf \
+  > /etc/nginx/sites-available/pos-console
+nginx -t && systemctl reload nginx
+```
+
+One server on 80 that only redirects, one on 443 that only serves. Short enough
+to check by eye, and there is no way for two blocks to claim port 80 for the
+same name — which nginx settles by silently using whichever it parsed first.
+
 **Its signing key is its own.** Sharing one with the tills would mean a token
 minted at somebody's counter being accepted here, which is the whole thing this
 arrangement exists to prevent. Different database, different key, different

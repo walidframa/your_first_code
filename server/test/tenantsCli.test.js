@@ -307,6 +307,20 @@ test('it reads /etc/pos.env itself rather than needing a sourced shell', () => {
 
   assert.match(out, /fromfile\.fromfile\.example/, 'the domain came from the file');
   assert.match(out, /certbot .*-m spaced@example\.com/, 'the email came from the file, trimmed');
+
+  /*
+   * The two flags that decide whether a shop is actually reachable over HTTPS.
+   *
+   * Without --redirect, certbot issues the certificate and leaves port 80
+   * serving the same pages unencrypted. Without --reinstall, a name that
+   * already has a certificate — a slug used twice, a re-run after something
+   * else failed — takes a shortcut: certbot finds one that is not due for
+   * renewal, writes no config, and reports success, so --redirect is skipped
+   * too. Both failures look like a shop that works, until somebody notices the
+   * address bar.
+   */
+  assert.match(out, /certbot .*--redirect/, 'port 80 is a redirect, not a second front door');
+  assert.match(out, /certbot .*--reinstall/, 'and a name that already has a certificate is not skipped');
   assert.ok(!out.includes('must-not-be-read'), 'it read keys that are none of its business');
 });
 
