@@ -371,3 +371,110 @@ test('a chown that cannot run is reported rather than swallowed', () => {
   assert.match(res.out, /chown/);
   assert.ok(row('nouser'), 'the shop was still recorded');
 });
+
+/* --------------------------------------------------------------- renaming */
+
+/**
+ * A shop that changes its address.
+ *
+ * The slug is six things at once — the subdomain, the database file, the
+ * backups beside it, the settings file, the nginx block and the systemd
+ * instance — so the thing worth testing is that they all move together and that
+ * nothing is quietly regenerated on the way.
+ */
+test('rename moves the shop, its data and its address', () => {
+  pos('add', 'oldname', 'Old Name Mobile', '--price', '30');
+
+  const envFile = path.join(workDir, 'env', 'oldname.env');
+  const before = readFileSync(envFile, 'utf8');
+  const secret = before.match(/^ACCOUNT_SECRET=(.+)$/m)[1];
+  const jwt = before.match(/^JWT_SECRET=(.+)$/m)[1];
+  const port = row('oldname').port;
+
+  // Something in the database, so "the data came too" is a real claim.
+  const shopDb = new DatabaseSync(path.join(workDir, 'tenants', 'oldname.sqlite'));
+  const marker = shopDb.prepare('SELECT COUNT(*) AS n FROM users').get().n;
+  shopDb.close();
+  assert.ok(marker > 0, 'the fixture shop has no users, so nothing would prove it moved');
+
+  const res = pos('rename', 'oldname', 'protech');
+  assert.equal(res.status, 0, res.out);
+
+  // The book answers to the new name and has forgotten the old one.
+  assert.equal(row('oldname'), undefined);
+  assert.equal(row('protech').shop_name, 'Old Name Mobile');
+  assert.equal(row('protech').port, port, 'it kept its port, so nothing else has to move');
+  assert.equal(row('protech').price, 30, 'and its terms');
+
+  // The database moved rather than being made again.
+  assert.ok(!existsSync(path.join(workDir, 'tenants', 'oldname.sqlite')));
+  const moved = new DatabaseSync(path.join(workDir, 'tenants', 'protech.sqlite'));
+  assert.equal(moved.prepare('SELECT COUNT(*) AS n FROM users').get().n, marker);
+  moved.close();
+
+  /*
+   * The secrets are the same ones.
+   *
+   * This is the assertion worth having. ACCOUNT_SECRET encrypts every customer
+   * password and repair passcode the shop holds — a rename that re-rolled it
+   * would destroy all of them, permanently, and the shop would not find out
+   * until somebody asked for a repair passcode weeks later.
+   */
+  const nowEnv = readFileSync(path.join(workDir, 'env', 'protech.env'), 'utf8');
+  assert.match(nowEnv, new RegExp(`^ACCOUNT_SECRET=${secret}$`, 'm'));
+  assert.match(nowEnv, new RegExp(`^JWT_SECRET=${jwt}$`, 'm'));
+  assert.match(nowEnv, /^TENANT_SLUG=protech$/m);
+  assert.match(nowEnv, /^DB_PATH=.*protech\.sqlite$/m);
+  assert.ok(!existsSync(envFile), 'the old settings file would start a second copy');
+
+  // The address: a block for the new name, and none for the old.
+  assert.ok(existsSync(path.join(workDir, 'nginx', 'pos-protech')));
+  assert.ok(!existsSync(path.join(workDir, 'nginx', 'pos-oldname')));
+  assert.match(readFileSync(path.join(workDir, 'nginx', 'pos-protech'), 'utf8'), /protech\.xtechpos\.com/);
+});
+
+test('rename refuses a name that is spoken for', () => {
+  pos('add', 'taken', 'Someone Else');
+  pos('add', 'mover', 'Wants To Move');
+
+  const res = pos('rename', 'mover', 'taken');
+  assert.notEqual(res.status, 0);
+  assert.match(res.out, /already taken/i);
+  assert.ok(row('mover'), 'and left the shop exactly where it was');
+});
+
+test('rename refuses a name a browser or a filesystem would not like', () => {
+  pos('add', 'fussy', 'Fussy Phones');
+
+  for (const bad of ['admin', 'UPPER', 'has space', 'has.dot', 'x']) {
+    const res = pos('rename', 'fussy', bad);
+    assert.notEqual(res.status, 0, `"${bad}" was accepted`);
+  }
+  assert.ok(row('fussy'), 'and none of them moved it');
+});
+
+test('a removed shop still owns its name', () => {
+  // Its row and its database are both still there, so handing the name out
+  // would put two shops' files on top of each other. `purge` gives it back.
+  pos('add', 'gone', 'Gone Away');
+  pos('remove', 'gone');
+  pos('add', 'newcomer', 'Newcomer');
+
+  const res = pos('rename', 'newcomer', 'gone');
+  assert.notEqual(res.status, 0);
+  assert.match(res.out, /already taken/i);
+});
+
+test('a dry run of a rename changes nothing at all', () => {
+  pos('add', 'pretend', 'Pretend Phones');
+
+  const res = pos('rename', 'pretend', 'pretend2', '--dry-run');
+  assert.equal(res.status, 0, res.out);
+  assert.match(res.out, /would move/);
+
+  assert.ok(row('pretend'), 'the book still knows the old name');
+  assert.equal(row('pretend2'), undefined);
+  assert.ok(existsSync(path.join(workDir, 'tenants', 'pretend.sqlite')));
+  assert.ok(existsSync(path.join(workDir, 'env', 'pretend.env')));
+  assert.ok(!existsSync(path.join(workDir, 'env', 'pretend2.env')));
+});
