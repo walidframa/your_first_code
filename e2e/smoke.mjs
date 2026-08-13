@@ -36,6 +36,15 @@ const ALLOWED_FAILURES = [
   // is the thing being checked, because the owner passes every permission and
   // must still be turned away.
   /\/api\/transfers/,
+  /*
+   * Deliberately wrong current password, so the panel can be seen refusing it
+   * in place. The 401 is the assertion, not an accident.
+   *
+   * Only this one. The 401s that used to follow it — products and categories
+   * caught in flight while the password rotated — are the bug that was found by
+   * this listener complaining about them, and they must never be allowed here.
+   */
+  /\/api\/auth\/password/,
 ];
 
 const consoleErrors = [];
