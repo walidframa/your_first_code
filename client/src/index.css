@@ -60,6 +60,22 @@
   --radius-lg: 0.625rem;
   --radius-xl: 0.875rem;
   --radius-2xl: 1.125rem;
+
+  /*
+   * Shadows, tinted rather than grey.
+   *
+   * A pure-black shadow over a slightly cool page reads as dirt on the screen.
+   * These are the app's own ink colour at low opacity, layered — a tight
+   * contact shadow to seat the edge, and a wider one for the lift. It is the
+   * difference between an element sitting *on* the page and floating above a
+   * smudge, and it costs nothing because every `shadow-sm` in the app picks it
+   * up from here.
+   */
+  --shadow-sm: 0 1px 2px -1px oklch(0.28 0.03 250 / 0.10), 0 1px 3px oklch(0.28 0.03 250 / 0.06);
+  --shadow-md: 0 2px 4px -2px oklch(0.28 0.03 250 / 0.10), 0 4px 8px -2px oklch(0.28 0.03 250 / 0.08);
+  --shadow-lg: 0 4px 8px -4px oklch(0.28 0.03 250 / 0.12), 0 10px 20px -6px oklch(0.28 0.03 250 / 0.10);
+  --shadow-xl: 0 8px 16px -8px oklch(0.28 0.03 250 / 0.14), 0 20px 36px -10px oklch(0.28 0.03 250 / 0.12);
+  --shadow-2xl: 0 12px 24px -10px oklch(0.28 0.03 250 / 0.18), 0 32px 56px -14px oklch(0.28 0.03 250 / 0.16);
 }
 
 html,
@@ -71,6 +87,24 @@ body,
 
 body {
   @apply bg-slate-100 text-slate-900 antialiased;
+  /*
+   * The page, lit from the top.
+   *
+   * A flat grey field behind white cards is the thing that makes an interface
+   * look unfinished — there is nothing for the cards to sit against. This is a
+   * few per cent of light across the top of the window and no more; on its own
+   * it is invisible, and it is the reason the cards read as cards.
+   *
+   * Fixed, so the wash belongs to the window rather than scrolling away with
+   * whichever pane happens to be moving.
+   */
+  background-image: linear-gradient(
+    to bottom,
+    oklch(1 0 0 / 0.85) 0%,
+    oklch(1 0 0 / 0.35) 22%,
+    oklch(1 0 0 / 0) 52%
+  );
+  background-attachment: fixed;
   font-family: var(--font-sans);
   /*
    * Contextual alternates on, and the "l/1/I" confusion off where the face
@@ -108,6 +142,80 @@ h3 {
   font-variant-numeric: tabular-nums;
 }
 
+/*
+ * Dragged over a price, a barcode or an IMEI — which is most of what anybody
+ * selects in this app, usually to paste it into a message or a supplier's site.
+ * The browser default is a hard blue that belongs to no part of this design.
+ */
+::selection {
+  background: var(--color-brand-100);
+  color: var(--color-brand-900);
+}
+
+/*
+ * One focus ring, everywhere.
+ *
+ * Components that style their own focus keep it; this is the floor, so a link,
+ * a bare button or anything added later can never end up with no visible focus
+ * at all. `:focus-visible` rather than `:focus`, so a mouse press does not
+ * leave a ring behind on a screen being used by touch all day.
+ */
+:focus-visible {
+  outline: 2px solid var(--color-brand-600);
+  outline-offset: 2px;
+  border-radius: var(--radius-lg);
+}
+
+/*
+ * Scrollbars, at the weight of furniture rather than machinery.
+ *
+ * This app is panes inside panes — a catalogue that scrolls beside a cart that
+ * scrolls, inside a dialog that scrolls — so on Windows, where scrollbars take
+ * real width and are painted in high contrast, the default chrome is a
+ * significant part of what the shopkeeper sees all day.
+ */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-slate-300) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: var(--color-slate-300);
+  border-radius: 999px;
+  /* Inset by a transparent border, so the bar is a slim pill in a wide gutter
+     that is still easy to grab with a finger. */
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: var(--color-slate-400);
+}
+
+/*
+ * A saved password should not repaint the field custard yellow.
+ *
+ * Chrome's autofill background cannot be set directly, so the colour is faked
+ * with an inset shadow the size of the field. It is the sign-in screen every
+ * shopkeeper sees first, every morning.
+ */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 1000px #fff inset;
+  -webkit-text-fill-color: var(--color-slate-900);
+  caret-color: var(--color-slate-900);
+}
+
 @keyframes toast-in {
   from {
     opacity: 0;
@@ -134,6 +242,34 @@ h3 {
 }
 .animate-sheet-in {
   animation: sheet-in 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/*
+ * The loading sweep. See Skeleton in components/ui.
+ *
+ * A light band travelling left to right across the placeholder, at a quarter
+ * the brightness of the block itself so it suggests movement without becoming
+ * something to watch.
+ */
+@keyframes skeleton-sweep {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+.skeleton {
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    oklch(1 0 0 / 0.55) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  background-repeat: no-repeat;
+  animation: skeleton-sweep 1.4s ease-in-out infinite;
 }
 
 /*
@@ -208,8 +344,15 @@ h3 {
   .animate-sheet-in,
   .animate-backdrop-in,
   .animate-page-in,
-  .animate-value-bump {
+  .animate-value-bump,
+  .skeleton {
     animation: none;
+  }
+
+  /* Without the sweep it is a plain grey block, which still reads as a
+     placeholder — so nothing is lost but the movement. */
+  .skeleton {
+    background-image: none;
   }
 
   *,
