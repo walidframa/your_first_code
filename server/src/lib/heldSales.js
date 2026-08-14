@@ -92,6 +92,7 @@ export function holdSale({
   customerName = null,
   note = null,
   userId = null,
+  branchId = null,
 }) {
   if (!Array.isArray(cart) || cart.length === 0) {
     throw new Error('There is nothing on this sale to hold');
@@ -103,8 +104,9 @@ export function holdSale({
   const info = db
     .prepare(
       `INSERT INTO held_sales
-         (reference, label, customer_id, customer_name, cart, context, item_count, total, held_by, note)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (reference, label, customer_id, customer_name, cart, context, item_count, total, held_by, note,
+          branch_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       reference,
@@ -117,21 +119,31 @@ export function holdSale({
       totalOf(cart, discountPercent),
       userId ?? null,
       note?.trim() || null,
+      branchId ?? null,
     );
 
   return heldById(info.lastInsertRowid);
 }
 
-export function listHeld({ status = 'held', limit = 50 } = {}) {
+/**
+ * The sales parked at this counter.
+ *
+ * Scoped to the branch, because resuming one rings it up here: a cart parked at
+ * the second shop, picked back up at the first, would take its handsets off the
+ * wrong shelf. Holds taken before branches existed carry no branch and stay
+ * visible everywhere rather than disappearing from the shop that parked them.
+ */
+export function listHeld({ status = 'held', limit = 50, branchId = null } = {}) {
   const wanted = status === 'all' ? null : status;
   return db
     .prepare(
       `SELECT h.*, u.name AS held_by_name FROM held_sales h
        LEFT JOIN users u ON u.id = h.held_by
        WHERE (? IS NULL OR h.status = ?)
+         AND (? IS NULL OR h.branch_id IS NULL OR h.branch_id = ?)
        ORDER BY h.held_at DESC, h.id DESC LIMIT ?`,
     )
-    .all(wanted, wanted, Math.min(Number(limit) || 50, 200))
+    .all(wanted, wanted, branchId, branchId, Math.min(Number(limit) || 50, 200))
     .map(shape);
 }
 
@@ -146,8 +158,13 @@ export function heldById(id) {
   );
 }
 
-export function countHeld() {
-  return db.prepare("SELECT COUNT(*) AS n FROM held_sales WHERE status = 'held'").get().n;
+export function countHeld(branchId = null) {
+  return db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM held_sales
+       WHERE status = 'held' AND (? IS NULL OR branch_id IS NULL OR branch_id = ?)`,
+    )
+    .get(branchId, branchId).n;
 }
 
 /**
