@@ -24,6 +24,7 @@ import { useSettings, lbp } from '../../context/SettingsContext';
 import { useAuth } from '../../context/AuthContext';
 import ProductLineSearch, { AddFreeTextButton } from '../../components/ProductLineSearch';
 import ProductQuickCreate from '../../components/ProductQuickCreate';
+import PartyQuickCreate from '../../components/PartyQuickCreate';
 import {
   Badge,
   Button,
@@ -104,6 +105,10 @@ function DocumentForm({ existing, onClose, onSaved }) {
    */
   const { can } = useAuth();
   const canSeeProfit = can('reports');
+  // Adding a contact is its own permission — the same one the Customers and
+  // Suppliers screens sit behind. Offering a button that always 403s would be
+  // worse than not offering one.
+  const canAddParty = can('parties');
   const editing = !!existing;
   const doc = existing?.document;
 
@@ -133,6 +138,7 @@ function DocumentForm({ existing, onClose, onSaved }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [quickCreate, setQuickCreate] = useState(null);
+  const [newParty, setNewParty] = useState(false);
 
   const meta = TYPE_META[docType];
   const partyType = meta.party;
@@ -385,9 +391,26 @@ function DocumentForm({ existing, onClose, onSaved }) {
           )}
 
           <div>
-            <label htmlFor="doc-party" className="mb-1.5 block text-sm font-medium text-slate-700">
-              {partyType === 'supplier' ? 'Supplier' : 'Customer'}
-            </label>
+            <div className="mb-1.5 flex items-center justify-between">
+              <label htmlFor="doc-party" className="block text-sm font-medium text-slate-700">
+                {partyType === 'supplier' ? 'Supplier' : 'Customer'}
+              </label>
+              {/*
+               * Next to the picker rather than on another screen. Somebody
+               * standing at the counter is a new customer about half the time,
+               * and leaving the half-written document to go and add them is
+               * how the half-written document gets lost.
+               */}
+              {canAddParty && (
+                <button
+                  type="button"
+                  onClick={() => setNewParty(true)}
+                  className="flex items-center gap-1 rounded-lg px-2 py-1 text-sm font-medium text-brand-700 transition hover:bg-brand-50"
+                >
+                  <Plus size={14} /> New {partyType}
+                </button>
+              )}
+            </div>
             <select
               id="doc-party"
               value={partyId}
@@ -744,6 +767,26 @@ function DocumentForm({ existing, onClose, onSaved }) {
           setQuickCreate(null);
           loadProducts();
           addProduct(product);
+        }}
+      />
+
+      {/*
+       * The new contact is put straight onto the document. Adding somebody and
+       * then having to find them again in the list is the same trip to another
+       * screen, only shorter.
+       */}
+      <PartyQuickCreate
+        open={newParty}
+        partyType={partyType}
+        onClose={() => setNewParty(false)}
+        onCreated={(party) => {
+          setNewParty(false);
+          setParties((prev) =>
+            [...prev.filter((p) => p.id !== party.id), party].sort((a, b) =>
+              a.name.localeCompare(b.name),
+            ),
+          );
+          setPartyId(String(party.id));
         }}
       />
     </>

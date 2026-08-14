@@ -1506,6 +1506,11 @@ still buy, as long as they pay for it.
 - Lines may reference a product or be free text (delivery, labour), and free-text
   lines are skipped when stock moves.
 - Purchase-invoice lines default to product **cost**; sales documents to price.
+- A product **and a customer or supplier** can be created from inside the form,
+  without abandoning the half-written document to go to another screen. The new
+  contact is put straight onto the document. Creating one sits behind the
+  customers-and-suppliers permission, so the button is only there for somebody
+  who has it.
 - Stock movements are written to the inventory ledger tagged with the document
   number, so a receipt is traceable from the product's history.
 
@@ -1712,6 +1717,14 @@ a party's entries, and the same query serves receivables and payables.
 - New customers can carry an **opening balance**, so an existing paper book can
   be brought across on day one.
 - The dashboard shows receivables, payables and the net position.
+- Opening a party shows **everything done with them** — register sales, invoices,
+  quotations — beside the ledger, because the ledger only ever holds money that
+  was *owed*, so a customer who paid cash at the counter appears nowhere in it.
+- **Any of those rows opens what was on it.** A ledger line saying $128 changed
+  hands raises the same question every time — on what? — so pressing it lists
+  the items, quantities and prices, with anything since sent back marked as
+  returned. Lines that came from nothing in particular (an opening balance, a
+  charge typed by hand) stay plain text rather than offering a dead pointer.
 
 | Route | Method | Role |
 | ----- | ------ | ---- |

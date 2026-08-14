@@ -1691,6 +1691,39 @@ try {
   });
   await shot('inline-product');
 
+  await step('a new supplier can be created from inside a document', async () => {
+    await goTo('Documents');
+    const dialog = await openNewDocument();
+    await dialog.getByRole('button', { name: /Purchase invoice/ }).click();
+
+    // Exact, because "New supplier" and "New document" both live on this
+    // screen and a substring match has taken a step down that road before.
+    await dialog.getByRole('button', { name: 'New supplier', exact: true }).click();
+    await page.waitForSelector('[role=dialog] >> text=They will be put on this document', {
+      timeout: 15000,
+    });
+    await page.fill('[role=dialog] #name', 'Bekaa Handset Traders');
+    await page.fill('[role=dialog] #phone', '03 445 566');
+    await page.click('button:has-text("Add and use")');
+
+    await page.waitForSelector('text=Bekaa Handset Traders added', { timeout: 15000 });
+
+    /*
+     * The point of the whole feature: the new supplier is *on the document*,
+     * not merely in the database. Adding one and leaving the picker empty
+     * would be the same trip to another screen, only better hidden.
+     */
+    const chosen = await page
+      .locator('#doc-party option:checked')
+      .textContent()
+      .catch(() => '');
+    if (!String(chosen).includes('Bekaa Handset Traders')) {
+      throw new Error(`the new supplier was not put on the document — the picker says "${chosen}"`);
+    }
+    await page.keyboard.press('Escape');
+  });
+  await shot('inline-party');
+
   await step('a purchase paid in cash leaves no payable behind', async () => {
     await goTo('Documents');
     const dialog = await openNewDocument();
