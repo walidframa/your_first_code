@@ -852,6 +852,26 @@ export default function CashBox({ onChanged, refreshOn = 0, accountId = null, sh
                 <span>
                   {money(profit.revenue)} sold · {money(profit.grossProfit)} gross ·{' '}
                   {money(profit.expenses)} spent
+                  {/*
+                    * Where it came from, whenever it did not all come from
+                    * here. This panel sits on the register and is read as the
+                    * register's own takings — it is not, it is the shop's whole
+                    * trade over the hours the till was open. Somebody who had
+                    * rung up nothing, refunded everything, and was still shown
+                    * a profit had no way to see that the figure was an
+                    * invoice's.
+                    */}
+                  {profit.fromInvoices > 0 && (
+                    <span className="block text-brand-700/60">
+                      {money(profit.fromInvoices)} of it on invoices, not at this counter
+                    </span>
+                  )}
+                  {profit.refundedOrders > 0 && (
+                    <span className="block text-brand-700/60">
+                      {profit.refundedOrders} sale{profit.refundedOrders === 1 ? '' : 's'} refunded, and
+                      already off these figures
+                    </span>
+                  )}
                 </span>
                 <button
                   onClick={() => setReportFor(session.id)}

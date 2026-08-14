@@ -48,8 +48,20 @@ export default function SittingSales({ onClose, onChanged }) {
           ? 'Loading…'
           : orders.length === 0
             ? 'Nothing rung up on this sitting yet'
-            : `${live.length} sale${live.length === 1 ? '' : 's'} · ${money(takings)}${
+            : /*
+               * The refunded count belongs in the same breath as the takings.
+               *
+               * "0 sales · $0.00" printed directly above a list of three sales
+               * reads as the screen contradicting itself, when what it means is
+               * that all three came back. Saying so costs four words and stops
+               * the figure looking broken.
+               */
+              `${live.length} sale${live.length === 1 ? '' : 's'} · ${money(takings)}${
                 rate > 0 ? ` · ${lbp(Math.round(takings * rate))}` : ''
+              }${
+                orders.length - live.length > 0
+                  ? ` · ${orders.length - live.length} refunded, not counted`
+                  : ''
               }`
       }
     >

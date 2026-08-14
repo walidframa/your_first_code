@@ -147,6 +147,19 @@ export function sessionProfit(sessionId, branchId = null) {
     expenseCount: report.expenses.count,
     netProfit: report.netProfit,
     /*
+     * Which counter it came from, because this panel sits on the register and
+     * is read as the register's own takings.
+     *
+     * It is not: a sitting's profit is the shop's whole trade over the hours
+     * the till was open, invoices included — profit is made on the sale, not
+     * on the drawer the cash landed in. But a shopkeeper who had rung up
+     * nothing, refunded everything, and was still shown a profit had no way to
+     * see that the figure belonged to an invoice. Now the panel can say so.
+     */
+    fromRegister: report.register.revenue,
+    fromInvoices: report.invoices.revenue,
+    refundedOrders: report.refunds.orders,
+    /*
      * Sales rung up before their cost was known have nothing to subtract, so
      * their profit is overstated. Saying so beats quietly reporting a number
      * that is too good.
