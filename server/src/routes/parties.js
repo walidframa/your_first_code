@@ -10,6 +10,7 @@ import {
   balanceOf,
   listEntries,
   recordPayment,
+  dealingsWith,
 } from '../lib/accounts.js';
 
 /**
@@ -52,6 +53,8 @@ export function partyRouter(partyType) {
     res.json({
       party: { ...party, active: !!party.active, balance: balanceOf(partyType, party.id) },
       entries: listEntries(partyType, party.id, req.query.limit),
+      // What was actually done with them, on account or not — see accounts.js.
+      dealings: dealingsWith(partyType, party.id, req.query.limit),
     });
   });
 
