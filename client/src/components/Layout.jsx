@@ -382,9 +382,19 @@ export default function Layout() {
          * Back, and the pages that are open. Between the header and the page,
          * so it is in the same place on every screen — a control that moves is
          * a control that has to be found again each time.
+         *
+         * Every screen except the register. That one is a counter, not a page:
+         * it wants the whole window, it already has its own way back to the
+         * menu, and a row of other places to be is the last thing wanted above
+         * a cart with a customer waiting on the other side of it.
          */}
-        <TabBar />
-        <div className="min-h-0 flex-1 overflow-hidden">
+        {!onRegister && <TabBar />}
+        {/*
+         * Keyed on the path so the arrival plays again on each navigation —
+         * without the key React reuses the node and the animation runs once,
+         * on the first screen of the session, and never after.
+         */}
+        <div key={pathname} className="animate-page-in min-h-0 flex-1 overflow-hidden">
           <Outlet />
         </div>
       </main>
