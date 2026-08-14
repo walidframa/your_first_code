@@ -252,9 +252,126 @@ function MoneyModal({ party, config, mode, onClose, onSaved }) {
   );
 }
 
+/**
+ * The invoice or sale a ledger line came out of, if there is one.
+ *
+ * Entries carry `order_id` for a register sale, and for a document they carry
+ * its number in the note — "Edited SI-0001", "SI-0001 — paid cash". So the
+ * dealings already fetched are the lookup table: match on the order, or on a
+ * reference appearing in the note.
+ *
+ * An opening balance or a hand-typed charge belongs to nothing, and gets no
+ * pointer rather than a dead one.
+ */
+function sourceOf(entry, dealings) {
+  if (entry.order_id) {
+    const order = dealings.find((d) => d.kind === 'order' && d.id === entry.order_id);
+    if (order) return order;
+  }
+  const note = String(entry.note || '');
+  return dealings.find((d) => d.reference && note.includes(d.reference)) || null;
+}
+
+/**
+ * What was actually on an invoice or a sale.
+ *
+ * A ledger line says a hundred and twenty-eight dollars changed hands. The
+ * question that follows is always the same — *on what?* — and until now the
+ * answer meant leaving this screen, remembering a document number, and finding
+ * it on another one.
+ *
+ * Fetched when it is opened rather than with the list: a customer with two
+ * years of history would otherwise pull every line of every invoice down to
+ * show ten rows, and nobody opens more than one of these at a time.
+ */
+function DealingItems({ dealing, onClose }) {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    const url = dealing.kind === 'order' ? `/orders/${dealing.id}` : `/documents/${dealing.id}`;
+    api
+      .get(url)
+      .then((res) => setData(res.data))
+      .catch((err) => {
+        /*
+         * Two quite different 403s reach here, and the server already words the
+         * one worth repeating — "Quotes and invoices is not part of this shop's
+         * plan." The other is a cashier opening a sale one of their colleagues
+         * rang up, where "Insufficient permissions" says nothing about what
+         * actually happened.
+         */
+        const said = err.response?.data?.error;
+        setError(
+          err.response?.status === 403 && said === 'Insufficient permissions'
+            ? 'This was rung up by somebody else. Only the cashier who sold it, or an admin, can see what was on it.'
+            : said || 'Could not open it',
+        );
+      });
+  }, [dealing]);
+
+  const items = data?.items || [];
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={`${DEALING_LABELS[dealing.kind] || dealing.kind} ${dealing.reference || ''}`}
+      subtitle={String(dealing.at || '').slice(0, 16).replace('T', ' ')}
+      size="lg"
+    >
+      {error ? (
+        <p className="rounded-xl bg-red-50 px-3 py-2.5 text-sm text-red-700">{error}</p>
+      ) : !data ? (
+        <Skeleton className="h-40" />
+      ) : (
+        <>
+          <table className="w-full text-sm">
+            <thead className="border-b border-slate-100 text-left text-xs text-slate-500">
+              <tr>
+                <th className="py-2 font-medium">Item</th>
+                <th className="w-16 py-2 text-right font-medium">Qty</th>
+                <th className="w-24 py-2 text-right font-medium">Price</th>
+                <th className="w-24 py-2 text-right font-medium">Total</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-50">
+              {items.map((i) => (
+                <tr key={i.id}>
+                  <td className="py-2">
+                    <span className="text-slate-800">{i.name}</span>
+                    {i.sku && <span className="ml-2 text-xs text-slate-400">{i.sku}</span>}
+                    {/* A line sent back is not the same as a line that never
+                        happened, so it is shown rather than removed. */}
+                    {i.returned_qty > 0 && (
+                      <span className="ml-2 text-xs text-amber-700">
+                        {i.returned_qty} returned
+                      </span>
+                    )}
+                  </td>
+                  <td className="tnum py-2 text-right text-slate-600">{i.quantity}</td>
+                  <td className="tnum py-2 text-right text-slate-600">{money(i.price)}</td>
+                  <td className="tnum py-2 text-right font-medium text-slate-800">
+                    {money(i.line_total ?? i.lineTotal ?? i.price * i.quantity)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {items.length === 0 && (
+            <EmptyState title="Nothing on it" description="This one carries no lines." />
+          )}
+        </>
+      )}
+    </Modal>
+  );
+}
+
 function PartyDetail({ partyId, config, onClose, onChanged }) {
   const [data, setData] = useState(null);
   const [money_, setMoneyModal] = useState(null);
+  // The invoice or sale somebody has asked to look inside.
+  const [opening, setOpening] = useState(null);
 
   const load = useCallback(() => {
     api.get(`/${config.path}/${partyId}`).then((res) => setData(res.data));
@@ -317,22 +434,29 @@ function PartyDetail({ partyId, config, onClose, onChanged }) {
             </h3>
             <ul className="max-h-56 divide-y divide-slate-100 overflow-y-auto rounded-xl ring-1 ring-slate-200">
               {dealings.map((d) => (
-                <li key={`${d.kind}-${d.id}`} className="flex items-center gap-3 px-3 py-2 text-sm">
-                  <span className="w-28 shrink-0 truncate font-medium text-slate-700">
-                    {DEALING_LABELS[d.kind] || d.kind}
-                  </span>
-                  <span className="w-24 shrink-0 truncate text-xs text-slate-500">{d.reference}</span>
-                  <span className="min-w-0 flex-1 truncate text-xs text-slate-400">
-                    {String(d.at).slice(0, 16).replace('T', ' ')}
-                    {d.who ? ` · ${d.who}` : ''}
-                    {/* A refunded sale still happened; saying so is the point
-                        of a history. */}
-                    {d.status && d.status !== 'confirmed' && d.status !== 'completed'
-                      ? ` · ${d.status}`
-                      : ''}
-                    {d.onAccount ? ' · on account' : ''}
-                  </span>
-                  <span className="tnum shrink-0 font-medium text-slate-800">{money(d.total)}</span>
+                <li key={`${d.kind}-${d.id}`}>
+                  <button
+                    type="button"
+                    onClick={() => setOpening(d)}
+                    title={`Show what was on ${d.reference || 'this'}`}
+                    className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm hover:bg-slate-50"
+                  >
+                    <span className="w-28 shrink-0 truncate font-medium text-slate-700">
+                      {DEALING_LABELS[d.kind] || d.kind}
+                    </span>
+                    <span className="w-24 shrink-0 truncate text-xs text-slate-500">{d.reference}</span>
+                    <span className="min-w-0 flex-1 truncate text-xs text-slate-400">
+                      {String(d.at).slice(0, 16).replace('T', ' ')}
+                      {d.who ? ` · ${d.who}` : ''}
+                      {/* A refunded sale still happened; saying so is the point
+                          of a history. */}
+                      {d.status && d.status !== 'confirmed' && d.status !== 'completed'
+                        ? ` · ${d.status}`
+                        : ''}
+                      {d.onAccount ? ' · on account' : ''}
+                    </span>
+                    <span className="tnum shrink-0 font-medium text-slate-800">{money(d.total)}</span>
+                  </button>
                 </li>
               ))}
             </ul>
@@ -346,36 +470,65 @@ function PartyDetail({ partyId, config, onClose, onChanged }) {
           <EmptyState title="Nothing on account" description="Charges and payments will appear here." />
         ) : (
           <ul className="divide-y divide-slate-100">
-            {entries.map((e) => (
-              <li key={e.id} className="flex items-start gap-3 py-2.5">
-                <div
-                  className={cx(
-                    'mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full',
-                    e.amount_usd > 0 ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700',
-                  )}
-                >
-                  {e.amount_usd > 0 ? <ArrowUpRight size={14} /> : <ArrowDownLeft size={14} />}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-slate-800">
-                    {KIND_LABELS[e.kind] || e.kind}
-                    <span className="tnum ml-2 font-normal text-slate-500">
-                      {e.amount_usd > 0 ? '+' : ''}
-                      {money(e.amount_usd)}
-                    </span>
-                  </p>
-                  <p className="text-xs text-slate-400">
-                    {e.created_at}
-                    {e.order_number ? ` · ${e.order_number}` : ''}
-                    {e.paid_lbp > 0 ? ` · ${lbp(e.paid_lbp)}` : ''}
-                    {e.note && !e.order_number ? ` · ${e.note}` : ''}
-                  </p>
-                </div>
-              </li>
-            ))}
+            {entries.map((e) => {
+              const source = sourceOf(e, dealings);
+              /*
+               * Only the rows that lead somewhere become buttons. A row that
+               * looks clickable and does nothing is worse than a row that
+               * looks like text — and an opening balance leads nowhere, so it
+               * stays a plain row rather than a button that shrugs.
+               */
+              const Row = source ? 'button' : 'div';
+              const rowProps = source
+                ? {
+                    type: 'button',
+                    onClick: () => setOpening(source),
+                    title: `Show what was on ${source.reference}`,
+                  }
+                : {};
+              return (
+                <li key={e.id}>
+                  <Row
+                    {...rowProps}
+                    className={cx(
+                      'flex w-full items-start gap-3 py-2.5 text-left',
+                      source && 'cursor-pointer rounded-lg hover:bg-slate-50',
+                    )}
+                  >
+                    <div
+                      className={cx(
+                        'mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full',
+                        e.amount_usd > 0
+                          ? 'bg-amber-50 text-amber-700'
+                          : 'bg-emerald-50 text-emerald-700',
+                      )}
+                    >
+                      {e.amount_usd > 0 ? <ArrowUpRight size={14} /> : <ArrowDownLeft size={14} />}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-slate-800">
+                        {KIND_LABELS[e.kind] || e.kind}
+                        <span className="tnum ml-2 font-normal text-slate-500">
+                          {e.amount_usd > 0 ? '+' : ''}
+                          {money(e.amount_usd)}
+                        </span>
+                      </p>
+                      <p className="text-xs text-slate-400">
+                        {e.created_at}
+                        {e.order_number ? ` · ${e.order_number}` : ''}
+                        {e.paid_lbp > 0 ? ` · ${lbp(e.paid_lbp)}` : ''}
+                        {e.note && !e.order_number ? ` · ${e.note}` : ''}
+                      </p>
+                    </div>
+                  </Row>
+                </li>
+              );
+            })}
           </ul>
         )}
       </Modal>
+
+      {opening && <DealingItems dealing={opening} onClose={() => setOpening(null)} />}
 
       {money_ && (
         <MoneyModal
