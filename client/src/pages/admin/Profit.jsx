@@ -168,18 +168,54 @@ export default function Profit() {
                     </dt>
                     <dd className="tnum text-slate-800">{money(report.invoices.revenue)}</dd>
                   </div>
-                  {report.refunds.orders > 0 && (
-                    <div className="flex justify-between">
-                      <dt className="text-slate-600">
-                        Refunded<span className="ml-1 text-xs text-slate-400">×{report.refunds.orders}</span>
-                      </dt>
-                      <dd className="tnum text-red-600">−{money(report.refunds.total)}</dd>
-                    </div>
-                  )}
                   <div className="flex justify-between border-t border-slate-100 pt-1.5 font-semibold">
                     <dt className="text-slate-900">Revenue</dt>
                     <dd className="tnum text-slate-900">{money(report.revenue)}</dd>
                   </div>
+
+                  {/*
+                    * Below the total, and worded as already-gone, because it is.
+                    *
+                    * This used to sit above the line with a minus in front of
+                    * it, which read as a subtraction the total had not done —
+                    * $0 and $128 and −$384 above a Revenue of $128 is arithmetic
+                    * that visibly does not work, and a figure a shopkeeper
+                    * cannot make add up is a figure they stop believing.
+                    *
+                    * Refunded sales were never in revenue in the first place:
+                    * they are struck out where they happened, not netted off
+                    * afterwards. So this is context for a quiet month, not a
+                    * line in the sum.
+                    */}
+                  {(report.refunds.orders > 0 || report.refunds.partial > 0) && (
+                    <div className="mt-1.5 space-y-1 border-t border-slate-100 pt-1.5 text-xs">
+                      <p className="text-slate-400">Already taken off the figures above</p>
+                      {report.refunds.orders > 0 && (
+                        <div className="flex justify-between">
+                          <dt className="text-slate-400">
+                            {report.refunds.orders} refunded sale
+                            {report.refunds.orders === 1 ? '' : 's'}
+                          </dt>
+                          <dd className="tnum text-slate-400">{money(report.refunds.total)}</dd>
+                        </div>
+                      )}
+                      {/*
+                        * Named separately because it is a different thing: the
+                        * sale still stands, and only part of it came back. Left
+                        * unsaid, this money simply went missing from a month's
+                        * takings with nothing on the screen to account for it.
+                        */}
+                      {report.refunds.partial > 0 && (
+                        <div className="flex justify-between">
+                          <dt className="text-slate-400">
+                            items returned off {report.refunds.partialOrders} other sale
+                            {report.refunds.partialOrders === 1 ? '' : 's'}
+                          </dt>
+                          <dd className="tnum text-slate-400">{money(report.refunds.partial)}</dd>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </dl>
               </Card>
 

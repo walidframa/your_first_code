@@ -57,6 +57,9 @@ const product = async (sku) =>
 
 const today = new Date().toISOString().slice(0, 10);
 
+/** Money compares to the cent, not to the float. */
+const round = (n) => Math.round(n * 100) / 100;
+
 before(async () => {
   workDir = mkdtempSync(path.join(tmpdir(), 'pos-profit-'));
   const env = {
@@ -156,6 +159,132 @@ test('a refunded order is left out of the takings entirely', async () => {
   const afterRefund = (await req('GET', `/expenses/profit?from=${today}&to=${today}`, null, adminToken)).json;
   assert.equal(afterRefund.revenue, before.revenue, 'the sale is gone, not counted twice');
   assert.equal(afterRefund.refunds.orders, 1, 'but it is reported as a refund');
+});
+
+/*
+ * The bug this pins down was on a live shop's Profit screen: three sales
+ * returned, and a profit figure that still counted them. A wholly refunded
+ * order was already handled; a *partly* returned one was not, because it keeps
+ * status = 'completed' and its original total, and the report summed that
+ * total. The shop was being told it had earned money on a phone it had handed
+ * back over the counter.
+ */
+test('a phone handed back comes off the takings, and off the cost with it', async () => {
+  const item = await product('BAK-003');
+  const before = (await req('GET', `/expenses/profit?from=${today}&to=${today}`, null, adminToken)).json;
+
+  const order = (
+    await req(
+      'POST',
+      '/orders',
+      { items: [{ productId: item.id, quantity: 4 }], paymentMethod: 'card' },
+      cashierToken,
+    )
+  ).json.order;
+
+  const withSale = (await req('GET', `/expenses/profit?from=${today}&to=${today}`, null, adminToken)).json;
+  const soldRevenue = round(withSale.revenue - before.revenue);
+  const soldCost = round(withSale.cost - before.cost);
+  assert.ok(soldRevenue > 0 && soldCost > 0, 'the sale registered in the first place');
+
+  // One of the four comes back. The order stays completed — three were sold.
+  const { items } = (await req('GET', `/orders/${order.id}`, null, adminToken)).json;
+  await req('POST', `/orders/${order.id}/return-line`, { itemId: items[0].id, quantity: 1 }, adminToken);
+
+  const after = (await req('GET', `/expenses/profit?from=${today}&to=${today}`, null, adminToken)).json;
+  assert.equal(
+    (await req('GET', `/orders/${order.id}`, null, adminToken)).json.order.status,
+    'completed',
+    'three of the four really were sold, so this is not a refunded order',
+  );
+
+  assert.equal(
+    round(after.revenue - before.revenue),
+    round(soldRevenue * 0.75),
+    'a quarter of the sale came back, so a quarter of the revenue goes with it',
+  );
+  assert.equal(
+    round(after.cost - before.cost),
+    round(soldCost * 0.75),
+    'and the shop no longer counts the cost of a phone it has back on the shelf',
+  );
+
+  // Return the rest: now there is nothing left, and it is a refund like any other.
+  await req('POST', `/orders/${order.id}/return-line`, { itemId: items[0].id, quantity: 3 }, adminToken);
+  const emptied = (await req('GET', `/expenses/profit?from=${today}&to=${today}`, null, adminToken)).json;
+  assert.equal(round(emptied.revenue), round(before.revenue), 'nothing left of the sale');
+  assert.equal(round(emptied.cost), round(before.cost));
+});
+
+test('what came back is reported, so the missing takings are accounted for', async () => {
+  const item = await product('SNK-002');
+  const order = (
+    await req(
+      'POST',
+      '/orders',
+      { items: [{ productId: item.id, quantity: 5 }], paymentMethod: 'card' },
+      cashierToken,
+    )
+  ).json.order;
+
+  const { items } = (await req('GET', `/orders/${order.id}`, null, adminToken)).json;
+  await req('POST', `/orders/${order.id}/return-line`, { itemId: items[0].id, quantity: 2 }, adminToken);
+
+  const report = (await req('GET', `/expenses/profit?from=${today}&to=${today}`, null, adminToken)).json;
+
+  /*
+   * Revenue quietly drops when part of a sale comes back, which is right — but
+   * an owner reading a thinner month is owed the reason on the same screen
+   * rather than being left to wonder where the money went.
+   */
+  assert.ok(report.refunds.partial > 0, 'the returned lines are reported');
+  assert.ok(report.refunds.partialOrders >= 1, 'and so is how many sales they came off');
+  assert.equal(round(report.refunds.partial), round(items[0].price * 2), 'valued at what it sold for');
+});
+
+test('what made the most counts invoiced sales, not only the register', async () => {
+  // A limit they can trade inside, or confirming the invoice is refused on
+  // credit grounds and this test would be measuring the wrong thing.
+  const customer = (
+    await req('POST', '/customers', { name: 'Invoice Only Co', credit_limit: 5000 }, adminToken)
+  ).json.party;
+  const item = await product('APP-002');
+
+  const doc = (
+    await req(
+      'POST',
+      '/documents',
+      {
+        docType: 'sales_invoice',
+        partyId: customer.id,
+        items: [{ productId: item.id, quantity: 2, price: 40 }],
+      },
+      adminToken,
+    )
+  ).json.document;
+  const confirmed = await req('POST', `/documents/${doc.id}/confirm`, null, adminToken);
+  assert.equal(confirmed.status, 200, `the invoice must actually confirm: ${confirmed.json?.error}`);
+
+  const report = (await req('GET', `/expenses/profit?from=${today}&to=${today}`, null, adminToken)).json;
+  const row = report.topProducts.find((p) => p.id === item.id);
+
+  /*
+   * The screen used to say "Nothing sold in this period" underneath a revenue
+   * figure it had just printed, because this list only ever read the register.
+   */
+  assert.ok(row, 'a product sold on an invoice is one of the products that sold');
+  assert.ok(row.revenue >= 80, `invoiced revenue is counted: ${row.revenue}`);
+
+  /*
+   * And the invoice reaches the totals at all, which is a bigger thing than it
+   * looks. Documents were never stamped with the branch they were written at,
+   * and every report is scoped to one — so `branch_id IS NULL` matched no
+   * branch, and an invoice stayed out of the Profit screen until a restart
+   * swept it into the main branch. A shop that invoices its trade customers
+   * could read a month's takings and see only the register.
+   */
+  assert.ok(report.invoices.invoices >= 1, 'the invoice is in the totals, not only in the table');
+  assert.ok(report.invoices.revenue >= 80, `invoiced revenue reached the report: ${report.invoices.revenue}`);
 });
 
 test('expenses turn gross profit into net profit', async () => {

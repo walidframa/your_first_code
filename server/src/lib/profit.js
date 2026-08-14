@@ -58,18 +58,42 @@ export function presetRange(preset, today = new Date()) {
 /**
  * Sales at the register, with what the goods cost.
  *
- * Refunded orders are excluded rather than netted: an order that was refunded
- * did not happen, and counting it as revenue and again as a negative would
- * double its effect on the average sale.
+ * A fully refunded order is excluded rather than netted: it did not happen, and
+ * counting it as revenue and again as a negative would double its effect on the
+ * average sale.
+ *
+ * A *partly* returned one is different, and getting it wrong was a real bug. It
+ * keeps `status = 'completed'` and its original total, because two of the three
+ * handsets on it were genuinely sold — so summing `orders.total` charged the
+ * shop's profit with a phone that came back over the counter. Both halves are
+ * therefore built from the lines that are still sold, `quantity - returned_qty`,
+ * and the order-level discount and tax are scaled by the share that stayed sold.
  */
 function registerSales(bounds, branchId = null) {
+  /*
+   * LEFT JOIN, and `kept` defaults to 1: an order carrying no lines at all is
+   * still a sale that took money, and an inner join would have quietly dropped
+   * it out of both the count and the revenue.
+   */
   const row = db
     .prepare(
-      `SELECT COUNT(DISTINCT o.id) AS orders,
-              COALESCE(SUM(o.total), 0) AS revenue,
-              COALESCE(SUM(o.tax), 0) AS tax,
-              COALESCE(SUM(o.discount), 0) AS discount
+      `SELECT COUNT(*) AS orders,
+              COALESCE(SUM(o.tax * COALESCE(k.kept, 1.0)), 0) AS tax,
+              COALESCE(SUM(o.discount * COALESCE(k.kept, 1.0)), 0) AS discount,
+              COALESCE(SUM(o.total * COALESCE(k.kept, 1.0)), 0) AS revenue
        FROM orders o
+       LEFT JOIN (
+         SELECT order_id,
+                CASE
+                  WHEN COALESCE(SUM(line_total), 0) = 0 THEN 1.0
+                  ELSE SUM(
+                         CASE WHEN quantity > 0
+                              THEN line_total * (quantity - returned_qty) / quantity
+                              ELSE line_total END
+                       ) / SUM(line_total)
+                END AS kept
+         FROM order_items GROUP BY order_id
+       ) k ON k.order_id = o.id
        WHERE o.status = 'completed' AND o.created_at BETWEEN ? AND ?
          AND (? IS NULL OR o.branch_id = ?)`,
     )
@@ -77,8 +101,9 @@ function registerSales(bounds, branchId = null) {
 
   const cost = db
     .prepare(
-      `SELECT COALESCE(SUM(oi.quantity * COALESCE(oi.cost, 0)), 0) AS cost,
-              SUM(CASE WHEN oi.cost IS NULL THEN 1 ELSE 0 END) AS unknown_lines
+      `SELECT COALESCE(SUM((oi.quantity - oi.returned_qty) * COALESCE(oi.cost, 0)), 0) AS cost,
+              SUM(CASE WHEN oi.cost IS NULL AND oi.quantity > oi.returned_qty THEN 1 ELSE 0 END)
+                AS unknown_lines
        FROM order_items oi
        JOIN orders o ON o.id = oi.order_id
        WHERE o.status = 'completed' AND o.created_at BETWEEN ? AND ?
@@ -130,6 +155,17 @@ function invoiceSales(bounds, branchId = null) {
   };
 }
 
+/**
+ * What came back over the counter.
+ *
+ * Two shapes, and both belong on the screen. A wholly refunded order is struck
+ * out — `orders` and `total` count those. A part of an order handed back leaves
+ * the sale standing, and `partial` is what those returned lines were sold for.
+ *
+ * Reported rather than left implicit because the money is missing from revenue
+ * either way, and an owner looking at a quiet month is owed the reason without
+ * having to go and find it.
+ */
 function refunds(bounds, branchId = null) {
   const row = db
     .prepare(
@@ -138,26 +174,87 @@ function refunds(bounds, branchId = null) {
          AND (? IS NULL OR branch_id = ?)`,
     )
     .get(bounds.from, bounds.to, branchId, branchId);
-  return { orders: row.orders, total: round2(row.total) };
+
+  const part = db
+    .prepare(
+      `SELECT COALESCE(SUM(
+                CASE WHEN oi.quantity > 0
+                     THEN oi.line_total * oi.returned_qty / oi.quantity
+                     ELSE 0 END
+              ), 0) AS total,
+              COUNT(DISTINCT o.id) AS orders
+       FROM order_items oi
+       JOIN orders o ON o.id = oi.order_id
+       WHERE o.status = 'completed' AND oi.returned_qty > 0
+         AND o.created_at BETWEEN ? AND ?
+         AND (? IS NULL OR o.branch_id = ?)`,
+    )
+    .get(bounds.from, bounds.to, branchId, branchId);
+
+  return {
+    orders: row.orders,
+    total: round2(row.total),
+    partialOrders: part.orders,
+    partial: round2(part.total),
+  };
 }
 
-/** The products that made the most, and the ones that made the least. */
-function byProduct(bounds, limit = 10) {
+/**
+ * The products that made the most.
+ *
+ * Both counters, not just the register. A month whose whole trade went out on
+ * sales invoices used to show "Nothing sold in this period" directly underneath
+ * a revenue figure of a hundred and twenty-eight dollars, which reads as the
+ * report being broken — and on a shop that invoices its trade customers, that
+ * is most of the month.
+ *
+ * Returned quantities come off here for the same reason they come off revenue:
+ * a phone that came back is not one of the things that made the shop money.
+ * Scoped to the branch as well, so this table agrees with the totals above it
+ * instead of quietly reporting the whole company.
+ */
+function byProduct(bounds, limit = 10, branchId = null) {
   return db
     .prepare(
       `SELECT p.id, p.name, p.sku,
-              SUM(oi.quantity) AS quantity,
-              ROUND(SUM(oi.line_total), 2) AS revenue,
-              ROUND(SUM(oi.quantity * COALESCE(oi.cost, 0)), 2) AS cost
-       FROM order_items oi
-       JOIN orders o ON o.id = oi.order_id
-       JOIN products p ON p.id = oi.product_id
-       WHERE o.status = 'completed' AND o.created_at BETWEEN ? AND ?
+              SUM(s.quantity) AS quantity,
+              ROUND(SUM(s.revenue), 2) AS revenue,
+              ROUND(SUM(s.cost), 2) AS cost
+       FROM (
+         SELECT oi.product_id,
+                (oi.quantity - oi.returned_qty) AS quantity,
+                CASE WHEN oi.quantity > 0
+                     THEN oi.line_total * (oi.quantity - oi.returned_qty) / oi.quantity
+                     ELSE oi.line_total END AS revenue,
+                (oi.quantity - oi.returned_qty) * COALESCE(oi.cost, 0) AS cost
+         FROM order_items oi
+         JOIN orders o ON o.id = oi.order_id
+         WHERE o.status = 'completed' AND o.created_at BETWEEN ? AND ?
+           AND (? IS NULL OR o.branch_id = ?)
+
+         UNION ALL
+
+         SELECT di.product_id,
+                di.quantity AS quantity,
+                di.line_total AS revenue,
+                di.quantity * COALESCE(di.cost, 0) AS cost
+         FROM document_items di
+         JOIN documents d ON d.id = di.document_id
+         WHERE d.doc_type = 'sales_invoice' AND d.status = 'confirmed'
+           AND COALESCE(d.confirmed_at, d.created_at) BETWEEN ? AND ?
+           AND (? IS NULL OR d.branch_id = ?)
+       ) s
+       JOIN products p ON p.id = s.product_id
        GROUP BY p.id
-       ORDER BY (SUM(oi.line_total) - SUM(oi.quantity * COALESCE(oi.cost, 0))) DESC
+       HAVING SUM(s.quantity) > 0
+       ORDER BY (SUM(s.revenue) - SUM(s.cost)) DESC
        LIMIT ?`,
     )
-    .all(bounds.from, bounds.to, limit)
+    .all(
+      bounds.from, bounds.to, branchId, branchId,
+      bounds.from, bounds.to, branchId, branchId,
+      limit,
+    )
     .map((r) => ({ ...r, profit: round2(r.revenue - r.cost) }));
 }
 
@@ -204,7 +301,7 @@ export function profitReport({ from = null, to = null, includeExpenses = true, b
     register,
     invoices,
     refunds: refunded,
-    topProducts: byProduct(bounds),
+    topProducts: byProduct(bounds, 10, branchId),
     /*
      * Sales made before costs were recorded on the line have no cost to
      * subtract, so their profit is overstated. Saying so is better than
@@ -249,8 +346,10 @@ export function profitForSession(sessionId, { includeExpenses = true, branchId =
     netProfit: round2(grossProfit - expenses.total),
     register,
     invoices,
-    refunds: refunds(bounds),
-    topProducts: byProduct(bounds),
+    // Scoped like every other figure on this report — the sitting belongs to one
+    // counter, and another branch's refunds are not part of it.
+    refunds: refunds(bounds, branchId),
+    topProducts: byProduct(bounds, 10, branchId),
     unknownCostLines: register.unknownCostLines + invoices.unknownCostLines,
   };
 }
