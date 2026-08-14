@@ -1087,7 +1087,21 @@ export default function Checkout() {
             )}
             <div className="flex items-baseline justify-between border-t border-slate-100 pt-2">
               <dt className="font-semibold text-slate-900">{t('Total')}</dt>
-              <dd className="text-2xl font-semibold text-slate-900">{money(total)}</dd>
+              {/*
+                * Keyed on the figure itself, so the emphasis replays whenever
+                * the number changes and at no other time.
+                *
+                * The one place in the app worth animating a value: this is what
+                * the customer is about to be asked for, it changes on every
+                * scan, and a total that silently becomes a different total is
+                * how the wrong amount gets read out.
+                */}
+              <dd
+                key={total}
+                className="animate-value-bump origin-right text-2xl font-semibold text-slate-900"
+              >
+                {money(total)}
+              </dd>
             </div>
 
             {/*

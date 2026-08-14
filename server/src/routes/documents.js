@@ -122,8 +122,8 @@ router.post('/', requireAuth, requirePermission('documents'), (req, res) => {
           `INSERT INTO documents
              (doc_type, doc_number, party_type, party_id, status, valid_until, subtotal,
               discount_percent, discount, tax, total, exchange_rate, on_account, notes, user_id,
-              paid_usd, paid_lbp, payment_method)
-           VALUES (?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              paid_usd, paid_lbp, payment_method, branch_id)
+           VALUES (?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           docType,
@@ -144,6 +144,18 @@ router.post('/', requireAuth, requirePermission('documents'), (req, res) => {
           paid.paidUsd,
           paid.paidLbp,
           paid.method,
+          /*
+           * Which counter wrote it, recorded now rather than left for the
+           * start-up backfill to guess at.
+           *
+           * Leaving it null was a quiet hole in the books: every report is
+           * scoped to a branch, and `branch_id IS NULL` matches no branch at
+           * all — so an invoice stayed out of the Profit screen until the next
+           * restart happened to sweep it into the main branch. A shop that
+           * invoices its trade customers could look at a month's takings and
+           * see only what went across the register.
+           */
+          req.branchId,
         );
 
       const insertItem = db.prepare(
@@ -356,8 +368,9 @@ router.post('/:id/convert', requireAuth, requirePermission('documents'), (req, r
         .prepare(
           `INSERT INTO documents
              (doc_type, doc_number, party_type, party_id, status, subtotal, discount_percent,
-              discount, tax, total, exchange_rate, on_account, notes, converted_from_id, user_id)
-           VALUES (?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              discount, tax, total, exchange_rate, on_account, notes, converted_from_id, user_id,
+              branch_id)
+           VALUES (?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           target,
@@ -374,6 +387,8 @@ router.post('/:id/convert', requireAuth, requirePermission('documents'), (req, r
           doc.notes,
           doc.id,
           req.user.id,
+          // The quotation's own branch, not whoever happens to be converting it.
+          doc.branch_id ?? req.branchId,
         );
 
       const insertItem = db.prepare(

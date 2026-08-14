@@ -40,7 +40,17 @@ export function Button({
     <button
       disabled={disabled || loading}
       className={cx(
-        'inline-flex shrink-0 select-none items-center justify-center rounded-lg font-medium whitespace-nowrap transition',
+        'inline-flex shrink-0 select-none items-center justify-center rounded-lg font-medium whitespace-nowrap',
+        'transition duration-150 ease-out',
+        /*
+         * A press that is felt.
+         *
+         * The counter machine is a touchscreen as often as not, where there is
+         * no hover to tell you the finger landed on the button rather than a
+         * millimetre beside it. The dip is tiny and it is undone the moment the
+         * finger lifts, so a rung-up sale never waits on it.
+         */
+        'active:scale-[0.98] disabled:active:scale-100',
         'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600',
         'disabled:cursor-not-allowed disabled:opacity-50',
         BUTTON_VARIANTS[variant],
@@ -251,7 +261,7 @@ export function Modal({ open, onClose, title, subtitle, children, footer, size =
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-[2px]"
+      className="animate-backdrop-in fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-[2px]"
       onClick={onClose}
       role="presentation"
     >

@@ -2504,6 +2504,15 @@ try {
     }
     // And it is not simply gone: the way to everything else is on screen.
     await page.waitForSelector('a[href="/menu"]:visible', { timeout: 10000 });
+
+    /*
+     * Nor the tab strip. This run has been round most of the app by now, so
+     * there are plenty of open pages for it to list — and the counter is the
+     * one screen that must not offer a row of other places to be.
+     */
+    if (await page.locator('nav[aria-label="Open pages"]:visible').count()) {
+      throw new Error('the tab strip is on the register');
+    }
   });
 
   await step('and it comes back for whoever wants it, and stays back', async () => {

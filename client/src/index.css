@@ -35,7 +35,31 @@
   --color-ink-secondary: #4a5162;
   --color-ink-muted: #79808f;
 
-  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /*
+   * The shop's own type.
+   *
+   * System fonts only, and deliberately: this runs on a counter machine in
+   * Beirut that may have no internet the morning the power comes back, and a
+   * webfont that fails to load is a screen of Times New Roman during a sale.
+   *
+   * The Arabic faces are named ahead of the Latin fallbacks so the half of the
+   * app that runs in Arabic gets a face designed for it rather than whatever
+   * the browser reaches for last.
+   */
+  --font-sans:
+    system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans Arabic", "Geeza Pro",
+    "Segoe UI Arabic", "Helvetica Neue", Arial, sans-serif;
+
+  /*
+   * Corners, one step softer than Tailwind's defaults.
+   *
+   * Set here rather than by rewriting `rounded-lg` on four hundred elements —
+   * one token moves every card, button, field and dialog together, which is the
+   * only way a change like this stays consistent.
+   */
+  --radius-lg: 0.625rem;
+  --radius-xl: 0.875rem;
+  --radius-2xl: 1.125rem;
 }
 
 html,
@@ -48,6 +72,26 @@ body,
 body {
   @apply bg-slate-100 text-slate-900 antialiased;
   font-family: var(--font-sans);
+  /*
+   * Contextual alternates on, and the "l/1/I" confusion off where the face
+   * offers a way — an IMEI and a SKU are read character by character, out loud,
+   * off a screen at arm's length.
+   */
+  font-feature-settings: "cv05" 1, "ss01" 1;
+  text-rendering: optimizeLegibility;
+}
+
+/*
+ * Headings sit a touch tighter than body text.
+ *
+ * Default tracking is set for paragraphs; a two-word screen title at 20px
+ * reads as slightly loose beside it, which is what makes an interface look
+ * assembled rather than designed.
+ */
+h1,
+h2,
+h3 {
+  letter-spacing: -0.011em;
 }
 
 /*
@@ -92,10 +136,86 @@ body {
   animation: sheet-in 180ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+/*
+ * A dialog's backdrop fades; the dialog itself already rises (sheet-in above).
+ * Separating the two is what stops a modal feeling like it was stamped onto
+ * the screen.
+ */
+@keyframes backdrop-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.animate-backdrop-in {
+  animation: backdrop-in 140ms ease-out;
+}
+
+/*
+ * A page arriving.
+ *
+ * Small and quick on purpose — eight pixels and a fifth of a second. Anything
+ * more is a thing a cashier waits for forty times an hour, and the point of
+ * the movement is only to say "this is new content", not to be noticed.
+ */
+@keyframes page-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.animate-page-in {
+  animation: page-in 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/*
+ * A figure that has just changed.
+ *
+ * Used on the running total: when a line is added the number is replaced, and
+ * without a moment's emphasis the eye does not register that the thing it was
+ * about to read is no longer the thing on screen.
+ */
+@keyframes value-bump {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(1.04);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+.animate-value-bump {
+  animation: value-bump 220ms ease-out;
+}
+
+/*
+ * Every one of them off when the machine has been asked for stillness.
+ *
+ * Not a nicety: motion sensitivity is real, and a till is not somewhere anybody
+ * chose to be. The interface must remain entirely usable with all of this gone,
+ * which is why nothing above carries meaning that the static screen does not.
+ */
 @media (prefers-reduced-motion: reduce) {
   .animate-toast-in,
-  .animate-sheet-in {
+  .animate-sheet-in,
+  .animate-backdrop-in,
+  .animate-page-in,
+  .animate-value-bump {
     animation: none;
+  }
+
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
   }
 }
 

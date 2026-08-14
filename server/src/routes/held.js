@@ -12,7 +12,10 @@ const till = [requireAuth, requirePermission('register')];
 
 router.get('/', ...till, (req, res) => {
   const status = ['held', 'resumed', 'voided', 'all'].includes(req.query.status) ? req.query.status : 'held';
-  res.json({ held: listHeld({ status, limit: req.query.limit }), count: countHeld() });
+  res.json({
+    held: listHeld({ status, limit: req.query.limit, branchId: req.branchId }),
+    count: countHeld(req.branchId),
+  });
 });
 
 router.get('/:id', ...till, (req, res) => {
@@ -32,8 +35,9 @@ router.post('/', ...till, (req, res) => {
       customerName,
       note,
       userId: req.user.id,
+      branchId: req.branchId,
     });
-    res.status(201).json({ held, count: countHeld() });
+    res.status(201).json({ held, count: countHeld(req.branchId) });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -49,7 +53,7 @@ router.post('/', ...till, (req, res) => {
 router.post('/:id/resume', ...till, (req, res) => {
   try {
     const held = resumeHeld(Number(req.params.id), req.user.id);
-    res.json({ held, issues: held.issues, count: countHeld() });
+    res.json({ held, issues: held.issues, count: countHeld(req.branchId) });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -57,7 +61,7 @@ router.post('/:id/resume', ...till, (req, res) => {
 
 router.delete('/:id', ...till, (req, res) => {
   try {
-    res.json({ held: voidHeld(Number(req.params.id), req.user.id), count: countHeld() });
+    res.json({ held: voidHeld(Number(req.params.id), req.user.id), count: countHeld(req.branchId) });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
