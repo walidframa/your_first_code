@@ -28,6 +28,15 @@ import {
   useToast,
 } from '../../components/ui';
 
+/** What each kind of dealing is called, in the shop's own words. */
+const DEALING_LABELS = {
+  order: 'Sale',
+  quotation: 'Quotation',
+  sales_invoice: 'Sales invoice',
+  purchase_invoice: 'Purchase invoice',
+  sales_order: 'Sales order',
+};
+
 const KIND_LABELS = {
   sale: 'Sale on account',
   payment: 'Payment',
@@ -263,7 +272,7 @@ function PartyDetail({ partyId, config, onClose, onChanged }) {
     );
   }
 
-  const { party, entries } = data;
+  const { party, entries, dealings = [] } = data;
 
   return (
     <>
@@ -294,8 +303,47 @@ function PartyDetail({ partyId, config, onClose, onChanged }) {
           </div>
         </div>
 
+        {/*
+          * What was done with them, and what is owed, are two different
+          * questions and both get asked. The ledger below only ever holds
+          * money that was *owed* or settled, so a customer who paid cash at
+          * the counter appears nowhere in it — which is why "show me
+          * everything I have done with this customer" needed its own list.
+          */}
+        {dealings.length > 0 && (
+          <div className="mb-4">
+            <h3 className="mb-1.5 text-xs font-semibold tracking-wide text-slate-500 uppercase">
+              Sales, invoices and quotations
+            </h3>
+            <ul className="max-h-56 divide-y divide-slate-100 overflow-y-auto rounded-xl ring-1 ring-slate-200">
+              {dealings.map((d) => (
+                <li key={`${d.kind}-${d.id}`} className="flex items-center gap-3 px-3 py-2 text-sm">
+                  <span className="w-28 shrink-0 truncate font-medium text-slate-700">
+                    {DEALING_LABELS[d.kind] || d.kind}
+                  </span>
+                  <span className="w-24 shrink-0 truncate text-xs text-slate-500">{d.reference}</span>
+                  <span className="min-w-0 flex-1 truncate text-xs text-slate-400">
+                    {String(d.at).slice(0, 16).replace('T', ' ')}
+                    {d.who ? ` · ${d.who}` : ''}
+                    {/* A refunded sale still happened; saying so is the point
+                        of a history. */}
+                    {d.status && d.status !== 'confirmed' && d.status !== 'completed'
+                      ? ` · ${d.status}`
+                      : ''}
+                    {d.onAccount ? ' · on account' : ''}
+                  </span>
+                  <span className="tnum shrink-0 font-medium text-slate-800">{money(d.total)}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        <h3 className="mb-1.5 text-xs font-semibold tracking-wide text-slate-500 uppercase">
+          Money owed and paid
+        </h3>
         {entries.length === 0 ? (
-          <EmptyState title="No activity yet" description="Sales, bills and payments will appear here." />
+          <EmptyState title="Nothing on account" description="Charges and payments will appear here." />
         ) : (
           <ul className="divide-y divide-slate-100">
             {entries.map((e) => (

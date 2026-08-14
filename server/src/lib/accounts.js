@@ -159,3 +159,74 @@ export function accountsSummary() {
     topDebtors: overdue,
   };
 }
+
+/**
+ * Everything the shop has actually done with somebody.
+ *
+ * The ledger above answers "what do they owe?" — and only that. An entry is
+ * written when money is *owed* or *settled*, so a customer who pays cash at the
+ * counter, or a supplier invoice paid on the spot, leaves no trace in it at
+ * all. Ask a shopkeeper what they have done with a customer and they mean the
+ * phones, not the balance.
+ *
+ * So this is the other half: the documents raised with them and the sales rung
+ * up for them, whether or not any of it was ever on account. Two queries rather
+ * than a join, because they are different things with different numbers on
+ * them, and merging them in SQL would mean inventing a shape that suits
+ * neither.
+ */
+export function dealingsWith(partyType, partyId, limit = 100) {
+  const cap = Math.min(Number(limit) || 100, 500);
+
+  const documents = db
+    .prepare(
+      `SELECT id, doc_number, doc_type, status, total, created_at, confirmed_at, on_account
+         FROM documents
+        WHERE party_type = ? AND party_id = ?
+        ORDER BY COALESCE(confirmed_at, created_at) DESC
+        LIMIT ?`,
+    )
+    .all(partyType, partyId, cap)
+    .map((d) => ({
+      id: d.id,
+      kind: d.doc_type,
+      reference: d.doc_number,
+      status: d.status,
+      total: d.total,
+      onAccount: !!d.on_account,
+      at: d.confirmed_at || d.created_at,
+    }));
+
+  /*
+   * Only customers are rung up at the register — a supplier is somebody the
+   * shop buys from, and buying happens on a purchase invoice.
+   */
+  const orders =
+    partyType === 'customer'
+      ? db
+          .prepare(
+            `SELECT o.id, o.order_number, o.status, o.total, o.payment_method, o.created_at,
+                    u.name AS user_name
+               FROM orders o
+               LEFT JOIN users u ON u.id = o.cashier_id
+              WHERE o.customer_id = ?
+              ORDER BY o.created_at DESC
+              LIMIT ?`,
+          )
+          .all(partyId, cap)
+          .map((o) => ({
+            id: o.id,
+            kind: 'order',
+            reference: o.order_number,
+            status: o.status,
+            total: o.total,
+            paidBy: o.payment_method,
+            who: o.user_name,
+            at: o.created_at,
+          }))
+      : [];
+
+  // Newest first across both, so it reads as one history rather than two lists
+  // somebody has to interleave by eye.
+  return [...documents, ...orders].sort((a, b) => String(b.at).localeCompare(String(a.at)));
+}
