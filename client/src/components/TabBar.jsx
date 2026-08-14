@@ -30,7 +30,10 @@ export default function TabBar() {
   }
 
   return (
-    <div className="flex items-center gap-2 border-b border-slate-200 bg-white px-3 py-1.5">
+    <nav
+      aria-label="Open pages"
+      className="flex items-center gap-2 border-b border-slate-200 bg-white px-3 py-1.5"
+    >
       <BackButton onClick={() => navigate(-1)} />
 
       {/* Scrolls rather than wraps: a second row of tabs would push the page
@@ -81,7 +84,7 @@ export default function TabBar() {
       >
         Close all
       </button>
-    </div>
+    </nav>
   );
 }
 

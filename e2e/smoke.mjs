@@ -2147,7 +2147,15 @@ try {
   });
 
   await step('an expense out of the same drawer is recorded, not absorbed', async () => {
-    await page.click('button:has-text("Expense")');
+    /*
+     * Exactly "Expense", not anything containing it.
+     *
+     * The tab strip names each open page on a button of its own, so once this
+     * run has been to the Expenses screen there is a button reading "Expenses"
+     * — and a substring match finds that first and merely switches tabs. The
+     * dialog then never opens, from a click that looked like it worked.
+     */
+    await page.getByRole('button', { name: 'Expense', exact: true }).click();
     await page.waitForSelector('[role=dialog] >> text=Money spent running the shop', { timeout: 10000 });
     await page.locator('[role=dialog] #amountUsd').fill('4');
     await page.locator('[role=dialog] #note').fill('Water for the counter');
