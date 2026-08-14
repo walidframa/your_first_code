@@ -45,6 +45,9 @@ const optional = (request, fallback) => request.then((res) => res.data).catch(()
 
 const round2 = (n) => Math.round(n * 100) / 100;
 
+/** Where a half-rung sale waits while somebody looks at another page. */
+const CART_KEY = 'pos_cart';
+
 export default function Checkout() {
   const toast = useToast();
   const searchRef = useRef(null);
@@ -69,7 +72,37 @@ export default function Checkout() {
 
   const [search, setSearch] = useState('');
   const [activeCategory, setActiveCategory] = useState('all');
-  const [cart, setCart] = useState([]);
+  /*
+   * The cart survives leaving this screen.
+   *
+   * It is somebody's actual sale, half rung up, with a customer standing
+   * there. Before tabs there was no ordinary way to leave the register
+   * mid-sale; now there is — checking a price, looking up a repair — and
+   * losing the cart on the way back would make that a trap rather than a
+   * feature.
+   *
+   * Session storage, not local: a sale belongs to whoever is at the counter
+   * now. A till reopened tomorrow morning must not offer the night's abandoned
+   * cart to whoever opens it. Anything meant to outlive the sitting is a held
+   * sale, which is a deliberate act with a name on it.
+   */
+  const [cart, setCart] = useState(() => {
+    try {
+      const kept = JSON.parse(sessionStorage.getItem(CART_KEY) || '[]');
+      return Array.isArray(kept) ? kept : [];
+    } catch {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    try {
+      if (cart.length) sessionStorage.setItem(CART_KEY, JSON.stringify(cart));
+      else sessionStorage.removeItem(CART_KEY);
+    } catch {
+      /* A full or blocked store must not stop anybody selling. */
+    }
+  }, [cart]);
   /*
    * A discount, and which of the three things it is.
    *

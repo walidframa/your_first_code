@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router';
+import TabBar from './TabBar';
+import { TabsProvider } from '../context/TabsContext';
 import OfflineBar from './OfflineBar';
 import { useT } from '../context/LanguageContext';
 import {
@@ -166,6 +168,7 @@ export default function Layout() {
     .toUpperCase();
 
   return (
+    <TabsProvider>
     <div className="flex h-full bg-slate-100">
       {/*
        * The rail is a desktop thing.
@@ -375,10 +378,17 @@ export default function Layout() {
 
         {/* Above everything, because it changes what the next press means. */}
         <OfflineBar />
+        {/*
+         * Back, and the pages that are open. Between the header and the page,
+         * so it is in the same place on every screen — a control that moves is
+         * a control that has to be found again each time.
+         */}
+        <TabBar />
         <div className="min-h-0 flex-1 overflow-hidden">
           <Outlet />
         </div>
       </main>
     </div>
+    </TabsProvider>
   );
 }
