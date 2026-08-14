@@ -139,6 +139,26 @@ test('profit is on the report for whoever may see profit', async () => {
   );
 });
 
+/*
+ * Reported from a live shop: the register showed a profit while its own sales
+ * list showed nothing but refunds. The figure was right — a sitting's profit is
+ * the shop's whole trade over those hours, invoices included — but the panel
+ * gave no way to see that, so it read as money appearing from nowhere.
+ */
+test('the profit figure says which counter it came from', async () => {
+  const { report } = (await req('GET', `/cash/sessions/${sessionId}/report`, null, adminToken)).json;
+
+  assert.equal(typeof report.profit.fromRegister, 'number', 'what was rung up here');
+  assert.equal(typeof report.profit.fromInvoices, 'number', 'and what was invoiced elsewhere');
+  assert.equal(typeof report.profit.refundedOrders, 'number', 'and what came back');
+
+  assert.equal(
+    Math.round((report.profit.fromRegister + report.profit.fromInvoices) * 100) / 100,
+    report.profit.revenue,
+    'the two halves account for the whole figure, or the panel explains nothing',
+  );
+});
+
 test('and is absent for a cashier, on the same report of their own sitting', async () => {
   const res = await req('GET', `/cash/sessions/${sessionId}/report`, null, cashierToken);
   assert.equal(res.status, 200, 'they opened this till, so the report is theirs to read');
