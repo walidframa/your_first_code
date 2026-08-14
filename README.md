@@ -1572,6 +1572,20 @@ A branch cannot be closed while it holds stock, has a cashbox open, or has goods
 on the way to it — those things are physically somewhere, and closing the branch
 would only make them vanish from the count. Its past sales are kept either way.
 
+**Everything that happens is stamped with the branch it happened at, when it
+happens.** Not left for the start-up backfill, which exists only to give a
+pre-branch database a home for its history. Documents were not being stamped,
+and because every report is scoped to a branch — and `branch_id IS NULL` matches
+no branch at all — an invoice stayed out of the Profit screen until the next
+restart happened to sweep it into the main branch. A shop that invoices its
+trade customers could read a month's takings and see only the register.
+
+A **held sale** is scoped the same way, and for a harder reason than reporting:
+resuming one rings it up here, so a cart parked at the second shop and picked
+back up at the first would take its handsets off the wrong shelf. Holds taken
+before branches existed carry no branch and stay visible everywhere, rather than
+disappearing from the shop that parked them.
+
 ## Barcodes
 
 **A product can have as many barcodes as the thing on the shelf actually has.**
@@ -1951,6 +1965,27 @@ figure that is too good.
 Refunded orders are left out of revenue entirely rather than netted off: an
 order that was refunded did not happen, and counting it twice would distort the
 average sale.
+
+**A sale that came back only in part is treated line by line.** It keeps its
+`completed` status, because the two handsets the customer kept really were sold
+— so revenue and cost are both built from `quantity − returned_qty`, and the
+order's own discount and tax are scaled by the share that stayed sold. Summing
+the order's total instead credited the shop with profit on a phone it had handed
+back over the counter.
+
+Both kinds of return are then **named on the screen**, under the revenue
+breakdown: so many refunded sales, and so much of items returned off others.
+The money is missing from the figures either way, and an owner reading a thin
+month should not have to go looking for the reason.
+
+**Refunds are shown below the revenue total, not above it.** They were never in
+revenue, so listing them with a minus sign over a total that did not subtract
+them was arithmetic that visibly did not work — and a figure a shopkeeper cannot
+make add up is a figure they stop believing.
+
+**What made the most counts both counters.** A month whose trade went out on
+sales invoices used to read "Nothing sold in this period" directly beneath a
+revenue figure the same screen had just printed.
 
 ## What an item did
 
