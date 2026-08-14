@@ -209,14 +209,23 @@ export function CardHeader({ title, subtitle, action, className }) {
 
 /* ----------------------------------------------------------------- Badge */
 
+/*
+ * Each tone carries its own hairline in the same hue as its fill.
+ *
+ * A pale wash on a white card has no edge, so a row of badges reads as coloured
+ * text rather than as a set of chips — and the paler tones (good, info) come
+ * close to disappearing at a glance from a metre away, which is the distance a
+ * shopkeeper actually reads a status from. The ring costs one pixel and gives
+ * every badge the same weight, whatever its colour.
+ */
 const BADGE_TONES = {
-  neutral: 'bg-slate-100 text-slate-700',
-  brand: 'bg-brand-50 text-brand-800',
-  good: 'bg-emerald-50 text-emerald-800',
-  warning: 'bg-amber-50 text-amber-800',
-  serious: 'bg-orange-50 text-orange-800',
-  critical: 'bg-red-50 text-red-700',
-  info: 'bg-blue-50 text-blue-700',
+  neutral: 'bg-slate-100 text-slate-700 ring-1 ring-slate-900/[0.06]',
+  brand: 'bg-brand-50 text-brand-800 ring-1 ring-brand-600/15',
+  good: 'bg-emerald-50 text-emerald-800 ring-1 ring-emerald-600/15',
+  warning: 'bg-amber-50 text-amber-800 ring-1 ring-amber-600/20',
+  serious: 'bg-orange-50 text-orange-800 ring-1 ring-orange-600/20',
+  critical: 'bg-red-50 text-red-700 ring-1 ring-red-600/20',
+  info: 'bg-blue-50 text-blue-700 ring-1 ring-blue-600/15',
 };
 
 export function Badge({ tone = 'neutral', icon: Icon, children, className }) {
@@ -342,8 +351,17 @@ export function EmptyState({ icon: Icon, title, description, action, className }
   );
 }
 
+/**
+ * A shape waiting for its content.
+ *
+ * A sweep rather than a pulse. Both say "loading", but a pulse fades the whole
+ * block in and out — on a slow connection over a Beirut mobile signal that
+ * reads as a screen flickering, while a sweep reads as work in progress and
+ * moves in one direction. It falls back to a plain block under
+ * prefers-reduced-motion, where it is still obviously a placeholder.
+ */
 export function Skeleton({ className }) {
-  return <div className={cx('animate-pulse rounded-md bg-slate-200/70', className)} />;
+  return <div className={cx('skeleton rounded-md bg-slate-200/70', className)} />;
 }
 
 /* ---------------------------------------------------------------- Toasts */
