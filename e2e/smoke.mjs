@@ -1927,20 +1927,34 @@ try {
     await goTo('Sales');
 
     /*
-     * The default view first: this month, which is where a shop looks without
-     * pressing anything. If the table is not here, say what is instead —
-     * a bare locator timeout tells you nothing about why.
+     * Anchored on this screen's own search box before anything is read.
+     *
+     * Every history now carries the same bar, and several of them carry a
+     * table and an "All" — so a check that starts reading the moment a table
+     * exists can be reading the screen it just left.
      */
-    const table = page.locator('table').first();
+    const box = page.locator('input[aria-label="Search sales"]');
     try {
-      await table.waitFor({ timeout: 20000 });
+      await box.waitFor({ timeout: 20000 });
     } catch {
       const shown = await page.locator('main').innerText();
-      throw new Error(`no sales table on the Sales screen. The page says:\n${shown.slice(0, 400)}`);
+      throw new Error(`the Sales screen did not arrive. The page says:\n${shown.slice(0, 400)}`);
     }
 
-    if (!(await table.innerText()).includes('ORD-')) {
-      throw new Error('the register sales have gone from their own screen');
+    // The default view first: this month, which is where a shop looks without
+    // pressing anything.
+    const table = page.locator('table').first();
+    await table.waitFor({ timeout: 20000 });
+    try {
+      await page.waitForFunction(
+        () => document.querySelector('table')?.innerText.includes('ORD-'),
+        null,
+        { timeout: 15000 },
+      );
+    } catch {
+      throw new Error(
+        `the register sales have gone from their own screen. The list holds:\n${(await table.innerText()).slice(0, 400)}`,
+      );
     }
 
     // Widened to everything, so an invoice confirmed earlier in this run is in
