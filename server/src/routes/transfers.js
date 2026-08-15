@@ -10,6 +10,14 @@ import {
   summarise,
   transferById,
 } from '../lib/transfers.js';
+import {
+  companyById,
+  createCompany,
+  listCompanies,
+  setOpeningBalance,
+  updateCompany,
+} from '../lib/transferCompanies.js';
+import { listEntries } from '../lib/accounts.js';
 
 const router = Router();
 
@@ -20,10 +28,62 @@ router.get('/meta', ...desk, (req, res) => {
   // The desk's own till is picked here rather than assumed: a transfer counter
   // with its own float is the whole reason tills are named.
   res.json({
+    // The names a Lebanese shop usually deals with, and the agencies this one
+    // actually has an account with — which after the first transfer is the
+    // list that matters.
     companies: TRANSFER_COMPANIES,
+    agencies: listCompanies(),
     directions: TRANSFER_DIRECTIONS,
     tills: listCashAccounts({ activeOnly: true }),
   });
+});
+
+/* --------------------------------------------------------------- agencies */
+
+/**
+ * What the shop stands at with each agency.
+ *
+ * The figure an operator compares against the agency's own app at the end of a
+ * day, which is the whole point of keeping it.
+ */
+router.get('/companies', ...desk, (req, res) => {
+  res.json({ companies: listCompanies({ includeInactive: req.query.all === '1' }) });
+});
+
+router.get('/companies/:id', ...desk, (req, res) => {
+  const company = companyById(req.params.id);
+  if (!company) return res.status(404).json({ error: 'That agency does not exist' });
+  res.json({
+    company,
+    entries: listEntries('transfer_company', company.id),
+  });
+});
+
+router.post('/companies', ...desk, (req, res) => {
+  try {
+    const company = createCompany({ ...req.body, userId: req.user.id });
+    res.status(201).json({ company });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.put('/companies/:id', ...desk, (req, res) => {
+  try {
+    res.json({ company: updateCompany(req.params.id, req.body || {}) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+/** Where the balance starts, for a shop that was trading before this screen. */
+router.put('/companies/:id/opening', ...desk, (req, res) => {
+  try {
+    const company = setOpeningBalance(req.params.id, { ...req.body, userId: req.user.id });
+    res.json({ company });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
 });
 
 /**

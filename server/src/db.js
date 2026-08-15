@@ -1115,6 +1115,103 @@ function migrateVouchersToTwoSides() {
 
 migrateVouchersToTwoSides();
 
+/**
+ * The agencies the shop runs a transfer counter for.
+ *
+ * OMT, Whish, Western Union. The shop is their counter, not their customer, and
+ * the money crossing it is never the shop's: on a send it takes the customer's
+ * cash and owes the agency the amount; on a payout it hands over its own cash
+ * and the agency owes it back. What the shop keeps either way is the fee.
+ *
+ * So each agency carries a running balance, exactly like a supplier does, and
+ * the point of it is the comparison an operator makes at the end of a day:
+ * this is what the drawer says I am holding for OMT, and this is what OMT says.
+ * Until it was written down, that comparison was somebody's memory.
+ *
+ * `opening_usd` / `opening_lbp` are where a shop that has been trading for
+ * years starts from. Nobody is going to key in four hundred past transfers, so
+ * the balance on the day they start using this is typed in once.
+ */
+db.exec(`
+  CREATE TABLE IF NOT EXISTS transfer_companies (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT UNIQUE NOT NULL,
+    phone TEXT,
+    note TEXT,
+    /* Where the running balance starts, in the sign the ledger uses:
+       positive means the shop owes the agency. */
+    opening_usd REAL NOT NULL DEFAULT 0,
+    opening_lbp REAL NOT NULL DEFAULT 0,
+    opening_set_at TEXT,
+    is_active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+`);
+
+/**
+ * Let the ledger hold a transfer agency as well as a customer or a supplier.
+ *
+ * The three are the same fact — somebody the shop is square with or is not —
+ * and one ledger means one balance query, one statement, and one way to settle
+ * up. SQLite cannot widen a CHECK in place, so the table is rebuilt with every
+ * row copied across; the ids are carried so nothing that points at an entry is
+ * left pointing at a different one.
+ */
+function migrateEntriesToThreeParties() {
+  const row = db
+    .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'account_entries'")
+    .get();
+  if (!row?.sql || row.sql.includes('transfer_company')) return;
+
+  db.exec('PRAGMA foreign_keys = OFF');
+  db.exec('BEGIN');
+  try {
+    db.exec('ALTER TABLE account_entries RENAME TO account_entries_old');
+    db.exec(`
+      CREATE TABLE account_entries (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        party_type TEXT NOT NULL
+          CHECK (party_type IN ('customer', 'supplier', 'transfer_company')),
+        party_id INTEGER NOT NULL,
+        kind TEXT NOT NULL
+          CHECK (kind IN ('sale', 'payment', 'refund', 'bill', 'adjustment', 'opening')),
+        amount_usd REAL NOT NULL,
+        paid_usd REAL NOT NULL DEFAULT 0,
+        paid_lbp REAL NOT NULL DEFAULT 0,
+        exchange_rate REAL,
+        order_id INTEGER REFERENCES orders(id),
+        note TEXT,
+        user_id INTEGER REFERENCES users(id),
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+    `);
+    db.exec(`
+      INSERT INTO account_entries
+        (id, party_type, party_id, kind, amount_usd, paid_usd, paid_lbp,
+         exchange_rate, order_id, note, user_id, created_at)
+      SELECT id, party_type, party_id, kind, amount_usd, paid_usd, paid_lbp,
+             exchange_rate, order_id, note, user_id, created_at
+      FROM account_entries_old
+    `);
+    db.exec('DROP TABLE account_entries_old');
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_account_entries_party
+        ON account_entries(party_type, party_id, created_at)
+    `);
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  } finally {
+    db.exec('PRAGMA foreign_keys = ON');
+  }
+}
+
+migrateEntriesToThreeParties();
+
+/* Which agency a transfer was with, once they are accounts rather than words. */
+addColumn('transfers', 'company_id', 'INTEGER REFERENCES transfer_companies(id)');
+
 /*
  * Payment and receipt vouchers.
  *
@@ -1146,10 +1243,12 @@ db.exec(`
     /* Where the money came from and where it went. Either side may be one of
        the shop's own accounts (a till, a wallet) or somebody else's (a
        customer, a supplier, a name typed in words). */
-    from_type TEXT NOT NULL CHECK (from_type IN ('cash', 'wallet', 'customer', 'supplier', 'other')),
+    from_type TEXT NOT NULL
+      CHECK (from_type IN ('cash', 'wallet', 'customer', 'supplier', 'transfer_company', 'other')),
     from_id INTEGER,
     from_name TEXT NOT NULL,
-    to_type TEXT NOT NULL CHECK (to_type IN ('cash', 'wallet', 'customer', 'supplier', 'other')),
+    to_type TEXT NOT NULL
+      CHECK (to_type IN ('cash', 'wallet', 'customer', 'supplier', 'transfer_company', 'other')),
     to_id INTEGER,
     to_name TEXT NOT NULL,
     amount_usd REAL NOT NULL DEFAULT 0,
@@ -1184,6 +1283,76 @@ db.exec(`
  */
 addColumn('vouchers', 'document_id', 'INTEGER REFERENCES documents(id)');
 db.exec('CREATE INDEX IF NOT EXISTS idx_vouchers_document ON vouchers(document_id)');
+
+/**
+ * And let a voucher settle with a transfer agency, which is how the balance an
+ * agency runs up actually gets cleared.
+ *
+ * Written out in full rather than derived from the table as it stands: a
+ * migration that rewrites its own source with a regular expression is one
+ * upstream edit away from producing a table nobody meant. Every column is
+ * copied by name, ids included.
+ */
+function migrateVouchersToTransferCompanies() {
+  const row = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'vouchers'").get();
+  if (!row?.sql || row.sql.includes('transfer_company')) return;
+
+  db.exec('PRAGMA foreign_keys = OFF');
+  db.exec('BEGIN');
+  try {
+    db.exec('ALTER TABLE vouchers RENAME TO vouchers_narrow');
+    db.exec(`
+      CREATE TABLE vouchers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        voucher_number TEXT UNIQUE NOT NULL,
+        kind TEXT NOT NULL CHECK (kind IN ('payment', 'receipt', 'transfer')),
+        from_type TEXT NOT NULL
+          CHECK (from_type IN ('cash', 'wallet', 'customer', 'supplier', 'transfer_company', 'other')),
+        from_id INTEGER,
+        from_name TEXT NOT NULL,
+        to_type TEXT NOT NULL
+          CHECK (to_type IN ('cash', 'wallet', 'customer', 'supplier', 'transfer_company', 'other')),
+        to_id INTEGER,
+        to_name TEXT NOT NULL,
+        amount_usd REAL NOT NULL DEFAULT 0,
+        amount_lbp REAL NOT NULL DEFAULT 0,
+        exchange_rate REAL,
+        reason TEXT,
+        note TEXT,
+        reference TEXT,
+        status TEXT NOT NULL DEFAULT 'posted' CHECK (status IN ('posted', 'cancelled')),
+        cash_movement_id INTEGER REFERENCES cash_movements(id),
+        entry_id INTEGER REFERENCES account_entries(id),
+        user_id INTEGER REFERENCES users(id),
+        issued_on TEXT NOT NULL DEFAULT (date('now')),
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        cancelled_at TEXT,
+        document_id INTEGER REFERENCES documents(id)
+      );
+    `);
+
+    const columns = db
+      .prepare('PRAGMA table_info(vouchers_narrow)')
+      .all()
+      .map((c) => c.name)
+      .join(', ');
+    db.exec(`INSERT INTO vouchers (${columns}) SELECT ${columns} FROM vouchers_narrow`);
+
+    db.exec('DROP TABLE vouchers_narrow');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_vouchers_created ON vouchers(created_at)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_vouchers_from ON vouchers(from_type, from_id)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_vouchers_to ON vouchers(to_type, to_id)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_vouchers_document ON vouchers(document_id)');
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  } finally {
+    db.exec('PRAGMA foreign_keys = ON');
+  }
+}
+
+migrateVouchersToTransferCompanies();
 
 /* Which till a transfer's money passed through. */
 addColumn('transfers', 'account_id', 'INTEGER REFERENCES cash_accounts(id)');

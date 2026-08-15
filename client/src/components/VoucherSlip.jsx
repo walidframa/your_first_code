@@ -2,6 +2,7 @@ import { Printer } from 'lucide-react';
 import { lbp } from '../context/SettingsContext';
 import { Button, Modal, ModalActions, money } from './ui';
 import { useCompany } from './Letterhead';
+import { ROLL, usePageSize } from '../lib/pageSize';
 
 const REASONS = {
   supplier: 'Paying a supplier',
@@ -38,6 +39,9 @@ function Rule() {
 export function VoucherPaper({ voucher }) {
   const paying = voucher.kind === 'payment';
   const company = useCompany();
+  // A slip goes on the till roll, and says so rather than relying on whatever
+  // the last thing printed happened to leave the paper set to.
+  usePageSize(ROLL);
 
   return (
     <div className="print-slip mx-auto max-w-[300px] bg-white p-4 font-mono text-[13px] leading-snug text-black">

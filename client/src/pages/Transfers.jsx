@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router';
 import {
   ArrowDownLeft,
   ArrowLeftRight,
@@ -10,6 +11,7 @@ import {
 } from 'lucide-react';
 import api from '../api';
 import PageHeader from '../components/PageHeader';
+import TransferAgencies from '../components/TransferAgencies';
 import CashBox from '../components/CashBox';
 import AddExpense from '../components/AddExpense';
 import { lbp, useSettings } from '../context/SettingsContext';
@@ -315,6 +317,7 @@ function Stat({ label, usd, lbpAmount, tone = 'neutral' }) {
 
 export default function Transfers() {
   const toast = useToast();
+  const navigate = useNavigate();
   const { user, can } = useAuth();
 
   const [data, setData] = useState(null);
@@ -451,6 +454,22 @@ export default function Transfers() {
                   </p>
                 </Card>
               </div>
+
+              {/*
+               * What the shop stands at with each agency, above the day's own
+               * list — because the balance is the thing somebody came to this
+               * screen to check, and the transfers are how it got there.
+               */}
+              <TransferAgencies
+                refreshKey={moved}
+                onSettle={(company) =>
+                  navigate(
+                    `/vouchers?settle=transfer_company&partyId=${company.id}` +
+                      `&amount=${Math.abs(company.balance).toFixed(2)}` +
+                      `&direction=${company.balance > 0 ? 'pay' : 'receive'}`,
+                  )
+                }
+              />
 
               <div className="mb-3 flex items-center gap-2">
                 <div className="relative min-w-0 flex-1">

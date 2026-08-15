@@ -27,7 +27,7 @@ import { currentSession, recordMovement, requiresSession } from './cash.js';
 import { recordMovement as recordWalletMovement } from './wallets.js';
 
 export const VOUCHER_KINDS = ['payment', 'receipt', 'transfer'];
-export const ACCOUNT_TYPES = ['cash', 'wallet', 'customer', 'supplier', 'other'];
+export const ACCOUNT_TYPES = ['cash', 'wallet', 'customer', 'supplier', 'transfer_company', 'other'];
 
 /** The shop's own money, as opposed to a record of what somebody owes. */
 export const OWN_TYPES = ['cash', 'wallet'];
@@ -51,7 +51,11 @@ export const VOUCHER_REASONS = [
   'other',
 ];
 
-const PARTY_TABLES = { customer: 'customers', supplier: 'suppliers' };
+const PARTY_TABLES = {
+  customer: 'customers',
+  supplier: 'suppliers',
+  transfer_company: 'transfer_companies',
+};
 
 /** PV / RV / TV, sequential within its own series. */
 export function nextVoucherNumber(kind) {
@@ -109,7 +113,7 @@ function resolveSide(type, id, typedName, what) {
   }
 
   const party = db.prepare(`SELECT * FROM ${PARTY_TABLES[type]} WHERE id = ?`).get(id);
-  if (!party) throw new Error(`That ${type} does not exist`);
+  if (!party) throw new Error(`That ${type.replace('_', ' ')} does not exist`);
   return { type, id: party.id, name: party.name };
 }
 
@@ -123,7 +127,12 @@ function resolveSide(type, id, typedName, what) {
  */
 export function partySign(type, direction) {
   if (type === 'customer') return direction;
-  if (type === 'supplier') return -direction;
+  /*
+   * A transfer agency runs the same way round as a supplier: the shop holding
+   * their money owes them, and paying it over clears it. Which is exactly what
+   * settling up at the end of a week is.
+   */
+  if (type === 'supplier' || type === 'transfer_company') return -direction;
   return 0;
 }
 

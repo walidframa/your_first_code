@@ -2,7 +2,13 @@ import { db } from '../db.js';
 import { round2, tenderTotals, validatePayments } from './currency.js';
 import { getSettings } from './settings.js';
 
-export const PARTY_TABLES = { customer: 'customers', supplier: 'suppliers' };
+export const PARTY_TABLES = {
+  customer: 'customers',
+  supplier: 'suppliers',
+  /* A transfer agency is somebody the shop is square with or is not, exactly
+     like a supplier — so it keeps its balance in the same ledger. */
+  transfer_company: 'transfer_companies',
+};
 
 /**
  * Outstanding balance for one party, in USD.

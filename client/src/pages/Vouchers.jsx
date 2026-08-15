@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router';
 import { ArrowLeftRight, Ban, Printer, ReceiptText, Search } from 'lucide-react';
 import api from '../api';
 import PageHeader from '../components/PageHeader';
@@ -31,12 +32,14 @@ const TYPE_LABELS = {
   wallet: 'Wallet',
   customer: 'Customer',
   supplier: 'Supplier',
+  transfer_company: 'Transfer agency',
   other: 'Someone else',
 };
 
 const REASON_LABELS = {
   supplier: 'Paying a supplier',
   customer: 'Customer paying',
+  transfer_agency: 'Settling with a transfer agency',
   wages: 'Wages',
   rent: 'Rent',
   utilities: 'Utilities',
@@ -51,7 +54,7 @@ const REASON_LABELS = {
 
 const KIND_LABELS = { payment: 'Paid out', receipt: 'Taken in', transfer: 'Moved' };
 
-const SIDE_TYPES = ['cash', 'wallet', 'customer', 'supplier', 'other'];
+const SIDE_TYPES = ['cash', 'wallet', 'customer', 'supplier', 'transfer_company', 'other'];
 
 const label = (map, value) => map[value] || value;
 
@@ -128,18 +131,30 @@ function SidePicker({ legend, hint, accounts, value, onChange }) {
  * own accounts into somebody else's is a payment, the reverse is a receipt, and
  * between two of its own it is neither — the money never left.
  */
-function VoucherDialog({ meta, onClose, onSaved }) {
+function VoucherDialog({ meta, onClose, onSaved, prefill = null }) {
   const toast = useToast();
   const { rate, toLbp } = useSettings();
 
   const tills = meta.accounts.cash || [];
   const defaultTill = tills.find((t) => t.isDefault) || tills[0];
 
-  const [from, setFrom] = useState({ type: 'cash', id: defaultTill?.id ?? '', name: '' });
-  const [to, setTo] = useState({ type: 'other', id: '', name: '' });
-  const [amountUsd, setAmountUsd] = useState('');
+  /*
+   * Arrived here from somewhere that already knows the answer.
+   *
+   * Settling with a transfer agency is the case: the balance says which way the
+   * money goes and how much, and asking somebody to key all of that again — off
+   * a figure that is on the screen behind this one — is how it gets keyed
+   * wrong. Every field stays editable; they are filled in, not decided.
+   */
+  const till = { type: 'cash', id: defaultTill?.id ?? '', name: '' };
+  const party = prefill ? { type: prefill.partyType, id: prefill.partyId, name: '' } : null;
+  const paying = prefill?.direction === 'pay';
+
+  const [from, setFrom] = useState(prefill ? (paying ? till : party) : till);
+  const [to, setTo] = useState(prefill ? (paying ? party : till) : { type: 'other', id: '', name: '' });
+  const [amountUsd, setAmountUsd] = useState(prefill?.amount || '');
   const [amountLbp, setAmountLbp] = useState('');
-  const [reason, setReason] = useState('rent');
+  const [reason, setReason] = useState(prefill ? 'transfer_agency' : 'rent');
   const [reference, setReference] = useState('');
   const [note, setNote] = useState('');
   const [issuedOn, setIssuedOn] = useState(new Date().toISOString().slice(0, 10));
@@ -354,6 +369,7 @@ function Stat({ label: text, usd, lbpAmount, count, tone }) {
 
 export default function Vouchers() {
   const toast = useToast();
+  const [params, setParams] = useSearchParams();
   const [data, setData] = useState(null);
   const [meta, setMeta] = useState(null);
   const [preset, setPreset] = useState('month');
@@ -362,6 +378,28 @@ export default function Vouchers() {
   const [writing, setWriting] = useState(false);
   const [printing, setPrinting] = useState(null);
   const [moved, setMoved] = useState(0);
+
+  /*
+   * "Settle up" on the transfers screen sends the whole thing here rather than
+   * putting a second voucher form on that page. One desk writes the vouchers,
+   * and it is this one.
+   */
+  const settle = params.get('settle');
+  const prefill = settle
+    ? {
+        partyType: settle,
+        partyId: params.get('partyId') || '',
+        amount: params.get('amount') || '',
+        direction: params.get('direction') || 'pay',
+      }
+    : null;
+
+  useEffect(() => {
+    if (prefill) setWriting(true);
+    // Only when the link changes: reopening it on every render would make the
+    // dialog impossible to close.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settle, params.get('partyId')]);
 
   const load = useCallback(async () => {
     const res = await api.get('/vouchers', {
@@ -594,7 +632,11 @@ export default function Vouchers() {
       {writing && meta && (
         <VoucherDialog
           meta={meta}
-          onClose={() => setWriting(false)}
+          prefill={prefill}
+          onClose={() => {
+            setWriting(false);
+            setParams({});
+          }}
           onSaved={(voucher) => {
             setWriting(false);
             setMoved((n) => n + 1);

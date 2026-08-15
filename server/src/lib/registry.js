@@ -27,19 +27,28 @@ import { balanceMap as partyBalances } from './accounts.js';
 import { listAccounts as listTills } from './cashAccounts.js';
 import { listWallets } from './wallets.js';
 
-export const REGISTRY_TYPES = ['cash', 'wallet', 'customer', 'supplier'];
+export const REGISTRY_TYPES = ['cash', 'wallet', 'customer', 'supplier', 'transfer_company'];
 
 export const TYPE_LABELS = {
   cash: 'Cash accounts',
   wallet: 'Wallets',
   customer: 'Customers',
   supplier: 'Suppliers',
+  transfer_company: 'Transfer agencies',
+};
+
+const PARTY_TABLES = {
+  customer: 'customers',
+  supplier: 'suppliers',
+  transfer_company: 'transfer_companies',
 };
 
 function parties(type, { activeOnly }) {
-  const table = type === 'customer' ? 'customers' : 'suppliers';
+  const table = PARTY_TABLES[type];
+  // Agencies mark themselves away with `is_active`; the older two use `active`.
+  const flag = type === 'transfer_company' ? 'is_active' : 'active';
   const rows = db
-    .prepare(`SELECT * FROM ${table} ${activeOnly ? 'WHERE active = 1' : ''} ORDER BY name`)
+    .prepare(`SELECT * FROM ${table} ${activeOnly ? `WHERE ${flag} = 1` : ''} ORDER BY name`)
     .all();
   const balances = partyBalances(type);
 
@@ -48,7 +57,7 @@ function parties(type, { activeOnly }) {
     id: r.id,
     name: r.name,
     phone: r.phone || null,
-    active: !!r.active,
+    active: !!(type === 'transfer_company' ? r.is_active : r.active),
     /* One figure, in dollars: what a party owes is a single amount however it
        was paid, unlike a till which physically holds two currencies. */
     balance: round2(balances.get(r.id) ?? 0),
@@ -88,6 +97,7 @@ export function accountRegistry({ activeOnly = false } = {}) {
     wallet,
     customer: parties('customer', { activeOnly }),
     supplier: parties('supplier', { activeOnly }),
+    transfer_company: parties('transfer_company', { activeOnly }),
   };
 }
 

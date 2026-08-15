@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { Receipt as ReceiptIcon, RotateCcw } from 'lucide-react';
+import { Printer, Receipt as ReceiptIcon, RotateCcw } from 'lucide-react';
 import api from '../api';
+import Receipt from './Receipt';
 import {
   Badge,
   Button,
@@ -37,6 +38,7 @@ export default function OrderTable({
   const toast = useToast();
   const [selected, setSelected] = useState(null);
   const [refunding, setRefunding] = useState(false);
+  const [reprinting, setReprinting] = useState(null);
   // The line whose return is being counted out.
   const [returning, setReturning] = useState(null);
 
@@ -211,10 +213,19 @@ export default function OrderTable({
             </div>
           </dl>
 
+          {/*
+            * Printed again, whenever. A customer comes back a week later
+            * wanting the paper for a warranty claim, and the sale is right
+            * here — asking them to have kept it is not an answer.
+            */}
+          <Button variant="secondary" className="w-full" onClick={() => setReprinting(selected)}>
+            <Printer size={15} /> Print the receipt again
+          </Button>
+
           {canRefund && selected.order.status === 'completed' && (
             <Button
               variant="danger"
-              className="w-full"
+              className="mt-2 w-full"
               loading={refunding}
               onClick={() => refund(selected.order.id)}
             >
@@ -227,6 +238,10 @@ export default function OrderTable({
             </p>
           )}
         </Modal>
+      )}
+
+      {reprinting && (
+        <Receipt receipt={reprinting} onClose={() => setReprinting(null)} reprint />
       )}
 
       {returning && (
