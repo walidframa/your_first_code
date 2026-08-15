@@ -1988,10 +1988,22 @@ try {
 
   await step('the money taken on that invoice is in the voucher book', async () => {
     await goTo('Vouchers');
+
+    /*
+     * This screen's own box first, as on the Sales screen and for the same
+     * reason: the list it was just looking at also holds the invoice's number,
+     * so a read taken before the route swaps finds it on the wrong table.
+     */
+    await page.waitForSelector('input[aria-label="Find a voucher"]', { timeout: 20000 });
     await page.waitForSelector('table', { timeout: 20000 });
 
-    const listed = await page.locator('table').first().innerText();
-    if (!/SI-\d+/.test(listed)) {
+    // The slip is written when the invoice is confirmed, so it is already
+    // there — but the list is fetched, and a fetch takes as long as it takes.
+    const row = page.locator('tr', { hasText: /SI-\d+/ }).first();
+    try {
+      await row.waitFor({ timeout: 15000 });
+    } catch {
+      const listed = await page.locator('table').first().innerText();
       throw new Error(`the invoice's receipt is not among the vouchers. The book holds:\n${listed.slice(0, 400)}`);
     }
 
@@ -2000,7 +2012,6 @@ try {
      * so undoing the receipt here would hand the money back twice — the
      * correction has to be made on the invoice.
      */
-    const row = page.locator('tr', { hasText: /SI-\d+/ }).first();
     const number = (await row.innerText()).match(/(PV|RV|TV)-\d+/)[0];
     await page.getByRole('button', { name: `Cancel ${number}` }).click();
     await page.waitForSelector('text=/cancel that invoice instead/', { timeout: 15000 });
