@@ -463,6 +463,56 @@ test('an item’s activity shows what it did and when', async () => {
   // Newest first, so the last thing that happened is at the top.
   const times = activity.map((a) => a.at);
   assert.deepEqual(times, [...times].sort().reverse());
+
+  /*
+   * And how many have gone, without anybody adding up the rows.
+   *
+   * The list answers "when did that go out"; a shopkeeper deciding whether to
+   * reorder is asking "do we sell these", which is a different question.
+   */
+  const { sales } = (await req('GET', `/products/${item.id}/activity`, null, adminToken)).json;
+  assert.equal(sales.units, 2);
+  assert.equal(sales.atCounter, 2);
+  assert.equal(sales.onInvoices, 0);
+  assert.ok(sales.firstSoldAt, 'and over what stretch');
+  assert.ok(sales.lastSoldAt);
+});
+
+test('a return comes off what the item has sold', async () => {
+  // Its own product, so the count is this test's and nobody else's.
+  const item = (
+    await req(
+      'POST',
+      '/products',
+      { name: 'Returnable', sku: 'APP-RET', price: 10, cost: 4, stock: 20 },
+      adminToken,
+    )
+  ).json.product;
+
+  const order = (
+    await req(
+      'POST',
+      '/orders',
+      { items: [{ productId: item.id, quantity: 5 }], paymentMethod: 'card' },
+      cashierToken,
+    )
+  ).json.order;
+
+  const before = (await req('GET', `/products/${item.id}/activity`, null, adminToken)).json.sales;
+  assert.equal(before.units, 5);
+
+  // Two of the five come back.
+  const { items } = (await req('GET', `/orders/${order.id}`, null, adminToken)).json;
+  const returned = await req(
+    'POST',
+    `/orders/${order.id}/return-line`,
+    { itemId: items[0].id, quantity: 2 },
+    adminToken,
+  );
+  assert.equal(returned.status, 200, JSON.stringify(returned.json));
+
+  const after = (await req('GET', `/products/${item.id}/activity`, null, adminToken)).json.sales;
+  assert.equal(after.units, 3, 'five sold less two brought back is three sold');
 });
 
 test('receiving a delivery shows as a purchase and moves the cost', async () => {

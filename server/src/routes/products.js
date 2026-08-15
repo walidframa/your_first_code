@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { db, transaction } from '../db.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
-import { activityFor, costHistoryFor, recordCostChange } from '../lib/costHistory.js';
+import { activityFor, costHistoryFor, recordCostChange, salesSummaryFor } from '../lib/costHistory.js';
 import { barcodeMap, barcodesFor, barcodesFromBody, setBarcodes } from '../lib/barcodes.js';
 import { clearStockEverywhere, setStock, stockAt, stockByBranch, stockMap } from '../lib/stock.js';
 import { addStarterCategories } from '../lib/starterCategories.js';
@@ -551,6 +551,9 @@ router.get('/:id/activity', requireAuth, requirePermission('catalogue'), (req, r
   res.json({
     product,
     activity: activityFor(product.id, req.query.limit),
+    // How many have gone, over what stretch — the question the list of lines
+    // below cannot answer without somebody adding it up.
+    sales: salesSummaryFor(product.id),
     costHistory: costHistoryFor(product.id, req.query.limit),
   });
 });

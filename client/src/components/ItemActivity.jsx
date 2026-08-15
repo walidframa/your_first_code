@@ -36,7 +36,7 @@ export default function ItemActivity({ productId, onClose }) {
     );
   }
 
-  const { product, activity, costHistory } = data;
+  const { product, activity, costHistory, sales } = data;
   /*
    * How far the cost has travelled: from what it was before the earliest
    * recorded change, to what it is now. A single change is still a change —
@@ -75,6 +75,36 @@ export default function ItemActivity({ productId, onClose }) {
           </div>
         ))}
       </div>
+
+      {/*
+        * How many have gone.
+        *
+        * The list below says what happened one line at a time, which answers
+        * "when did that go out" and not "do we sell these" — and the second is
+        * the question somebody deciding whether to reorder is actually asking.
+        * Returns are already off it, because eleven sold and three brought back
+        * is eight sold.
+        */}
+      {sales && sales.units > 0 && (
+        <div className="mb-4 flex flex-wrap items-baseline gap-x-4 gap-y-1 rounded-xl bg-brand-50 px-4 py-3">
+          <p className="text-sm text-brand-900">
+            <span className="tnum text-xl font-semibold">{sales.units}</span> sold
+            {sales.onInvoices > 0 && (
+              <span className="text-brand-700">
+                {' '}
+                · {sales.atCounter} at the counter, {sales.onInvoices} on invoices
+              </span>
+            )}
+          </p>
+          <p className="tnum text-sm text-brand-800">{money(sales.revenue)}</p>
+          {sales.firstSoldAt && (
+            <p className="text-xs text-brand-700">
+              first {String(sales.firstSoldAt).slice(0, 16).replace('T', ' ')} · last{' '}
+              {String(sales.lastSoldAt).slice(0, 16).replace('T', ' ')}
+            </p>
+          )}
+        </div>
+      )}
 
       {costHistory.length > 0 && (
         <>

@@ -908,8 +908,19 @@ export default function Checkout() {
         </div>
       </section>
 
-      {/* Cart */}
-      <aside className="no-print flex w-full shrink-0 flex-col border-slate-200 bg-white lg:w-[380px] lg:border-s">
+      {/*
+        * Cart.
+        *
+        * Wider than it was, and wider again on a big screen. This column is
+        * what the sale actually is — the names, the quantities, the prices
+        * somebody is about to charge for — and at 380px a phone model with a
+        * capacity and a colour in its name wrapped to three lines, which is
+        * where a cashier stops reading and starts guessing.
+        *
+        * It grows only past `lg`, so the small counter monitor the app is
+        * usually on keeps its shelf of products at the width it had.
+        */}
+      <aside className="no-print flex w-full shrink-0 flex-col border-slate-200 bg-white lg:w-[420px] xl:w-[500px] lg:border-s">
         {/*
          * The drawer's state belongs where the money is taken. A cashier who
          * only finds out it is shut when a cash sale is refused has already
