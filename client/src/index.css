@@ -85,6 +85,15 @@ body,
   margin: 0;
 }
 
+/*
+ * The light wash over the top of the window, as tokens so the dark theme can
+ * turn it round — there, the screen is darkest at the top instead.
+ */
+:root {
+  --page-wash-top: oklch(1 0 0 / 0.85);
+  --page-wash-mid: oklch(1 0 0 / 0.35);
+}
+
 body {
   @apply bg-slate-100 text-slate-900 antialiased;
   /*
@@ -100,9 +109,9 @@ body {
    */
   background-image: linear-gradient(
     to bottom,
-    oklch(1 0 0 / 0.85) 0%,
-    oklch(1 0 0 / 0.35) 22%,
-    oklch(1 0 0 / 0) 52%
+    var(--page-wash-top) 0%,
+    var(--page-wash-mid) 22%,
+    transparent 52%
   );
   background-attachment: fixed;
   font-family: var(--font-sans);
@@ -521,3 +530,258 @@ body {
 
 /* Icons that point at something — a chevron into a menu — point the other way. */
 [dir='rtl'] .rtl-flip { transform: scaleX(-1); }
+/* =========================================================================
+ * Dark
+ *
+ * Every colour utility in this app compiles to `var(--color-…)`, so the whole
+ * app can be re-lit by redefining the tokens rather than by writing a `dark:`
+ * variant onto fourteen hundred elements — which is the only version of this
+ * that could be kept true as screens are added.
+ *
+ * Two rules make it work, and both are about utilities that carry more than
+ * one job:
+ *
+ *   1. A shade used as a *surface* on light is used as a *surface* on dark, so
+ *      the token can simply be redefined. `bg-slate-50` is always a panel.
+ *   2. A shade used for both (`text-red-600` on a warning, `bg-red-600` on a
+ *      button; `bg-white` on a card, `text-white` on a green button) cannot
+ *      be, so the token keeps its light meaning and the *other* utility is
+ *      overridden below. There are six of those in the whole app.
+ *
+ * Elements that are already dark on the light theme — the modal backdrop, the
+ * selected filter tile — are left alone. They were dark on purpose and they
+ * are still dark here.
+ * ========================================================================= */
+
+:root[data-theme='dark'] {
+  /*
+   * Surfaces, from the back of the screen forwards. Not black: a true black
+   * behind a bright cart makes the edge of every card vibrate, and on the OLED
+   * tablet a shop is likely to own it smears on scroll. Very dark blue-grey,
+   * in the same family as the slate the light theme is built from.
+   */
+  --color-slate-100: #0e131c; /* the page, behind everything */
+  --color-slate-50: #1a2130; /* panels, zebra rows, hover */
+  --color-slate-200: #222b3b; /* chips, pressed states */
+  --color-slate-300: #2c374a; /* the commonest border */
+
+  /*
+   * Text, lightest first. Deliberately not pure white at the top — #fff on a
+   * dark field haloes, and reading a catalogue at it for an evening is tiring.
+   */
+  --color-slate-900: #e9edf4;
+  --color-slate-800: #dbe1ea;
+  --color-slate-700: #c4ccd9;
+  --color-slate-600: #a7b1c2;
+  --color-slate-500: #8b95a8;
+  --color-slate-400: #6f7a8d;
+
+  /*
+   * The accent tints. On light these are pale washes carrying dark text; here
+   * they are dark washes carrying light text, so the pairing that every screen
+   * already uses — `bg-amber-50 text-amber-800` — keeps working untouched.
+   */
+  --color-brand-50: #0d2a20;
+  --color-brand-100: #123a2c;
+  --color-brand-200: #1a5240;
+  --color-amber-50: #2b210c;
+  --color-amber-100: #3a2c10;
+  --color-amber-200: #4d3a15;
+  --color-red-50: #2e1416;
+  --color-red-100: #3d1a1d;
+  --color-red-200: #522328;
+  --color-emerald-50: #0d2a20;
+  --color-emerald-200: #1a5240;
+  --color-blue-50: #101f33;
+  --color-sky-50: #0f2233;
+  --color-violet-50: #1e1633;
+  --color-orange-50: #2d1a0f;
+
+  /* …and their text, lifted to read on those washes. */
+  --color-brand-700: #4ade9f;
+  --color-brand-800: #6ee7b7;
+  --color-brand-900: #a7f3d0;
+  --color-amber-600: #e8b563;
+  --color-amber-700: #f0c078;
+  --color-amber-800: #f5cf95;
+  --color-amber-900: #fadfb5;
+  --color-red-500: #f08a8a;
+  --color-red-600: #f28b8b;
+  --color-red-700: #f4a3a3;
+  --color-red-800: #f7bcbc;
+  --color-red-900: #fad4d4;
+  --color-emerald-600: #4ade9f;
+  --color-emerald-700: #6ee7b7;
+  --color-emerald-800: #8ff0c8;
+  --color-emerald-900: #a7f3d0;
+  --color-blue-700: #8ab4f0;
+  --color-sky-700: #7fc0e8;
+  --color-violet-600: #b49bf0;
+  --color-violet-700: #c4b0f5;
+  --color-teal-700: #6fdcc4;
+  --color-rose-700: #f3a0b4;
+
+  /*
+   * The page wash, inverted. On light a little white is laid over the top of
+   * the window; here a little black is, so the screen is darkest where the
+   * chrome is and the work below it sits forward.
+   */
+  --page-wash-top: oklch(0 0 0 / 0.28);
+  --page-wash-mid: oklch(0 0 0 / 0.12);
+}
+
+/*
+ * The six overloaded utilities.
+ *
+ * Each of these has a token that had to keep its light meaning for the sake of
+ * the utility's other job, so the surface is set here instead.
+ */
+:root[data-theme='dark'] .bg-white {
+  /* A card. `text-white` on a green button still has to be white, so
+     `--color-white` could not be touched. */
+  background-color: #151d29;
+}
+
+:root[data-theme='dark'] .bg-brand-600 {
+  /* The primary button keeps its own green: lightening the token for
+     `text-brand-600` would have left white lettering on a pale green. */
+  background-color: #0f9f70;
+}
+
+:root[data-theme='dark'] .bg-red-600 {
+  background-color: #d24444;
+}
+
+:root[data-theme='dark'] .bg-amber-500 {
+  background-color: #d9a13f;
+}
+
+:root[data-theme='dark'] .text-brand-600 {
+  /* Lifted for reading, while the token stays put for the button and the
+     focus ring that share it. */
+  color: #4ade9f;
+}
+
+:root[data-theme='dark'] .text-red-600 {
+  color: #f28b8b;
+}
+
+/*
+ * Shadows do almost nothing on a dark screen — there is no light for a card to
+ * block — so the job of separating a surface from the page falls to the
+ * surface itself, and a shadow that is still trying reads as grime. Cut back,
+ * not removed: it still seats a dialog above the page.
+ */
+:root[data-theme='dark'] {
+  --shadow-sm: 0 1px 2px -1px oklch(0 0 0 / 0.4);
+  --shadow-md: 0 2px 6px -2px oklch(0 0 0 / 0.45);
+  --shadow-lg: 0 6px 16px -6px oklch(0 0 0 / 0.5);
+  --shadow-xl: 0 12px 28px -10px oklch(0 0 0 / 0.55);
+  --shadow-2xl: 0 20px 44px -14px oklch(0 0 0 / 0.6);
+}
+
+/* The loading sweep is a light band; on dark it has to be a much quieter one
+   or the placeholder flashes brighter than the content it stands in for. */
+:root[data-theme='dark'] .skeleton {
+  background-image: linear-gradient(90deg, transparent 0%, oklch(1 0 0 / 0.07) 50%, transparent 100%);
+}
+
+/* Autofill: the same trick as the light theme, in the other direction. */
+:root[data-theme='dark'] input:-webkit-autofill,
+:root[data-theme='dark'] input:-webkit-autofill:hover,
+:root[data-theme='dark'] input:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 1000px #151d29 inset;
+  -webkit-text-fill-color: var(--color-slate-900);
+  caret-color: var(--color-slate-900);
+}
+
+:root[data-theme='dark'] ::selection {
+  background: #1a5240;
+  color: #d1fae5;
+}
+
+/*
+ * Paper is white in every theme.
+ *
+ * A receipt, a barcode label, an invoice and a repair slip all leave this app
+ * through a printer, and a shop that switched to dark must not start printing
+ * white-on-black — it would empty a thermal roll's contrast, drink a colour
+ * cartridge, and produce a label no scanner will read. Dropping the attribute
+ * for print puts every token back to its light value in one line.
+ */
+@media print {
+  :root[data-theme='dark'] {
+    color-scheme: light;
+  }
+}
+
+/*
+ * Surfaces that were already dark, and fills that were already solid.
+ *
+ * Found by measuring rather than by reading: the rail is `bg-slate-900`, a dark
+ * panel on the light theme, and `text-slate-900` is the darkest text — one
+ * token, two opposite jobs. Inverting it for the text turned the rail into a
+ * near-white slab carrying white lettering. The screenshot did not make it
+ * obvious; `getComputedStyle` said `rgb(233, 237, 244)` and settled it.
+ *
+ * So the token keeps its text meaning, and every place the same shade is used
+ * as a *surface* is named here. The same applies to the accent fills below: a
+ * shade lifted so `text-amber-600` can be read on dark would otherwise repaint
+ * the selected Purchase-invoice tile pale amber under white lettering.
+ */
+:root[data-theme='dark'] .bg-slate-900 {
+  background-color: #080c13;
+}
+:root[data-theme='dark'] .bg-slate-800 {
+  background-color: #121926;
+}
+:root[data-theme='dark'] .bg-slate-700 {
+  background-color: #1b2432;
+}
+:root[data-theme='dark'] .from-slate-900 {
+  --tw-gradient-from: #080c13;
+}
+:root[data-theme='dark'] .ring-slate-900 {
+  --tw-ring-color: #05080d;
+}
+:root[data-theme='dark'] .border-slate-800 {
+  border-color: #2a3547;
+}
+:root[data-theme='dark'] .border-slate-700 {
+  border-color: #35415a;
+}
+
+/* Solid accent fills keep their own colour, saturated enough to carry white. */
+:root[data-theme='dark'] .bg-brand-500 {
+  background-color: #10b981;
+}
+:root[data-theme='dark'] .bg-brand-700 {
+  background-color: #0b7f59;
+}
+:root[data-theme='dark'] .bg-brand-800 {
+  background-color: #09664798;
+}
+:root[data-theme='dark'] .bg-emerald-600 {
+  background-color: #0f9f70;
+}
+:root[data-theme='dark'] .bg-amber-600 {
+  background-color: #b8801f;
+}
+:root[data-theme='dark'] .bg-blue-600 {
+  background-color: #2563eb;
+}
+:root[data-theme='dark'] .bg-violet-600 {
+  background-color: #7c4ddb;
+}
+:root[data-theme='dark'] .bg-violet-700 {
+  background-color: #6b3fc4;
+}
+:root[data-theme='dark'] .bg-red-500 {
+  background-color: #dc4f4f;
+}
+:root[data-theme='dark'] .bg-red-700 {
+  background-color: #b83b3b;
+}
+:root[data-theme='dark'] .bg-red-800 {
+  background-color: #9c3232;
+}
