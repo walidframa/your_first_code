@@ -480,11 +480,26 @@ export function ProductThumb({ product, size = 'md', className }) {
   const hash = Array.from(name).reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
   const tint = THUMB_TINTS[hash % THUMB_TINTS.length];
 
-  if (product?.image_url) {
+  /*
+   * A picture that will not load falls back to the monogram.
+   *
+   * There was already a fallback for a product with no image at all, but a
+   * product with a *broken* one went straight to the browser's torn-page icon —
+   * and a shelf of those looks like the app is broken rather than like a few
+   * links having gone stale. A link can rot for a dozen reasons the shop cannot
+   * do anything about; the name is always there.
+   *
+   * Keyed on the URL so a corrected image is tried again rather than staying
+   * blank because an earlier one failed.
+   */
+  const [broken, setBroken] = useState(null);
+
+  if (product?.image_url && broken !== product.image_url) {
     return (
       <img
         src={product.image_url}
         alt=""
+        onError={() => setBroken(product.image_url)}
         className={cx('object-cover ring-1 ring-slate-900/5', sizes[size], className)}
       />
     );
