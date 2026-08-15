@@ -3,6 +3,8 @@ import { BadgeCheck, HandCoins, Plus, ShieldAlert, Trash2 } from 'lucide-react';
 import BuyHandsetModal from '../../components/BuyHandsetModal';
 import api from '../../api';
 import PageHeader from '../../components/PageHeader';
+import HistoryFilter from '../../components/HistoryFilter';
+import { useHistoryFilter } from '../../lib/history';
 import { lbp } from '../../context/SettingsContext';
 import {
   Button,
@@ -113,6 +115,9 @@ function IdPhotoViewer({ tradeIn, onClose, onRemoved }) {
 export default function TradeIns() {
   const [rows, setRows] = useState(null);
   const [products, setProducts] = useState([]);
+  // A handset bought in six months ago is exactly the one somebody comes
+  // looking for, usually with an IMEI or a name and nothing else.
+  const history = useHistoryFilter('month');
   const [buying, setBuying] = useState(false);
   // Which purchase's ID is on screen, if any.
   const [viewing, setViewing] = useState(null);
@@ -129,6 +134,12 @@ export default function TradeIns() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const shown = (rows || []).filter(
+    (t) =>
+      history.within(t.created_at) &&
+      history.matches(t.imei, t.product_name, t.seller_name, t.seller_phone),
+  );
 
   return (
     <div className="flex h-full flex-col">
@@ -150,9 +161,15 @@ export default function TradeIns() {
           </p>
         )}
 
+        <HistoryFilter
+          filter={history}
+          label="Search buy-ins"
+          placeholder="Search an IMEI, a handset, who sold it…"
+        />
+
         {!rows ? (
           <Skeleton className="h-64" />
-        ) : rows.length === 0 ? (
+        ) : shown.length === 0 ? (
           <EmptyState
             icon={HandCoins}
             title="Nothing bought in yet"
@@ -171,7 +188,7 @@ export default function TradeIns() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {rows.map((t) => (
+                {shown.map((t) => (
                   <tr key={t.id}>
                     <td className="px-5 py-2.5 text-slate-500">{String(t.created_at).slice(0, 10)}</td>
                     <td className="px-3 py-2.5">

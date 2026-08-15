@@ -524,3 +524,58 @@ test('the desk is its own permission', async () => {
     403,
   );
 });
+
+/* --------------------------------------------- money taken on an invoice */
+
+/**
+ * An invoice settled at the counter is a receipt like any other.
+ *
+ * It used to move the drawer and the customer's ledger silently, so an owner
+ * reading down the vouchers for the day's takings saw everything except the
+ * invoices — usually the largest part of it.
+ */
+test('an invoice paid in cash writes its own receipt', async () => {
+  const before = (await tillBalance(mainTill.id)).balance;
+
+  const product = (
+    await req('POST', '/products', { name: 'Charger', sku: 'CHG-1', price: 12, cost: 5, stock: 10 }, adminToken)
+  ).json.product;
+
+  const draft = await req(
+    'POST',
+    '/documents',
+    {
+      docType: 'sales_invoice',
+      partyId: customer.id,
+      items: [{ productId: product.id, quantity: 1, price: 12 }],
+      payments: [{ currency: 'USD', amount: 12 }],
+      paymentMethod: 'cash',
+    },
+    adminToken,
+  );
+  assert.equal(draft.status, 201);
+  const doc = draft.json.document;
+
+  assert.equal((await req('POST', `/documents/${doc.id}/confirm`, null, adminToken)).status, 200);
+
+  const found = (await req('GET', `/vouchers?search=${doc.doc_number}`, null, adminToken)).json.vouchers;
+  assert.equal(found.length, 1, 'one slip for one payment');
+  assert.equal(found[0].kind, 'receipt', 'money coming in');
+  assert.equal(found[0].amount_usd, 12);
+  assert.equal(found[0].to_name, mainTill.name, 'into the till it was paid into');
+  assert.equal(found[0].from_name, 'Rami Haddad');
+
+  // Written, not applied: the drawer moved once, when the invoice was confirmed.
+  assert.equal((await tillBalance(mainTill.id)).balance, before + 12);
+
+  // And it cannot be undone here, which would hand the money back a second time.
+  const refused = await req('POST', `/vouchers/${found[0].id}/cancel`, null, adminToken);
+  assert.equal(refused.status, 400);
+  assert.match(refused.json.error, /cancel that invoice instead/);
+
+  // Cancelling the invoice voids the slip with it, and puts the money back once.
+  assert.equal((await req('POST', `/documents/${doc.id}/cancel`, null, adminToken)).status, 200);
+  assert.equal((await tillBalance(mainTill.id)).balance, before);
+  const after = (await req('GET', `/vouchers?search=${doc.doc_number}`, null, adminToken)).json.vouchers;
+  assert.equal(after[0].status, 'cancelled');
+});

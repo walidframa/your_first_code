@@ -1172,6 +1172,18 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_vouchers_to ON vouchers(to_type, to_id);
 `);
 
+/*
+ * The invoice a voucher was written for.
+ *
+ * Money taken across the counter against an invoice is a receipt like any
+ * other, and the owner looking through the vouchers for "what came in today"
+ * should find it there. It is written from the invoice rather than by hand, so
+ * it carries the document it belongs to — which is also how it is kept honest:
+ * a voucher with a document behind it has already moved the drawer and the
+ * ledger through that document, so it must not be cancelled on its own.
+ */
+addColumn('vouchers', 'document_id', 'INTEGER REFERENCES documents(id)');
+db.exec('CREATE INDEX IF NOT EXISTS idx_vouchers_document ON vouchers(document_id)');
 
 /* Which till a transfer's money passed through. */
 addColumn('transfers', 'account_id', 'INTEGER REFERENCES cash_accounts(id)');

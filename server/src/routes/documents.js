@@ -450,6 +450,10 @@ router.delete('/:id', requireAuth, requirePermission('documents'), (req, res) =>
        */
       db.prepare('UPDATE cash_movements SET document_id = NULL WHERE document_id = ?').run(doc.id);
 
+      // The receipt written for it was already voided by reverseEffects; it
+      // keeps its number and its note, and loses only the pointer.
+      db.prepare('UPDATE vouchers SET document_id = NULL WHERE document_id = ?').run(doc.id);
+
       // Likewise the cost the delivery arrived at: the price really did change,
       // and the note says which document brought it in.
       db.prepare('UPDATE product_cost_history SET document_id = NULL WHERE document_id = ?').run(doc.id);

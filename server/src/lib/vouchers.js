@@ -299,6 +299,77 @@ export function recordVoucher({
 }
 
 /**
+ * The slip for money taken or paid on an invoice.
+ *
+ * An invoice settled at the counter moves the drawer and the party's ledger the
+ * moment it is confirmed — but it did so silently, and an owner looking down
+ * the vouchers for what came in today saw everything except the invoices, which
+ * are usually the largest of it.
+ *
+ * So this writes the paper and nothing else. The movement and the entry already
+ * exist; their ids are handed in and kept on the row, and no side is applied,
+ * because applying one here would take the same money out of the drawer twice.
+ *
+ * Cash only, deliberately. A card payment never reaches a till, and inventing a
+ * receipt against one would make the cashbox disagree with the money in it.
+ */
+export function recordDocumentVoucher({ doc, movementId = null, entryId = null, userId = null }) {
+  const buying = doc.doc_type === 'purchase_invoice';
+  const till = db.prepare('SELECT * FROM cash_accounts WHERE id = ?').get(
+    db.prepare('SELECT account_id FROM cash_movements WHERE id = ?').get(movementId)?.account_id ?? null,
+  );
+  if (!till) return null;
+
+  // Named from the table rather than from whatever the caller's row carried:
+  // some callers hold the joined document and some only the raw one.
+  const party = resolveSide(doc.party_type, doc.party_id, null, 'from');
+  // Out of our till to a supplier is a payment; in from a customer, a receipt.
+  const from = buying ? { type: 'cash', id: till.id, name: till.name } : party;
+  const to = buying ? party : { type: 'cash', id: till.id, name: till.name };
+  const kind = buying ? 'payment' : 'receipt';
+
+  const number = nextVoucherNumber(kind);
+  const info = db
+    .prepare(
+      `INSERT INTO vouchers (
+         voucher_number, kind, from_type, from_id, from_name, to_type, to_id, to_name,
+         amount_usd, amount_lbp, exchange_rate, reason, reference, note, user_id, issued_on,
+         cash_movement_id, entry_id, document_id
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, date('now'), ?, ?, ?)`,
+    )
+    .run(
+      number,
+      kind,
+      from.type,
+      from.id,
+      from.name,
+      to.type,
+      to.id,
+      to.name,
+      round2(doc.paid_usd || 0),
+      Math.round(doc.paid_lbp || 0),
+      doc.exchange_rate || null,
+      buying ? 'supplier' : 'customer',
+      doc.doc_number,
+      `Paid on ${doc.doc_number}`,
+      userId,
+      movementId,
+      entryId,
+      doc.id,
+    );
+
+  return voucherById(info.lastInsertRowid);
+}
+
+/** Void every voucher an invoice wrote, without touching the money again. */
+export function cancelDocumentVouchers(documentId) {
+  db.prepare(
+    `UPDATE vouchers SET status = 'cancelled', cancelled_at = datetime('now')
+     WHERE document_id = ? AND status = 'posted'`,
+  ).run(documentId);
+}
+
+/**
  * Void one.
  *
  * Reversed rather than deleted, and with opposite entries rather than by
@@ -309,6 +380,16 @@ export function cancelVoucher(id, userId = null) {
   const voucher = voucherById(id);
   if (!voucher) throw new Error('That voucher does not exist');
   if (voucher.status === 'cancelled') throw new Error('That voucher is already cancelled');
+  /*
+   * An invoice's receipt is a view of the invoice, not a movement of its own.
+   * Cancelling it here would reverse money the invoice still says was paid, so
+   * the correction has to be made where the payment was made.
+   */
+  if (voucher.document_id) {
+    throw new Error(
+      `${voucher.voucher_number} was written for ${voucher.reference || 'an invoice'} — cancel that invoice instead`,
+    );
+  }
 
   const rate = voucher.exchange_rate || getSettings().exchange_rate;
   const usdEquivalent = round2(voucher.amount_usd + (rate > 0 ? voucher.amount_lbp / rate : 0));

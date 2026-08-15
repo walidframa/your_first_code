@@ -3,29 +3,32 @@ import { Plus, Trash2, Wallet } from 'lucide-react';
 import api from '../../api';
 import PageHeader from '../../components/PageHeader';
 import AddExpense, { EXPENSE_CATEGORIES } from '../../components/AddExpense';
+import HistoryFilter from '../../components/HistoryFilter';
+import { useHistoryFilter } from '../../lib/history';
 import { lbp } from '../../context/SettingsContext';
-import { Badge, Button, Card, EmptyState, Select, Skeleton, cx, money, useToast } from '../../components/ui';
-
-const PRESETS = [
-  ['today', 'Today'],
-  ['week', 'This week'],
-  ['month', 'This month'],
-  ['year', 'This year'],
-  ['', 'All time'],
-];
+import { Badge, Button, Card, EmptyState, Skeleton, cx, money, useToast } from '../../components/ui';
 
 const label = (list, value) => list.find(([v]) => v === value)?.[1] || value;
 
 export default function Expenses() {
   const toast = useToast();
   const [data, setData] = useState(null);
-  const [preset, setPreset] = useState('month');
   const [adding, setAdding] = useState(false);
+  const history = useHistoryFilter('month');
+  const { range } = history;
 
+  /*
+   * The dates go to the server rather than being applied here, because the
+   * tiles above the table are its totals — filtering the rows alone would give
+   * a month's summary over a week's list.
+   */
   const load = useCallback(async () => {
-    const res = await api.get(`/expenses${preset ? `?preset=${preset}` : ''}`);
+    const params = {};
+    if (range.from) params.from = range.from;
+    if (range.to) params.to = range.to;
+    const res = await api.get('/expenses', { params });
     setData(res.data);
-  }, [preset]);
+  }, [range.from, range.to]);
 
   useEffect(() => {
     load();
@@ -41,37 +44,30 @@ export default function Expenses() {
     }
   }
 
+  // The tiles above are the period's totals; this only narrows what is listed.
+  const shown = (data?.expenses || []).filter((e) =>
+    history.matches(e.note, label(EXPENSE_CATEGORIES, e.category), e.supplier_name, e.paid_with),
+  );
+
   return (
     <div className="flex h-full flex-col">
       <PageHeader
         title="Expenses"
         subtitle="What it costs to keep the doors open"
         actions={
-          <div className="flex items-center gap-2">
-            {/* Sized by a wrapper: the Select is w-full by design, and two
-                width utilities on one element is a coin toss. */}
-            <div className="w-40 shrink-0">
-              <Select
-                name="preset"
-                value={preset}
-                onChange={(e) => setPreset(e.target.value)}
-                aria-label="Period"
-              >
-                {PRESETS.map(([value, text]) => (
-                  <option key={value} value={value}>
-                    {text}
-                  </option>
-                ))}
-              </Select>
-            </div>
-            <Button onClick={() => setAdding(true)}>
-              <Plus size={16} /> Add expense
-            </Button>
-          </div>
+          <Button onClick={() => setAdding(true)}>
+            <Plus size={16} /> Add expense
+          </Button>
         }
       />
 
       <div className="min-h-0 flex-1 overflow-y-auto p-6">
+        <HistoryFilter
+          filter={history}
+          label="Search expenses"
+          placeholder="Search a note, a category, who was paid…"
+        />
+
         {!data ? (
           <Skeleton className="h-64" />
         ) : (
@@ -99,7 +95,7 @@ export default function Expenses() {
             </div>
 
             <Card>
-              {data.expenses.length === 0 ? (
+              {shown.length === 0 ? (
                 <EmptyState
                   icon={Wallet}
                   title="Nothing recorded for this period"
@@ -118,7 +114,7 @@ export default function Expenses() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50">
-                    {data.expenses.map((e) => (
+                    {shown.map((e) => (
                       <tr key={e.id} className="hover:bg-slate-50/60">
                         <td className="px-5 py-2.5 text-slate-500">{e.spent_on}</td>
                         <td className="px-3 py-2.5">
