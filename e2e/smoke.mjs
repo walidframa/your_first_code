@@ -45,6 +45,12 @@ const ALLOWED_FAILURES = [
    * this listener complaining about them, and they must never be allowed here.
    */
   /\/api\/auth\/password/,
+  /*
+   * Cancelling the slip an invoice wrote for itself, which is refused on
+   * purpose — the invoice still says it was paid, so undoing the receipt here
+   * would hand the money back twice. The 400 is what is being checked.
+   */
+  /\/api\/vouchers\/\d+\/cancel/,
 ];
 
 const consoleErrors = [];
