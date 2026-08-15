@@ -12,6 +12,7 @@ import {
   money,
   useToast,
 } from './ui';
+import { useConfirm } from './ConfirmProvider';
 
 /**
  * Put the sale down.
@@ -114,6 +115,7 @@ export function HeldSalesDialog({ onClose, onResume, onCountChange }) {
   const toast = useToast();
   const [held, setHeld] = useState(null);
   const [busyId, setBusyId] = useState(null);
+  const confirm = useConfirm();
 
   useEffect(() => {
     api.get('/held-sales').then((res) => setHeld(res.data.held));
@@ -131,6 +133,15 @@ export function HeldSalesDialog({ onClose, onResume, onCountChange }) {
   }
 
   async function discard(id) {
+    const sale = held?.find((h) => h.id === id);
+    const agreed = await confirm({
+      title: 'Discard this held sale?',
+      body: `Everything on it is thrown away${sale?.label ? ` — ${sale.label}` : ''}. Nothing has been rung up, so nothing comes back.`,
+      confirmLabel: 'Discard it',
+      cancelLabel: 'Keep it',
+    });
+    if (!agreed) return;
+
     setBusyId(id);
     try {
       const res = await api.delete(`/held-sales/${id}`);

@@ -7,6 +7,7 @@ import HistoryFilter from '../../components/HistoryFilter';
 import { useHistoryFilter } from '../../lib/history';
 import { lbp } from '../../context/SettingsContext';
 import { Badge, Button, Card, EmptyState, Skeleton, cx, money, useToast } from '../../components/ui';
+import { useConfirm } from '../../components/ConfirmProvider';
 
 const label = (list, value) => list.find(([v]) => v === value)?.[1] || value;
 
@@ -15,6 +16,7 @@ export default function Expenses() {
   const [data, setData] = useState(null);
   const [adding, setAdding] = useState(false);
   const history = useHistoryFilter('month');
+  const confirm = useConfirm();
   const { range } = history;
 
   /*
@@ -35,6 +37,13 @@ export default function Expenses() {
   }, [load]);
 
   async function remove(expense) {
+    const agreed = await confirm({
+      title: 'Delete this expense?',
+      body: `${money(expense.amount_usd)} on ${expense.spent_on}${expense.note ? ` — ${expense.note}` : ''}. If it was paid out of the till, the money goes back into the drawer.`,
+      confirmLabel: 'Delete it',
+    });
+    if (!agreed) return;
+
     try {
       await api.delete(`/expenses/${expense.id}`);
       toast('Expense deleted');

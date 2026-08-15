@@ -28,6 +28,7 @@ import {
   money,
   useToast,
 } from '../../components/ui';
+import { useConfirm } from '../../components/ConfirmProvider';
 
 /*
  * Four kinds of account, and what a balance means is different for each. Saying
@@ -253,7 +254,17 @@ export default function Accounts() {
     load();
   }, [load]);
 
+  const confirm = useConfirm();
+
   async function removeTill(till) {
+    const agreed = await confirm({
+      title: `Put ${till.name} away?`,
+      body: 'It stops being a till anybody can open. Every sitting it ever had stays on the books.',
+      confirmLabel: 'Put it away',
+      cancelLabel: 'Keep it',
+    });
+    if (!agreed) return;
+
     try {
       await api.delete(`/accounts/cash/${till.id}`);
       toast(`${till.name} put away`);

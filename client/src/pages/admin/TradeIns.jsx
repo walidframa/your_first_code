@@ -17,6 +17,7 @@ import {
   money,
   useToast,
 } from '../../components/ui';
+import { useConfirm } from '../../components/ConfirmProvider';
 
 /**
  * Look at the ID recorded against one purchase.
@@ -35,6 +36,7 @@ function IdPhotoViewer({ tradeIn, onClose, onRemoved }) {
   const [src, setSrc] = useState(null);
   const [error, setError] = useState('');
   const [removing, setRemoving] = useState(false);
+  const confirm = useConfirm();
 
   useEffect(() => {
     let url = null;
@@ -63,6 +65,13 @@ function IdPhotoViewer({ tradeIn, onClose, onRemoved }) {
   }, [tradeIn.id]);
 
   async function remove() {
+    const agreed = await confirm({
+      title: 'Delete this ID?',
+      body: 'The photo of the seller\u2019s ID is what proves who the shop bought this handset from. It cannot be recovered.',
+      confirmLabel: 'Delete the ID',
+    });
+    if (!agreed) return;
+
     setRemoving(true);
     try {
       await api.delete(`/repairs/trade-ins/${tradeIn.id}/id-photo`);

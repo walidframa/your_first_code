@@ -4,6 +4,7 @@ import { ArrowLeftRight, Ban, Printer, ReceiptText, Search } from 'lucide-react'
 import api from '../api';
 import PageHeader from '../components/PageHeader';
 import CashBox from '../components/CashBox';
+import { useConfirm } from '../components/ConfirmProvider';
 import VoucherSlip from '../components/VoucherSlip';
 import { lbp, useSettings } from '../context/SettingsContext';
 import {
@@ -378,6 +379,7 @@ export default function Vouchers() {
   const [writing, setWriting] = useState(false);
   const [printing, setPrinting] = useState(null);
   const [moved, setMoved] = useState(0);
+  const confirm = useConfirm();
 
   /*
    * "Settle up" on the transfers screen sends the whole thing here rather than
@@ -423,6 +425,21 @@ export default function Vouchers() {
   }, [load, search]);
 
   async function cancel(voucher) {
+    const agreed = await confirm({
+      title: `Cancel ${voucher.voucher_number}?`,
+      body: (
+        <>
+          The money goes back where it came from: {money(voucher.amount_usd)}
+          {voucher.amount_lbp > 0 ? ` and ${lbp(voucher.amount_lbp)}` : ''} returns to{' '}
+          <strong>{voucher.from_name}</strong>. The slip keeps its number and stays on the list,
+          marked cancelled.
+        </>
+      ),
+      confirmLabel: 'Cancel it and put the money back',
+      cancelLabel: 'Leave it',
+    });
+    if (!agreed) return;
+
     try {
       await api.post(`/vouchers/${voucher.id}/cancel`);
       toast(`${voucher.voucher_number} cancelled and the money put back`);

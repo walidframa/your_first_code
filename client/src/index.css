@@ -452,10 +452,11 @@ body {
  * dialog on a page. The page size itself is set by lib/pageSize, because it
  * depends on the choice and a stylesheet is written before the choice is made.
  *
- * The two modes differ in width and in nothing else. A till roll is 72mm of
- * usable paper and the type has to be readable off a cheap thermal head; A4 is
- * a sheet somebody will file, so it is centred at a column width rather than
- * stretched across two hundred millimetres, which no one can read.
+ * The two are different documents, not one at two widths. A till roll is 72mm
+ * of thermal paper read once on the way out — one narrow column of plain text
+ * a blunt print head can manage. A sheet is filed, and is laid out like the
+ * invoice it sits in a folder next to. Receipt.jsx renders whichever was asked
+ * for; these rules only handle what a printer does to it.
  */
 @media print {
   body:has(.print-receipt) * {
@@ -484,8 +485,23 @@ body {
     font-family: ui-monospace, 'SFMono-Regular', 'Menlo', monospace;
   }
 
+  /* A sheet is a document: full width, ruled like the invoice, and its table
+     header repeats if a long sale runs past the bottom of the page. */
   body:has(.print-receipt) .print-receipt.mode-a4 {
-    width: 105mm;
+    width: 100%;
+    font-size: 10.5pt;
+  }
+
+  body:has(.print-receipt) .print-receipt.mode-a4 thead {
+    display: table-header-group;
+  }
+
+  body:has(.print-receipt) .print-receipt.mode-a4 tr {
+    break-inside: avoid;
+  }
+
+  body:has(.print-receipt) .print-receipt.mode-a4 .doc-row {
+    background: transparent !important;
   }
 }
 

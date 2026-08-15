@@ -16,6 +16,7 @@ import {
   cx,
   useToast,
 } from '../../components/ui';
+import { useConfirm } from '../../components/ConfirmProvider';
 
 const STATUS_TONES = { draft: 'neutral', sent: 'warning', received: 'good', cancelled: 'critical' };
 
@@ -294,7 +295,17 @@ export default function StockTransfers() {
     load();
   }, [load, branch?.id]);
 
+  const confirm = useConfirm();
+
   async function cancel(transfer) {
+    const agreed = await confirm({
+      title: `Cancel ${transfer.reference}?`,
+      body: 'Everything on it goes back to the branch it left, and the transfer stays on the list marked cancelled.',
+      confirmLabel: 'Cancel it',
+      cancelLabel: 'Leave it',
+    });
+    if (!agreed) return;
+
     try {
       await api.post(`/stock-transfers/${transfer.id}/cancel`);
       toast(`${transfer.reference} cancelled — the stock is back`);

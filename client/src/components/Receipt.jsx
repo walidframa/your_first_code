@@ -68,9 +68,88 @@ export default function Receipt({ receipt, onClose, reprint = false }) {
         ? lbp(order.change_lbp)
         : money(order.change_usd || order.change_due);
 
+  /*
+   * Two papers, two documents.
+   *
+   * A till roll is 72mm of thermal paper read once on the way out of the shop:
+   * one narrow column, no rules, nothing that depends on colour surviving a
+   * blunt print head. An A4 sheet is filed — by a company that bought handsets
+   * for its staff, or by anybody claiming a warranty a year from now — and it
+   * has to look like a document, with the shop's details at the top, who it was
+   * for, and the lines in a table whose figures line up.
+   *
+   * They were the same layout at two widths, which meant the sheet was a till
+   * roll stretched across a page: no columns, no headings, and the customer's
+   * name nowhere on it.
+   */
+  const Body = paper === 'a4' ? Sheet : Roll;
+
   return (
-    <Modal open onClose={onClose} size="sm" className="print:shadow-none print:ring-0">
+    <Modal open onClose={onClose} size={paper === 'a4' ? 'lg' : 'sm'} className="print:shadow-none print:ring-0">
       <div className={cx('print-receipt', paper === 'a4' ? 'mode-a4' : 'mode-roll')}>
+        <Body
+          order={order}
+          items={items}
+          rate={rate}
+          totalLbp={totalLbp}
+          changeText={changeText}
+          reprint={reprint}
+          t={t}
+        />
+      </div>
+
+      {/* Chosen before printing, not in a settings screen two rooms away. */}
+      <div className="no-print mt-4 flex items-center gap-2 border-t border-slate-100 pt-3">
+        <span className="text-xs text-slate-500">{t('Paper')}</span>
+        {[
+          ['roll', t('80mm roll')],
+          ['a4', t('A4 sheet')],
+        ].map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => choosePaper(id)}
+            aria-pressed={paper === id}
+            className={cx(
+              'rounded-lg px-2.5 py-1 text-xs font-medium ring-1 transition',
+              paper === id
+                ? 'bg-brand-600 text-white ring-brand-600'
+                : 'bg-white text-slate-600 ring-slate-300 hover:bg-slate-50',
+            )}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      <ModalActions className="no-print">
+        <Button variant="secondary" size="lg" onClick={() => window.print()} aria-label="Print receipt">
+          <Printer size={16} />
+        </Button>
+        {/*
+          * Sending it beats printing it for most of what a receipt is for: a
+          * customer who has it on their phone still has it in a month, and the
+          * shop does not go through a roll of paper.
+          */}
+        <WhatsAppButton path={`/orders/${order.id}/whatsapp`} label="WhatsApp" size="lg" />
+        <Button size="lg" className="flex-1" onClick={onClose} autoFocus>
+          {reprint ? t('Done') : t('New sale')}
+        </Button>
+      </ModalActions>
+    </Modal>
+  );
+}
+
+/**
+ * The till roll: one narrow column, read once, thrown away.
+ *
+ * Dashed rules rather than solid ones and no table at all — a thermal head at
+ * 72mm cannot hold a column of anything, and a receipt that wraps is a receipt
+ * nobody reads.
+ */
+function Roll({ order, items, rate, totalLbp, changeText, reprint, t }) {
+  return (
+    <>
       {/* Who the shop is, so the slip is something that can be brought back. */}
       <Letterhead className="mb-3 border-b border-dashed border-slate-200 pb-3" />
 
@@ -204,46 +283,168 @@ export default function Receipt({ receipt, onClose, reprint = false }) {
       </dl>
 
       <ReceiptFooter className="mt-4 border-t border-dashed border-slate-200 pt-3" />
+    </>
+  );
+}
+
+/**
+ * The A4 sheet: a document somebody will file.
+ *
+ * Laid out like the invoice, because it is the same kind of object — the shop's
+ * details at the top, who it was for on the left, the number and date on the
+ * right, and the lines in a real table with a heading over every column so the
+ * figures can be checked rather than taken on trust.
+ */
+function Sheet({ order, items, rate, totalLbp, changeText, reprint, t }) {
+  return (
+    <>
+      <Letterhead variant="sheet" className="mb-5 border-b border-slate-200 pb-4" subtitle={t('Sales receipt')} />
+
+      <div className="mb-5 flex flex-wrap items-start justify-between gap-6">
+        <div className="min-w-[12rem]">
+          <p className="text-[11px] font-semibold tracking-wide text-slate-400 uppercase">Sold to</p>
+          <p className="mt-1 font-semibold text-slate-900">{order.customer_name || 'Cash sale'}</p>
+          {order.cashier_name && (
+            <p className="text-sm text-slate-500">Served by {order.cashier_name}</p>
+          )}
+        </div>
+
+        <dl className="min-w-[13rem] rounded-xl bg-slate-50 px-4 py-3 text-sm ring-1 ring-slate-200">
+          <div className="flex justify-between gap-6">
+            <dt className="text-slate-500">Receipt</dt>
+            <dd className="font-mono font-medium text-slate-900">{order.order_number}</dd>
+          </div>
+          <div className="mt-1 flex justify-between gap-6">
+            <dt className="text-slate-500">Date</dt>
+            <dd className="tnum text-slate-800">{String(order.created_at).slice(0, 16)}</dd>
+          </div>
+          {rate > 0 && (
+            <div className="mt-1 flex justify-between gap-6">
+              <dt className="text-slate-500">Rate</dt>
+              <dd className="tnum text-slate-800">{Number(rate).toLocaleString('en-US')} LL</dd>
+            </div>
+          )}
+        </dl>
       </div>
 
-      {/* Chosen before printing, not in a settings screen two rooms away. */}
-      <div className="no-print mt-4 flex items-center gap-2 border-t border-slate-100 pt-3">
-        <span className="text-xs text-slate-500">{t('Paper')}</span>
-        {[
-          ['roll', t('80mm roll')],
-          ['a4', t('A4 sheet')],
-        ].map(([id, label]) => (
-          <button
-            key={id}
-            type="button"
-            onClick={() => choosePaper(id)}
-            aria-pressed={paper === id}
-            className={cx(
-              'rounded-lg px-2.5 py-1 text-xs font-medium ring-1 transition',
-              paper === id
-                ? 'bg-brand-600 text-white ring-brand-600'
-                : 'bg-white text-slate-600 ring-slate-300 hover:bg-slate-50',
-            )}
-          >
-            {label}
-          </button>
-        ))}
+      {/* The change is a thing to hand over now, not a fact about the sale, so
+          it stays off the sheet and on the screen. */}
+      {!reprint && order.payment_method === 'cash' && order.change_due > 0 && (
+        <p className="no-print mb-4 inline-block rounded-lg bg-amber-50 px-3 py-1.5 text-sm font-semibold text-amber-900">
+          Give {changeText} change
+        </p>
+      )}
+
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[28rem] border-collapse text-sm">
+          <thead>
+            <tr className="border-y border-slate-300 text-left text-[11px] tracking-wide text-slate-500 uppercase">
+              <th className="w-8 py-2 pr-2 text-right font-semibold">#</th>
+              <th className="py-2 pr-3 font-semibold">Description</th>
+              <th className="w-16 py-2 px-2 text-right font-semibold">Qty</th>
+              <th className="w-28 py-2 px-2 text-right font-semibold">Unit price</th>
+              <th className="w-28 py-2 pl-2 text-right font-semibold">Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((item, n) => (
+              <tr key={item.id} className={cx('doc-row border-b border-slate-100', n % 2 === 1 && 'bg-slate-50/60')}>
+                <td className="tnum py-2.5 pr-2 text-right align-top text-xs text-slate-400">{n + 1}</td>
+                <td className="py-2.5 pr-3 align-top">
+                  <p className="font-medium text-slate-900">{item.name}</p>
+                  {item.returned_qty > 0 && (
+                    <p className="text-[11px] text-amber-700">{item.returned_qty} returned</p>
+                  )}
+                </td>
+                <td className="tnum py-2.5 px-2 text-right align-top text-slate-700">{item.quantity}</td>
+                <td className="tnum py-2.5 px-2 text-right align-top text-slate-700">
+                  {money(item.unit_price ?? item.line_total / (item.quantity || 1))}
+                </td>
+                <td className="tnum py-2.5 pl-2 text-right align-top font-semibold text-slate-900">
+                  {money(item.line_total)}
+                  {rate > 0 && (
+                    <span className="block text-[11px] font-normal text-slate-400">
+                      {lbp(Math.round(item.line_total * rate))}
+                    </span>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
 
-      <ModalActions className="no-print">
-        <Button variant="secondary" size="lg" onClick={() => window.print()} aria-label="Print receipt">
-          <Printer size={16} />
-        </Button>
-        {/*
-          * Sending it beats printing it for most of what a receipt is for: a
-          * customer who has it on their phone still has it in a month, and the
-          * shop does not go through a roll of paper.
-          */}
-        <WhatsAppButton path={`/orders/${order.id}/whatsapp`} label="WhatsApp" size="lg" />
-        <Button size="lg" className="flex-1" onClick={onClose} autoFocus>
-          {reprint ? t('Done') : t('New sale')}
-        </Button>
-      </ModalActions>
-    </Modal>
+      <dl className="doc-totals mt-4 ml-auto w-full max-w-[20rem] space-y-1 text-sm">
+        <div className="flex justify-between">
+          <dt className="text-slate-500">Subtotal</dt>
+          <dd className="tnum text-slate-700">{money(order.subtotal)}</dd>
+        </div>
+        {order.discount > 0 && (
+          <div className="flex justify-between">
+            <dt className="text-slate-500">Discount</dt>
+            <dd className="tnum text-slate-700">−{money(order.discount)}</dd>
+          </div>
+        )}
+        {/* Only when the sale carried any — see the roll, for the same reason. */}
+        {order.tax > 0 && (
+          <div className="flex justify-between">
+            <dt className="text-slate-500">Tax</dt>
+            <dd className="tnum text-slate-700">{money(order.tax)}</dd>
+          </div>
+        )}
+        <div className="mt-1 flex justify-between border-t-2 border-slate-800 pt-1.5 text-base font-semibold">
+          <dt className="text-slate-900">Total</dt>
+          <dd className="tnum text-slate-900">{money(order.total)}</dd>
+        </div>
+        {rate > 0 && (
+          <div className="flex justify-between text-xs">
+            <dt className="text-slate-400">In LBP</dt>
+            <dd className="tnum text-slate-500">{lbp(totalLbp)}</dd>
+          </div>
+        )}
+
+        <div className="mt-2 flex justify-between border-t border-slate-100 pt-1.5">
+          <dt className="text-slate-500">Paid by</dt>
+          <dd className="text-slate-800 capitalize">{order.payment_method}</dd>
+        </div>
+        {order.paid_usd > 0 && (
+          <div className="flex justify-between">
+            <dt className="text-slate-500">In dollars</dt>
+            <dd className="tnum text-slate-700">{money(order.paid_usd)}</dd>
+          </div>
+        )}
+        {order.paid_lbp > 0 && (
+          <div className="flex justify-between">
+            <dt className="text-slate-500">In pounds</dt>
+            <dd className="tnum text-slate-700">{lbp(order.paid_lbp)}</dd>
+          </div>
+        )}
+        {order.payment_method === 'cash' && order.change_due > 0 && (
+          <div className="flex justify-between font-medium text-brand-700">
+            <dt>Change</dt>
+            <dd className="tnum">{changeText}</dd>
+          </div>
+        )}
+
+        {/* What they owe, in their hand — the reasoning is on the roll. */}
+        {order.customer_name && Number(order.customer_balance) !== 0 && (
+          <div className="mt-2 flex justify-between border-t border-slate-200 pt-1.5 font-medium">
+            <dt className="text-slate-700">
+              {Number(order.customer_balance) > 0 ? 'Account balance' : 'In credit'}
+            </dt>
+            <dd className="tnum text-slate-900">
+              {money(Math.abs(Number(order.customer_balance)))}
+            </dd>
+          </div>
+        )}
+      </dl>
+
+      <ReceiptFooter className="mt-6 border-t border-slate-200 pt-3" />
+
+      <div className="doc-signature mt-10 hidden justify-between gap-10 text-xs text-slate-500 print:flex">
+        <div className="flex-1 border-t border-slate-400 pt-1">Received by</div>
+        <div className="flex-1 border-t border-slate-400 pt-1">For the shop</div>
+      </div>
+    </>
   );
 }
