@@ -2375,10 +2375,13 @@ try {
      *
      * The number is read rather than assumed: invoices settled at the counter
      * write their own slips into the same two series, so which one this is
-     * depends on what the shop has already done today.
+     * depends on what the shop has already done today. Read out of the slip
+     * itself, too — the list behind it holds every other voucher in the shop,
+     * and its first row is a different number.
      */
-    await page.waitForSelector('text=/PV-\\d{4}/', { timeout: 15000 });
-    paymentSlip = (await page.locator('text=/PV-\\d{4}/').first().innerText()).match(/PV-\d{4}/)[0];
+    const slip = page.locator('[role=dialog]', { hasText: /PV-\d{4}/ }).first();
+    await slip.waitFor({ timeout: 15000 });
+    paymentSlip = (await slip.innerText()).match(/PV-\d{4}/)[0];
     await page.waitForSelector('text=Received by');
     await page.waitForSelector('text=For the shop');
     await closeDialog();
@@ -2411,8 +2414,9 @@ try {
     await dialog.locator('text=Taken in').waitFor();
     await dialog.getByRole('button', { name: 'Record it' }).click();
 
-    await page.waitForSelector('text=/RV-\\d{4}/', { timeout: 15000 });
-    receiptSlip = (await page.locator('text=/RV-\\d{4}/').first().innerText()).match(/RV-\d{4}/)[0];
+    const slip = page.locator('[role=dialog]', { hasText: /RV-\d{4}/ }).first();
+    await slip.waitFor({ timeout: 15000 });
+    receiptSlip = (await slip.innerText()).match(/RV-\d{4}/)[0];
     await closeDialog();
 
     // Both series on one screen, the money moving opposite ways.
