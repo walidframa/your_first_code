@@ -1,15 +1,25 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { CornerDownLeft, Plus, Search, Sparkles } from 'lucide-react';
+import { ChevronDown, CornerDownLeft, Plus, Search, Sparkles } from 'lucide-react';
 import { ProductThumb, cx, money } from './ui';
 
-const MAX_RESULTS = 8;
+/*
+ * Enough to scroll through, few enough not to build a thousand rows into the
+ * page every time somebody puts the cursor in the box.
+ */
+const MAX_RESULTS = 50;
 
 /**
- * Type-to-find product picker for building a document line by line.
+ * The catalogue, browsable and searchable, for building a document line by line.
  *
- * Matches on name, SKU and barcode, so a scanner works here too. Enter picks
- * the highlighted result; when nothing matches, the same box offers to create
- * the product instead of sending you elsewhere.
+ * It opens on focus with everything in it. Typing narrows on name, SKU and
+ * barcode, so a scanner works here too; Enter picks the highlighted row; and
+ * when nothing matches, the same panel offers to create the product rather
+ * than sending anybody to another screen.
+ *
+ * It used to open only once something had been typed, which meant the shop had
+ * to already know what it stocked in order to put it on an invoice — fine for
+ * the register, where the stock is in a grid on the left, and no use at all in
+ * a dialog where this box is the only way in.
  */
 export default function ProductLineSearch({ products, onPick, onCreateNew, priceField = 'price' }) {
   const [term, setTerm] = useState('');
@@ -21,19 +31,25 @@ export default function ProductLineSearch({ products, onPick, onCreateNew, price
   const query = term.trim().toLowerCase();
 
   const results = useMemo(() => {
-    if (!query) return [];
-    return products
-      .filter(
-        (p) =>
-          p.name.toLowerCase().includes(query) ||
-          p.sku.toLowerCase().includes(query) ||
-          (p.barcode || '').includes(query),
-      )
-      .slice(0, MAX_RESULTS);
+    const matching = query
+      ? products.filter(
+          (p) =>
+            p.name.toLowerCase().includes(query) ||
+            p.sku.toLowerCase().includes(query) ||
+            (p.barcode || '').includes(query),
+        )
+      : products;
+    return matching.slice(0, MAX_RESULTS);
   }, [products, query]);
 
   useEffect(() => setHighlight(0), [term]);
   useEffect(() => () => clearTimeout(blurTimer.current), []);
+
+  /* Arrowing past the bottom of a fifty-row list has to bring the row with it. */
+  const listRef = useRef(null);
+  useEffect(() => {
+    listRef.current?.children[highlight]?.scrollIntoView({ block: 'nearest' });
+  }, [highlight]);
 
   function choose(product) {
     onPick(product);
@@ -58,7 +74,7 @@ export default function ProductLineSearch({ products, onPick, onCreateNew, price
     }
   }
 
-  const showPanel = focused && query.length > 0;
+  const showPanel = focused;
 
   return (
     <div className="relative">
@@ -75,13 +91,20 @@ export default function ProductLineSearch({ products, onPick, onCreateNew, price
         }}
         placeholder="Search products by name, SKU or barcode — or type a new name…"
         aria-label="Search products to add"
-        className="h-10 w-full rounded-lg bg-white pr-3 pl-9 text-sm ring-1 ring-slate-300 transition focus:ring-2 focus:ring-brand-600 focus:outline-none"
+        className="h-10 w-full rounded-lg bg-white pr-9 pl-9 text-sm ring-1 ring-slate-300 transition focus:ring-2 focus:ring-brand-600 focus:outline-none"
+      />
+      <ChevronDown
+        size={16}
+        className={cx(
+          'pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-slate-400 transition-transform',
+          showPanel && 'rotate-180',
+        )}
       />
 
       {showPanel && (
         <div className="absolute z-20 mt-1 w-full overflow-hidden rounded-xl bg-white shadow-lg ring-1 ring-slate-200">
           {results.length > 0 ? (
-            <ul className="max-h-72 overflow-y-auto">
+            <ul ref={listRef} className="max-h-72 overflow-y-auto">
               {results.map((p, i) => (
                 <li key={p.id}>
                   <button
@@ -111,18 +134,26 @@ export default function ProductLineSearch({ products, onPick, onCreateNew, price
             </ul>
           ) : (
             <p className="px-3 py-2.5 text-sm text-slate-500">
-              No product matches “{term.trim()}”.
+              {query ? `No product matches “${term.trim()}”.` : 'There is nothing in the catalogue yet.'}
             </p>
           )}
 
-          <button
-            type="button"
-            onClick={() => onCreateNew(term.trim())}
-            className="flex w-full items-center gap-2 border-t border-slate-100 px-3 py-2.5 text-left text-sm font-medium text-brand-700 transition hover:bg-brand-50"
-          >
-            <Sparkles size={14} />
-            Create “{term.trim()}” as a new product
-          </button>
+          {query ? (
+            <button
+              type="button"
+              onClick={() => onCreateNew(term.trim())}
+              className="flex w-full items-center gap-2 border-t border-slate-100 px-3 py-2.5 text-left text-sm font-medium text-brand-700 transition hover:bg-brand-50"
+            >
+              <Sparkles size={14} />
+              Create “{term.trim()}” as a new product
+            </button>
+          ) : (
+            products.length > MAX_RESULTS && (
+              <p className="border-t border-slate-100 px-3 py-2 text-xs text-slate-400">
+                First {MAX_RESULTS} of {products.length} — type to find the rest.
+              </p>
+            )
+          )}
         </div>
       )}
     </div>

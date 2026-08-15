@@ -1,13 +1,52 @@
+import { useState } from 'react';
 import { CheckCircle2, Printer } from 'lucide-react';
-import { Button, Modal, ModalActions, money } from './ui';
+import { Button, Modal, ModalActions, cx, money } from './ui';
 import { useT } from '../context/LanguageContext';
 import Letterhead, { ReceiptFooter } from './Letterhead';
 import WhatsAppButton from './WhatsAppButton';
 import { lbp } from '../context/SettingsContext';
 
+/**
+ * Which paper this shop puts a receipt on.
+ *
+ * A phone shop has a till roll at the counter and an office printer in the
+ * back, and both get used: the roll for whoever is walking out, A4 for a
+ * customer who wants something that looks like a document — a company buying a
+ * handset for staff, or anyone who will file it.
+ *
+ * Remembered on the device, because it is a property of what is plugged into
+ * this machine rather than of the shop. The counter tablet is on the roll
+ * whatever the back office prefers.
+ */
+const PAPER_KEY = 'pos_receipt_paper';
+const readPaper = () => (globalThis.localStorage?.getItem(PAPER_KEY) === 'a4' ? 'a4' : 'roll');
+
 export default function Receipt({ receipt, onClose }) {
   const t = useT();
   const { order, items } = receipt;
+  const [paper, setPaper] = useState(readPaper);
+
+  function choosePaper(next) {
+    setPaper(next);
+    try {
+      globalThis.localStorage?.setItem(PAPER_KEY, next);
+    } catch {
+      /* A blocked store must not stop anybody printing. */
+    }
+  }
+
+  /*
+   * The page size cannot come from a stylesheet written ahead of time because
+   * it depends on the choice, so the rule is emitted here — the same approach
+   * the label sheet takes, for the same reason.
+   *
+   * 72mm is an 80mm roll less what the printer will not reach, and the height
+   * is left to run: a receipt is as long as it is.
+   */
+  const pageRule =
+    paper === 'a4'
+      ? '@page { size: A4; margin: 14mm; }'
+      : '@page { size: 72mm auto; margin: 3mm; }';
   // Use the rate stored on the order, not the current one — a receipt must
   // still reconcile after the rate moves.
   const rate = order.exchange_rate || 0;
@@ -27,6 +66,8 @@ export default function Receipt({ receipt, onClose }) {
 
   return (
     <Modal open onClose={onClose} size="sm" className="print:shadow-none print:ring-0">
+      <style>{pageRule}</style>
+      <div className={cx('print-receipt', paper === 'a4' ? 'mode-a4' : 'mode-roll')}>
       {/* Who the shop is, so the slip is something that can be brought back. */}
       <Letterhead className="mb-3 border-b border-dashed border-slate-200 pb-3" />
 
@@ -123,9 +164,62 @@ export default function Receipt({ receipt, onClose }) {
             <dd className="text-slate-700">Card</dd>
           </div>
         )}
+
+        {/*
+          * What this customer owes, in their hand.
+          *
+          * The moment to tell somebody their account stands at three hundred
+          * dollars is while they are holding the receipt for it — a shop that
+          * waits until next month is a shop having an argument about it. Shown
+          * for anybody with a balance either way: owing it, or in credit.
+          *
+          * Only when there is a customer at all. Most sales are to whoever
+          * walked in, and a line reading "Balance $0.00" on every receipt is
+          * noise on a roll that costs money to print.
+          */}
+        {order.customer_name && Number(order.customer_balance) !== 0 && (
+          <div className="mt-1 flex justify-between border-t border-dashed border-slate-200 pt-1 font-medium">
+            <dt className="text-slate-700">
+              {Number(order.customer_balance) > 0 ? 'Account balance' : 'In credit'}
+            </dt>
+            <dd className="tnum text-slate-900">
+              {money(Math.abs(Number(order.customer_balance)))}
+              {rate > 0 && (
+                <span className="ml-1 text-xs font-normal text-slate-500">
+                  {lbp(Math.round(Math.abs(Number(order.customer_balance)) * rate))}
+                </span>
+              )}
+            </dd>
+          </div>
+        )}
       </dl>
 
       <ReceiptFooter className="mt-4 border-t border-dashed border-slate-200 pt-3" />
+      </div>
+
+      {/* Chosen before printing, not in a settings screen two rooms away. */}
+      <div className="no-print mt-4 flex items-center gap-2 border-t border-slate-100 pt-3">
+        <span className="text-xs text-slate-500">{t('Paper')}</span>
+        {[
+          ['roll', t('80mm roll')],
+          ['a4', t('A4 sheet')],
+        ].map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => choosePaper(id)}
+            aria-pressed={paper === id}
+            className={cx(
+              'rounded-lg px-2.5 py-1 text-xs font-medium ring-1 transition',
+              paper === id
+                ? 'bg-brand-600 text-white ring-brand-600'
+                : 'bg-white text-slate-600 ring-slate-300 hover:bg-slate-50',
+            )}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
 
       <ModalActions className="no-print">
         <Button variant="secondary" size="lg" onClick={() => window.print()} aria-label="Print receipt">

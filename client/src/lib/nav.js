@@ -73,7 +73,7 @@ export const ADMIN_NAV = [
     heading: 'Selling',
     items: [
       { to: '/admin/documents', label: 'Documents', icon: FileText, permission: 'documents' , module: 'documents' },
-      { to: '/admin/orders', label: 'Orders', icon: ScrollText, permission: 'reports' },
+      { to: '/admin/orders', label: 'Sales', icon: ScrollText, permission: 'reports' },
       { to: '/admin/repairs', label: 'Repairs', icon: Wrench, permission: 'repairs' , module: 'repairs' },
       { to: '/admin/trade-ins', label: 'Trade-ins', icon: HandCoins, permission: 'repairs' , module: 'repairs' },
       { to: '/admin/customers', label: 'Customers', icon: Contact, permission: 'parties' },

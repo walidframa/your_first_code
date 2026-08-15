@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Eye, Plus, Search, Trash2, Wrench } from 'lucide-react';
+import { Eye, Plus, Trash2, Wrench } from 'lucide-react';
 import api from '../../api';
 import PageHeader from '../../components/PageHeader';
 import RepairSlip, { PrintSlipButton } from '../../components/RepairSlip';
 import WhatsAppButton from '../../components/WhatsAppButton';
+import HistoryFilter from '../../components/HistoryFilter';
+import { useHistoryFilter } from '../../lib/history';
 import {
   Button,
   Card,
@@ -439,9 +441,14 @@ function TicketModal({ id, onClose, onChanged }) {
 export default function Repairs() {
   const [tickets, setTickets] = useState(null);
   const [filter, setFilter] = useState('open');
-  const [q, setQ] = useState('');
   const [intake, setIntake] = useState(false);
   const [openId, setOpenId] = useState(null);
+  /*
+   * A device left in March is still a device the shop had, and until now the
+   * only way to it was a status nobody remembered choosing.
+   */
+  const history = useHistoryFilter('month');
+  const q = history.term;
 
   const load = useCallback(async () => {
     const res = await api.get('/repairs', { params: { status: filter, q: q || undefined } });
@@ -451,6 +458,8 @@ export default function Repairs() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const shown = (tickets || []).filter((t) => history.within(t.created_at));
 
   return (
     <div className="flex h-full flex-col">
@@ -465,17 +474,11 @@ export default function Repairs() {
       />
 
       <div className="min-h-0 flex-1 overflow-y-auto p-6">
-        <div className="mb-4 flex gap-2">
-          <div className="relative flex-1">
-            <Search size={16} className="absolute top-1/2 left-3 -translate-y-1/2 text-slate-400" />
-            <input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="Ticket number, name, phone or IMEI…"
-              aria-label="Search repairs"
-              className="h-10 w-full rounded-xl bg-white pr-3 pl-9 text-sm ring-1 ring-slate-300 focus:ring-2 focus:ring-brand-500 focus:outline-none"
-            />
-          </div>
+        <HistoryFilter
+          filter={history}
+          label="Search repairs"
+          placeholder="Ticket number, name, phone or IMEI…"
+        >
           <div className="w-44">
             <Select value={filter} onChange={(e) => setFilter(e.target.value)} aria-label="Status filter">
               <option value="open">On the bench</option>
@@ -486,11 +489,11 @@ export default function Repairs() {
               ))}
             </Select>
           </div>
-        </div>
+        </HistoryFilter>
 
         {!tickets ? (
           <Skeleton className="h-64" />
-        ) : tickets.length === 0 ? (
+        ) : shown.length === 0 ? (
           <EmptyState
             icon={Wrench}
             title="Nothing on the bench"
@@ -510,7 +513,7 @@ export default function Repairs() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {tickets.map((t) => (
+                {shown.map((t) => (
                   <tr
                     key={t.id}
                     onClick={() => setOpenId(t.id)}

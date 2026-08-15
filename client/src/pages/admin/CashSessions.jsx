@@ -3,6 +3,8 @@ import { Banknote } from 'lucide-react';
 import api from '../../api';
 import PageHeader from '../../components/PageHeader';
 import CashReport from '../../components/CashReport';
+import HistoryFilter from '../../components/HistoryFilter';
+import { useHistoryFilter } from '../../lib/history';
 import { lbp } from '../../context/SettingsContext';
 import { Badge, Card, EmptyState, Skeleton, cx, money } from '../../components/ui';
 
@@ -24,6 +26,11 @@ export default function CashSessions() {
   const [sessions, setSessions] = useState(null);
   const [current, setCurrent] = useState(null);
   const [viewing, setViewing] = useState(null);
+  /*
+   * A sitting from last month is what somebody reaches for when a count is
+   * being argued about, and until now the list stopped wherever it stopped.
+   */
+  const history = useHistoryFilter('month');
 
   const load = useCallback(() => {
     api.get('/cash/sessions').then((res) => setSessions(res.data.sessions));
@@ -33,6 +40,10 @@ export default function CashSessions() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const shown = (sessions || []).filter(
+    (s) => history.within(s.opened_at) && history.matches(s.opened_by_name, s.account_name, s.closed_by_name),
+  );
 
   return (
     <div className="flex h-full flex-col">
@@ -120,6 +131,12 @@ export default function CashSessions() {
           )}
         </Card>
 
+        <HistoryFilter
+          filter={history}
+          label="Search cashboxes"
+          placeholder="Search who opened it, or the till…"
+        />
+
         <Card>
           {!sessions ? (
             <div className="space-y-2 p-5">
@@ -127,7 +144,7 @@ export default function CashSessions() {
                 <Skeleton key={i} className="h-11" />
               ))}
             </div>
-          ) : sessions.length === 0 ? (
+          ) : shown.length === 0 ? (
             <EmptyState
               icon={Banknote}
               title="The cashbox has never been opened"
@@ -145,7 +162,7 @@ export default function CashSessions() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {sessions.map((s) => (
+                {shown.map((s) => (
                   <tr
                     key={s.id}
                     onClick={() => setViewing(s.id)}

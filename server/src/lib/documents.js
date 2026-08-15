@@ -2,6 +2,7 @@ import { db } from '../db.js';
 import { round2, tenderTotals, validatePayments } from './currency.js';
 import { addEntry, creditCheck } from './accounts.js';
 import { recordMovement } from './cash.js';
+import { cancelDocumentVouchers, recordDocumentVoucher } from './vouchers.js';
 import { recordCostChange } from './costHistory.js';
 import { isAvailable, receiveUnits, syncStockFromUnits } from './units.js';
 import { costOfLine } from './wallets.js';
@@ -468,7 +469,7 @@ export function applyEffects(doc, items, userId, note = doc.doc_number) {
 
   const paid = paidUsdEquivalent(doc);
   if (paid > 0) {
-    addEntry({
+    const entryId = addEntry({
       partyType: doc.party_type,
       partyId: doc.party_id,
       kind: 'payment',
@@ -487,7 +488,7 @@ export function applyEffects(doc, items, userId, note = doc.doc_number) {
      */
     if (doc.payment_method === 'cash') {
       const sign = doc.doc_type === 'purchase_invoice' ? -1 : 1;
-      recordMovement({
+      const movementId = recordMovement({
         kind: 'document',
         amountUsd: sign * doc.paid_usd,
         amountLbp: sign * doc.paid_lbp,
@@ -496,6 +497,14 @@ export function applyEffects(doc, items, userId, note = doc.doc_number) {
         note,
         userId,
       });
+
+      /*
+       * And so does the voucher book. The money has already moved — this only
+       * writes the numbered slip for it, so that an owner reading down the
+       * receipts sees the invoices among them instead of a day that appears to
+       * be missing its largest takings.
+       */
+      recordDocumentVoucher({ doc, movementId, entryId, userId });
     }
   }
 }
@@ -543,6 +552,10 @@ export function reverseEffects(doc, items, userId, note = `Cancelled ${doc.doc_n
         note,
         userId,
       });
+
+      // The slip is voided with it, and only voided: the money has just been
+      // put back above, and cancelling it as a voucher would put it back twice.
+      cancelDocumentVouchers(doc.id);
     }
   }
 }

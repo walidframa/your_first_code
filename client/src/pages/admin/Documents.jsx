@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router';
+import { useNavigate, useSearchParams } from 'react-router';
 import {
   AlertTriangle,
   ArrowRight,
@@ -12,7 +12,6 @@ import {
   Plus,
   Printer,
   Receipt,
-  Search,
   Tag,
   Trash2,
   Truck,
@@ -23,6 +22,8 @@ import Letterhead from '../../components/Letterhead';
 import { useSettings, lbp } from '../../context/SettingsContext';
 import { useAuth } from '../../context/AuthContext';
 import ProductLineSearch, { AddFreeTextButton } from '../../components/ProductLineSearch';
+import HistoryFilter from '../../components/HistoryFilter';
+import { useHistoryFilter } from '../../lib/history';
 import ProductQuickCreate from '../../components/ProductQuickCreate';
 import PartyQuickCreate from '../../components/PartyQuickCreate';
 import {
@@ -1117,7 +1118,22 @@ export default function Documents() {
   const [documents, setDocuments] = useState(null);
   const [counts, setCounts] = useState({});
   const [filter, setFilter] = useState('all');
-  const [search, setSearch] = useState('');
+  /*
+   * Arrived at from somewhere else, looking for one document.
+   *
+   * The Sales screen lists invoices beside register sales and sends anybody who
+   * presses one here, because this is where an invoice can actually be edited,
+   * converted and reversed. Landing on an unfiltered list of four hundred and
+   * being told to find it again would make that a dead end.
+   */
+  const [params] = useSearchParams();
+  /*
+   * Arriving with a number in hand means the period is not the question — the
+   * invoice could be from March. So that landing starts on everything, and a
+   * shop opening the screen normally still starts on this month.
+   */
+  const arrivedFor = params.get('number') || '';
+  const history = useHistoryFilter(arrivedFor ? 'all' : 'month', arrivedFor);
   const [creating, setCreating] = useState(false);
   const [viewing, setViewing] = useState(null);
 
@@ -1139,13 +1155,11 @@ export default function Documents() {
     load();
   }, [load]);
 
-  const term = search.trim().toLowerCase();
   const visible = (documents || []).filter(
     (d) =>
       (filter === 'all' || d.doc_type === filter) &&
-      (!term ||
-        d.doc_number.toLowerCase().includes(term) ||
-        (d.party_name || '').toLowerCase().includes(term)),
+      history.within(d.issue_date || d.created_at) &&
+      history.matches(d.doc_number, d.party_name, d.notes),
   );
 
   return (
@@ -1201,19 +1215,13 @@ export default function Documents() {
           })}
         </div>
 
-        <Card>
-          <div className="border-b border-slate-100 px-5 py-3">
-            <div className="relative">
-              <Search size={16} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-slate-400" />
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search by number or name…"
-                className="h-9 w-full rounded-lg bg-slate-100 pr-3 pl-9 text-sm ring-1 ring-transparent transition focus:bg-white focus:ring-brand-600 focus:outline-none"
-              />
-            </div>
-          </div>
+        <HistoryFilter
+          filter={history}
+          label="Search documents"
+          placeholder="Search by number, name or note…"
+        />
 
+        <Card>
           {!documents ? (
             <div className="space-y-2 p-5">
               {Array.from({ length: 5 }).map((_, i) => (

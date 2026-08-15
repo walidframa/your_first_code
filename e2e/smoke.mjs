@@ -45,6 +45,12 @@ const ALLOWED_FAILURES = [
    * this listener complaining about them, and they must never be allowed here.
    */
   /\/api\/auth\/password/,
+  /*
+   * Cancelling the slip an invoice wrote for itself, which is refused on
+   * purpose — the invoice still says it was paid, so undoing the receipt here
+   * would hand the money back twice. The 400 is what is being checked.
+   */
+  /\/api\/vouchers\/\d+\/cancel/,
 ];
 
 const consoleErrors = [];
@@ -1359,7 +1365,8 @@ try {
   });
 
   await step('refunding an order works', async () => {
-    await goTo('Orders');
+    // Named "Sales" now that invoices are listed beside register sales.
+    await goTo('Sales');
     await page.waitForSelector('text=ORD-', { timeout: 15000 });
     await page.click('td:has-text("ORD-") >> nth=0');
     await page.waitForSelector('button:has-text("Void the whole sale")');
@@ -1367,6 +1374,13 @@ try {
     await page.waitForSelector('text=Refunded', { timeout: 15000 });
   });
 
+  /*
+   * Reported from a live shop: "the invoices are not added to the sales tab".
+   *
+   * They were not — this screen read the orders table and nothing else, so a
+   * shop that invoices its trade customers looked at a day's sales and saw
+   * only the part that crossed the till.
+   */
   await step('a cost can be typed in pounds, and is kept in dollars', async () => {
     await goTo('Products');
     await page.click('button:has-text("New product")');
@@ -1885,6 +1899,124 @@ try {
     await page.keyboard.press('Escape');
   });
 
+  /*
+   * A sale that happens on paper rather than at the counter — a customer who
+   * wants an invoice, paid there and then in cash. It is the case the next two
+   * steps are about: it has to reach the sales list, and its money has to reach
+   * the voucher book.
+   */
+  await step('a sales invoice paid in cash is confirmed', async () => {
+    await goTo('Documents');
+    const dialog = await openNewDocument();
+    await dialog.getByRole('button', { name: /Sales invoice/ }).click();
+    await dialog.locator('#doc-party').selectOption({ label: 'Rami Haddad' });
+    await dialog.getByLabel('Search products to add').fill('Croissant');
+    await dialog.getByLabel('Search products to add').press('Enter');
+    await dialog.getByLabel(/Quantity for/i).first().fill('2');
+
+    await dialog.getByRole('button', { name: /Paid in full/ }).click();
+    await dialog.getByLabel('Method').selectOption('cash');
+    await page.waitForSelector('[role=dialog] >> text=Settled', { timeout: 10000 });
+
+    await page.click('button:has-text("Create draft")');
+    await page.waitForSelector('text=/SI-\\d{4}/', { timeout: 15000 });
+    await page.click('button:has-text("Confirm")');
+    await page.waitForSelector('text=confirmed', { timeout: 15000 });
+    await page.keyboard.press('Escape');
+  });
+
+  /*
+   * Placed after the documents section on purpose: it needs a confirmed sales
+   * invoice to exist, and nothing before this point has made one.
+   */
+  await step('a confirmed invoice is listed among the sales, and is findable by number', async () => {
+    await goTo('Sales');
+
+    /*
+     * Anchored on this screen's own search box before anything is read.
+     *
+     * Every history now carries the same bar, and several of them carry a
+     * table and an "All" — so a check that starts reading the moment a table
+     * exists can be reading the screen it just left.
+     */
+    const box = page.locator('input[aria-label="Search sales"]');
+    try {
+      await box.waitFor({ timeout: 20000 });
+    } catch {
+      const shown = await page.locator('main').innerText();
+      throw new Error(`the Sales screen did not arrive. The page says:\n${shown.slice(0, 400)}`);
+    }
+
+    // The default view first: this month, which is where a shop looks without
+    // pressing anything.
+    const table = page.locator('table').first();
+    await table.waitFor({ timeout: 20000 });
+    try {
+      await page.waitForFunction(
+        () => document.querySelector('table')?.innerText.includes('ORD-'),
+        null,
+        { timeout: 15000 },
+      );
+    } catch {
+      throw new Error(
+        `the register sales have gone from their own screen. The list holds:\n${(await table.innerText()).slice(0, 400)}`,
+      );
+    }
+
+    // Widened to everything, so an invoice confirmed earlier in this run is in
+    // range whichever day the suite happens to run on.
+    await page.getByRole('button', { name: 'All', exact: true }).click();
+    await page.waitForTimeout(700);
+
+    const listed = await table.innerText();
+    if (!/SI-\d+/.test(listed)) {
+      throw new Error(`no sales invoice among the sales. The list holds:\n${listed.slice(0, 400)}`);
+    }
+
+    // And the search box finds one by its number, which is what somebody
+    // holding a printed invoice actually has.
+    const number = listed.match(/SI-\d+/)[0];
+    await page.fill('input[aria-label="Search sales"]', number);
+    await page.waitForTimeout(500);
+    const filtered = await table.innerText();
+    if (!filtered.includes(number)) throw new Error('searching by invoice number lost it');
+    if (filtered.includes('ORD-')) throw new Error('the search did not narrow anything');
+
+    await page.fill('input[aria-label="Search sales"]', '');
+    await page.waitForTimeout(300);
+  });
+
+  await step('the money taken on that invoice is in the voucher book', async () => {
+    await goTo('Vouchers');
+
+    /*
+     * This screen's own box first, as on the Sales screen and for the same
+     * reason: the list it was just looking at also holds the invoice's number,
+     * so a read taken before the route swaps finds it on the wrong table.
+     */
+    await page.waitForSelector('input[aria-label="Find a voucher"]', { timeout: 20000 });
+    await page.waitForSelector('table', { timeout: 20000 });
+
+    // The slip is written when the invoice is confirmed, so it is already
+    // there — but the list is fetched, and a fetch takes as long as it takes.
+    const row = page.locator('tr', { hasText: /SI-\d+/ }).first();
+    try {
+      await row.waitFor({ timeout: 15000 });
+    } catch {
+      const listed = await page.locator('table').first().innerText();
+      throw new Error(`the invoice's receipt is not among the vouchers. The book holds:\n${listed.slice(0, 400)}`);
+    }
+
+    /*
+     * And it cannot be voided on its own. The invoice still says it was paid,
+     * so undoing the receipt here would hand the money back twice — the
+     * correction has to be made on the invoice.
+     */
+    const number = (await row.innerText()).match(/(PV|RV|TV)-\d+/)[0];
+    await page.getByRole('button', { name: `Cancel ${number}` }).click();
+    await page.waitForSelector('text=/cancel that invoice instead/', { timeout: 15000 });
+  });
+
   await step('the cashbox closes against a blind count', async () => {
     await goTo('Register');
     /*
@@ -2231,6 +2363,10 @@ try {
     await page.waitForSelector('text=Expense recorded', { timeout: 15000 });
   });
 
+  // Carried from where the slips are written to where the drawer is checked.
+  let paymentSlip;
+  let receiptSlip;
+
   await step('a payment voucher pays somebody and prints a slip to sign', async () => {
     await goTo('Vouchers');
     await page.waitForSelector('text=/Money paid out and taken in/', { timeout: 15000 });
@@ -2251,8 +2387,18 @@ try {
     await dialog.locator('text=/Main drawer → Abu Khalil/').waitFor();
     await dialog.getByRole('button', { name: 'Record it' }).click();
 
-    // Straight to the slip, because a voucher exists to be signed.
-    await page.waitForSelector('text=PV-0001', { timeout: 15000 });
+    /*
+     * Straight to the slip, because a voucher exists to be signed.
+     *
+     * The number is read rather than assumed: invoices settled at the counter
+     * write their own slips into the same two series, so which one this is
+     * depends on what the shop has already done today. Read out of the slip
+     * itself, too — the list behind it holds every other voucher in the shop,
+     * and its first row is a different number.
+     */
+    const slip = page.locator('[role=dialog]', { hasText: /PV-\d{4}/ }).first();
+    await slip.waitFor({ timeout: 15000 });
+    paymentSlip = (await slip.innerText()).match(/PV-\d{4}/)[0];
     await page.waitForSelector('text=Received by');
     await page.waitForSelector('text=For the shop');
     await closeDialog();
@@ -2285,7 +2431,9 @@ try {
     await dialog.locator('text=Taken in').waitFor();
     await dialog.getByRole('button', { name: 'Record it' }).click();
 
-    await page.waitForSelector('text=RV-0001', { timeout: 15000 });
+    const slip = page.locator('[role=dialog]', { hasText: /RV-\d{4}/ }).first();
+    await slip.waitFor({ timeout: 15000 });
+    receiptSlip = (await slip.innerText()).match(/RV-\d{4}/)[0];
     await closeDialog();
 
     // Both series on one screen, the money moving opposite ways.
@@ -2335,8 +2483,8 @@ try {
     await dialog.locator('text=-$75.00').first().waitFor();
     await dialog.locator('text=OMT send').first().waitFor();
     await dialog.locator('text=Whish payout').first().waitFor();
-    await dialog.locator('text=PV-0001').first().waitFor();
-    await dialog.locator('text=RV-0001').first().waitFor();
+    await dialog.locator(`text=${paymentSlip}`).first().waitFor();
+    await dialog.locator(`text=${receiptSlip}`).first().waitFor();
 
     // The next step logs out, and the backdrop would swallow the click.
     await closeDialog();

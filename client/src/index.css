@@ -445,6 +445,52 @@ body {
 }
 
 /*
+ * A receipt, on whichever paper the shop chose.
+ *
+ * Same isolation as the label sheet and the slip: hide the app, show only the
+ * receipt, so a printed receipt is a receipt rather than a screenshot of a
+ * dialog on a page. The @page size itself is emitted by Receipt.jsx, because
+ * it depends on the choice and a stylesheet is written before the choice is
+ * made.
+ *
+ * The two modes differ in width and in nothing else. A till roll is 72mm of
+ * usable paper and the type has to be readable off a cheap thermal head; A4 is
+ * a sheet somebody will file, so it is centred at a column width rather than
+ * stretched across two hundred millimetres, which no one can read.
+ */
+@media print {
+  body:has(.print-receipt) * {
+    visibility: hidden;
+  }
+
+  body:has(.print-receipt) .print-receipt,
+  body:has(.print-receipt) .print-receipt * {
+    visibility: visible;
+  }
+
+  body:has(.print-receipt) .print-receipt {
+    position: absolute;
+    top: 0;
+    left: 0;
+    margin: 0;
+    padding: 0;
+    color: #000;
+    background: #fff;
+  }
+
+  body:has(.print-receipt) .print-receipt.mode-roll {
+    width: 100%;
+    /* Thermal paper and a blunt print head: the app's greys come out as mush,
+       so the roll gets plain black on white. */
+    font-family: ui-monospace, 'SFMono-Regular', 'Menlo', monospace;
+  }
+
+  body:has(.print-receipt) .print-receipt.mode-a4 {
+    width: 105mm;
+  }
+}
+
+/*
  * Repair tickets and vouchers on a receipt printer.
  *
  * Thermal rolls are 58 or 80mm wide with no fixed height, so the page is sized

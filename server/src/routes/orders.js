@@ -3,7 +3,7 @@ import crypto from 'crypto';
 import { db, transaction } from '../db.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { getSettings, taxRate } from '../lib/settings.js';
-import { addEntry, creditCheck } from '../lib/accounts.js';
+import { addEntry, balanceOf, creditCheck } from '../lib/accounts.js';
 import { currentSession, recordMovement, requiresSession } from '../lib/cash.js';
 import {
   isAvailable,
@@ -837,7 +837,18 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
 
     const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(result.orderId);
     const orderItems = db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(result.orderId);
-    res.status(201).json({ order, items: orderItems });
+    /*
+     * What they still owe, for the receipt.
+     *
+     * A customer buying on account should walk out knowing the figure, and the
+     * moment to tell them is the piece of paper in their hand — asking at the
+     * counter next month is how a shop ends up arguing about it. Read after the
+     * sale is posted, so it is the balance including what was just bought.
+     */
+    const withBalance = order.customer_id
+      ? { ...order, customer_balance: balanceOf('customer', order.customer_id) }
+      : order;
+    res.status(201).json({ order: withBalance, items: orderItems });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -854,13 +865,22 @@ router.get('/', requireAuth, (req, res) => {
     sql += ' AND o.cashier_id = ?';
     params.push(req.user.id);
   }
+  /*
+   * A range is inclusive of both whole days.
+   *
+   * `created_at` is a timestamp and these come in as dates, so comparing them
+   * raw made `to` mean "up to midnight at the start of that day" — asking for
+   * sales up to today returned everything except today, which is the one day
+   * anybody is actually looking at. The same reasoning, and the same fix, as
+   * periodBounds in lib/profit.js.
+   */
   if (from) {
     sql += ' AND o.created_at >= ?';
-    params.push(from);
+    params.push(`${from} 00:00:00`);
   }
   if (to) {
     sql += ' AND o.created_at <= ?';
-    params.push(to);
+    params.push(`${to} 23:59:59`);
   }
   /*
    * `?scope=sitting` — what has been sold on this till since it was opened.
@@ -897,7 +917,11 @@ router.get('/:id', requireAuth, (req, res) => {
     return res.status(403).json({ error: 'Insufficient permissions' });
   }
   const items = db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(req.params.id);
-  res.json({ order, items });
+  // See the note where a sale is created: a reprint carries the balance too.
+  const withBalance = order.customer_id
+    ? { ...order, customer_balance: balanceOf('customer', order.customer_id) }
+    : order;
+  res.json({ order: withBalance, items });
 });
 
 /**
