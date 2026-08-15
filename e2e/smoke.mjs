@@ -2461,17 +2461,19 @@ try {
     }
   });
 
-  await step('a shop already trading can say where its balance starts', async () => {
+  /*
+   * Running the desk and saying where the count starts are different jobs.
+   *
+   * The opening balance is the figure every later balance is measured from, so
+   * moving it moves what the shop appears to owe without anything having
+   * happened at the counter — which is exactly what somebody who is short
+   * would reach for. This whole section is signed in as the operator.
+   */
+  await step('the operator is not offered the opening balance', async () => {
     const row = page.locator('tr', { hasText: 'OMT' }).first();
-    await row.getByRole('button', { name: 'Opening' }).click();
-    await page.waitForSelector('[role=dialog] >> text=opening balance', { timeout: 15000 });
-
-    await page.locator('[role=dialog] #openingUsd').fill('500');
-    await page.locator('[role=dialog]').getByRole('button', { name: 'Set it' }).click();
-    await page.waitForSelector('text=/opening balance set/', { timeout: 15000 });
-
-    // Carried in on top of what the counter has done, not instead of it.
-    await page.waitForSelector('tr:has-text("OMT") >> text=$650.00', { timeout: 15000 });
+    if (await row.getByRole('button', { name: 'Opening' }).count()) {
+      throw new Error('the desk can rewrite the figure its own count is measured against');
+    }
   });
 
   await step('paying one out takes the money back off the drawer', async () => {
@@ -2609,6 +2611,50 @@ try {
     await page.waitForSelector('td:has-text("Back safe")');
   });
   await shot('accounts');
+
+  await step('and the owner can, on top of what the counter has done', async () => {
+    await goTo('Transfers');
+    const row = page.locator('tr', { hasText: 'OMT' }).first();
+    await row.waitFor({ timeout: 15000 });
+    await row.getByRole('button', { name: 'Opening' }).click();
+    await page.waitForSelector('[role=dialog] >> text=opening balance', { timeout: 15000 });
+
+    await page.locator('[role=dialog] #openingUsd').fill('500');
+    await page.locator('[role=dialog]').getByRole('button', { name: 'Set it' }).click();
+    await page.waitForSelector('text=/opening balance set/', { timeout: 15000 });
+
+    // Carried in on top of the counter's own work, not instead of it.
+    await page.waitForSelector('tr:has-text("OMT") >> text=$650.00', { timeout: 15000 });
+  });
+
+  /*
+   * Reported from a live shop: putting the tabs away was throwing the owner
+   * back to the register every time, which turns "tidy this up" into "and lose
+   * what I was doing".
+   */
+  await step('putting the tabs away leaves you on the page you were on', async () => {
+    await goTo('Products');
+    await goTo('Sales');
+    await page.waitForSelector('input[aria-label="Search sales"]', { timeout: 20000 });
+
+    const strip = page.locator('nav[aria-label="Open pages"]');
+    await strip.waitFor({ timeout: 15000 });
+    const before = new URL(page.url()).pathname;
+
+    await strip.getByRole('button', { name: 'Close the rest' }).click();
+    await page.waitForTimeout(400);
+
+    if (new URL(page.url()).pathname !== before) {
+      throw new Error(`closing the tabs moved us from ${before} to ${new URL(page.url()).pathname}`);
+    }
+    // Still the page it was, not a register that happens to be at /admin/orders.
+    await page.waitForSelector('input[aria-label="Search sales"]', { timeout: 15000 });
+
+    // One page open is no strip at all — there is nothing left to switch to.
+    if (await page.locator('nav[aria-label="Open pages"]').count()) {
+      throw new Error('the strip is still there with one page open');
+    }
+  });
 
   await step('the drawer carries every one of them', async () => {
     /*

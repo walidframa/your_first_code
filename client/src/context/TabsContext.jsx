@@ -107,12 +107,20 @@ export function TabsProvider({ children }) {
     [path, navigate],
   );
 
+  /**
+   * Tidy the strip without leaving the page.
+   *
+   * It used to clear every tab and go to the register, which turned "put these
+   * away" into "and lose what I was doing". Somebody eight tabs deep who wants
+   * one screen back was being sent to the till and made to walk to it again.
+   *
+   * So the page in front of them stays — it is the one they are looking at,
+   * and closing it is not what they asked for. Everything else goes, and
+   * nothing navigates.
+   */
   const closeAll = useCallback(() => {
-    setTabs([]);
-    // Back to the till: it is the screen this app is for, and the only one
-    // that is never wrong to be on.
-    navigate('/');
-  }, [navigate]);
+    setTabs((prev) => prev.filter((t) => t.path === path));
+  }, [path]);
 
   const value = useMemo(
     () => ({ tabs, active: path, close, closeAll, open: (to) => navigate(to) }),

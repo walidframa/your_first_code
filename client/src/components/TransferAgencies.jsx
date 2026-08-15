@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Building2, Scale, Wallet } from 'lucide-react';
 import api from '../api';
 import { lbp } from '../context/SettingsContext';
+import { useAuth } from '../context/AuthContext';
 import MoneyInput from './MoneyInput';
 import { Badge, Button, Card, EmptyState, Input, Modal, ModalActions, Skeleton, cx, money, useToast } from './ui';
 
@@ -137,6 +138,18 @@ function StatementDialog({ company, onClose }) {
 
 export default function TransferAgencies({ onSettle, refreshKey = 0 }) {
   const toast = useToast();
+  /*
+   * Where the count starts is the owner's to set.
+   *
+   * It is the figure every later balance is measured from, and moving it moves
+   * what the shop appears to owe without anything having happened at the
+   * counter — so an operator who is short has an obvious way to make that go
+   * away. Recording transfers is still their job; saying where the count
+   * begins is not. Hidden rather than shown and refused: a button that always
+   * fails is worse than no button.
+   */
+  const { user } = useAuth();
+  const owner = user?.role === 'admin';
   const [companies, setCompanies] = useState(null);
   const [naming, setNaming] = useState(false);
   const [name, setName] = useState('');
@@ -249,13 +262,15 @@ export default function TransferAgencies({ onSettle, refreshKey = 0 }) {
                     )}
                   </td>
                   <td className="px-5 py-2.5 text-right whitespace-nowrap">
-                    <button
-                      type="button"
-                      onClick={() => setOpening(c)}
-                      className="rounded px-2 py-1 text-xs font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
-                    >
-                      Opening
-                    </button>
+                    {owner && (
+                      <button
+                        type="button"
+                        onClick={() => setOpening(c)}
+                        className="rounded px-2 py-1 text-xs font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
+                      >
+                        Opening
+                      </button>
+                    )}
                     {/*
                       * Settling is a voucher like any other — the shop paying
                       * an agency what it is holding for them, or being made
