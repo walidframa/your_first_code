@@ -293,6 +293,41 @@ try {
     await page.waitForTimeout(150);
   });
 
+  /*
+   * Haggling, which is how a phone is actually sold here.
+   *
+   * Checked all the way to what the order line stores, not just to what the
+   * cart shows: the whole point of pricing the line rather than discounting
+   * the basket is that the books record the margin on the phone as the margin
+   * on the phone, and that only holds if the agreed figure survives the sale.
+   */
+  await step('a price can be argued down on one line, and it is what gets sold', async () => {
+    await page.click('button:has-text("Croissant")');
+    await page.waitForTimeout(300);
+
+    const line = page.locator('aside li', { hasText: 'Croissant' }).first();
+    await line.getByRole('button', { name: /each/ }).click();
+    await page.waitForSelector('[role=dialog] >> text=Price for this sale', { timeout: 10000 });
+
+    await page.fill('[role=dialog] #linePrice', '2');
+    await page.waitForTimeout(200);
+    // It says what it means in the terms it was argued in.
+    await page.waitForSelector('[role=dialog] >> text=/off each/', { timeout: 5000 });
+    await page.click('[role=dialog] button:has-text("Use this price")');
+    await page.waitForTimeout(400);
+
+    const shown = await line.innerText();
+    if (!shown.includes('$2.00')) throw new Error(`the cart still says ${shown}`);
+    if (!shown.includes('was $3.00')) throw new Error('the shelf price is not kept beside it');
+
+    // And back again, because a price agreed by mistake is agreed at a counter.
+    await line.getByRole('button', { name: /each/ }).click();
+    await page.waitForSelector('[role=dialog] >> text=Price for this sale', { timeout: 10000 });
+    await page.click('[role=dialog] button:has-text("Back to")');
+    await page.waitForTimeout(400);
+    if (!(await line.innerText()).includes('$3.00')) throw new Error('it did not go back');
+  });
+
   await step('category filter narrows the grid', async () => {
     await page.click('button:has-text("Bakery")');
     await page.waitForTimeout(300);
@@ -2541,6 +2576,32 @@ try {
     await page.waitForSelector('text=Braided USB-C cable', { timeout: 15000 });
   });
   await shot('menu-page');
+
+  /*
+   * The width a shop's laptop actually is, which is neither of the two this
+   * suite used to check.
+   *
+   * Reported with a screenshot: the vouchers table clipped off the left edge
+   * with no way to scroll back to it. A flex column will not shrink below its
+   * own content unless told it may, so it refused to give way and the page
+   * carried the difference — invisible at 1440, gone by 390 where the layout
+   * drops to one column, and broken at every width in between.
+   */
+  await step('the money screens fit a laptop, not only a desk monitor', async () => {
+    for (const width of [1280, 1024]) {
+      await page.setViewportSize({ width, height: 860 });
+      for (const path of ['/vouchers', '/transfers']) {
+        await page.goto(`${BASE_URL}${path}`, { waitUntil: 'networkidle' });
+        await page.waitForTimeout(400);
+        const overflow = await page.evaluate(
+          () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        );
+        if (overflow > 2) {
+          throw new Error(`${path} is ${overflow}px wider than a ${width}px screen`);
+        }
+      }
+    }
+  });
 
   await step('on a phone the till still sells, and nothing runs off the side', async () => {
     await page.setViewportSize({ width: 390, height: 844 });
