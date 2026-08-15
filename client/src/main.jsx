@@ -5,6 +5,7 @@ import './index.css';
 import App from './App.jsx';
 import { AuthProvider } from './context/AuthContext.jsx';
 import { ToastProvider } from './components/ui';
+import { ConfirmProvider } from './components/ConfirmProvider';
 import { SettingsProvider } from './context/SettingsContext.jsx';
 import { BranchProvider } from './context/BranchContext.jsx';
 import { OfflineProvider } from './context/OfflineContext.jsx';
@@ -60,6 +61,7 @@ createRoot(document.getElementById('root')).render(
     <BrowserRouter>
       <LanguageProvider>
         <ToastProvider>
+          <ConfirmProvider>
         <AuthProvider>
           {/* Above the providers that fetch the shop's own data, and below the
               one that knows who is signed in: a stopped till answers 402 to all
@@ -83,6 +85,7 @@ createRoot(document.getElementById('root')).render(
             </LicenceGate>
           </LicenceProvider>
         </AuthProvider>
+          </ConfirmProvider>
         </ToastProvider>
       </LanguageProvider>
     </BrowserRouter>

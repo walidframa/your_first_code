@@ -20,6 +20,7 @@ import {
   money,
   useToast,
 } from '../../components/ui';
+import { useConfirm } from '../../components/ConfirmProvider';
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -312,9 +313,21 @@ export default function Installments() {
   const late = (plans || []).filter((p) => p.status === 'active' && p.overdueCount > 0);
   const lateUsd = late.reduce((sum, p) => sum + p.overdueUsd, 0);
 
+  const confirm = useConfirm();
+
   async function cancel(plan) {
-    if (!globalThis.confirm(`Stop chasing ${plan.customer_name}'s plan? What they owe does not change.`))
-      return;
+    /*
+     * A browser prompt looks like a scam warning on a shop tablet and cannot be
+     * read in Arabic. Same question, asked by the app.
+     */
+    const agreed = await confirm({
+      title: `Stop chasing ${plan.customer_name}'s plan?`,
+      body: 'The instalments stop being tracked. What they owe does not change — it stays on their account.',
+      confirmLabel: 'Stop the plan',
+      cancelLabel: 'Keep chasing it',
+      tone: 'warning',
+    });
+    if (!agreed) return;
     await api.post(`/installments/${plan.id}/cancel`);
     toast('Plan stopped');
     load();

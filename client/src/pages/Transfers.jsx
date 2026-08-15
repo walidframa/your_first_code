@@ -12,6 +12,7 @@ import {
 import api from '../api';
 import PageHeader from '../components/PageHeader';
 import TransferAgencies from '../components/TransferAgencies';
+import { useConfirm } from '../components/ConfirmProvider';
 import CashBox from '../components/CashBox';
 import AddExpense from '../components/AddExpense';
 import { lbp, useSettings } from '../context/SettingsContext';
@@ -333,6 +334,7 @@ export default function Transfers() {
   const [mine, setMine] = useState(false);
   const [adding, setAdding] = useState(false);
   const [spending, setSpending] = useState(false);
+  const confirm = useConfirm();
   // Bumped after anything that touches the till, so the drawer panel follows.
   const [moved, setMoved] = useState(0);
 
@@ -365,6 +367,21 @@ export default function Transfers() {
   }, [load, search]);
 
   async function cancel(transfer) {
+    const agreed = await confirm({
+      title: `Cancel this ${transfer.direction}?`,
+      body: (
+        <>
+          The drawer goes back to where it was, and {transfer.company} stops carrying it. The
+          transfer stays on the list marked cancelled — which is the row somebody will be asked
+          about.
+          {transfer.reference ? <span className="block mt-1">Reference {transfer.reference}.</span> : null}
+        </>
+      ),
+      confirmLabel: 'Cancel the transfer',
+      cancelLabel: 'Leave it',
+    });
+    if (!agreed) return;
+
     try {
       await api.post(`/transfers/${transfer.id}/cancel`);
       toast('Transfer cancelled and the money put back');

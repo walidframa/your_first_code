@@ -142,12 +142,26 @@ export default function TransferAgencies({ onSettle, refreshKey = 0 }) {
   const [name, setName] = useState('');
   const [opening, setOpening] = useState(null);
   const [viewing, setViewing] = useState(null);
+  const [failed, setFailed] = useState('');
 
+  /*
+   * A failure is said out loud rather than shown as an empty list.
+   *
+   * "No agencies yet" and "the server would not tell me" look identical on
+   * screen and mean opposite things — one is a shop that has not started, the
+   * other is a shop whose list is missing.
+   */
   const load = useCallback(() => {
     api
       .get('/transfers/companies')
-      .then((res) => setCompanies(res.data.companies))
-      .catch(() => setCompanies([]));
+      .then((res) => {
+        setCompanies(res.data.companies);
+        setFailed('');
+      })
+      .catch((err) => {
+        setCompanies([]);
+        setFailed(err.response?.data?.error || 'Could not read the agencies');
+      });
   }, []);
 
   useEffect(() => {
@@ -181,7 +195,9 @@ export default function TransferAgencies({ onSettle, refreshKey = 0 }) {
         </Button>
       </div>
 
-      {companies.length === 0 ? (
+      {failed ? (
+        <EmptyState icon={Building2} title="The agency list did not load" description={failed} />
+      ) : companies.length === 0 ? (
         <EmptyState
           icon={Building2}
           title="No agencies yet"

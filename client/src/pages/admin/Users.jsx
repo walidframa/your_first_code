@@ -15,6 +15,7 @@ import {
   cx,
   useToast,
 } from '../../components/ui';
+import { useConfirm } from '../../components/ConfirmProvider';
 
 const emptyForm = { name: '', username: '', password: '', role: 'cashier' };
 
@@ -303,6 +304,7 @@ export default function Users() {
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState(null);
   const [resetting, setResetting] = useState(null);
+  const confirm = useConfirm();
 
   const load = useCallback(() => {
     api.get('/users').then((res) => setUsers(res.data.users));
@@ -314,6 +316,14 @@ export default function Users() {
   }, [load]);
 
   async function remove(user) {
+    const agreed = await confirm({
+      title: `Remove ${user.name}?`,
+      body: 'They will not be able to sign in again. Everything they rang up stays on the books with their name on it.',
+      confirmLabel: 'Remove them',
+      cancelLabel: 'Keep them',
+    });
+    if (!agreed) return;
+
     try {
       await api.delete(`/users/${user.id}`);
       toast(`${user.name} removed`);

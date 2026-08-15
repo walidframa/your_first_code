@@ -165,6 +165,30 @@ api.interceptors.response.use(
     const background = url.includes('/support/state');
     if (background) return Promise.reject(error);
 
+    /*
+     * A screen asking for something the server has never heard of.
+     *
+     * This means one thing in practice: the browser is running a newer build
+     * than the server is. It happens when a deploy puts the new files on disk
+     * but the service does not come back up on them, and it is miserable to
+     * diagnose from "Not found" — the shop reads that as "my agency does not
+     * exist" and starts looking in the wrong place entirely.
+     *
+     * Only for the verbs that change something. A GET that 404s is usually an
+     * honest answer about one record.
+     */
+    const changing = ['post', 'put', 'patch', 'delete'].includes(
+      String(error.config?.method || '').toLowerCase(),
+    );
+    if (error.response?.status === 404 && changing && url.startsWith('/')) {
+      error.response.data = {
+        ...error.response.data,
+        error:
+          'This part of the app is newer than the server it is talking to. ' +
+          'The shop was updated but its server was not restarted — restart it and try again.',
+      };
+    }
+
     if (expired && !signingIn) {
       localStorage.removeItem('pos_token');
       setAuthToken(null);

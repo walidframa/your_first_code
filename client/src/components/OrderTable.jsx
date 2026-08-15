@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Printer, Receipt as ReceiptIcon, RotateCcw } from 'lucide-react';
 import api from '../api';
 import Receipt from './Receipt';
+import { useConfirm } from './ConfirmProvider';
 import {
   Badge,
   Button,
@@ -39,6 +40,7 @@ export default function OrderTable({
   const [selected, setSelected] = useState(null);
   const [refunding, setRefunding] = useState(false);
   const [reprinting, setReprinting] = useState(null);
+  const confirm = useConfirm();
   // The line whose return is being counted out.
   const [returning, setReturning] = useState(null);
 
@@ -48,6 +50,21 @@ export default function OrderTable({
   }
 
   async function refund(id) {
+    const order = selected?.order;
+    const agreed = await confirm({
+      title: `Void ${order?.order_number || 'this sale'}?`,
+      body: (
+        <>
+          The whole sale comes back: every item returns to the shelf and{' '}
+          <strong>{money(order?.total || 0)}</strong> comes out of what the shop has taken. The sale
+          stays on the day's list, marked refunded.
+        </>
+      ),
+      confirmLabel: 'Void the sale',
+      cancelLabel: 'Keep it',
+    });
+    if (!agreed) return;
+
     setRefunding(true);
     try {
       await api.post(`/orders/${id}/refund`);

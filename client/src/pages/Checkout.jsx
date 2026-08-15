@@ -44,6 +44,7 @@ import {
   useToast,
 } from '../components/ui';
 import { useSettings, lbp } from '../context/SettingsContext';
+import { useConfirm } from '../components/ConfirmProvider';
 
 /**
  * A request the screen can open without.
@@ -142,6 +143,7 @@ function LinePrice({ item, onClose, onSet }) {
 
 export default function Checkout() {
   const toast = useToast();
+  const confirm = useConfirm();
   const searchRef = useRef(null);
   const { rate, toLbp } = useSettings();
   const { refreshQueue } = useOffline();
@@ -603,9 +605,13 @@ export default function Checkout() {
    * out of the drawer. One question, then done.
    */
   async function payTheCustomer() {
-    const ok = window.confirm(
-      `${t('Hand the customer')} ${money(owedToCustomer)} ${t('out of the drawer?')}`,
-    );
+    const ok = await confirm({
+      title: `${t('Hand the customer')} ${money(owedToCustomer)} ${t('out of the drawer?')}`,
+      body: t('This takes the money out of the drawer now.'),
+      confirmLabel: t('Hand it over'),
+      cancelLabel: t('Not yet'),
+      tone: 'warning',
+    });
     if (!ok) return;
     await handleConfirmPayment({ paymentMethod: 'cash', payments: [], changeCurrency: 'LBP' });
   }

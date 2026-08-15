@@ -181,6 +181,19 @@ async function openMenu() {
 }
 
 /**
+ * Answer the question that now stands in front of anything destructive.
+ *
+ * Two dialogs are open while it is up — the screen that asked and the
+ * confirmation itself — so it is found by the words on it rather than by being
+ * a dialog, which both of them are.
+ */
+async function confirmDialog(title, action) {
+  const box = page.locator('[role=dialog]', { hasText: title }).last();
+  await box.waitFor({ timeout: 15000 });
+  await box.getByRole('button', { name: action, exact: true }).click();
+}
+
+/**
  * Go to a screen by name, from wherever we happen to be.
  *
  * The rail is not on every screen any more — the register keeps the whole
@@ -821,6 +834,7 @@ try {
     }
 
     await page.click('button:has-text("Delete the ID")');
+    await confirmDialog('Delete this ID?', 'Delete the ID');
     await page.waitForSelector('text=/The ID was deleted/', { timeout: 15000 });
     // The purchase itself survives losing its photograph.
     await page.waitForSelector('text=357700556644331', { timeout: 15000 });
@@ -1371,6 +1385,24 @@ try {
     await page.click('td:has-text("ORD-") >> nth=0');
     await page.waitForSelector('button:has-text("Void the whole sale")');
     await page.click('button:has-text("Void the whole sale")');
+
+    /*
+     * Nothing that moves money happens on one press any more. On a counter
+     * tablet the button somebody meant is a centimetre from the one they hit,
+     * and a refund issued by a sleeve is a real way to lose a day's takings.
+     */
+    const asked = page.locator('[role=dialog]', { hasText: /Void ORD-/ }).last();
+    await asked.waitFor({ timeout: 15000 });
+
+    // Backing out leaves the sale exactly as it was.
+    await asked.getByRole('button', { name: 'Keep it', exact: true }).click();
+    await page.waitForTimeout(300);
+    if (await page.locator('[role=dialog]', { hasText: /Void ORD-/ }).count()) {
+      throw new Error('the confirmation would not go away');
+    }
+
+    await page.click('button:has-text("Void the whole sale")');
+    await confirmDialog(/Void ORD-/, 'Void the sale');
     await page.waitForSelector('text=Refunded', { timeout: 15000 });
   });
 
@@ -2005,16 +2037,38 @@ try {
     const pageRule = async () =>
       page.evaluate(() => document.getElementById('pos-page-size')?.textContent || '');
 
+    // The receipt opens over the sale it came from, so both are dialogs — this
+    // one is the one with the paper toggle on it.
+    const sheet = page.locator('[role=dialog]', { hasText: '80mm roll' }).last();
+
     await page.getByRole('button', { name: 'A4 sheet', exact: true }).click();
     await page.waitForTimeout(200);
     if (!/size:\s*A4/.test(await pageRule())) {
       throw new Error(`asked for A4 and the page is set to: ${await pageRule()}`);
     }
 
+    /*
+     * And the sheet is a different document, not the roll stretched wider: a
+     * table with headings over its columns, and the customer named on it.
+     */
+    if (!(await sheet.locator('th', { hasText: 'Unit price' }).count())) {
+      throw new Error('the A4 sheet has no table headings — it is still the till roll');
+    }
+    // Case-insensitive: the heading is upper-cased in CSS, and innerText
+    // returns what is rendered rather than what is written.
+    if (!/sold to/i.test(await sheet.innerText())) {
+      throw new Error('the A4 sheet does not say who it was sold to');
+    }
+
     await page.getByRole('button', { name: '80mm roll', exact: true }).click();
     await page.waitForTimeout(200);
     if (!/72mm/.test(await pageRule())) {
       throw new Error(`asked for the roll and the page is set to: ${await pageRule()}`);
+    }
+
+    // And back to the narrow column, with no table on it.
+    if (await sheet.locator('th', { hasText: 'Unit price' }).count()) {
+      throw new Error('the till roll grew a table');
     }
 
     // And nothing else in the app is also setting it, which was the bug.
@@ -2063,6 +2117,10 @@ try {
      */
     const number = (await row.innerText()).match(/(PV|RV|TV)-\d+/)[0];
     await page.getByRole('button', { name: `Cancel ${number}` }).click();
+
+    // Asked first, like everything else that moves money.
+    await confirmDialog(`Cancel ${number}?`, 'Cancel it and put the money back');
+
     await page.waitForSelector('text=/cancel that invoice instead/', { timeout: 15000 });
   });
 
@@ -2746,8 +2804,10 @@ try {
   });
 
   await step('and the sale goes through with the money leaving the drawer', async () => {
-    page.once('dialog', (d) => d.accept());
     await page.click('aside button:has-text("Pay the customer")');
+    // Asked by the app rather than by the browser: a native prompt looks like a
+    // scam warning on a shop tablet, and cannot be read in Arabic.
+    await confirmDialog(/Hand the customer/, 'Hand it over');
     await page.waitForSelector('text=Payment complete', { timeout: 20000 });
     await page.keyboard.press('Escape');
   });

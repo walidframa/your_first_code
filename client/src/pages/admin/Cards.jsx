@@ -30,6 +30,7 @@ import {
   money,
   useToast,
 } from '../../components/ui';
+import { useConfirm } from '../../components/ConfirmProvider';
 
 const KINDS = [
   ['recharge', 'Mobile recharge'],
@@ -697,7 +698,17 @@ export default function Cards() {
     }
   }
 
+  const confirm = useConfirm();
+
   async function removeWallet(wallet) {
+    const agreed = await confirm({
+      title: `Close ${wallet.name}?`,
+      body: 'The wallet stops being usable. Its statement and everything sold from it stay on the books.',
+      confirmLabel: 'Close it',
+      cancelLabel: 'Keep it open',
+    });
+    if (!agreed) return;
+
     try {
       await api.delete(`/wallets/${wallet.id}`);
       toast(`${wallet.name} closed`);
@@ -708,6 +719,14 @@ export default function Cards() {
   }
 
   async function removeCard(card) {
+    const agreed = await confirm({
+      title: `Remove ${card.name}?`,
+      body: 'It stops being sellable at the register. Cards already sold stay on the sales they were sold on.',
+      confirmLabel: 'Remove it',
+      cancelLabel: 'Keep it',
+    });
+    if (!agreed) return;
+
     try {
       await api.delete(`/products/${card.id}`);
       toast(`${card.name} removed`);
