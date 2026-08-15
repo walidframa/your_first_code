@@ -4,6 +4,7 @@ import { db, transaction } from '../db.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { getSettings, taxRate } from '../lib/settings.js';
 import { addEntry, balanceOf, creditCheck } from '../lib/accounts.js';
+import { dominantMethod, readTenders, recordTenders, tenderSplit, tendersFor } from '../lib/tenders.js';
 import { currentSession, recordMovement, requiresSession } from '../lib/cash.js';
 import {
   isAvailable,
@@ -137,6 +138,13 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
     paymentMethod,
     amountTendered,
     payments,
+    /*
+     * How it was paid, when it took more than one thing: a list of pieces
+     * rather than one method. `paymentMethod` above is the older shape and
+     * still works, so a till that queued a sale offline before this existed
+     * still checks out.
+     */
+    tenders = null,
     changeCurrency = 'LBP',
     changeUsd: requestedChangeUsd = null,
     changeLbp: requestedChangeLbp = null,
@@ -193,10 +201,19 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
   if (!Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: 'Cart must contain at least one item' });
   }
-  if (!['cash', 'card', 'account'].includes(paymentMethod)) {
+  /*
+   * One method, or a list of pieces — but one of the two.
+   *
+   * `tenders` is how a split arrives; `paymentMethod` is the older shape, still
+   * sent by a till that queued a sale offline before splits existed. The list
+   * is checked properly further down, where a bad one can be refused before
+   * anything has moved.
+   */
+  const hasTenders = Array.isArray(tenders) && tenders.length > 0;
+  if (!hasTenders && !['cash', 'card', 'account'].includes(paymentMethod)) {
     return res.status(400).json({ error: 'paymentMethod must be cash, card or account' });
   }
-  if (paymentMethod === 'account' && !customerId) {
+  if (!hasTenders && paymentMethod === 'account' && !customerId) {
     return res.status(400).json({ error: 'A customer is required for an account sale' });
   }
   /*
@@ -422,6 +439,8 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
         throw new Error('What is the old phone worth?');
       }
       const due = round2(total - tradeInValue);
+      // Read here so a bad payment is refused before anything has moved.
+      const tenderLines = readTenders(tenders, exchangeRate);
       // Money going the other way: the old phone was worth more than the new one.
       const owedToCustomer = due < 0 ? round2(-due) : 0;
 
@@ -451,14 +470,65 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
       let changeUsd = 0;
       let changeLbp = 0;
 
-      if (paymentMethod === 'account') {
+      /*
+       * How it was paid, when it took more than one thing.
+       *
+       * `tenders` is the new shape and `paymentMethod` the old one; a till that
+       * queued a sale offline before this existed still sends the old, so both
+       * are understood and the old path below is left exactly as it was.
+       */
+      const split = tenderLines ? tenderSplit(tenderLines) : null;
+      if (split) {
+        if (round2(split.total) + 0.01 < due) {
+          throw new Error(
+            `The payments come to ${split.total.toFixed(2)} USD, less than the ${due.toFixed(2)} USD due`,
+          );
+        }
+        if (split.account > 0 && !customerId) {
+          throw new Error('Name the customer whose account the rest is going on');
+        }
+        if (split.account > 0) {
+          // Inside the transaction, so a concurrent sale cannot slip the
+          // customer past their limit between the check and the insert.
+          const check = creditCheck(customerId, split.account);
+          if (!check.ok) throw new Error(check.error);
+        }
+        if (split.cash > 0 && requiresSession() && !currentSession(null, branchId)) {
+          throw new Error('The cashbox is closed — open it before taking cash');
+        }
+
+        paidUsd = split.cashUsd;
+        paidLbp = split.cashLbp;
+        amountTenderedValue = split.total;
+
+        /*
+         * Change comes out of the cash, and only out of the cash. Nobody hands
+         * back notes because a card was over-swiped, and an account remainder
+         * is by definition exactly what is left.
+         */
+        changeDue = round2(Math.max(0, split.total - due));
+        if (changeDue > 0) {
+          const breakdown = changeBreakdown(
+            changeDue,
+            changeCurrency,
+            exchangeRate,
+            lbpRounding,
+            requestedChangeUsd,
+            requestedChangeLbp,
+          );
+          changeUsd = breakdown.changeUsd;
+          changeLbp = breakdown.changeLbp;
+        }
+      }
+
+      if (!split && paymentMethod === 'account') {
         // Checked inside the transaction so a concurrent sale cannot slip the
         // customer past their limit between the check and the insert.
         const check = creditCheck(customerId, due);
         if (!check.ok) throw new Error(check.error);
       }
 
-      if (paymentMethod === 'cash' && due > 0) {
+      if (!split && paymentMethod === 'cash' && due > 0) {
         /*
          * Cash needs a drawer to go into. Card and account sales do not touch
          * it, so they are left alone — refusing those would stop the shop
@@ -550,10 +620,11 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
         )
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
-        orderNumber, req.user.id, customerId || null, subtotal, discountAmount, tax, total, paymentMethod,
+        orderNumber, req.user.id, customerId || null, subtotal, discountAmount, tax, total,
+        split ? dominantMethod(split) : paymentMethod,
         amountTenderedValue, changeDue,
         exchangeRate, paidUsd, paidLbp, changeUsd, changeLbp,
-        paymentMethod === 'cash' ? changeCurrency : null,
+        (split ? split.cash > 0 : paymentMethod === 'cash') ? changeCurrency : null,
         buyerName?.trim() || null,
         buyerPhone?.trim() || null,
         // Which shop sold it. Everything a branch reports about itself — its
@@ -571,6 +642,10 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
       );
 
       const orderId = orderInfo.lastInsertRowid;
+
+      // The detail under the single method above: what each piece was, and
+      // which app it came through when it was not cash.
+      if (tenderLines) recordTenders(orderId, tenderLines);
 
       // The cost is copied onto the line, not looked up later: profit for a
       // sale made last month must not change when a supplier puts a price up.
@@ -743,14 +818,22 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
         }
       }
 
-      if (paymentMethod === 'account') {
+      /*
+       * What goes on the customer's account.
+       *
+       * With a split that is the piece they did not settle — the commonest
+       * case being a customer who is short and pays the rest on Friday. Without
+       * one it is the whole sale, as before.
+       */
+      const onAccount = split ? split.account : paymentMethod === 'account' ? due : 0;
+      if (onAccount > 0) {
         addEntry({
           partyType: 'customer',
           partyId: customerId,
           kind: 'sale',
           // What they owe is the balance after the old phone came off it, not
           // the ticket price of what they walked out with.
-          amountUsd: due,
+          amountUsd: onAccount,
           exchangeRate,
           orderId,
           note: orderNumber,
@@ -787,7 +870,9 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
        * drawer $20 heavier and its pounds lighter, and both need recording or
        * the count will not add up.
        */
-      if (paymentMethod === 'cash') {
+      // A split moves the drawer for its cash piece and for nothing else; a
+      // card or an account remainder never touched it.
+      if (split ? split.cash > 0 : paymentMethod === 'cash') {
         recordMovement({
           branchId,
           kind: 'sale',
@@ -848,7 +933,7 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
     const withBalance = order.customer_id
       ? { ...order, customer_balance: balanceOf('customer', order.customer_id) }
       : order;
-    res.status(201).json({ order: withBalance, items: orderItems });
+    res.status(201).json({ order: withBalance, items: orderItems, tenders: tendersFor(order.id) });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -921,7 +1006,8 @@ router.get('/:id', requireAuth, (req, res) => {
   const withBalance = order.customer_id
     ? { ...order, customer_balance: balanceOf('customer', order.customer_id) }
     : order;
-  res.json({ order: withBalance, items });
+  // And how it was paid for, when that took more than one thing.
+  res.json({ order: withBalance, items, tenders: tendersFor(order.id) });
 });
 
 /**
