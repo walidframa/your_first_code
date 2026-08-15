@@ -865,13 +865,22 @@ router.get('/', requireAuth, (req, res) => {
     sql += ' AND o.cashier_id = ?';
     params.push(req.user.id);
   }
+  /*
+   * A range is inclusive of both whole days.
+   *
+   * `created_at` is a timestamp and these come in as dates, so comparing them
+   * raw made `to` mean "up to midnight at the start of that day" — asking for
+   * sales up to today returned everything except today, which is the one day
+   * anybody is actually looking at. The same reasoning, and the same fix, as
+   * periodBounds in lib/profit.js.
+   */
   if (from) {
     sql += ' AND o.created_at >= ?';
-    params.push(from);
+    params.push(`${from} 00:00:00`);
   }
   if (to) {
     sql += ' AND o.created_at <= ?';
-    params.push(to);
+    params.push(`${to} 23:59:59`);
   }
   /*
    * `?scope=sitting` — what has been sold on this till since it was opened.

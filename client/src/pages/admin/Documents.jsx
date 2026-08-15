@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router';
+import { useNavigate, useSearchParams } from 'react-router';
 import {
   AlertTriangle,
   ArrowRight,
@@ -1117,7 +1117,16 @@ export default function Documents() {
   const [documents, setDocuments] = useState(null);
   const [counts, setCounts] = useState({});
   const [filter, setFilter] = useState('all');
-  const [search, setSearch] = useState('');
+  /*
+   * Arrived at from somewhere else, looking for one document.
+   *
+   * The Sales screen lists invoices beside register sales and sends anybody who
+   * presses one here, because this is where an invoice can actually be edited,
+   * converted and reversed. Landing on an unfiltered list of four hundred and
+   * being told to find it again would make that a dead end.
+   */
+  const [params] = useSearchParams();
+  const [search, setSearch] = useState(() => params.get('number') || '');
   const [creating, setCreating] = useState(false);
   const [viewing, setViewing] = useState(null);
 

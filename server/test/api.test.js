@@ -1653,3 +1653,27 @@ test('cashiers only see their own orders', async () => {
   assert.ok(mine.length > 0);
   assert.ok(mine.every((o) => o.cashier_name === 'Front Register'));
 });
+
+/*
+ * The end of a range is the end of that day.
+ *
+ * `created_at` is a timestamp and a range comes in as two dates, so comparing
+ * them raw made `to` mean midnight at the *start* of the day — asking for
+ * sales up to today returned everything except today, which is the one day
+ * anybody is ever looking at. It reads as "there were no sales", which is the
+ * worst possible way for a date filter to be wrong.
+ */
+test('a date range includes sales made on its last day', async () => {
+  const today = new Date().toISOString().slice(0, 10);
+
+  const all = (await req('GET', '/orders', null, adminToken)).json.orders;
+  const todays = all.filter((o) => String(o.created_at).slice(0, 10) === today);
+  assert.ok(todays.length > 0, 'this suite has rung up sales today, or it is testing nothing');
+
+  const ranged = (await req('GET', `/orders?from=${today}&to=${today}`, null, adminToken)).json.orders;
+  assert.equal(
+    ranged.length,
+    todays.length,
+    'asking for today must return today, not everything before it',
+  );
+});

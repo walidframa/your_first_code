@@ -1359,12 +1359,42 @@ try {
   });
 
   await step('refunding an order works', async () => {
-    await goTo('Orders');
+    // Named "Sales" now that invoices are listed beside register sales.
+    await goTo('Sales');
     await page.waitForSelector('text=ORD-', { timeout: 15000 });
     await page.click('td:has-text("ORD-") >> nth=0');
     await page.waitForSelector('button:has-text("Void the whole sale")');
     await page.click('button:has-text("Void the whole sale")');
     await page.waitForSelector('text=Refunded', { timeout: 15000 });
+  });
+
+  /*
+   * Reported from a live shop: "the invoices are not added to the sales tab".
+   *
+   * They were not — this screen read the orders table and nothing else, so a
+   * shop that invoices its trade customers looked at a day's sales and saw
+   * only the part that crossed the till.
+   */
+  await step('a confirmed invoice is listed among the sales, and is findable by number', async () => {
+    await goTo('Sales');
+    await page.click('button:has-text("All")');
+    await page.waitForTimeout(600);
+
+    const listed = await page.locator('table').innerText();
+    if (!/SI-\d+/.test(listed)) throw new Error('no sales invoice among the sales');
+    if (!listed.includes('ORD-')) throw new Error('the register sales have gone from their own screen');
+
+    // And the search box finds one by its number, which is what somebody
+    // holding a printed invoice actually has.
+    const number = listed.match(/SI-\d+/)[0];
+    await page.fill('input[aria-label="Search sales"]', number);
+    await page.waitForTimeout(400);
+    const filtered = await page.locator('table').innerText();
+    if (!filtered.includes(number)) throw new Error('searching by invoice number lost it');
+    if (filtered.includes('ORD-')) throw new Error('the search did not narrow anything');
+
+    await page.fill('input[aria-label="Search sales"]', '');
+    await page.waitForTimeout(300);
   });
 
   await step('a cost can be typed in pounds, and is kept in dollars', async () => {

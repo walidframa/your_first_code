@@ -15,10 +15,25 @@ import {
 } from './ui';
 
 /**
- * Shared order history table. Admins see every cashier's orders and can refund;
+ * Shared sales history. Admins see every cashier's sales and can refund;
  * cashiers see only their own (enforced server-side too).
+ *
+ * `invoices` puts confirmed sales invoices in the same list, because from the
+ * shop's side they are the same event — goods left, money is owed or was paid —
+ * and a "Sales" screen that quietly showed only the ones rung up on the till
+ * left an owner counting a fraction of the day and believing it. They are
+ * marked as invoices rather than blended in: a refund belongs to a register
+ * sale, and an invoice is corrected on the Documents screen where it can be
+ * edited, converted and reversed properly.
  */
-export default function OrderTable({ orders, showCashier = false, canRefund = false, onChanged }) {
+export default function OrderTable({
+  orders,
+  invoices = [],
+  showCashier = false,
+  canRefund = false,
+  onChanged,
+  onOpenInvoice,
+}) {
   const toast = useToast();
   const [selected, setSelected] = useState(null);
   const [refunding, setRefunding] = useState(false);
@@ -44,6 +59,16 @@ export default function OrderTable({ orders, showCashier = false, canRefund = fa
     }
   }
 
+  const rows = [
+    ...(orders || []).map((o) => ({ ...o, kind: 'order', at: o.created_at, ref: o.order_number })),
+    ...invoices.map((d) => ({
+      ...d,
+      kind: 'invoice',
+      at: d.confirmed_at || d.created_at,
+      ref: d.doc_number,
+    })),
+  ].sort((a, b) => String(b.at).localeCompare(String(a.at)));
+
   if (!orders) {
     return (
       <Card className="space-y-2 p-5">
@@ -57,14 +82,14 @@ export default function OrderTable({ orders, showCashier = false, canRefund = fa
   return (
     <>
       <Card>
-        {orders.length === 0 ? (
+        {rows.length === 0 ? (
           <EmptyState icon={ReceiptIcon} title="No sales yet" description="Completed sales will appear here." />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="border-b border-slate-100 text-left text-xs text-slate-500">
                 <tr>
-                  <th className="px-5 py-2.5 font-medium">Order</th>
+                  <th className="px-5 py-2.5 font-medium">Sale</th>
                   {showCashier && <th className="px-3 py-2.5 font-medium">Cashier</th>}
                   <th className="px-3 py-2.5 font-medium">Date</th>
                   <th className="px-3 py-2.5 font-medium">Payment</th>
@@ -73,18 +98,37 @@ export default function OrderTable({ orders, showCashier = false, canRefund = fa
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {orders.map((o) => (
+                {rows.map((o) => (
                   <tr
-                    key={o.id}
-                    onClick={() => openOrder(o.id)}
+                    key={`${o.kind}-${o.id}`}
+                    onClick={() => (o.kind === 'order' ? openOrder(o.id) : onOpenInvoice?.(o))}
                     className="cursor-pointer hover:bg-slate-50/60"
                   >
-                    <td className="px-5 py-2.5 font-medium text-slate-800">{o.order_number}</td>
-                    {showCashier && <td className="px-3 py-2.5 text-slate-500">{o.cashier_name}</td>}
-                    <td className="px-3 py-2.5 text-slate-500">{o.created_at}</td>
-                    <td className="px-3 py-2.5 text-slate-500 capitalize">{o.payment_method}</td>
+                    <td className="px-5 py-2.5 font-medium text-slate-800">
+                      {o.ref}
+                      {o.kind === 'invoice' && (
+                        <span className="ml-2 text-xs font-normal text-slate-400">invoice</span>
+                      )}
+                    </td>
+                    {showCashier && (
+                      <td className="px-3 py-2.5 text-slate-500">
+                        {o.kind === 'order' ? o.cashier_name : o.user_name}
+                      </td>
+                    )}
+                    <td className="px-3 py-2.5 text-slate-500">{o.at}</td>
+                    <td className="px-3 py-2.5 text-slate-500 capitalize">
+                      {o.kind === 'order'
+                        ? o.payment_method
+                        : o.outstanding > 0
+                          ? 'on account'
+                          : o.payment_method || 'paid'}
+                    </td>
                     <td className="px-3 py-2.5">
-                      {o.status === 'refunded' ? (
+                      {o.kind === 'invoice' ? (
+                        <Badge tone={o.outstanding > 0 ? 'info' : 'good'}>
+                          {o.outstanding > 0 ? 'Owing' : 'Invoiced'}
+                        </Badge>
+                      ) : o.status === 'refunded' ? (
                         <Badge tone="warning">Refunded</Badge>
                       ) : (
                         <Badge tone="good">Completed</Badge>
