@@ -2804,8 +2804,10 @@ try {
   });
 
   await step('and the sale goes through with the money leaving the drawer', async () => {
-    page.once('dialog', (d) => d.accept());
     await page.click('aside button:has-text("Pay the customer")');
+    // Asked by the app rather than by the browser: a native prompt looks like a
+    // scam warning on a shop tablet, and cannot be read in Arabic.
+    await confirmDialog(/Hand the customer/, 'Hand it over');
     await page.waitForSelector('text=Payment complete', { timeout: 20000 });
     await page.keyboard.press('Escape');
   });
