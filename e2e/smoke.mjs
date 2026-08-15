@@ -1413,6 +1413,56 @@ try {
    * shop that invoices its trade customers looked at a day's sales and saw
    * only the part that crossed the till.
    */
+  /*
+   * The commonest transaction the app could not write down: some cash, the rest
+   * on an app, and whatever is left owed until Friday. A cashier used to pick
+   * whichever piece was biggest and the others went unrecorded.
+   */
+  await step('a sale can be paid for with more than one thing', async () => {
+    await goTo('Register');
+    await page.waitForSelector('text=Current sale', { timeout: 15000 });
+
+    // A customer, so the account piece is on offer at all.
+    await page.click('button:has-text("Add customer")');
+    await page.waitForSelector('[role=dialog] >> text=Choose a customer', { timeout: 10000 });
+    await page.locator('input[placeholder*="Search by name"]').fill('Rami');
+    await page.waitForTimeout(500);
+    await page.locator('[role=dialog]').last().locator('button:has-text("Rami")').first().click();
+    await page.waitForTimeout(400);
+
+    await page.locator('button', { hasText: 'Croissant' }).first().click();
+    await page.waitForTimeout(300);
+
+    await page.click('button:has-text("Charge")');
+    await page.waitForSelector('[role=dialog] >> text=Take payment', { timeout: 10000 });
+    await page.click('button:has-text("Split it")');
+    await page.waitForSelector('[role=dialog] >> text=Another payment', { timeout: 10000 });
+
+    const dialog = page.locator('[role=dialog]');
+    const owed = Number(
+      (await dialog.locator('text=/Still due/').locator('xpath=..').innerText()).match(
+        /\$([\d.]+)/,
+      )[1],
+    );
+
+    // A dollar of it in cash, and the rest on the account.
+    await dialog.getByLabel('Dollars').first().fill('1');
+    await dialog.getByRole('button', { name: 'Another payment' }).click();
+    await dialog.locator('select[aria-label="How piece 2 was paid"]').selectOption('account');
+    await dialog.getByLabel('Dollars').nth(1).fill(String((owed - 1).toFixed(2)));
+
+    await page.waitForSelector('[role=dialog] >> text=Settled', { timeout: 10000 });
+    await dialog.getByRole('button', { name: /Confirm/ }).click();
+    await page.waitForSelector('text=Payment complete', { timeout: 20000 });
+
+    // And the slip says how, rather than calling the whole thing cash.
+    const slip = await page.locator('[role=dialog]').last().innerText();
+    if (!/On account/i.test(slip)) {
+      throw new Error(`the receipt does not say what went on the account:\n${slip.slice(0, 400)}`);
+    }
+    await page.keyboard.press('Escape');
+  });
+
   await step('a cost can be typed in pounds, and is kept in dollars', async () => {
     await goTo('Products');
     await page.click('button:has-text("New product")');

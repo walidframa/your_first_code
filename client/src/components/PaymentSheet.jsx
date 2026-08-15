@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, Banknote, CreditCard, Delete, Wallet } from 'lucide-react';
+import { ArrowLeft, Banknote, CreditCard, Delete, Layers, Wallet } from 'lucide-react';
 import { Button, Modal, cx, money } from './ui';
 import { useT } from '../context/LanguageContext';
 import { useSettings, lbp } from '../context/SettingsContext';
 import { splitStatus, suggestSplit } from '../lib/change';
+import SplitPayment from './SplitPayment';
 
 const QUICK_USD = [5, 10, 20, 50, 100];
 const QUICK_LBP = [100000, 200000, 500000, 1000000, 5000000];
@@ -233,12 +234,24 @@ export default function PaymentSheet({ open, total, customer, onClose, onConfirm
           ? t('Take payment')
           : method === 'cash'
             ? t('Cash payment')
-            : t('Card payment')
+            : method === 'split'
+              ? t('Split payment')
+              : t('Card payment')
       }
       subtitle={`${money(total)} · ${lbp(totalLbp)}`}
-      size={method === 'cash' ? 'lg' : 'sm'}
+      size={method === 'cash' || method === 'split' ? 'lg' : 'sm'}
       footer={footer}
     >
+      {method === 'split' && (
+        <SplitPayment
+          total={total}
+          customer={customer}
+          submitting={submitting}
+          onConfirm={onConfirm}
+          onBack={() => setMethod(null)}
+        />
+      )}
+
       {method === null && (
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
@@ -257,6 +270,22 @@ export default function PaymentSheet({ open, total, customer, onClose, onConfirm
               <span className="font-medium text-slate-800">{t('Cash')}</span>
             </button>
           </div>
+
+          {/*
+            * More than one thing.
+            *
+            * Some dollars, the rest on Whish, and ten on the account until
+            * Friday is one ordinary transaction — and the only one of these
+            * three buttons that can express a customer who is short.
+            */}
+          <button
+            onClick={() => setMethod('split')}
+            disabled={submitting}
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-white px-4 py-4 text-slate-800 ring-1 ring-slate-300 transition hover:bg-slate-50 hover:ring-brand-400"
+          >
+            <Layers size={20} />
+            <span className="font-medium">{t('Split it — cash, card or on account')}</span>
+          </button>
 
           {/* Credit is only offered once a customer is attached to the sale. */}
           <button

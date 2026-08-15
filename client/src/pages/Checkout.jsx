@@ -367,6 +367,8 @@ export default function Checkout() {
             noCreditSetUp,
             image_url: product.image_url,
             image_emoji: product.image_emoji,
+            // What is in the pack, so the line can say what goes in the bag.
+            bundleOf: product.bundleOf || null,
             quantity,
           },
         ];
@@ -619,6 +621,9 @@ export default function Checkout() {
   async function handleConfirmPayment({
     paymentMethod,
     payments,
+    // A sale settled with more than one thing sends its pieces instead of a
+    // method; the server understands either.
+    tenders,
     changeCurrency,
     changeUsd,
     changeLbp,
@@ -650,6 +655,7 @@ export default function Checkout() {
         discount: { mode: discountMode, value: Number(discountValue) || 0 },
         paymentMethod,
         payments,
+        tenders,
         changeCurrency,
         // Both only matter when change is split, and then they are what the
         // cashier is actually handing over.
@@ -692,7 +698,7 @@ export default function Checkout() {
       if (res.waiting) {
         toast('Saved on this till — it will be sent when the server is back', 'warning', 7000);
       }
-      setReceipt({ order: res.order, items: res.items });
+      setReceipt({ order: res.order, items: res.items, tenders: res.tenders });
       setSalesMade((n) => n + 1);
       setCart([]);
       setDiscountValue(0);
@@ -1173,6 +1179,28 @@ export default function Checkout() {
                         {item.isGift ? t('★ Gift — free') : t('Make it a gift')}
                       </button>
                     </div>
+
+                    {/*
+                      * What is actually in the pack.
+                      *
+                      * A bundle is one line with one price, and a cashier
+                      * handing it over has to put the right things in the bag.
+                      * Listed under the line rather than behind a tap, because
+                      * the moment it is needed is while the customer is
+                      * standing there and the parts are on the shelf.
+                      */}
+                    {item.bundleOf?.length > 0 && (
+                      <ul className="mt-1.5 space-y-0.5 border-s-2 border-slate-100 ps-2.5">
+                        {item.bundleOf.map((part) => (
+                          <li key={part.productId} className="text-[11px] text-slate-500">
+                            <span className="tnum text-slate-400">
+                              {part.quantity * item.quantity}×
+                            </span>{' '}
+                            {part.name}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                   </div>
                 </li>
               ))}
