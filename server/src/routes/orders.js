@@ -3,7 +3,7 @@ import crypto from 'crypto';
 import { db, transaction } from '../db.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { getSettings, taxRate } from '../lib/settings.js';
-import { addEntry, creditCheck } from '../lib/accounts.js';
+import { addEntry, balanceOf, creditCheck } from '../lib/accounts.js';
 import { currentSession, recordMovement, requiresSession } from '../lib/cash.js';
 import {
   isAvailable,
@@ -837,7 +837,18 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
 
     const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(result.orderId);
     const orderItems = db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(result.orderId);
-    res.status(201).json({ order, items: orderItems });
+    /*
+     * What they still owe, for the receipt.
+     *
+     * A customer buying on account should walk out knowing the figure, and the
+     * moment to tell them is the piece of paper in their hand — asking at the
+     * counter next month is how a shop ends up arguing about it. Read after the
+     * sale is posted, so it is the balance including what was just bought.
+     */
+    const withBalance = order.customer_id
+      ? { ...order, customer_balance: balanceOf('customer', order.customer_id) }
+      : order;
+    res.status(201).json({ order: withBalance, items: orderItems });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -897,7 +908,11 @@ router.get('/:id', requireAuth, (req, res) => {
     return res.status(403).json({ error: 'Insufficient permissions' });
   }
   const items = db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(req.params.id);
-  res.json({ order, items });
+  // See the note where a sale is created: a reprint carries the balance too.
+  const withBalance = order.customer_id
+    ? { ...order, customer_balance: balanceOf('customer', order.customer_id) }
+    : order;
+  res.json({ order: withBalance, items });
 });
 
 /**
