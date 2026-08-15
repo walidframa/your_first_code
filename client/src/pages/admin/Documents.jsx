@@ -26,6 +26,7 @@ import HistoryFilter from '../../components/HistoryFilter';
 import { useHistoryFilter } from '../../lib/history';
 import ProductQuickCreate from '../../components/ProductQuickCreate';
 import PartyQuickCreate from '../../components/PartyQuickCreate';
+import { A4, usePageSize } from '../../lib/pageSize';
 import {
   Badge,
   Button,
@@ -802,6 +803,8 @@ function DocumentDetail({ id, onClose, onChanged, onDeleted }) {
   const toast = useToast();
   const navigate = useNavigate();
   const { rate, toLbp } = useSettings();
+  // A business paper goes on a sheet, whatever the till roll last printed.
+  usePageSize(A4);
   const [data, setData] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -911,6 +914,7 @@ function DocumentDetail({ id, onClose, onChanged, onDeleted }) {
       subtitle={`${doc.party_name || '—'} · ${doc.issue_date}`}
       size="lg"
     >
+      <div className="print-document">
       {/*
         * The shop's own details at the top, because this is the copy that goes
         * to the customer — an invoice with no name, address or tax number on it
@@ -922,7 +926,51 @@ function DocumentDetail({ id, onClose, onChanged, onDeleted }) {
         subtitle={`${meta.label} ${doc.doc_number}`}
       />
 
-      <div className="mb-3 flex flex-wrap items-center gap-2">
+      {/*
+        * Who it is for, and what it is, side by side.
+        *
+        * Every business paper in the world is laid out this way, and for a
+        * reason: the person holding it looks left to check it is addressed to
+        * them and right to find the number to quote back.
+        */}
+      <div className="mb-5 flex flex-wrap items-start justify-between gap-6">
+        <div className="min-w-[12rem]">
+          <p className="text-[11px] font-semibold tracking-wide text-slate-400 uppercase">
+            {doc.party_type === 'supplier' ? 'From' : 'Billed to'}
+          </p>
+          <p className="mt-1 font-semibold text-slate-900">{doc.party_name || '—'}</p>
+          {doc.party_phone && <p className="text-sm text-slate-600">{doc.party_phone}</p>}
+          {doc.party_address && (
+            <p className="max-w-[18rem] text-sm whitespace-pre-line text-slate-600">{doc.party_address}</p>
+          )}
+        </div>
+
+        <dl className="min-w-[13rem] rounded-xl bg-slate-50 px-4 py-3 text-sm ring-1 ring-slate-200">
+          <div className="flex justify-between gap-6">
+            <dt className="text-slate-500">Number</dt>
+            <dd className="font-mono font-medium text-slate-900">{doc.doc_number}</dd>
+          </div>
+          <div className="mt-1 flex justify-between gap-6">
+            <dt className="text-slate-500">Date</dt>
+            <dd className="tnum text-slate-800">{doc.issue_date}</dd>
+          </div>
+          {doc.valid_until && (
+            <div className="mt-1 flex justify-between gap-6">
+              <dt className="text-slate-500">Valid until</dt>
+              <dd className="tnum text-slate-800">{doc.valid_until}</dd>
+            </div>
+          )}
+          {rate > 0 && (
+            <div className="mt-1 flex justify-between gap-6">
+              <dt className="text-slate-500">Rate</dt>
+              <dd className="tnum text-slate-800">{Number(rate).toLocaleString('en-US')} LL</dd>
+            </div>
+          )}
+        </dl>
+      </div>
+
+      {/* The badges are the shop's own working state, not part of the paper. */}
+      <div className="no-print mb-3 flex flex-wrap items-center gap-2">
         <span className={cx('rounded-lg p-1.5 ring-1', meta.tint)}>
           <TypeIcon type={doc.doc_type} size={15} />
         </span>
@@ -945,31 +993,65 @@ function DocumentDetail({ id, onClose, onChanged, onDeleted }) {
         ))}
       </div>
 
-      <table className="w-full text-sm">
-        <thead className="border-b border-slate-100 text-left text-xs text-slate-500">
-          <tr>
-            <th className="py-1.5 font-medium">Item</th>
-            <th className="py-1.5 text-right font-medium">Qty</th>
-            <th className="py-1.5 text-right font-medium">Price</th>
-            <th className="py-1.5 text-right font-medium">Total</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-50">
-          {items.map((i) => (
-            <tr key={i.id}>
-              <td className="py-1.5 text-slate-700">
-                {i.name}
-                {i.sku && <span className="ml-1 text-xs text-slate-400">{i.sku}</span>}
-              </td>
-              <td className="tnum py-1.5 text-right text-slate-600">{i.quantity}</td>
-              <td className="tnum py-1.5 text-right text-slate-600">{money(i.price)}</td>
-              <td className="tnum py-1.5 text-right font-medium text-slate-800">{money(i.line_total)}</td>
+      {/*
+        * The lines.
+        *
+        * Numbered, because "the third one" is how somebody on the phone refers
+        * to a line and counting down an unnumbered list is how the wrong one
+        * gets changed. The code sits under the name rather than beside it: on a
+        * narrow sheet a long name and a long SKU on one line wrap into each
+        * other and neither can be read.
+        *
+        * Every figure is right-aligned and tabular, so the decimal points form
+        * a column somebody can add up by eye — which is what a customer
+        * checking an invoice actually does.
+        */}
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[30rem] border-collapse text-sm">
+          <thead>
+            <tr className="border-y border-slate-300 text-left text-[11px] tracking-wide text-slate-500 uppercase">
+              <th className="w-8 py-2 pr-2 text-right font-semibold">#</th>
+              <th className="py-2 pr-3 font-semibold">Description</th>
+              <th className="w-16 py-2 px-2 text-right font-semibold">Qty</th>
+              <th className="w-28 py-2 px-2 text-right font-semibold">Unit price</th>
+              <th className="w-28 py-2 pl-2 text-right font-semibold">Amount</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {items.map((i, n) => (
+              <tr key={i.id} className={cx('doc-row border-b border-slate-100', n % 2 === 1 && 'bg-slate-50/60')}>
+                <td className="tnum py-2.5 pr-2 text-right align-top text-xs text-slate-400">{n + 1}</td>
+                <td className="py-2.5 pr-3 align-top">
+                  <p className="font-medium text-slate-900">{i.name}</p>
+                  {i.sku && <p className="font-mono text-[11px] text-slate-400">{i.sku}</p>}
+                </td>
+                <td className="tnum py-2.5 px-2 text-right align-top text-slate-700">{i.quantity}</td>
+                <td className="tnum py-2.5 px-2 text-right align-top text-slate-700">
+                  {money(i.price)}
+                  {rate > 0 && (
+                    <span className="block text-[11px] text-slate-400">{lbp(toLbp(i.price))}</span>
+                  )}
+                </td>
+                <td className="tnum py-2.5 pl-2 text-right align-top font-semibold text-slate-900">
+                  {money(i.line_total)}
+                  {rate > 0 && (
+                    <span className="block text-[11px] font-normal text-slate-400">
+                      {lbp(toLbp(i.line_total))}
+                    </span>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
 
-      <dl className="mt-3 space-y-1 border-t border-slate-100 pt-3 text-sm">
+      {/*
+        * Totals to the right, under the column they are the sum of, and half
+        * the width of the sheet — a total spread across two hundred
+        * millimetres reads as unrelated to the figures above it.
+        */}
+      <dl className="doc-totals mt-4 ml-auto w-full max-w-[20rem] space-y-1 text-sm">
         <div className="flex justify-between">
           <dt className="text-slate-500">Subtotal</dt>
           <dd className="tnum text-slate-700">{money(doc.subtotal)}</dd>
@@ -987,7 +1069,7 @@ function DocumentDetail({ id, onClose, onChanged, onDeleted }) {
             <dd className="tnum text-slate-700">{money(doc.tax)}</dd>
           </div>
         )}
-        <div className="flex justify-between text-base font-semibold">
+        <div className="mt-1 flex justify-between border-t-2 border-slate-800 pt-1.5 text-base font-semibold">
           <dt className="text-slate-900">Total</dt>
           <dd className="tnum text-slate-900">{money(doc.total)}</dd>
         </div>
@@ -1019,7 +1101,28 @@ function DocumentDetail({ id, onClose, onChanged, onDeleted }) {
         )}
       </dl>
 
-      {doc.notes && <p className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-600">{doc.notes}</p>}
+      {doc.notes && (
+        <div className="mt-5 border-t border-slate-200 pt-3">
+          <p className="text-[11px] font-semibold tracking-wide text-slate-400 uppercase">Notes</p>
+          <p className="mt-1 text-sm whitespace-pre-line text-slate-600">{doc.notes}</p>
+        </div>
+      )}
+
+      {/*
+        * Somewhere to sign.
+        *
+        * A quotation is an offer until somebody accepts it, and a delivery is
+        * disputed later by whoever did not sign for it. Two ruled lines cost
+        * nothing and settle both arguments.
+        */}
+      <div className="doc-signature mt-10 hidden justify-between gap-10 text-xs text-slate-500 print:flex">
+        <div className="flex-1 border-t border-slate-400 pt-1">
+          {doc.doc_type === 'purchase_invoice' ? 'Received by' : 'For ' + (doc.party_name || 'the customer')}
+        </div>
+        <div className="flex-1 border-t border-slate-400 pt-1">For the shop</div>
+      </div>
+      </div>
+
       {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
 
       <div className="no-print mt-5 flex flex-wrap gap-2">

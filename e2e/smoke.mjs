@@ -1986,6 +1986,55 @@ try {
     await page.waitForTimeout(300);
   });
 
+  /*
+   * A customer comes back a week later wanting the paper for a warranty claim.
+   *
+   * And the paper is whichever paper they asked for: the size used to be set in
+   * two places at once — a stylesheet and the dialog — and which of them won
+   * came down to where in the document their rules ended up, so a receipt set
+   * to A4 came out on the roll. One thing owns it now, and this reads it back.
+   */
+  await step('any sale can be printed again, on the paper that was chosen', async () => {
+    await goTo('Sales');
+    await page.waitForSelector('input[aria-label="Search sales"]', { timeout: 20000 });
+    await page.locator('tr', { hasText: /ORD-/ }).first().click();
+
+    await page.getByRole('button', { name: /Print the receipt again/ }).click();
+    await page.waitForSelector('[role=dialog] >> text=Receipt', { timeout: 15000 });
+
+    const pageRule = async () =>
+      page.evaluate(() => document.getElementById('pos-page-size')?.textContent || '');
+
+    await page.getByRole('button', { name: 'A4 sheet', exact: true }).click();
+    await page.waitForTimeout(200);
+    if (!/size:\s*A4/.test(await pageRule())) {
+      throw new Error(`asked for A4 and the page is set to: ${await pageRule()}`);
+    }
+
+    await page.getByRole('button', { name: '80mm roll', exact: true }).click();
+    await page.waitForTimeout(200);
+    if (!/72mm/.test(await pageRule())) {
+      throw new Error(`asked for the roll and the page is set to: ${await pageRule()}`);
+    }
+
+    // And nothing else in the app is also setting it, which was the bug.
+    const rules = await page.evaluate(() =>
+      [...document.styleSheets]
+        .flatMap((sheet) => {
+          try {
+            return [...sheet.cssRules];
+          } catch {
+            return [];
+          }
+        })
+        .filter((r) => r.constructor.name === 'CSSPageRule').length,
+    );
+    if (rules > 1) throw new Error(`${rules} page rules are live; exactly one may be`);
+
+    await page.getByRole('button', { name: 'Done', exact: true }).click();
+    await page.keyboard.press('Escape');
+  });
+
   await step('the money taken on that invoice is in the voucher book', async () => {
     await goTo('Vouchers');
 
@@ -2330,6 +2379,42 @@ try {
     await page.waitForSelector('text=$3.00');
   });
   await shot('transfers');
+
+  /*
+   * The other half of a transfer: the drawer knows the cash moved, and this is
+   * what the agency thinks. The whole point of it is the comparison an operator
+   * makes at the end of a day against the agency's own app.
+   */
+  await step('the agency carries the balance the transfers left it', async () => {
+    // Opened by the transfer above, without anybody having to create it first.
+    const agencies = page.locator('table', { hasText: 'Standing' }).first();
+    await agencies.waitFor({ timeout: 15000 });
+
+    const row = agencies.locator('tr', { hasText: 'OMT' }).first();
+    await row.waitFor({ timeout: 15000 });
+
+    const text = await row.innerText();
+    // $150 sent is theirs; the $3 fee is the shop's and is not on it.
+    if (!text.includes('$150.00')) {
+      throw new Error(`the agency's balance is not what the counter took: ${text}`);
+    }
+    if (!/you owe them/i.test(text)) {
+      throw new Error(`money taken for an agency is money owed to them: ${text}`);
+    }
+  });
+
+  await step('a shop already trading can say where its balance starts', async () => {
+    const row = page.locator('tr', { hasText: 'OMT' }).first();
+    await row.getByRole('button', { name: 'Opening' }).click();
+    await page.waitForSelector('[role=dialog] >> text=opening balance', { timeout: 15000 });
+
+    await page.locator('[role=dialog] #openingUsd').fill('500');
+    await page.locator('[role=dialog]').getByRole('button', { name: 'Set it' }).click();
+    await page.waitForSelector('text=/opening balance set/', { timeout: 15000 });
+
+    // Carried in on top of what the counter has done, not instead of it.
+    await page.waitForSelector('tr:has-text("OMT") >> text=$650.00', { timeout: 15000 });
+  });
 
   await step('paying one out takes the money back off the drawer', async () => {
     await page.click('button:has-text("New transfer")');

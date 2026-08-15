@@ -3,6 +3,7 @@ import JsBarcode from 'jsbarcode';
 import { codeFor, detectFormat } from '../lib/barcode';
 import { money } from './ui';
 import { lbp } from '../context/SettingsContext';
+import { usePageSize } from '../lib/pageSize';
 
 /**
  * One barcode, drawn by JsBarcode into an inline SVG.
@@ -101,18 +102,18 @@ export function Label({ product, size, rate, showLbp = true }) {
  *             label gets its own page and the page itself is sized to the label,
  *             otherwise the whole grid is squeezed onto a single label.
  *
- * The page size cannot come from a stylesheet written ahead of time because it
- * depends on the size chosen, so the @page rule is emitted here.
+ * The page size depends on the size chosen, so it is claimed from lib/pageSize
+ * rather than written into a stylesheet ahead of the choice.
  */
 export default function LabelSheet({ labels, size, rate, showLbp, mode = 'sheet' }) {
-  const pageRule =
+  usePageSize(
     mode === 'roll'
       ? `@page { size: ${size.width}mm ${size.height}mm; margin: 0; }`
-      : '@page { size: A4; margin: 6mm; }';
+      : '@page { size: A4; margin: 6mm; }',
+  );
 
   return (
     <>
-      <style>{pageRule}</style>
       <div
         className={`label-sheet bg-white ${mode === 'roll' ? 'mode-roll' : 'mode-sheet grid'}`}
         style={

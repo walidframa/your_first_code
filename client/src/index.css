@@ -408,7 +408,7 @@ body {
     padding: 0;
   }
 
-  /* The @page size is emitted by LabelSheet, since it depends on the mode. */
+  /* The page size is set by lib/pageSize, which owns the only @page. */
 
   /* Never split a label across two pages. */
   .label-sheet > * {
@@ -449,9 +449,8 @@ body {
  *
  * Same isolation as the label sheet and the slip: hide the app, show only the
  * receipt, so a printed receipt is a receipt rather than a screenshot of a
- * dialog on a page. The @page size itself is emitted by Receipt.jsx, because
- * it depends on the choice and a stylesheet is written before the choice is
- * made.
+ * dialog on a page. The page size itself is set by lib/pageSize, because it
+ * depends on the choice and a stylesheet is written before the choice is made.
  *
  * The two modes differ in width and in nothing else. A till roll is 72mm of
  * usable paper and the type has to be readable off a cheap thermal head; A4 is
@@ -491,13 +490,72 @@ body {
 }
 
 /*
+ * An invoice or a quotation, on a sheet somebody will file.
+ *
+ * The same isolation as everything else that prints — hide the app, show the
+ * document — but this one is a business paper rather than a till slip, and a
+ * customer decides whether to take a shop seriously partly on how its invoice
+ * looks.
+ *
+ * The rules that matter are all about what a printer does to a table that runs
+ * past the bottom of a page. The header repeats onto the next sheet, a line is
+ * never cut in half across the fold, and the totals stay with the last of the
+ * lines rather than arriving alone on page two.
+ */
+@media print {
+  body:has(.print-document) * {
+    visibility: hidden;
+  }
+
+  body:has(.print-document) .print-document,
+  body:has(.print-document) .print-document * {
+    visibility: visible;
+  }
+
+  body:has(.print-document) .print-document {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    color: #000;
+    background: #fff;
+    font-size: 10.5pt;
+  }
+
+  /* Repeated on every sheet, so page two is not a list of unlabelled numbers. */
+  .print-document thead {
+    display: table-header-group;
+  }
+
+  .print-document tr {
+    break-inside: avoid;
+  }
+
+  .print-document .doc-totals,
+  .print-document .doc-signature {
+    break-inside: avoid;
+  }
+
+  /* Zebra striping is a screen affordance; on paper it is grey ink on a
+     document people photocopy. Ruled lines survive that, shading does not. */
+  .print-document .doc-row {
+    background: transparent !important;
+  }
+}
+
+/*
  * Repair tickets and vouchers on a receipt printer.
  *
- * Thermal rolls are 58 or 80mm wide with no fixed height, so the page is sized
- * to the paper and left to run as long as the slip needs. Same isolation trick
- * as the label sheet: hide the app, show only the slip. Both kinds share these
- * rules — and one @page — because a second block would silently win over the
- * first for every print in the app.
+ * Thermal rolls are 58 or 80mm wide with no fixed height. Same isolation trick
+ * as the label sheet: hide the app, show only the slip.
+ *
+ * No @page here. It used to live in this block, which reads as though it only
+ * applies to slips — but @page is a property of the document and cannot be
+ * scoped to a selector, so it was quietly setting the paper for every print in
+ * the app, including receipts that had asked for A4. lib/pageSize owns it now,
+ * and is the only place that writes one.
  */
 @media print {
   body:has(.print-slip) * {
@@ -523,12 +581,6 @@ body {
     color: #000;
     background: #fff;
     font-family: ui-monospace, 'SFMono-Regular', 'Menlo', monospace;
-  }
-
-  @page {
-    /* 80mm roll less the printer's own margins; auto height lets it run on. */
-    size: 72mm auto;
-    margin: 3mm;
   }
 }
 

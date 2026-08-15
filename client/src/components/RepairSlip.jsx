@@ -2,6 +2,7 @@ import { Printer } from 'lucide-react';
 import { Button } from './ui';
 import { useCompany } from './Letterhead';
 import { lbp, useSettings } from '../context/SettingsContext';
+import { ROLL, usePageSize } from '../lib/pageSize';
 
 const STATUS_LABEL = {
   received: 'Received',
@@ -36,6 +37,7 @@ export default function RepairSlip({ detail }) {
    * actually charged; before then it is the quote, and a warranty job is
    * neither.
    */
+  usePageSize(ROLL);
   const noCharge = ticket.under_warranty === 1 && !ticket.charged;
   const amount =
     ticket.charged !== null && ticket.charged !== undefined && ticket.status === 'collected'

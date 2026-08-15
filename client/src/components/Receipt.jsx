@@ -5,6 +5,7 @@ import { useT } from '../context/LanguageContext';
 import Letterhead, { ReceiptFooter } from './Letterhead';
 import WhatsAppButton from './WhatsAppButton';
 import { lbp } from '../context/SettingsContext';
+import { A4, ROLL, usePageSize } from '../lib/pageSize';
 
 /**
  * Which paper this shop puts a receipt on.
@@ -21,7 +22,15 @@ import { lbp } from '../context/SettingsContext';
 const PAPER_KEY = 'pos_receipt_paper';
 const readPaper = () => (globalThis.localStorage?.getItem(PAPER_KEY) === 'a4' ? 'a4' : 'roll');
 
-export default function Receipt({ receipt, onClose }) {
+/**
+ * @param reprint  Opened from a history rather than from the sale itself.
+ *
+ * The paper is the same and so is everything on it — what changes is what the
+ * screen around it says. "Payment complete" and "give them their change" are
+ * true at the counter and false a week later, and the button that closes it is
+ * not starting the next sale.
+ */
+export default function Receipt({ receipt, onClose, reprint = false }) {
   const t = useT();
   const { order, items } = receipt;
   const [paper, setPaper] = useState(readPaper);
@@ -36,17 +45,12 @@ export default function Receipt({ receipt, onClose }) {
   }
 
   /*
-   * The page size cannot come from a stylesheet written ahead of time because
-   * it depends on the choice, so the rule is emitted here — the same approach
-   * the label sheet takes, for the same reason.
-   *
-   * 72mm is an 80mm roll less what the printer will not reach, and the height
-   * is left to run: a receipt is as long as it is.
+   * Claimed rather than emitted. A `<style>` rendered here is one of several
+   * `@page` rules in the document and wins or loses by where it landed, which
+   * is how a receipt set to A4 came out on the roll. lib/pageSize owns the
+   * only one there is.
    */
-  const pageRule =
-    paper === 'a4'
-      ? '@page { size: A4; margin: 14mm; }'
-      : '@page { size: 72mm auto; margin: 3mm; }';
+  usePageSize(paper === 'a4' ? A4 : ROLL);
   // Use the rate stored on the order, not the current one — a receipt must
   // still reconcile after the rate moves.
   const rate = order.exchange_rate || 0;
@@ -66,22 +70,27 @@ export default function Receipt({ receipt, onClose }) {
 
   return (
     <Modal open onClose={onClose} size="sm" className="print:shadow-none print:ring-0">
-      <style>{pageRule}</style>
       <div className={cx('print-receipt', paper === 'a4' ? 'mode-a4' : 'mode-roll')}>
       {/* Who the shop is, so the slip is something that can be brought back. */}
       <Letterhead className="mb-3 border-b border-dashed border-slate-200 pb-3" />
 
       <div className="text-center">
-        <div className="no-print mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-brand-50">
-          <CheckCircle2 size={24} className="text-brand-600" />
-        </div>
-        <h2 className="text-lg font-semibold text-slate-900">Payment complete</h2>
-        {order.payment_method === 'cash' && order.change_due > 0 && (
+        {!reprint && (
+          <div className="no-print mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-brand-50">
+            <CheckCircle2 size={24} className="text-brand-600" />
+          </div>
+        )}
+        <h2 className="text-lg font-semibold text-slate-900">
+          {reprint ? t('Receipt') : t('Payment complete')}
+        </h2>
+        {!reprint && order.payment_method === 'cash' && order.change_due > 0 && (
           <p className="mt-2 inline-block rounded-lg bg-amber-50 px-3 py-1.5 text-sm font-semibold text-amber-900">
             Give {changeText} change
           </p>
         )}
         <p className="mt-2 text-xs text-slate-400">{order.order_number}</p>
+        {/* A reprint is dated, so nobody mistakes it for today's sale. */}
+        {reprint && <p className="text-xs text-slate-400">{order.created_at}</p>}
       </div>
 
       <div className="my-4 space-y-1.5 border-y border-dashed border-slate-200 py-3 text-sm">
@@ -232,7 +241,7 @@ export default function Receipt({ receipt, onClose }) {
           */}
         <WhatsAppButton path={`/orders/${order.id}/whatsapp`} label="WhatsApp" size="lg" />
         <Button size="lg" className="flex-1" onClick={onClose} autoFocus>
-          {t('New sale')}
+          {reprint ? t('Done') : t('New sale')}
         </Button>
       </ModalActions>
     </Modal>

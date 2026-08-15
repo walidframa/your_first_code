@@ -21,6 +21,8 @@ import { db, transaction } from '../db.js';
 import { round2 } from './currency.js';
 import { getSettings } from './settings.js';
 import { currentSession, defaultAccountId, recordMovement, requiresSession } from './cash.js';
+import { addEntry } from './accounts.js';
+import { balanceEffect, companyByName, createCompany } from './transferCompanies.js';
 
 export const TRANSFER_DIRECTIONS = ['send', 'payout'];
 
@@ -105,17 +107,26 @@ export function recordTransfer({
   const effect = cashEffect({ direction, ...amounts });
 
   return transaction(() => {
+    /*
+     * The agency is an account, and one gets opened the first time its name is
+     * typed. Asking an operator to go and create OMT before they can record the
+     * transfer a customer is standing there waiting for is not a trade-off
+     * worth making — and the name is the same name either way.
+     */
+    const agency = companyByName(company) || createCompany({ name: company, userId });
+
     const info = db
       .prepare(
         `INSERT INTO transfers (
-           reference, company, direction, customer_name, customer_phone, customer_id_no,
+           reference, company, company_id, direction, customer_name, customer_phone, customer_id_no,
            counterparty, destination, amount_usd, amount_lbp, fee_usd, fee_lbp,
            exchange_rate, note, operator_id, account_id
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         reference?.trim() || null,
         String(company).trim(),
+        agency.id,
         direction,
         customerName?.trim() || null,
         customerPhone?.trim() || null,
@@ -148,6 +159,21 @@ export function recordTransfer({
         info.lastInsertRowid,
       );
     }
+
+    /*
+     * And the agency's side of it. The drawer knows the cash moved; this is the
+     * other half of the same fact — money the shop is holding for them, or has
+     * laid out on their behalf. The fee is not in it: that is the shop's.
+     */
+    addEntry({
+      partyType: 'transfer_company',
+      partyId: agency.id,
+      kind: direction === 'send' ? 'bill' : 'payment',
+      amountUsd: balanceEffect({ direction, ...amounts, rate }),
+      exchangeRate: rate,
+      note: `${direction === 'send' ? 'Sent' : 'Paid out'}${reference ? ` · ${reference}` : ''}`,
+      userId,
+    });
 
     return transferById(info.lastInsertRowid);
   })();
@@ -184,6 +210,25 @@ export function cancelTransfer(id, userId = null) {
       note: `Cancelled ${transfer.company} ${transfer.direction}${transfer.reference ? ` · ${transfer.reference}` : ''}`,
       userId,
     });
+
+    // The agency's side comes back with it, or a cancelled transfer would sit
+    // on their balance for ever as money the shop never actually moved.
+    if (transfer.company_id) {
+      addEntry({
+        partyType: 'transfer_company',
+        partyId: transfer.company_id,
+        kind: 'adjustment',
+        amountUsd: -balanceEffect({
+          direction: transfer.direction,
+          amountUsd: transfer.amount_usd,
+          amountLbp: transfer.amount_lbp,
+          rate: transfer.exchange_rate || 0,
+        }),
+        exchangeRate: transfer.exchange_rate,
+        note: `Cancelled${transfer.reference ? ` · ${transfer.reference}` : ''}`,
+        userId,
+      });
+    }
 
     db.prepare("UPDATE transfers SET status = 'cancelled', cancelled_at = datetime('now') WHERE id = ?").run(
       transfer.id,
