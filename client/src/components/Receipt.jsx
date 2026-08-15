@@ -170,6 +170,17 @@ function Roll({ order, items, rate, totalLbp, changeText, reprint, t }) {
         <p className="mt-2 text-xs text-slate-400">{order.order_number}</p>
         {/* A reprint is dated, so nobody mistakes it for today's sale. */}
         {reprint && <p className="text-xs text-slate-400">{order.created_at}</p>}
+        {/*
+          * Who it was for, on the roll as well as the sheet.
+          *
+          * A customer coming back with a slip is asking the shop to recognise
+          * it, and a name settles that in one look — most of all on the ones
+          * that went on account, where whose account is the whole point. Left
+          * off when nobody was named, which is most sales over a counter.
+          */}
+        {order.customer_name && (
+          <p className="mt-1 text-sm font-medium text-slate-700">{order.customer_name}</p>
+        )}
       </div>
 
       <div className="my-4 space-y-1.5 border-y border-dashed border-slate-200 py-3 text-sm">

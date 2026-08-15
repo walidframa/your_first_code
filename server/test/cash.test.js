@@ -528,3 +528,127 @@ test('sessions are listed with what each one was out by', async () => {
 test('cashiers cannot read the shift history', async () => {
   assert.equal((await req('GET', '/cash/sessions', null, cashierToken)).status, 403);
 });
+
+/* ------------------------------------------------ what the strip is about */
+
+/**
+ * The panel on the register answers a question about the register.
+ *
+ * It used to answer one about the shop: the sitting's profit counted invoices
+ * written in the back office, and the drawer counted their cash, because a
+ * document with no till named fell to the shop's default one — which is the
+ * counter. An owner who had rung up nothing and been shown a profit was looking
+ * at somebody else's paperwork.
+ *
+ * Measured as differences rather than totals: these run against a database the
+ * tests above have already traded on, and the point is what each event moves.
+ */
+const drawer = async (accountId = null) => {
+  const { json } = await req(
+    'GET',
+    `/cash/current${accountId ? `?accountId=${accountId}` : ''}`,
+    null,
+    adminToken,
+  );
+  return json;
+};
+
+test('the register’s profit is this counter’s own trade, not the day’s invoices', async () => {
+  // A sitting of its own, whatever the tests above left behind.
+  await req('POST', '/cash/close', { countedUsd: 0 }, adminToken);
+  await req('POST', '/cash/open', { openingUsd: 0 }, adminToken);
+
+  const product = (
+    await req('POST', '/products', { name: 'Lamp', sku: 'LMP-1', price: 50, cost: 20, stock: 10 }, adminToken)
+  ).json.product;
+  // With room on their account, or confirming the invoice below is refused and
+  // the test would pass by proving nothing.
+  const customer = (
+    await req('POST', '/customers', { name: 'Nadia', credit_limit: 5000 }, adminToken)
+  ).json.party;
+
+  await req(
+    'POST',
+    '/orders',
+    {
+      items: [{ productId: product.id, quantity: 1 }],
+      paymentMethod: 'cash',
+      payments: [{ currency: 'USD', amount: 60 }],
+    },
+    adminToken,
+  );
+
+  const atCounter = (await drawer()).profit;
+  assert.ok(atCounter.grossProfit > 0, 'the counter sold something');
+  assert.ok(atCounter.fromRegister > 0);
+
+  // And an invoice on account, which is trade the counter never saw.
+  const doc = (
+    await req(
+      'POST',
+      '/documents',
+      {
+        docType: 'sales_invoice',
+        partyId: customer.id,
+        items: [{ productId: product.id, quantity: 2, price: 50 }],
+      },
+      adminToken,
+    )
+  ).json.document;
+  const confirmed = await req('POST', `/documents/${doc.id}/confirm`, null, adminToken);
+  assert.equal(confirmed.status, 200, JSON.stringify(confirmed.json));
+
+  const after = (await drawer()).profit;
+  assert.equal(
+    after.grossProfit,
+    atCounter.grossProfit,
+    'the counter did not sell any more than it had',
+  );
+  assert.equal(after.fromRegister, atCounter.fromRegister);
+  // Still reported, so nothing has gone missing — it has stopped being added in.
+  assert.ok(after.fromInvoices >= 100, 'the invoice is named beside the figure');
+});
+
+test('an invoice settled at another till stays out of the counter’s drawer', async () => {
+  // Its own sitting at the counter, so what lands there is only what this test
+  // puts there.
+  await req('POST', '/cash/open', { openingUsd: 0 }, adminToken);
+  const before = (await drawer()).expected.usd;
+
+  const office = (await req('POST', '/accounts/cash', { name: 'Office float', kind: 'safe' }, adminToken))
+    .json.account;
+  await req('POST', '/cash/open', { accountId: office.id, openingUsd: 0 }, adminToken);
+
+  const product = (
+    await req('POST', '/products', { name: 'Cable', sku: 'CBL-1', price: 8, cost: 3, stock: 20 }, adminToken)
+  ).json.product;
+  /* Room for the tax, which is the part the $8 handed over does not cover. */
+  const customer = (
+    await req('POST', '/customers', { name: 'Ziad', credit_limit: 100 }, adminToken)
+  ).json.party;
+
+  const doc = (
+    await req(
+      'POST',
+      '/documents',
+      {
+        docType: 'sales_invoice',
+        partyId: customer.id,
+        items: [{ productId: product.id, quantity: 1, price: 8 }],
+        payments: [{ currency: 'USD', amount: 8 }],
+        paymentMethod: 'cash',
+      },
+      adminToken,
+    )
+  ).json.document;
+  const confirmed = await req(
+    'POST',
+    `/documents/${doc.id}/confirm`,
+    { accountId: office.id },
+    adminToken,
+  );
+  assert.equal(confirmed.status, 200, JSON.stringify(confirmed.json));
+
+  assert.equal((await drawer()).expected.usd, before, 'the counter never took that money');
+  assert.equal((await drawer(office.id)).expected.usd, 8, 'the office did');
+});

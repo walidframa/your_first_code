@@ -445,7 +445,23 @@ function postsToLedger(doc) {
  * A cash purchase leaves no balance, but the shop still needs to see the money
  * that went out, and the supplier's statement should show the delivery.
  */
-export function applyEffects(doc, items, userId, note = doc.doc_number) {
+/**
+ * Which till a document's cash went into, read off the movement it wrote.
+ *
+ * Reversing has to put the money back where it came from, and a shop that has
+ * since changed its default till would otherwise take it out of the wrong one.
+ */
+function tillOf(documentId) {
+  const row = db
+    .prepare(
+      `SELECT account_id FROM cash_movements
+       WHERE document_id = ? AND kind = 'document' ORDER BY id LIMIT 1`,
+    )
+    .get(documentId);
+  return row?.account_id ?? null;
+}
+
+export function applyEffects(doc, items, userId, note = doc.doc_number, accountId = null) {
   if (items.length === 0) throw new Error('A document needs at least one line');
 
   applyDocumentStock(doc, items, userId, 1, note);
@@ -489,6 +505,17 @@ export function applyEffects(doc, items, userId, note = doc.doc_number) {
     if (doc.payment_method === 'cash') {
       const sign = doc.doc_type === 'purchase_invoice' ? -1 : 1;
       const movementId = recordMovement({
+        /*
+         * Into the till it was actually taken at.
+         *
+         * Told nothing, this fell to the shop's default till — which is the
+         * counter — so an invoice settled in the back office turned up in the
+         * cashier's drawer and made the figure on the register wrong by
+         * whatever the office had taken. With one till that is still the right
+         * answer and nothing changes; with a safe or an office float, the shop
+         * can now say which.
+         */
+        accountId,
         kind: 'document',
         amountUsd: sign * doc.paid_usd,
         amountLbp: sign * doc.paid_lbp,
@@ -514,7 +541,7 @@ export function applyEffects(doc, items, userId, note = doc.doc_number) {
  * entries rather than by deleting the originals, so the party's statement still
  * shows what happened and when.
  */
-export function reverseEffects(doc, items, userId, note = `Cancelled ${doc.doc_number}`) {
+export function reverseEffects(doc, items, userId, note = `Cancelled ${doc.doc_number}`, accountId = null) {
   applyDocumentStock(doc, items, userId, -1, note);
   if (!postsToLedger(doc)) return;
 
@@ -544,6 +571,8 @@ export function reverseEffects(doc, items, userId, note = `Cancelled ${doc.doc_n
     if (doc.payment_method === 'cash') {
       const sign = doc.doc_type === 'purchase_invoice' ? 1 : -1;
       recordMovement({
+        // Back out of the same drawer it went into.
+        accountId: accountId ?? tillOf(doc.id),
         kind: 'document',
         amountUsd: sign * doc.paid_usd,
         amountLbp: sign * doc.paid_lbp,

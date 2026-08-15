@@ -138,25 +138,39 @@ export function buildCashReport(sessionId, { includeProfit = false } = {}) {
 export function sessionProfit(sessionId, branchId = null) {
   const report = profitForSession(sessionId, { branchId });
   if (!report) return null;
+
+  /*
+   * This counter's own trade, not the shop's whole day.
+   *
+   * The panel sits on the register and is read as the register's takings, so
+   * that is now what it is. It used to be the whole sitting — invoices
+   * included — on the reasoning that profit is made on the sale rather than on
+   * the drawer the cash landed in. True of the shop, and no help at all to
+   * somebody standing at a till trying to work out how their own counter has
+   * done: an owner who had rung up nothing and been shown a profit was looking
+   * at an invoice written in the back office.
+   *
+   * Expenses stay in it. Money paid out of this drawer during this sitting is
+   * this counter's result whatever it was for, and leaving it out would make
+   * the figure flattering rather than useful. The invoices are still reported
+   * beside it, so nothing has gone missing — it has stopped being added in.
+   */
+  const revenue = report.register.revenue;
+  const cost = report.register.cost;
+  const grossProfit = round2(revenue - cost);
+  const netProfit = round2(grossProfit - report.expenses.total);
+
   return {
-    revenue: report.revenue,
-    cost: report.cost,
-    grossProfit: report.grossProfit,
-    grossMargin: report.grossMargin,
+    revenue,
+    cost,
+    grossProfit,
+    grossMargin: revenue > 0 ? round2((grossProfit / revenue) * 100) : 0,
     expenses: report.expenses.total,
     expenseCount: report.expenses.count,
-    netProfit: report.netProfit,
-    /*
-     * Which counter it came from, because this panel sits on the register and
-     * is read as the register's own takings.
-     *
-     * It is not: a sitting's profit is the shop's whole trade over the hours
-     * the till was open, invoices included — profit is made on the sale, not
-     * on the drawer the cash landed in. But a shopkeeper who had rung up
-     * nothing, refunded everything, and was still shown a profit had no way to
-     * see that the figure belonged to an invoice. Now the panel can say so.
-     */
+    netProfit,
     fromRegister: report.register.revenue,
+    /* Counted elsewhere, and said so — the panel names it rather than hiding
+       trade the shop really did. */
     fromInvoices: report.invoices.revenue,
     refundedOrders: report.refunds.orders,
     /*
@@ -164,7 +178,7 @@ export function sessionProfit(sessionId, branchId = null) {
      * their profit is overstated. Saying so beats quietly reporting a number
      * that is too good.
      */
-    unknownCostLines: report.unknownCostLines,
+    unknownCostLines: report.register.unknownCostLines,
   };
 }
 
