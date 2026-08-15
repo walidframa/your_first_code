@@ -1818,6 +1818,8 @@ if (!db.prepare(`SELECT value FROM settings WHERE key = 'flagged_demo_passwords'
  * the first paint; this is what a new device starts from.
  */
 addColumn('users', 'text_size', 'TEXT');
+/* Light or dark, against the person — see the theme route in routes/auth.js. */
+addColumn('users', 'theme', 'TEXT');
 
 addColumn('orders', 'trade_in_value', 'REAL NOT NULL DEFAULT 0');
 addColumn('orders', 'trade_in_id', 'INTEGER REFERENCES trade_ins(id)');

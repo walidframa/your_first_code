@@ -52,13 +52,15 @@ router.post('/login', (req, res) => {
       // So a machine this person has never used comes up at the size they read
       // at, rather than at the size the last person to touch it chose.
       textSize: user.text_size || null,
+      // And in the light or the dark they set it to, for the same reason.
+      theme: user.theme || null,
     },
   });
 });
 
 router.get('/me', requireAuth, (req, res) => {
   const account = db
-    .prepare('SELECT must_change_password, text_size FROM users WHERE id = ?')
+    .prepare('SELECT must_change_password, text_size, theme FROM users WHERE id = ?')
     .get(req.user.id);
   res.json({
     user: {
@@ -66,6 +68,7 @@ router.get('/me', requireAuth, (req, res) => {
       permissions: effectivePermissions(req.user),
       mustChangePassword: Boolean(account?.must_change_password),
       textSize: account?.text_size || null,
+      theme: account?.theme || null,
     },
   });
 });
@@ -86,6 +89,22 @@ router.put('/text-size', requireAuth, (req, res) => {
   const size = ['default', 'medium', 'large'].includes(wanted) ? wanted : null;
   db.prepare('UPDATE users SET text_size = ? WHERE id = ?').run(size, req.user.id);
   res.json({ textSize: size });
+});
+
+/**
+ * Light or dark, remembered against the person rather than the machine.
+ *
+ * Same reasoning as the text size above: a shopkeeper uses the counter tablet,
+ * the office laptop and their phone, and setting a display preference again on
+ * each one is how somebody stops bothering. The device still keeps its own
+ * copy — that is what makes the screen right before the first paint — and this
+ * is what makes it right on a machine they have never sat at.
+ */
+router.put('/theme', requireAuth, (req, res) => {
+  const wanted = String(req.body?.theme || '');
+  const theme = ['system', 'light', 'dark'].includes(wanted) ? wanted : null;
+  db.prepare('UPDATE users SET theme = ? WHERE id = ?').run(theme, req.user.id);
+  res.json({ theme });
 });
 
 /**

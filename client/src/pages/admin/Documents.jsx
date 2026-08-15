@@ -391,21 +391,23 @@ function DocumentForm({ existing, onClose, onSaved }) {
           )}
 
           <div>
-            <div className="mb-1.5 flex items-center justify-between">
+            {/*
+             * Beside the label, not flung to the far side of the dialog.
+             *
+             * `justify-between` put it a whole screen away from the picker it
+             * belongs to, where it reads as a heading for the right-hand column
+             * rather than as an action on this field. Sat next to the word it
+             * qualifies, it is obviously part of choosing a supplier.
+             */}
+            <div className="mb-1.5 flex items-center gap-3">
               <label htmlFor="doc-party" className="block text-sm font-medium text-slate-700">
                 {partyType === 'supplier' ? 'Supplier' : 'Customer'}
               </label>
-              {/*
-               * Next to the picker rather than on another screen. Somebody
-               * standing at the counter is a new customer about half the time,
-               * and leaving the half-written document to go and add them is
-               * how the half-written document gets lost.
-               */}
               {canAddParty && (
                 <button
                   type="button"
                   onClick={() => setNewParty(true)}
-                  className="flex items-center gap-1 rounded-lg px-2 py-1 text-sm font-medium text-brand-700 transition hover:bg-brand-50"
+                  className="-my-1 flex items-center gap-1 rounded-lg px-1.5 py-1 text-sm font-medium text-brand-700 transition hover:bg-brand-50"
                 >
                   <Plus size={14} /> New {partyType}
                 </button>

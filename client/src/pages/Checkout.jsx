@@ -31,7 +31,18 @@ import { ringUp } from '../lib/sales';
 import { useOffline } from '../context/OfflineContext';
 import { useLicence } from '../context/LicenceContext';
 import { useT } from '../context/LanguageContext';
-import { Button, EmptyState, ProductThumb, Skeleton, cx, money, useToast } from '../components/ui';
+import MoneyInput from '../components/MoneyInput';
+import {
+  Button,
+  EmptyState,
+  Modal,
+  ModalActions,
+  ProductThumb,
+  Skeleton,
+  cx,
+  money,
+  useToast,
+} from '../components/ui';
 import { useSettings, lbp } from '../context/SettingsContext';
 
 /**
@@ -47,6 +58,87 @@ const round2 = (n) => Math.round(n * 100) / 100;
 
 /** Where a half-rung sale waits while somebody looks at another page. */
 const CART_KEY = 'pos_cart';
+
+/**
+ * What this line is going out at.
+ *
+ * A phone shop haggles. Until now the only answer to "make it two hundred" was
+ * the whole-sale discount, which is the wrong instrument when one handset moved
+ * on price and the case beside it did not — and it left the books saying the
+ * phone sold at list with a discount on the basket, which is not what happened.
+ * A price agreed on one line is recorded on that line, so the margin on the
+ * phone is the margin on the phone.
+ *
+ * Typed in either currency, because half of what is quoted across this counter
+ * is quoted in pounds. Nothing here touches the catalogue: the shelf price is
+ * kept beside it and is one press away again.
+ */
+function LinePrice({ item, onClose, onSet }) {
+  const t = useT();
+  const { rate } = useSettings();
+  const listed = item.listPrice ?? item.price;
+  const [value, setValue] = useState(String(item.price));
+
+  const asked = Number(value);
+  const valid = value !== '' && Number.isFinite(asked) && asked >= 0;
+  const changed = valid && round2(asked) !== round2(listed);
+
+  return (
+    <Modal open onClose={onClose} title={t('Price for this sale')} subtitle={item.name}>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (valid) onSet(round2(asked));
+        }}
+        className="space-y-4"
+      >
+        <MoneyInput
+          label={t('Price each')}
+          name="linePrice"
+          value={value}
+          onChange={setValue}
+          autoFocus
+          hint={`${t('On the shelf')}: ${money(listed)}${rate > 0 ? ` · ${lbp(Math.round(listed * rate))}` : ''}`}
+        />
+
+        {/*
+          * What it means for this sale, said in the terms it was argued in —
+          * a customer asks for money off, not for a new unit price.
+          */}
+        {changed && (
+          <p className="rounded-xl bg-amber-50 px-3 py-2.5 text-sm text-amber-800 ring-1 ring-amber-200">
+            {asked < listed
+              ? `${money(round2(listed - asked))} off each, ${money(round2((listed - asked) * item.quantity))} off this line.`
+              : `${money(round2(asked - listed))} more each than the shelf price.`}
+          </p>
+        )}
+
+        {/* Zero is a giveaway with the stock still moving, which is what the
+            Gift button is for — said here so nobody invents it with a price. */}
+        {valid && round2(asked) === 0 && (
+          <p className="text-xs text-slate-500">
+            {t('At nothing, this is a gift — the Gift button says so on the receipt.')}
+          </p>
+        )}
+
+        <ModalActions>
+          {item.listPrice != null && item.listPrice !== item.price ? (
+            <Button type="button" variant="secondary" className="flex-1" onClick={() => onSet(listed)}>
+              {t('Back to')} {money(listed)}
+            </Button>
+          ) : (
+            <Button type="button" variant="secondary" className="flex-1" onClick={onClose}>
+              {t('Cancel')}
+            </Button>
+          )}
+          <Button type="submit" className="flex-1" disabled={!valid}>
+            {t('Use this price')}
+          </Button>
+        </ModalActions>
+      </form>
+    </Modal>
+  );
+}
 
 export default function Checkout() {
   const toast = useToast();
@@ -125,6 +217,8 @@ export default function Checkout() {
   const [customer, setCustomer] = useState(null);
   // The serialised product waiting for the cashier to say which handset.
   const [pickingUnitFor, setPickingUnitFor] = useState(null);
+  /* The cart line whose price is being argued over, if any. */
+  const [pricing, setPricing] = useState(null);
   // The handset picked, waiting on its price, gifts and accounts.
   const [sellingUnit, setSellingUnit] = useState(null);
   // Buying a phone happens at the counter too, not only in the back office.
@@ -424,6 +518,31 @@ export default function Checkout() {
   /** Give a line away: no money, but the stock still moves. */
   function toggleGift(lineKey) {
     setCart((prev) => prev.map((i) => (i.lineKey === lineKey ? { ...i, isGift: !i.isGift } : i)));
+  }
+
+  /**
+   * What this one is going out at, today, for this customer.
+   *
+   * Haggling is how a phone is sold here, and until now the only way to meet a
+   * price was the whole-sale discount — which is the wrong instrument when one
+   * handset moved and the case beside it did not. The catalogue is untouched:
+   * this is the line's price, and `listPrice` keeps what the shelf says so the
+   * change stays visible and reversible while the cart is open.
+   *
+   * Not behind a permission of its own, deliberately. The discount box on this
+   * same screen already lets anybody standing here take money off the total,
+   * so gating this and not that would be a lock on one door of two — and the
+   * sale records what was actually charged either way, which is what the
+   * profit report reads.
+   */
+  function setLinePrice(lineKey, price) {
+    setCart((prev) =>
+      prev.map((i) =>
+        i.lineKey === lineKey
+          ? { ...i, price, listPrice: i.listPrice ?? i.price }
+          : i,
+      ),
+    );
   }
 
   function updateQuantity(lineKey, quantity) {
@@ -963,10 +1082,36 @@ export default function Checkout() {
                     </div>
 
                     <div className="flex items-baseline gap-2 text-[11px] text-slate-400">
-                      <span className="tnum min-w-0 flex-1 truncate">
-                        {money(item.price)} each
-                        {rate > 0 && <> · {lbp(toLbp(item.price))}</>}
-                      </span>
+                      {/*
+                        * The price is a button, because at this counter it is
+                        * a question rather than a fact. A gift line is already
+                        * at nothing and credit is priced by the carrier, so
+                        * neither is ours to argue with.
+                        */}
+                      {item.isGift || item.creditSend ? (
+                        <span className="tnum min-w-0 flex-1 truncate">
+                          {money(item.price)} each
+                          {rate > 0 && <> · {lbp(toLbp(item.price))}</>}
+                        </span>
+                      ) : (
+                        <button
+                          onClick={() => setPricing(item)}
+                          title={t('Change the price for this sale')}
+                          className={cx(
+                            'tnum min-w-0 flex-1 truncate rounded px-1 py-0.5 text-left transition',
+                            'hover:bg-slate-100 hover:text-slate-700',
+                            item.listPrice != null && item.listPrice !== item.price
+                              ? 'font-medium text-amber-700'
+                              : 'underline decoration-dotted underline-offset-2',
+                          )}
+                        >
+                          {money(item.price)} each
+                          {rate > 0 && <> · {lbp(toLbp(item.price))}</>}
+                          {item.listPrice != null && item.listPrice !== item.price && (
+                            <> · was {money(item.listPrice)}</>
+                          )}
+                        </button>
+                      )}
                       {rate > 0 && (
                         <span className="tnum shrink-0">{lbp(toLbp(item.price * item.quantity))}</span>
                       )}
@@ -1190,6 +1335,17 @@ export default function Checkout() {
         onClose={() => setPaymentOpen(false)}
         onConfirm={handleConfirmPayment}
       />
+
+      {pricing && (
+        <LinePrice
+          item={pricing}
+          onClose={() => setPricing(null)}
+          onSet={(price) => {
+            setLinePrice(pricing.lineKey, price);
+            setPricing(null);
+          }}
+        />
+      )}
 
       {pickingUnitFor && (
         <UnitPicker

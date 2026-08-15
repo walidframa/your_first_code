@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import api, { setAuthToken } from '../api';
 import { applyTextSize } from '../lib/textSize';
+import { applyTheme } from '../lib/theme';
 
 const AuthContext = createContext(null);
 
@@ -42,6 +43,7 @@ export function AuthProvider({ children }) {
          * choice stands, which is what a shared counter tablet wants.
          */
         if (res.data.user.textSize) applyTextSize(res.data.user.textSize);
+        if (res.data.user.theme) applyTheme(res.data.user.theme);
       })
       .catch((err) => {
         /*
@@ -74,6 +76,7 @@ export function AuthProvider({ children }) {
     // See the effect above: a machine this person has never used comes up at
     // the size they read at rather than the last person's.
     if (res.data.user.textSize) applyTextSize(res.data.user.textSize);
+    if (res.data.user.theme) applyTheme(res.data.user.theme);
   }
 
   /**

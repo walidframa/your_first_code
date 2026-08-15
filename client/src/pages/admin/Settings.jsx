@@ -8,6 +8,7 @@ import TaxSettings from '../../components/TaxSettings';
 import SupportVisits from '../../components/SupportVisits';
 import { useSettings, lbp } from '../../context/SettingsContext';
 import { TEXT_SIZES, applyTextSize, getTextSize } from '../../lib/textSize';
+import { THEMES, applyTheme, getTheme } from '../../lib/theme';
 import { useLanguage } from '../../context/LanguageContext';
 import { install, isInstalled, onInstallable } from '../../lib/install';
 import ChangePassword from '../ChangePassword';
@@ -72,6 +73,51 @@ function TextSize() {
             className={cx(
               'flex-1 rounded-xl px-3 py-2.5 text-sm font-medium ring-1 transition',
               size === id
+                ? 'bg-brand-600 text-white ring-brand-600'
+                : 'bg-white text-slate-700 ring-slate-200 hover:bg-slate-50',
+            )}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
+/**
+ * Light or dark.
+ *
+ * Beside the text size because it is the same kind of decision — how this
+ * screen, in this room, should look — and saved the same way: on the press,
+ * on the device, and against the account so the next machine agrees.
+ */
+function Theme() {
+  const [theme, setTheme] = useState(getTheme);
+
+  function choose(id) {
+    setTheme(applyTheme(id));
+    api.put('/auth/theme', { theme: id }).catch(() => {});
+  }
+
+  return (
+    <Card className="p-5">
+      <h2 className="text-sm font-semibold text-slate-900">Theme</h2>
+      <p className="mt-0.5 mb-4 text-xs text-slate-500">
+        Dark suits a counter under shop lights in the evening; light suits a desk by a window.
+        Match device follows whatever this machine already does, including when it changes itself
+        at sunset. Receipts, labels and invoices print on white paper either way.
+      </p>
+
+      <div className="flex gap-2">
+        {THEMES.map(([id, label]) => (
+          <button
+            key={id}
+            onClick={() => choose(id)}
+            aria-pressed={theme === id}
+            className={cx(
+              'flex-1 rounded-xl px-3 py-2.5 text-sm font-medium ring-1 transition',
+              theme === id
                 ? 'bg-brand-600 text-white ring-brand-600'
                 : 'bg-white text-slate-700 ring-slate-200 hover:bg-slate-50',
             )}
@@ -244,6 +290,7 @@ export default function Settings() {
 
         <div className="mb-4 grid max-w-4xl grid-cols-2 gap-4">
           <LanguageChoice />
+          <Theme />
           <TextSize />
         </div>
 

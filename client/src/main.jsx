@@ -9,6 +9,7 @@ import { SettingsProvider } from './context/SettingsContext.jsx';
 import { BranchProvider } from './context/BranchContext.jsx';
 import { OfflineProvider } from './context/OfflineContext.jsx';
 import { applyTextSize } from './lib/textSize.js';
+import { applyTheme, watchSystemTheme } from './lib/theme.js';
 import { applyLanguage } from './lib/i18n.js';
 import { LanguageProvider } from './context/LanguageContext.jsx';
 import { watchForInstall } from './lib/install.js';
@@ -30,6 +31,10 @@ applyTextSize();
 /* And the language, for the same reason: an Arabic till must not flash an
    English page laid out backwards on its way in. */
 applyLanguage();
+/* And the theme, most of all: a white flash on the way into a dark till at
+   night is exactly what makes somebody turn a dark mode back off. */
+applyTheme();
+watchSystemTheme();
 
 /* The browser offers to install the app once, whenever it decides to, and
    throws the offer away if nobody is listening — so listen before anything

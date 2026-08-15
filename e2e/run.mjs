@@ -186,8 +186,14 @@ const web = track(
 );
 await waitFor(`http://127.0.0.1:${WEB_PORT}/`, 'client', web);
 
-console.log('Running smoke test…');
-const smoke = spawnSync(process.execPath, ['e2e/smoke.mjs'], {
+/*
+ * The smoke test by default, or any other script against the same throwaway
+ * shop — which is how the dark theme gets photographed on a real, populated
+ * app rather than on an empty one.
+ */
+const script = process.env.E2E_SCRIPT || 'e2e/smoke.mjs';
+console.log(`Running ${script}…`);
+const smoke = spawnSync(process.execPath, [script], {
   cwd: repoRoot,
   env: { ...env, E2E_BASE_URL: `http://127.0.0.1:${WEB_PORT}` },
   stdio: 'inherit',
