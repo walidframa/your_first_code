@@ -82,7 +82,9 @@ export default function TabBar() {
         onClick={closeAll}
         className="shrink-0 rounded-lg px-2.5 py-1 text-xs font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-800"
       >
-        Close all
+        {/* What it does, said plainly: the page in front of you is not one of
+            the ones being put away. */}
+        Close the rest
       </button>
     </nav>
   );

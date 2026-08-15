@@ -30,6 +30,7 @@ const BASE = `http://127.0.0.1:${PORT}/api`;
 let child;
 let workDir;
 let adminToken;
+let deskToken;
 let till;
 
 async function req(method, route, body, token) {
@@ -88,6 +89,19 @@ before(async () => {
   const meta = (await req('GET', '/transfers/meta', null, adminToken)).json;
   till = meta.tills.find((t) => t.is_default) || meta.tills[0];
   await req('POST', '/cash/open', { accountId: till.id, openingUsd: 1000 }, adminToken);
+
+  // Somebody who runs the transfer desk and does not own the shop.
+  const staff = (await req('GET', '/users', null, adminToken)).json.users.find(
+    (u) => u.username === 'cashier',
+  );
+  await req(
+    'PUT',
+    `/users/${staff.id}/permissions`,
+    { permissions: ['register', 'transfers'] },
+    adminToken,
+  );
+  deskToken = (await req('POST', '/auth/login', { username: 'cashier', password: 'cashier123' })).json
+    .token;
 });
 
 after(() => {
@@ -373,6 +387,41 @@ test('an agency can be renamed and put away without losing its history', async (
 
   const all = (await req('GET', '/transfers/companies?all=1', null, adminToken)).json.companies;
   assert.ok(all.some((c) => c.name === 'Whish Money'), 'but still on the books');
+});
+
+test('the desk records transfers but does not say where the count starts', async () => {
+  const omt = await named('OMT');
+  const before = omt.balance;
+
+  // The counter's own work, which is theirs.
+  const sent = await req(
+    'POST',
+    '/transfers',
+    { company: 'OMT', direction: 'send', amountUsd: 30, accountId: till.id },
+    deskToken,
+  );
+  assert.equal(sent.status, 201);
+
+  /*
+   * The opening balance is not. It is the figure every later balance is
+   * measured from, so moving it moves what the shop appears to owe without
+   * anything having happened at the counter — which is exactly what somebody
+   * who is short would want.
+   */
+  const tried = await req(
+    'PUT',
+    `/transfers/companies/${omt.id}/opening`,
+    { amountUsd: 5 },
+    deskToken,
+  );
+  assert.equal(tried.status, 403);
+  assert.equal((await named('OMT')).balance, before + 30, 'the refusal changed nothing');
+
+  // And the owner still can.
+  assert.equal(
+    (await req('PUT', `/transfers/companies/${omt.id}/opening`, { amountUsd: 5 }, adminToken)).status,
+    200,
+  );
 });
 
 test('two agencies cannot share a name', async () => {

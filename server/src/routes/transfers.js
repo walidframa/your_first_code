@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { requireAuth, requirePermission } from '../middleware/auth.js';
+import { requireAuth, requirePermission, requireRole } from '../middleware/auth.js';
 import { listAccounts as listCashAccounts } from '../lib/cashAccounts.js';
 import {
   TRANSFER_COMPANIES,
@@ -23,6 +23,20 @@ const router = Router();
 
 // The whole desk is one permission: an operator either runs it or does not.
 const desk = [requireAuth, requirePermission('transfers')];
+
+/**
+ * The one thing at this desk that is the owner's alone.
+ *
+ * An agency's opening balance is not a transfer — it is the figure every later
+ * balance is measured from, and moving it moves what the shop appears to owe
+ * without anything having happened at the counter. An operator who is four
+ * hundred dollars short has an obvious way to make that disappear, and it
+ * would leave no trace at the till.
+ *
+ * Recording transfers is still the operator's job. Saying where the count
+ * starts is not.
+ */
+const owner = [...desk, requireRole('admin')];
 
 router.get('/meta', ...desk, (req, res) => {
   // The desk's own till is picked here rather than assumed: a transfer counter
@@ -76,8 +90,12 @@ router.put('/companies/:id', ...desk, (req, res) => {
   }
 });
 
-/** Where the balance starts, for a shop that was trading before this screen. */
-router.put('/companies/:id/opening', ...desk, (req, res) => {
+/**
+ * Where the balance starts, for a shop that was trading before this screen.
+ *
+ * Owner only — see `owner` above.
+ */
+router.put('/companies/:id/opening', ...owner, (req, res) => {
   try {
     const company = setOpeningBalance(req.params.id, { ...req.body, userId: req.user.id });
     res.json({ company });
