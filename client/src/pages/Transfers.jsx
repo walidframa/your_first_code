@@ -418,7 +418,16 @@ export default function Transfers() {
       />
 
       <div className="flex min-h-0 flex-1">
-        <div className="min-h-0 flex-1 overflow-y-auto p-6">
+        {/*
+         * `min-w-0` is doing real work here, and its absence was a bug.
+         *
+         * A flex child will not shrink below the width of its own content
+         * unless it is told it may, so on a narrow window this column refused
+         * to give way, the row grew wider than the screen and the table was
+         * clipped off the left-hand edge with no way to scroll to it. The
+         * table now scrolls inside its own column instead.
+         */}
+        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-6">
           {!data ? (
             <Skeleton className="h-64" />
           ) : (
@@ -491,7 +500,8 @@ export default function Transfers() {
                     description="Every transfer recorded here moves the drawer with it, so the count at the end of the day still works."
                   />
                 ) : (
-                  <table className="w-full text-sm">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
                     <thead className="border-b border-slate-100 text-left text-xs text-slate-500">
                       <tr>
                         <th className="px-5 py-2.5 font-medium">Time</th>
@@ -565,6 +575,7 @@ export default function Transfers() {
                       })}
                     </tbody>
                   </table>
+                  </div>
                 )}
               </Card>
             </>
@@ -576,7 +587,7 @@ export default function Transfers() {
           * and look somewhere else for the till figure will not look, and the
           * one number this screen exists to protect is that one.
           */}
-        <aside className="w-[340px] shrink-0 overflow-y-auto border-l border-slate-200 bg-white">
+        <aside className="hidden w-[300px] shrink-0 overflow-y-auto border-l border-slate-200 bg-white lg:block xl:w-[340px]">
           <CashBox refreshOn={moved} accountId={tillId} />
           <div className="px-4 py-3">
             <p className="text-xs text-slate-500">
