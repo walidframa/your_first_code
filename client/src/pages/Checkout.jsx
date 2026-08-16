@@ -47,6 +47,7 @@ import { useSettings, lbp } from '../context/SettingsContext';
 import { useConfirm } from '../components/ConfirmProvider';
 import { useAuth } from '../context/AuthContext';
 import BarcodeScanner, { ScanButton, canScan } from '../components/BarcodeScanner';
+import PackEditor from '../components/PackEditor';
 
 /**
  * A request the screen can open without.
@@ -535,6 +536,49 @@ export default function Checkout() {
     if (issues?.length) setResumeIssues(issues);
   }
 
+  /**
+   * What actually goes in this pack, for this sale.
+   *
+   * On the line rather than on the product: a cashier meeting one customer's
+   * request must not redefine the pack for everybody after them. The server
+   * freezes what is sent here against the sold line, so a refund puts back the
+   * blue case that went out rather than the black one the catalogue names.
+   *
+   * `null` puts the line back to the catalogue's version, which is not the same
+   * as sending the catalogue's list — an untouched pack sends nothing at all,
+   * and goes on meaning "whatever the pack is" right up until it is sold.
+   */
+  function setPackParts(lineKey, parts) {
+    setCart((prev) =>
+      prev.map((i) => {
+        if (i.lineKey !== lineKey) return i;
+        if (!parts) return { ...i, components: null, cost: i.listCost ?? i.cost, stock: i.listStock ?? i.stock };
+
+        /*
+         * The cost and the ceiling follow the parts.
+         *
+         * Both were the catalogue's answers about the catalogue's pack, and
+         * leaving them would show a margin worked out from a case that is not
+         * in the bag and let the quantity be nudged past what the swapped-in
+         * shelf can make. The server is the authority on both; this is so the
+         * cashier sees the truth while the customer is still standing there.
+         */
+        const shelfOf = (id) => products.find((p) => p.id === id)?.stock ?? 0;
+        const costOfPart = (id) => Number(products.find((p) => p.id === id)?.cost) || 0;
+
+        return {
+          ...i,
+          components: parts,
+          // Kept so "back to normal" has something to go back to.
+          listCost: i.listCost ?? i.cost,
+          listStock: i.listStock ?? i.stock,
+          cost: round2(parts.reduce((sum, c) => sum + costOfPart(c.productId) * c.quantity, 0)),
+          stock: Math.min(...parts.map((c) => Math.floor(shelfOf(c.productId) / (c.quantity || 1)))),
+        };
+      }),
+    );
+  }
+
   /** Give a line away: no money, but the stock still moves. */
   function toggleGift(lineKey) {
     setCart((prev) => prev.map((i) => (i.lineKey === lineKey ? { ...i, isGift: !i.isGift } : i)));
@@ -585,6 +629,8 @@ export default function Checkout() {
    */
   const [tradeIn, setTradeIn] = useState(null);
   const [scanning, setScanning] = useState(false);
+  // The pack somebody is changing the contents of, or null.
+  const [editingPack, setEditingPack] = useState(null);
   const { can } = useAuth();
 
   const subtotal = round2(
@@ -693,6 +739,12 @@ export default function Checkout() {
           // was actually agreed at the counter.
           price: i.price,
           discount: i.discount,
+          /*
+           * What goes in this pack, when the counter has changed it. Absent
+           * for an untouched pack, so the server takes the catalogue's answer
+           * and there is nothing to keep in step when a definition changes.
+           */
+          components: i.components || undefined,
         })),
         // The shape the server settles on; it converts pounds with its own
         // rate rather than trusting the one this browser happens to hold.
@@ -1301,16 +1353,30 @@ export default function Checkout() {
                       * standing there and the parts are on the shelf.
                       */}
                     {item.bundleOf?.length > 0 && (
-                      <ul className="mt-1.5 space-y-0.5 border-s-2 border-slate-100 ps-2.5">
-                        {item.bundleOf.map((part) => (
-                          <li key={part.productId} className="text-[11px] text-slate-500">
-                            <span className="tnum text-slate-400">
-                              {part.quantity * item.quantity}×
-                            </span>{' '}
-                            {part.name}
-                          </li>
-                        ))}
-                      </ul>
+                      <div className="mt-1.5 border-s-2 border-slate-100 ps-2.5">
+                        <ul className="space-y-0.5">
+                          {(item.components || item.bundleOf).map((part) => (
+                            <li key={part.productId} className="text-[11px] text-slate-500">
+                              <span className="tnum text-slate-400">
+                                {part.quantity * item.quantity}×
+                              </span>{' '}
+                              {part.name}
+                            </li>
+                          ))}
+                        </ul>
+                        {/*
+                          * Changing it is one tap from the list, because the
+                          * moment it is wanted is the moment the customer says
+                          * "have you got it in blue" — with the pack already on
+                          * the sale and somebody waiting.
+                          */}
+                        <button
+                          onClick={() => setEditingPack(item.lineKey)}
+                          className="mt-0.5 text-[11px] font-medium text-brand-700 transition hover:underline"
+                        >
+                          {item.components ? t('Changed — edit again') : t('Swap something')}
+                        </button>
+                      </div>
                     )}
                   </div>
                 </li>
@@ -1491,6 +1557,31 @@ export default function Checkout() {
         onClose={() => setPaymentOpen(false)}
         onConfirm={handleConfirmPayment}
       />
+
+      {editingPack && (
+        <PackEditor
+          item={cart.find((i) => i.lineKey === editingPack)}
+          products={products}
+          onClose={() => setEditingPack(null)}
+          onSave={(parts) => {
+            /*
+             * Put back exactly as it was, so the line goes back to meaning
+             * "whatever the pack is" rather than freezing today's definition
+             * onto it. The two are the same list now and need not stay so.
+             */
+            const line = cart.find((i) => i.lineKey === editingPack);
+            const original = line?.bundleOf || [];
+            const same =
+              parts.length === original.length &&
+              parts.every(
+                (c) =>
+                  original.find((o) => o.productId === c.productId)?.quantity === c.quantity,
+              );
+            setPackParts(editingPack, same ? null : parts);
+            setEditingPack(null);
+          }}
+        />
+      )}
 
       {scanning && (
         <BarcodeScanner

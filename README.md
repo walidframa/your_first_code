@@ -1732,6 +1732,62 @@ a code whose check digit is wrong — falls back to Code 128 so a label always
 prints something scannable. A retail-length code with a bad check digit is
 flagged in the UI rather than silently mis-encoded.
 
+## Packs made of other products
+
+A starter pack is a phone, a case and a screen protector at one price. Nothing
+sits on a shelf called "starter pack", so a pack is not stock — it is a recipe,
+and its "stock" is however many could be made up right now, decided by whichever
+shelf runs out first. Selling one takes each part off the shelf it is really on;
+its own row stays at zero, because a count of its own would be a second truth
+about the same phones and would be wrong within a day.
+
+Set what a pack is made of on the product itself (Products → **Made of other
+products**), by searching for each part rather than scrolling a dropdown of the
+whole catalogue. A pack cannot contain itself or another pack: a pack of packs
+is a tree somebody has to hold in their head at a counter.
+
+### Changing one at the counter
+
+The reason a shop sells packs is that most of what is in one is the same every
+time and one thing is not — the customer wants the blue case. Until now the only
+answers were to refuse them, or to sell the pack and correct the shelves by hand
+afterwards, which nobody does on a Saturday.
+
+So a pack on the register can be changed for **that sale only**. Under the line,
+**Swap something** opens what is in it: take a part out, put another in, change
+how many. The line then says what is really going in the bag, and the cashier
+handing it over is reading the right list.
+
+What follows from the swap, and none of it is optional:
+
+- **The right shelves move.** The blue case comes off, the black one is left
+  alone.
+- **The margin is the real one.** A pack costs what *these* parts cost, so a
+  swapped-in case at twice the price shows up in the profit rather than being
+  reported at what it would have earned if nobody had asked.
+- **The ceiling follows.** How many of the pack can be sold is asked of the
+  swapped-in shelf, and said before the sale rather than refused after the
+  customer has been told a price.
+- **A refund puts back what came out.** This is the one that matters most. The
+  parts are frozen against the sold line, so a pack that went out with a blue
+  case credits a blue case back — not whatever the catalogue says the pack
+  contains today. Reading the definition instead would leave the shop one short
+  of the blue and holding a phantom of the black, and redefining the pack next
+  month would do the same to every sale already made.
+
+The product itself is untouched. A cashier meeting one customer's request must
+not redefine the pack for everybody after them; that is a back-office decision.
+And the price does not move — a pack is one line at one price agreed with the
+person standing there, and a swap that silently repriced it would produce a
+total nobody agreed to. If the blue case is worth more, the price on the line is
+already editable.
+
+The counter cannot use a swap to get round the rules that apply in the back
+office: no pack inside a pack, nothing containing itself, no part that does not
+exist, nothing below a quantity of one. Emptying a pack out is refused rather
+than quietly sold as the catalogue's version — taking everything out is
+something somebody meant.
+
 ## Instalments — تقسيط
 
 A $400 handset goes out for $150 down and the rest over four months. **Money →
