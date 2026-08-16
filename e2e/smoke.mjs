@@ -51,6 +51,12 @@ const ALLOWED_FAILURES = [
    * would hand the money back twice. The 400 is what is being checked.
    */
   /\/api\/vouchers\/\d+\/cancel/,
+  /*
+   * Running a month that has already been run, which is refused on purpose —
+   * somebody will press it twice, and the second press must not pay anybody
+   * twice. The 400 is what is being checked.
+   */
+  /\/api\/employees\/\d+\/salary/,
 ];
 
 const consoleErrors = [];
@@ -3094,7 +3100,7 @@ try {
     await ticket.getByRole('spinbutton', { name: 'Take money now' }).fill('45');
     await ticket.getByRole('button', { name: 'Take it' }).click();
 
-    await page.waitForSelector('[role=dialog] >> text=/Paid so far \$45\.00/', { timeout: 15000 });
+    await page.waitForSelector('[role=dialog] >> text=Paid so far $45.00', { timeout: 15000 });
     await page.waitForSelector('[role=dialog] >> text=nothing left to pay', { timeout: 10000 });
     // Paid, and still exactly where it was.
     await page.waitForSelector('[role=dialog] >> text=Where it is up to', { timeout: 10000 });
@@ -3103,9 +3109,9 @@ try {
   await step('and the job carries on moving afterwards', async () => {
     const ticket = page.locator('[role=dialog]').last();
     await ticket.getByRole('button', { name: 'In repair', exact: true }).click();
-    await page.waitForSelector('[role=dialog] >> text=/Paid so far \$45\.00/', { timeout: 15000 });
+    await page.waitForSelector('[role=dialog] >> text=Paid so far $45.00', { timeout: 15000 });
     await ticket.getByRole('button', { name: 'Ready', exact: true }).click();
-    await page.waitForSelector('[role=dialog] >> text=/Paid so far \$45\.00/', { timeout: 15000 });
+    await page.waitForSelector('[role=dialog] >> text=Paid so far $45.00', { timeout: 15000 });
   });
 
   await step('handing it back charges nothing more, and it can still be reopened', async () => {
@@ -3151,7 +3157,8 @@ try {
         .map((rule) => rule.cssText),
     );
     if (pages.length !== 1) throw new Error(`expected one @page rule, found ${pages.length}`);
-    if (!/A4/.test(pages[0])) throw new Error(`statement did not claim A4: ${pages[0]}`);
+    // Chromium serialises the size lower-case, so the check is too.
+    if (!/a4/i.test(pages[0])) throw new Error(`statement did not claim A4: ${pages[0]}`);
   });
   await shot('customer-statement');
 
@@ -3190,7 +3197,7 @@ try {
     const card = page.locator('[role=dialog]').last();
     await card.getByRole('button', { name: 'Run it' }).click();
     await page.waitForSelector('[role=dialog] >> text=the shop owes them', { timeout: 15000 });
-    await page.waitForSelector('[role=dialog] >> text=/\$500\.00/', { timeout: 10000 });
+    await page.waitForSelector('[role=dialog] >> text=$500.00', { timeout: 10000 });
   });
 
   await step('running the same month again is refused rather than paid twice', async () => {
@@ -3204,10 +3211,10 @@ try {
     await page.click('tr:has-text("Karim Saad") button:has-text("Pay")');
     await page.waitForSelector('[role=dialog] >> text=Pay Karim Saad', { timeout: 15000 });
     // The amount is already what is owed — the common case typed for them.
-    await page.waitForSelector('[role=dialog] >> text=/\$500\.00 is owed to them/', { timeout: 10000 });
+    await page.waitForSelector('[role=dialog] >> text=$500.00 is owed to them', { timeout: 10000 });
     await page.locator('[role=dialog]').last().getByRole('button', { name: 'Pay it' }).click();
 
-    await page.waitForSelector('text=/PV-\d+/', { timeout: 15000 });
+    await page.waitForSelector('text=/PV-\\d+/', { timeout: 15000 });
     await page.waitForSelector('tr:has-text("Karim Saad") >> text=settled', { timeout: 15000 });
   });
   await shot('employees');
