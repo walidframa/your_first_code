@@ -319,6 +319,10 @@ export default function Checkout() {
               stock: 1,
               image_url: product.image_url,
               image_emoji: product.image_emoji,
+              // A serialised handset costs what that handset cost, not the
+              // product's average — the point of tracking units is that this
+              // one's margin is its own.
+              cost: unit.cost ?? product.cost ?? null,
               quantity: 1,
             },
           ];
@@ -370,6 +374,14 @@ export default function Checkout() {
             image_emoji: product.image_emoji,
             // What is in the pack, so the line can say what goes in the bag.
             bundleOf: product.bundleOf || null,
+            /*
+             * What it cost the shop.
+             *
+             * Copied onto the line rather than looked up when it is needed:
+             * the cart is what the margin beside it is computed from, and a
+             * line without this made every sale look like it made nothing.
+             */
+            cost: product.cost ?? null,
             quantity,
           },
         ];
@@ -445,6 +457,8 @@ export default function Checkout() {
           stock: 1,
           image_url: product.image_url,
           image_emoji: product.image_emoji,
+          // This handset's own cost — see the note on the other unit line.
+          cost: unit.cost ?? product.cost ?? null,
           quantity: 1,
         },
       ];
@@ -992,7 +1006,11 @@ export default function Checkout() {
                 aria-label="What this sale makes"
                 className={cx(
                   'tnum shrink-0 rounded-lg px-2 py-0.5 text-xs font-semibold',
-                  cartProfit < 0 ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-700',
+                  priced.length === 0
+                    ? 'bg-slate-100 text-slate-500'
+                    : cartProfit < 0
+                      ? 'bg-red-50 text-red-700'
+                      : 'bg-emerald-50 text-emerald-700',
                 )}
                 title={
                   unknownCost > 0
@@ -1000,9 +1018,24 @@ export default function Checkout() {
                     : 'What this sale makes, before tax'
                 }
               >
-                {money(cartProfit)}
-                {cartTakings > 0 && <span className="font-normal"> · {cartMargin}%</span>}
-                {unknownCost > 0 && <span className="font-normal"> · ?</span>}
+                {/*
+                  * With no cost on anything, the honest answer is not "$0.00"
+                  * — that reads as "this sale makes nothing", when what is
+                  * true is that the shop has never said what these cost. Say
+                  * the second thing, because it is the one somebody can act
+                  * on.
+                  */}
+                {priced.length === 0 ? (
+                  <>No cost set</>
+                ) : (
+                  <>
+                    {money(cartProfit)}
+                    {cartTakings > 0 && <span className="font-normal"> · {cartMargin}%</span>}
+                    {unknownCost > 0 && (
+                      <span className="font-normal"> · {unknownCost} without a cost</span>
+                    )}
+                  </>
+                )}
               </span>
             )}
           </div>

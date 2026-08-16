@@ -562,6 +562,9 @@ export default function Products() {
           onOpenDocument={(row) =>
             navigate(`/admin/documents?number=${encodeURIComponent(row.reference)}`)
           }
+          /* Only reached when the server did not send the sale's id — the
+             Sales screen finds it by the number on the row. */
+          onOpenSale={(row) => navigate(`/admin/orders?number=${encodeURIComponent(row.reference)}`)}
         />
       )}
 

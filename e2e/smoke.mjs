@@ -1439,18 +1439,34 @@ try {
     const badge = page.locator('[aria-label="What this sale makes"]');
     if (await badge.count()) throw new Error('an empty cart is claiming a margin');
 
-    await page.locator('button', { hasText: 'Croissant' }).first().click();
+    /*
+     * Something with a known cost, so the figure can be checked rather than
+     * merely seen. Sells for $30, cost $10 — the margin is two thirds, and any
+     * other answer means the arithmetic is wrong.
+     */
+    await page.evaluate(async () => {
+      const h = {
+        Authorization: `Bearer ${localStorage.getItem('pos_token')}`,
+        'Content-Type': 'application/json',
+      };
+      await fetch('/api/products', {
+        method: 'POST',
+        headers: h,
+        body: JSON.stringify({ name: 'Margin Widget', sku: 'MGN-1', price: 30, cost: 10, stock: 5 }),
+      });
+    });
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.waitForSelector('text=Current sale', { timeout: 15000 });
+
+    await page.fill('input[placeholder*="Scan"]', 'Margin Widget');
+    await page.waitForTimeout(600);
+    await page.locator('button', { hasText: 'Margin Widget' }).first().click();
     await page.waitForTimeout(400);
 
     await badge.waitFor({ timeout: 10000 });
     const shown = await badge.innerText();
-    /*
-     * A figure, and a mark saying it is understated when a line on the sale has
-     * no cost recorded — which is most of a freshly seeded catalogue, so the
-     * check is that the shop is told, not that the number is large.
-     */
-    if (!/\$/.test(shown)) {
-      throw new Error(`the cart does not say what the sale makes: ${shown}`);
+    if (!shown.includes('$20.00') || !shown.includes('67%')) {
+      throw new Error(`a $30 sale costing $10 should make $20.00 · 67%, not: ${shown}`);
     }
 
     await page.click('button:has-text("Clear")');
