@@ -9,6 +9,7 @@ import {
   CreditCard,
   FileText,
   HandCoins,
+  IdCard,
   KeyRound,
   Landmark,
   Package,
@@ -77,6 +78,12 @@ export const ADMIN_NAV = [
       { to: '/admin/repairs', label: 'Repairs', icon: Wrench, permission: 'repairs' , module: 'repairs' },
       { to: '/admin/trade-ins', label: 'Trade-ins', icon: HandCoins, permission: 'repairs' , module: 'repairs' },
       { to: '/admin/customers', label: 'Customers', icon: Contact, permission: 'parties' },
+      /*
+       * Under Selling rather than under Setup, because that is where the money
+       * is: an employee's account is a customer account, and what they owe sits
+       * beside what everybody else owes.
+       */
+      { to: '/admin/employees', label: 'Employees', icon: IdCard, adminOnly: true, module: 'employees' },
       { to: '/admin/installments', label: 'Instalments', icon: CalendarClock, permission: 'parties' , module: 'installments' },
       { to: '/admin/suppliers', label: 'Suppliers', icon: Building2, permission: 'parties' },
     ],
@@ -126,12 +133,22 @@ export const ADMIN_NAV = [
  * short menu: it reads as the app being broken rather than as the job being
  * narrower, or the plan being smaller.
  */
-export const allowedItems = (items, can, hasModule = () => true) =>
+export const allowedItems = (items, can, hasModule = () => true, isAdmin = false) =>
   items.filter(
-    (item) => (!item.permission || can(item.permission)) && (!item.module || hasModule(item.module)),
+    (item) =>
+      (!item.permission || can(item.permission)) &&
+      (!item.module || hasModule(item.module)) &&
+      /*
+       * A third question, for the handful of screens that are the owner's
+       * rather than a job's. Wages are the clearest case: a "payroll" checkbox
+       * handed out by mistake is every salary in the building, so there is no
+       * checkbox to hand out — an admin is the owner, and nobody else sees it.
+       */
+      (!item.adminOnly || isAdmin),
   );
 
-export const allowedGroups = (can, hasModule = () => true) =>
-  ADMIN_NAV.map((group) => ({ ...group, items: allowedItems(group.items, can, hasModule) })).filter(
-    (group) => group.items.length > 0,
-  );
+export const allowedGroups = (can, hasModule = () => true, isAdmin = false) =>
+  ADMIN_NAV.map((group) => ({
+    ...group,
+    items: allowedItems(group.items, can, hasModule, isAdmin),
+  })).filter((group) => group.items.length > 0);

@@ -119,8 +119,9 @@ export default function Layout() {
    * screen the shop is not paying for.
    */
   const { hasModule } = useLicence();
-  const counter = allowedItems(COUNTER_NAV, can, hasModule);
-  const groups = allowedGroups(can, hasModule);
+  const isAdmin = user?.role === 'admin';
+  const counter = allowedItems(COUNTER_NAV, can, hasModule, isAdmin);
+  const groups = allowedGroups(can, hasModule, isAdmin);
 
   /*
    * Which back-office groups are folded away.

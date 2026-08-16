@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
+import { Link, useSearchParams } from 'react-router';
 import {
   ArrowDownLeft,
   ArrowUpRight,
   Banknote,
   Building2,
+  FileText,
   Pencil,
   Plus,
   Search,
@@ -13,6 +15,7 @@ import {
 } from 'lucide-react';
 import api from '../../api';
 import PageHeader from '../../components/PageHeader';
+import AccountStatement from '../../components/AccountStatement';
 import { useSettings, lbp } from '../../context/SettingsContext';
 import {
   Badge,
@@ -35,6 +38,7 @@ const DEALING_LABELS = {
   sales_invoice: 'Sales invoice',
   purchase_invoice: 'Purchase invoice',
   sales_order: 'Sales order',
+  repair: 'Repair',
 };
 
 const KIND_LABELS = {
@@ -372,6 +376,7 @@ function PartyDetail({ partyId, config, onClose, onChanged }) {
   const [money_, setMoneyModal] = useState(null);
   // The invoice or sale somebody has asked to look inside.
   const [opening, setOpening] = useState(null);
+  const [statement, setStatement] = useState(false);
 
   const load = useCallback(() => {
     api.get(`/${config.path}/${partyId}`).then((res) => setData(res.data));
@@ -411,6 +416,15 @@ function PartyDetail({ partyId, config, onClose, onChanged }) {
             </p>
           </div>
           <div className="flex gap-2">
+            {/*
+              * The page somebody can be handed. Everything below is on it —
+              * this screen answers "what has happened?", and the statement is
+              * the same facts arranged so the person they are about can check
+              * them line by line and disagree with one.
+              */}
+            <Button size="sm" variant="secondary" onClick={() => setStatement(true)}>
+              <FileText size={14} /> Statement
+            </Button>
             <Button size="sm" variant="secondary" onClick={() => setMoneyModal('charge')}>
               <Plus size={13} /> {config.single === 'customer' ? 'Charge' : 'Bill'}
             </Button>
@@ -430,15 +444,33 @@ function PartyDetail({ partyId, config, onClose, onChanged }) {
         {dealings.length > 0 && (
           <div className="mb-4">
             <h3 className="mb-1.5 text-xs font-semibold tracking-wide text-slate-500 uppercase">
-              Sales, invoices and quotations
+              Sales, invoices, quotations and repairs
             </h3>
             <ul className="max-h-56 divide-y divide-slate-100 overflow-y-auto rounded-xl ring-1 ring-slate-200">
               {dealings.map((d) => (
                 <li key={`${d.kind}-${d.id}`}>
-                  <button
-                    type="button"
-                    onClick={() => setOpening(d)}
-                    title={`Show what was on ${d.reference || 'this'}`}
+                  {/*
+                    * A repair is not a document with lines on it, so it opens
+                    * on the repairs board rather than in the what-was-on-it
+                    * dialog. Searching by the ticket number lands on the one
+                    * ticket whatever the board is filtered to.
+                    */}
+                  <Link
+                    to={
+                      d.kind === 'repair'
+                        ? `/admin/repairs?q=${encodeURIComponent(d.reference)}`
+                        : ''
+                    }
+                    onClick={(e) => {
+                      if (d.kind === 'repair') return;
+                      e.preventDefault();
+                      setOpening(d);
+                    }}
+                    title={
+                      d.kind === 'repair'
+                        ? `Open ${d.reference} on the repairs board`
+                        : `Show what was on ${d.reference || 'this'}`
+                    }
                     className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm hover:bg-slate-50"
                   >
                     <span className="w-28 shrink-0 truncate font-medium text-slate-700">
@@ -456,7 +488,7 @@ function PartyDetail({ partyId, config, onClose, onChanged }) {
                       {d.onAccount ? ' · on account' : ''}
                     </span>
                     <span className="tnum shrink-0 font-medium text-slate-800">{money(d.total)}</span>
-                  </button>
+                  </Link>
                 </li>
               ))}
             </ul>
@@ -529,6 +561,15 @@ function PartyDetail({ partyId, config, onClose, onChanged }) {
       </Modal>
 
       {opening && <DealingItems dealing={opening} onClose={() => setOpening(null)} />}
+
+      {statement && (
+        <AccountStatement
+          partyType={config.single}
+          partyId={party.id}
+          name={party.name}
+          onClose={() => setStatement(false)}
+        />
+      )}
 
       {money_ && (
         <MoneyModal
@@ -628,10 +669,32 @@ function RemoveParty({ party, restore, config, onClose, onDone }) {
 
 export default function Parties({ type }) {
   const config = CONFIG[type];
+  /*
+   * Arrived here from somewhere else in the app, pointing at one person.
+   *
+   * An employee's screen links to their account, and a link that lands on a
+   * list of two hundred names and leaves you to find the one you clicked is not
+   * a link. The id is read once, on arrival, and cleared from the address so
+   * closing the card does not reopen it.
+   */
+  const [params, setParams] = useSearchParams();
   const [parties, setParties] = useState(null);
   const [search, setSearch] = useState('');
   const [editing, setEditing] = useState(undefined);
-  const [viewing, setViewing] = useState(null);
+  const [viewing, setViewing] = useState(() => {
+    const id = Number(params.get('id'));
+    return Number.isFinite(id) && id > 0 ? id : null;
+  });
+
+  useEffect(() => {
+    if (params.get('id')) {
+      const next = new URLSearchParams(params);
+      next.delete('id');
+      setParams(next, { replace: true });
+    }
+    // Once, on arrival — a later change of `params` is this effect's own doing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   // The one being removed or brought back, waiting on an answer.
   const [removing, setRemoving] = useState(null);
   /*

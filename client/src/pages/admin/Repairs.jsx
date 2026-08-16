@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router';
 import { Eye, Plus, Trash2, Wrench } from 'lucide-react';
 import api from '../../api';
 import PageHeader from '../../components/PageHeader';
@@ -526,19 +527,29 @@ function TicketModal({ id, onClose, onChanged }) {
 }
 
 export default function Repairs() {
+  /*
+   * Arrived pointing at one ticket — from a customer's account, say, which now
+   * lists the phones they have left here. A link that lands on a filtered board
+   * and leaves you to find the ticket you clicked is not a link, so the search
+   * is filled in and the board is opened at everything rather than at whatever
+   * happens to be on the bench today.
+   */
+  const [params] = useSearchParams();
+  const asked = params.get('q') || '';
+
   const [tickets, setTickets] = useState(null);
-  const [filter, setFilter] = useState('open');
+  const [filter, setFilter] = useState(asked ? '' : 'open');
   const [intake, setIntake] = useState(false);
   const [openId, setOpenId] = useState(null);
   /*
    * A device left in March is still a device the shop had, and until now the
    * only way to it was a status nobody remembered choosing.
    */
-  const history = useHistoryFilter('month');
+  const history = useHistoryFilter(asked ? 'all' : 'month', asked);
   const q = history.term;
 
   const load = useCallback(async () => {
-    const res = await api.get('/repairs', { params: { status: filter, q: q || undefined } });
+    const res = await api.get('/repairs', { params: { status: filter || undefined, q: q || undefined } });
     setTickets(res.data.tickets);
   }, [filter, q]);
 
@@ -569,6 +580,7 @@ export default function Repairs() {
           <div className="w-44">
             <Select value={filter} onChange={(e) => setFilter(e.target.value)} aria-label="Status filter">
               <option value="open">On the bench</option>
+              <option value="">Every ticket</option>
               {Object.entries(STATUS_LABEL).map(([v, l]) => (
                 <option key={v} value={v}>
                   {l}

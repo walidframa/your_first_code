@@ -232,7 +232,39 @@ export function dealingsWith(partyType, partyId, limit = 100) {
           }))
       : [];
 
-  // Newest first across both, so it reads as one history rather than two lists
-  // somebody has to interleave by eye.
-  return [...documents, ...orders].sort((a, b) => String(b.at).localeCompare(String(a.at)));
+  /*
+   * And the phones they left with the shop.
+   *
+   * A repair is not on the ledger — most are paid in cash — and it was not in
+   * either list above, so "everything I have done with this customer" was
+   * missing the half of it that a phone shop mostly does. Now that a ticket can
+   * be put on a customer rather than only on a typed name, it belongs here.
+   */
+  const repairs =
+    partyType === 'customer'
+      ? db
+          .prepare(
+            `SELECT id, ticket_number, device, status, charged, quoted, created_at
+               FROM repair_tickets
+              WHERE customer_id = ?
+              ORDER BY created_at DESC
+              LIMIT ?`,
+          )
+          .all(partyId, cap)
+          .map((t) => ({
+            id: t.id,
+            kind: 'repair',
+            reference: t.ticket_number,
+            status: t.status,
+            total: t.charged ?? t.quoted ?? 0,
+            device: t.device,
+            at: t.created_at,
+          }))
+      : [];
+
+  // Newest first across all of them, so it reads as one history rather than
+  // three lists somebody has to interleave by eye.
+  return [...documents, ...orders, ...repairs].sort((a, b) =>
+    String(b.at).localeCompare(String(a.at)),
+  );
 }
