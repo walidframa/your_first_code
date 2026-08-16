@@ -302,11 +302,11 @@ test('the job moves through statuses, and each move is on the record', async () 
   assert.equal(detail.events.length, 5, 'intake plus four moves');
 });
 
-test('a repair is collected from the register, not by editing its status', async () => {
+test('handing the phone back is its own action, not a status to type', async () => {
   const ticket = (await req('GET', '/repairs?status=ready', null, adminToken)).json.tickets[0];
   const res = await req('PATCH', `/repairs/${ticket.id}`, { status: 'collected' }, adminToken);
   assert.equal(res.status, 400);
-  assert.match(res.json.error, /from the register/i);
+  assert.match(res.json.error, /hand it back/i);
 });
 
 test('a warranty job is collected at nothing to pay', async () => {
@@ -323,11 +323,110 @@ test('a warranty job is collected at nothing to pay', async () => {
   assert.equal(free.json.ticket.charged, 0);
 });
 
-test('a collected ticket cannot be reopened', async () => {
+/*
+ * The phone that comes straight back through the door.
+ *
+ * Collected used to be the end of the line, which made sense while collecting
+ * and paying were the same act. They are not, and a job that cannot be moved
+ * once the money is in is a job the shop has to re-take-in under a new number.
+ */
+test('a collected ticket goes back on the bench, and the date it left is cleared', async () => {
   const collected = (await req('GET', '/repairs?status=collected', null, adminToken)).json.tickets[0];
+  assert.ok(collected.collected_at, 'it left the shop at some point');
+
   const res = await req('PATCH', `/repairs/${collected.id}`, { status: 'repairing' }, adminToken);
-  assert.equal(res.status, 400);
-  assert.match(res.json.error, /already collected/i);
+  assert.equal(res.status, 200, JSON.stringify(res.json));
+  assert.equal(res.json.ticket.status, 'repairing');
+  assert.equal(res.json.ticket.collected_at, null, 'it is not collected any more');
+
+  const back = res.json.events.at(-1);
+  assert.match(back.note, /back on the bench/i);
+});
+
+/*
+ * The case the shop actually asked for: paid at the counter on the way in, and
+ * worked on for the rest of the week.
+ */
+test('money can be taken while the phone is still on the bench', async () => {
+  const opened = await req('POST', '/cash/open', { openingUsd: 50 }, adminToken);
+  assert.ok([201, 400].includes(opened.status));
+
+  const ticket = (
+    await req(
+      'POST',
+      '/repairs',
+      { customerName: 'Pays Up Front', device: 'Nokia G21', fault: 'Charging port', quoted: 30 },
+      adminToken,
+    )
+  ).json.ticket;
+
+  const before = (await req('GET', '/cash/current', null, adminToken)).json.expected;
+
+  const paid = await req(
+    'POST',
+    `/repairs/${ticket.id}/payment`,
+    { charged: 30, payments: [{ currency: 'USD', amount: 30 }] },
+    adminToken,
+  );
+  assert.equal(paid.status, 201, JSON.stringify(paid.json));
+  assert.equal(paid.json.ticket.paid_usd, 30);
+  assert.equal(paid.json.outstanding, 0, 'nothing left to pay');
+  // The money is in, and the phone has not moved an inch.
+  assert.equal(paid.json.ticket.status, 'received');
+  assert.equal(paid.json.ticket.collected_at, null);
+
+  const after = (await req('GET', '/cash/current', null, adminToken)).json.expected;
+  assert.equal(Math.round((after.usd - before.usd) * 100) / 100, 30);
+
+  // And the job carries on being a job.
+  for (const status of ['awaiting_parts', 'repairing', 'ready']) {
+    const moved = await req('PATCH', `/repairs/${ticket.id}`, { status }, adminToken);
+    assert.equal(moved.status, 200, `${status}: ${JSON.stringify(moved.json)}`);
+    assert.equal(moved.json.ticket.paid_usd, 30, 'the money stays paid');
+  }
+
+  // Handed back with nothing owing — and the drawer must not take the 30 twice.
+  const drawerBefore = (await req('GET', '/cash/current', null, adminToken)).json.expected;
+  const handed = await req('POST', `/repairs/${ticket.id}/collect`, { charged: 30 }, adminToken);
+  assert.equal(handed.status, 200, JSON.stringify(handed.json));
+  assert.equal(handed.json.ticket.status, 'collected');
+  assert.equal(handed.json.ticket.paid_usd, 30);
+
+  const drawerAfter = (await req('GET', '/cash/current', null, adminToken)).json.expected;
+  assert.equal(drawerAfter.usd, drawerBefore.usd, 'paid once, not twice');
+});
+
+test('a repair can be put on a customer from the list', async () => {
+  const created = await req(
+    'POST',
+    '/customers',
+    { name: 'Repair Regular', phone: '03 999 111' },
+    adminToken,
+  );
+  assert.equal(created.status, 201);
+  const customer = created.json.party;
+
+  // Only the id: the name and the phone come off the account, which is the
+  // point of picking one rather than typing it again.
+  const res = await req(
+    'POST',
+    '/repairs',
+    { customerId: customer.id, device: 'iPhone 13', fault: 'Back glass' },
+    adminToken,
+  );
+  assert.equal(res.status, 201, JSON.stringify(res.json));
+  assert.equal(res.json.ticket.customer_id, customer.id);
+  assert.equal(res.json.ticket.customer_name, 'Repair Regular');
+  assert.equal(res.json.ticket.customer_phone, '03 999 111');
+
+  const unknown = await req(
+    'POST',
+    '/repairs',
+    { customerId: 999_999, device: 'iPhone 13', fault: 'Back glass' },
+    adminToken,
+  );
+  assert.equal(unknown.status, 400);
+  assert.match(unknown.json.error, /does not exist/i);
 });
 
 test('a paid repair puts the money in the drawer', async () => {

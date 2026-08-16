@@ -51,6 +51,12 @@ const ALLOWED_FAILURES = [
    * would hand the money back twice. The 400 is what is being checked.
    */
   /\/api\/vouchers\/\d+\/cancel/,
+  /*
+   * Running a month that has already been run, which is refused on purpose —
+   * somebody will press it twice, and the second press must not pay anybody
+   * twice. The 400 is what is being checked.
+   */
+  /\/api\/employees\/\d+\/salary/,
 ];
 
 const consoleErrors = [];
@@ -3057,6 +3063,161 @@ try {
     await page.waitForSelector('text=Payment complete', { timeout: 20000 });
     await page.keyboard.press('Escape');
   });
+
+  console.log('\nA repair, its money, and the people who work here');
+
+  /*
+   * The shape the shop actually works in: paid at the counter on the way in,
+   * worked on for the rest of the week. Until now that could only be recorded
+   * by marking the job collected, which said the phone had gone home while it
+   * was sitting on the bench — and froze it there, because a collected ticket
+   * could not be moved again.
+   */
+  await step('a phone is taken in on a customer from the list', async () => {
+    await page.goto(`${BASE_URL}/admin/repairs`, { waitUntil: 'networkidle' });
+    await page.click('button:has-text("Take a device in")');
+    await page.waitForSelector('[role=dialog] >> text=Take a device in', { timeout: 15000 });
+
+    const dialog = page.locator('[role=dialog]').last();
+    // Typing into the one customer field brings the list up; picking off it is
+    // what joins the ticket to an account rather than to a string.
+    await dialog.locator('#repair-customer').fill('Rami');
+    await page.waitForSelector('[role=dialog] li button:has-text("Rami Haddad")', { timeout: 10000 });
+    await dialog.locator('li button:has-text("Rami Haddad")').first().click();
+    await page.waitForSelector('[role=dialog] >> text=/On Rami Haddad.*account/', { timeout: 10000 });
+
+    await dialog.getByRole('textbox', { name: 'Device' }).fill('iPhone 11');
+    await dialog.locator('#fault').fill('Charging port');
+    await dialog.getByRole('spinbutton', { name: 'Quoted' }).fill('45');
+    await dialog.getByRole('button', { name: 'Open ticket' }).click();
+
+    // Opens straight onto the ticket it just made.
+    await page.waitForSelector('[role=dialog] >> text=Charging port', { timeout: 15000 });
+  });
+
+  await step('the money is taken while the phone stays on the bench', async () => {
+    const ticket = page.locator('[role=dialog]').last();
+    await ticket.getByRole('spinbutton', { name: 'Take money now' }).fill('45');
+    await ticket.getByRole('button', { name: 'Take it' }).click();
+
+    await page.waitForSelector('[role=dialog] >> text=Paid so far $45.00', { timeout: 15000 });
+    await page.waitForSelector('[role=dialog] >> text=nothing left to pay', { timeout: 10000 });
+    // Paid, and still exactly where it was.
+    await page.waitForSelector('[role=dialog] >> text=Where it is up to', { timeout: 10000 });
+  });
+
+  await step('and the job carries on moving afterwards', async () => {
+    const ticket = page.locator('[role=dialog]').last();
+    await ticket.getByRole('button', { name: 'In repair', exact: true }).click();
+    await page.waitForSelector('[role=dialog] >> text=Paid so far $45.00', { timeout: 15000 });
+    await ticket.getByRole('button', { name: 'Ready', exact: true }).click();
+    await page.waitForSelector('[role=dialog] >> text=Paid so far $45.00', { timeout: 15000 });
+  });
+
+  await step('handing it back charges nothing more, and it can still be reopened', async () => {
+    const ticket = page.locator('[role=dialog]').last();
+    await ticket.getByRole('button', { name: 'Hand it back' }).click();
+    await page.waitForSelector('[role=dialog] >> text=Put it back on the bench', { timeout: 15000 });
+
+    // The phone comes back through the door on Friday.
+    await ticket.getByRole('button', { name: 'In repair', exact: true }).click();
+    await page.waitForSelector('[role=dialog] >> text=Where it is up to', { timeout: 15000 });
+    await page.keyboard.press('Escape');
+  });
+
+  await step('the repair shows on the customer’s own account', async () => {
+    await page.goto(`${BASE_URL}/admin/customers`, { waitUntil: 'networkidle' });
+    await page.click('td:has-text("Rami Haddad")');
+    await page.waitForSelector('[role=dialog] >> text=Sales, invoices, quotations and repairs', {
+      timeout: 15000,
+    });
+    await page.waitForSelector('[role=dialog] >> text=REP-', { timeout: 10000 });
+  });
+
+  await step('and the account prints as a statement that adds up', async () => {
+    await page.click('[role=dialog] button:has-text("Statement")');
+    await page.waitForSelector('[role=dialog] >> text=Statement of account', { timeout: 15000 });
+    await page.waitForSelector('[role=dialog] >> text=Balance brought forward', { timeout: 10000 });
+    await page.waitForSelector('[role=dialog] >> text=Totals for the period', { timeout: 10000 });
+
+    /*
+     * A4, and exactly one live @page rule. Two of them is how a receipt asked
+     * for A4 and came out on the roll, so it is counted rather than trusted.
+     */
+    const pages = await page.evaluate(() =>
+      [...document.styleSheets]
+        .flatMap((sheet) => {
+          try {
+            return [...sheet.cssRules];
+          } catch {
+            return [];
+          }
+        })
+        .filter((rule) => rule.constructor.name === 'CSSPageRule')
+        .map((rule) => rule.cssText),
+    );
+    if (pages.length !== 1) throw new Error(`expected one @page rule, found ${pages.length}`);
+    // Chromium serialises the size lower-case, so the check is too.
+    if (!/a4/i.test(pages[0])) throw new Error(`statement did not claim A4: ${pages[0]}`);
+  });
+  await shot('customer-statement');
+
+  await step('and closing it puts the paper back on the roll', async () => {
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(300);
+    const rule = await page.evaluate(() => document.getElementById('pos-page-size')?.textContent || '');
+    if (!/72mm/.test(rule)) throw new Error(`paper did not go back to the roll: ${rule}`);
+    await page.keyboard.press('Escape');
+  });
+
+  /*
+   * Wages. An employee is a customer account with a salary attached, which is
+   * the whole design — so what is checked here is that the arithmetic comes out
+   * of the ledger rather than out of a second set of rules nobody maintains.
+   */
+  await step('somebody is hired, and gets an account of their own', async () => {
+    await page.goto(`${BASE_URL}/admin/employees`, { waitUntil: 'networkidle' });
+    await page.click('button:has-text("Add an employee")');
+    await page.waitForSelector('[role=dialog] >> text=Add an employee', { timeout: 15000 });
+
+    const dialog = page.locator('[role=dialog]').last();
+    await dialog.getByRole('textbox', { name: 'Name' }).fill('Karim Saad');
+    await dialog.getByRole('textbox', { name: 'Job' }).fill('Technician');
+    await dialog.getByRole('spinbutton', { name: 'Monthly salary' }).fill('500');
+    await dialog.getByRole('button', { name: 'Add them' }).click();
+
+    await page.waitForSelector('td:has-text("Karim Saad")', { timeout: 15000 });
+    await page.waitForSelector('text=settled', { timeout: 10000 });
+  });
+
+  await step('a month puts the wage on their account, owed to them', async () => {
+    await page.click('tr:has-text("Karim Saad") td:first-child');
+    await page.waitForSelector('[role=dialog] >> text=Where they stand', { timeout: 15000 });
+
+    const card = page.locator('[role=dialog]').last();
+    await card.getByRole('button', { name: 'Run it' }).click();
+    await page.waitForSelector('[role=dialog] >> text=the shop owes them', { timeout: 15000 });
+    await page.waitForSelector('[role=dialog] >> text=$500.00', { timeout: 10000 });
+  });
+
+  await step('running the same month again is refused rather than paid twice', async () => {
+    const card = page.locator('[role=dialog]').last();
+    await card.getByRole('button', { name: 'Run it' }).click();
+    await page.waitForSelector('text=/has already been run/i', { timeout: 15000 });
+    await page.keyboard.press('Escape');
+  });
+
+  await step('paying them clears it, with a numbered voucher', async () => {
+    await page.click('tr:has-text("Karim Saad") button:has-text("Pay")');
+    await page.waitForSelector('[role=dialog] >> text=Pay Karim Saad', { timeout: 15000 });
+    // The amount is already what is owed — the common case typed for them.
+    await page.waitForSelector('[role=dialog] >> text=$500.00 is owed to them', { timeout: 10000 });
+    await page.locator('[role=dialog]').last().getByRole('button', { name: 'Pay it' }).click();
+
+    await page.waitForSelector('text=/PV-\\d+/', { timeout: 15000 });
+    await page.waitForSelector('tr:has-text("Karim Saad") >> text=settled', { timeout: 15000 });
+  });
+  await shot('employees');
 
   console.log('\nOn a small screen, and on a square counter monitor');
 

@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router';
 import { Eye, Plus, Trash2, Wrench } from 'lucide-react';
 import api from '../../api';
 import PageHeader from '../../components/PageHeader';
 import RepairSlip, { PrintSlipButton } from '../../components/RepairSlip';
 import WhatsAppButton from '../../components/WhatsAppButton';
+import CustomerField from '../../components/CustomerField';
 import HistoryFilter from '../../components/HistoryFilter';
 import { useHistoryFilter } from '../../lib/history';
 import {
@@ -32,6 +34,9 @@ const STATUS_LABEL = {
   cancelled: 'Cancelled',
 };
 
+/* Not a status — a payment, filed in the same history column. */
+const EVENT_LABEL = { ...STATUS_LABEL, payment: 'Paid' };
+
 const STATUS_STYLE = {
   received: 'bg-slate-100 text-slate-700',
   diagnosed: 'bg-sky-50 text-sky-700',
@@ -47,6 +52,7 @@ function IntakeModal({ onClose, onSaved }) {
   const toast = useToast();
   const [form, setForm] = useState({
     imei: '',
+    customerId: null,
     customerName: '',
     customerPhone: '',
     device: '',
@@ -98,11 +104,9 @@ function IntakeModal({ onClose, onSaved }) {
   return (
     <Modal open onClose={saving ? undefined : onClose} title="Take a device in" size="lg">
       <form onSubmit={submit} className="grid grid-cols-2 gap-3">
-        <Input
-          label="Customer's name"
-          value={form.customerName}
-          onChange={set('customerName')}
-          required
+        <CustomerField
+          value={form}
+          onChange={(next) => setForm((f) => ({ ...f, ...next }))}
           autoFocus
         />
         <Input label="Phone number" value={form.customerPhone} onChange={set('customerPhone')} />
@@ -204,13 +208,15 @@ function TicketModal({ id, onClose, onChanged }) {
   const [products, setProducts] = useState([]);
   const [partId, setPartId] = useState('');
   const [charged, setCharged] = useState('');
+  const [payNow, setPayNow] = useState('');
   const [passcode, setPasscode] = useState(null);
 
   const load = useCallback(async () => {
     const [d, p] = await Promise.all([api.get(`/repairs/${id}`), api.get('/products')]);
     setDetail(d.data);
     setProducts(p.data.products.filter((x) => !x.tracks_units));
-    setCharged(String(d.data.ticket.quoted ?? d.data.partsTotal ?? ''));
+    setCharged(String(d.data.ticket.charged ?? d.data.ticket.quoted ?? d.data.partsTotal ?? ''));
+    setPayNow(d.data.outstanding > 0 ? String(d.data.outstanding) : '');
   }, [id]);
 
   useEffect(() => {
@@ -239,12 +245,40 @@ function TicketModal({ id, onClose, onChanged }) {
     }
   }
 
+  /*
+   * Take the money now, and leave the phone on the bench.
+   *
+   * The whole point of this screen having two buttons: what is paid and where
+   * the job is up to are different facts, and a shop whose customers pay on
+   * drop-off needs to record the first without asserting the second.
+   */
+  async function takePayment() {
+    const amount = Number(payNow) || 0;
+    if (amount <= 0) return;
+    try {
+      await api.post(`/repairs/${id}/payment`, {
+        charged: Number(charged) || null,
+        payments: [{ currency: 'USD', amount }],
+      });
+      toast(`${money(amount)} taken`);
+      setPayNow('');
+      await load();
+      onChanged();
+    } catch (err) {
+      toast(err.response?.data?.error || 'Could not record that payment', 'error');
+    }
+  }
+
   async function collect() {
     const amount = Number(charged) || 0;
+    const due = Math.max(0, Number(outstanding) || 0);
     try {
       await api.post(`/repairs/${id}/collect`, {
         charged: amount,
-        payments: amount > 0 ? [{ currency: 'USD', amount }] : [],
+        // Only what is actually still owed — a job paid for at intake is handed
+        // back at nothing to pay, and charging it again would put the money in
+        // the drawer twice.
+        payments: due > 0 ? [{ currency: 'USD', amount: due }] : [],
       });
       toast('Handed back');
       await load();
@@ -262,40 +296,55 @@ function TicketModal({ id, onClose, onChanged }) {
     );
   }
 
-  const { ticket, parts, events, partsTotal } = detail;
+  const { ticket, parts, events, partsTotal, outstanding } = detail;
   const closed = ['collected', 'cancelled'].includes(ticket.status);
+  const paid = Number(ticket.paid_usd || 0) > 0 || Number(ticket.paid_lbp || 0) > 0;
 
   return (
     <Modal open onClose={onClose} title={ticket.ticket_number} subtitle={ticket.device} size="xl">
       <div className="grid grid-cols-2 gap-5">
         <div className="space-y-4">
-          {!closed && (
-            <div>
-              <p className="mb-1.5 text-sm text-slate-600">Where it is up to</p>
-              <div className="flex flex-wrap gap-1.5">
-                {FLOW.map((s) => (
-                  <button
-                    key={s}
-                    onClick={() => move(s)}
-                    className={cx(
-                      'rounded-lg px-2.5 py-1 text-xs font-medium transition',
-                      ticket.status === s
-                        ? 'bg-brand-600 text-white'
-                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
-                    )}
-                  >
-                    {STATUS_LABEL[s]}
-                  </button>
-                ))}
+          {/*
+            * Always offered, including on a job that has been paid for and
+            * handed back. Money and progress are separate facts now, and a
+            * phone that comes straight back through the door on Friday needs
+            * to go back on the bench rather than stay frozen at "collected".
+            */}
+          <div>
+            <p className="mb-1.5 text-sm text-slate-600">
+              {closed ? 'Put it back on the bench' : 'Where it is up to'}
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {FLOW.map((s) => (
+                <button
+                  key={s}
+                  onClick={() => move(s)}
+                  className={cx(
+                    'rounded-lg px-2.5 py-1 text-xs font-medium transition',
+                    ticket.status === s
+                      ? 'bg-brand-600 text-white'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
+                  )}
+                >
+                  {STATUS_LABEL[s]}
+                </button>
+              ))}
+              {ticket.status !== 'cancelled' && (
                 <button
                   onClick={() => move('cancelled')}
                   className="rounded-lg px-2.5 py-1 text-xs font-medium text-red-600 transition hover:bg-red-50"
                 >
                   Cancel job
                 </button>
-              </div>
+              )}
             </div>
-          )}
+            {closed && (
+              <p className="mt-1.5 text-xs text-slate-400">
+                {ticket.status === 'collected' ? 'Handed back' : 'Cancelled'}
+                {paid ? ' · what was paid stays paid' : ''}.
+              </p>
+            )}
+          </div>
 
           <Card className="p-4">
             <p className="mb-2 text-xs font-medium tracking-wide text-slate-500 uppercase">Parts fitted</p>
@@ -354,7 +403,7 @@ function TicketModal({ id, onClose, onChanged }) {
           {!closed && (
             <Card className="p-4">
               <p className="mb-2 text-xs font-medium tracking-wide text-slate-500 uppercase">
-                Hand it back
+                The money
               </p>
               {ticket.under_warranty === 1 && (
                 <p className="mb-2 rounded-lg bg-brand-50 px-3 py-2 text-sm text-brand-800">
@@ -363,7 +412,7 @@ function TicketModal({ id, onClose, onChanged }) {
               )}
               <div className="flex gap-2">
                 <Input
-                  label="Charge"
+                  label="Charge for the job"
                   type="number"
                   step="0.01"
                   min="0"
@@ -372,9 +421,48 @@ function TicketModal({ id, onClose, onChanged }) {
                   disabled={ticket.under_warranty === 1}
                 />
                 <div className="flex items-end">
-                  <Button onClick={collect}>Collected</Button>
+                  <Button onClick={collect}>Hand it back</Button>
                 </div>
               </div>
+
+              {ticket.under_warranty !== 1 && (
+                <>
+                  {/*
+                    * The drop-off payment. Most of this shop's customers pay
+                    * when they hand the phone over, and the only way to record
+                    * that used to be to mark the job collected — which said the
+                    * phone had gone home when it was sitting on the bench.
+                    */}
+                  <div className="mt-3 flex gap-2 border-t border-slate-100 pt-3">
+                    <Input
+                      label="Take money now"
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={payNow}
+                      onChange={(e) => setPayNow(e.target.value)}
+                      hint="The phone stays on the bench"
+                    />
+                    <div className="flex items-start pt-6">
+                      <Button variant="secondary" onClick={takePayment} disabled={!(Number(payNow) > 0)}>
+                        Take it
+                      </Button>
+                    </div>
+                  </div>
+
+                  {paid && (
+                    <p className="tnum mt-2 text-sm text-slate-600">
+                      Paid so far {money(ticket.paid_usd)}
+                      {ticket.paid_lbp > 0 ? ` + ${Number(ticket.paid_lbp).toLocaleString('en-US')} LL` : ''}
+                      {outstanding > 0 ? (
+                        <span className="text-amber-700"> · {money(outstanding)} still to pay</span>
+                      ) : (
+                        <span className="text-brand-700"> · nothing left to pay</span>
+                      )}
+                    </p>
+                  )}
+                </>
+              )}
               <p className="mt-1.5 text-xs text-slate-500">Cash goes into the open cashbox.</p>
             </Card>
           )}
@@ -388,7 +476,7 @@ function TicketModal({ id, onClose, onChanged }) {
                     {String(e.created_at).slice(5, 16).replace('T', ' ')}
                   </span>
                   <span className="text-slate-700">
-                    {STATUS_LABEL[e.status]}
+                    {EVENT_LABEL[e.status] || e.status}
                     {e.note ? ` — ${e.note}` : ''}
                     {e.user_name ? <span className="text-slate-400"> · {e.user_name}</span> : null}
                   </span>
@@ -439,19 +527,29 @@ function TicketModal({ id, onClose, onChanged }) {
 }
 
 export default function Repairs() {
+  /*
+   * Arrived pointing at one ticket — from a customer's account, say, which now
+   * lists the phones they have left here. A link that lands on a filtered board
+   * and leaves you to find the ticket you clicked is not a link, so the search
+   * is filled in and the board is opened at everything rather than at whatever
+   * happens to be on the bench today.
+   */
+  const [params] = useSearchParams();
+  const asked = params.get('q') || '';
+
   const [tickets, setTickets] = useState(null);
-  const [filter, setFilter] = useState('open');
+  const [filter, setFilter] = useState(asked ? '' : 'open');
   const [intake, setIntake] = useState(false);
   const [openId, setOpenId] = useState(null);
   /*
    * A device left in March is still a device the shop had, and until now the
    * only way to it was a status nobody remembered choosing.
    */
-  const history = useHistoryFilter('month');
+  const history = useHistoryFilter(asked ? 'all' : 'month', asked);
   const q = history.term;
 
   const load = useCallback(async () => {
-    const res = await api.get('/repairs', { params: { status: filter, q: q || undefined } });
+    const res = await api.get('/repairs', { params: { status: filter || undefined, q: q || undefined } });
     setTickets(res.data.tickets);
   }, [filter, q]);
 
@@ -482,6 +580,7 @@ export default function Repairs() {
           <div className="w-44">
             <Select value={filter} onChange={(e) => setFilter(e.target.value)} aria-label="Status filter">
               <option value="open">On the bench</option>
+              <option value="">Every ticket</option>
               {Object.entries(STATUS_LABEL).map(([v, l]) => (
                 <option key={v} value={v}>
                   {l}

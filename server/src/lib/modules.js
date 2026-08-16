@@ -29,6 +29,7 @@ export const MODULES = [
   ['credit', 'Calling credit', 'Sending credit by SMS from a carrier balance'],
   ['cards', 'Recharge cards', 'Cards and validity sold from a carrier balance'],
   ['installments', 'Instalments', 'Selling on a plan and chasing what is due'],
+  ['employees', 'Staff wages', 'Salaries run monthly, advances, and what each person is owed'],
   ['documents', 'Quotes and invoices', 'Quotations, purchase and sales invoices'],
   ['branches', 'More than one branch', 'A second shop, its own stock and its own drawer'],
   ['shopify', 'Shopify', 'Keeping an online shop in step with this one'],
@@ -83,6 +84,7 @@ export const MODULE_ROUTES = [
   ['/api/credit', 'credit'],
   ['/api/wallets', 'cards'],
   ['/api/installments', 'installments'],
+  ['/api/employees', 'employees'],
   ['/api/documents', 'documents'],
   /*
    * `/api/branches` is deliberately absent, and putting it here once took a

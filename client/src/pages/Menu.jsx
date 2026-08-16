@@ -68,6 +68,7 @@ function Section({ heading, items }) {
 
 export default function Menu() {
   const { user, can } = useAuth();
+  const isAdmin = user?.role === 'admin';
   // Same two questions as the rail — see lib/nav.js.
   const { hasModule } = useLicence();
   const t = useT();
@@ -87,8 +88,8 @@ export default function Menu() {
           </p>
         </div>
 
-        <Section heading="Counter" items={allowedItems(COUNTER_NAV, can, hasModule)} />
-        {allowedGroups(can, hasModule).map((group) => (
+        <Section heading="Counter" items={allowedItems(COUNTER_NAV, can, hasModule, isAdmin)} />
+        {allowedGroups(can, hasModule, isAdmin).map((group) => (
           <Section key={group.heading} {...group} />
         ))}
       </div>

@@ -918,11 +918,23 @@ scratch on the back are worth typing.
   — the screen has left the drawer either way, and waiting would let the shop
   sell one it no longer has. Taking a part back off returns it.
 - Statuses are not a strict pipeline; a job goes back to *awaiting parts* as
-  often as it goes forward. Every move is on the ticket's history, so "when did
-  you say it was ready?" has an answer.
-- **Collection happens at the register**, not by editing a status, so the money
-  reaches the drawer and the close still balances. A warranty job collects at
-  nothing to pay — which is the whole point of having recorded the warranty.
+  often as it goes forward, and a phone that comes straight back through the
+  door goes **back on the bench after it was handed over**. Every move is on the
+  ticket's history, so "when did you say it was ready?" has an answer.
+- **The money and the status are separate facts.** Most customers pay when they
+  hand the phone over, so *Take money now* records what was paid and leaves the
+  job exactly where it is — the cash reaches the drawer, and the board does not
+  claim the phone has gone home. *Hand it back* then charges only what is still
+  owing, so nothing is taken twice. A warranty job collects at nothing to pay,
+  which is the whole point of having recorded the warranty.
+- **Whose phone it is comes off the customer list.** Type into the one field and
+  matching customers appear: choose one and the ticket joins their account, so
+  their balance, their other repairs and everything else the shop has done with
+  them follow it. Type a name nobody matches and it is taken as a walk-in, which
+  is what most repairs are — a form that insisted on an account first would be
+  worked around by creating accounts called "man with iPhone". *New customer*
+  makes the account from the name already in the box without losing the
+  half-filled form around it.
 
 **The ticket prints on the receipt printer.** One narrow column of plain text at
 72mm, no rules or shading, sized to thermal roll and left to run as long as the
@@ -1000,6 +1012,82 @@ part company.
 | `/api/units/product/:id` | POST | `inventory` |
 | `/api/units/:id` | PATCH, DELETE | `inventory` |
 
+
+## Employees and their wages
+
+Admin → Employees, and it is the owner's screen rather than a permission: a
+"payroll" checkbox handed out by mistake is every salary in the building, so
+there is no checkbox to hand out.
+
+**An employee is not a new kind of record.** Money goes back and forth with
+somebody who works here exactly as it does with anybody else — a wage is earned,
+an advance is handed over mid-month, a charger goes on their account, and
+eventually the two sides settle. So each person gets **a customer account**, and
+one running balance answers all of it:
+
+| the balance | what it means |
+| --- | --- |
+| below zero | the shop owes them — salary earned and not yet paid |
+| above zero | they owe the shop — advances taken, things bought on account |
+
+Which means the answers fall out rather than being computed. **Running a month**
+puts the salary on their account as money owed to them. **Paying them** is a
+payment voucher out of the till, with a PV number like any other, and it moves
+the balance back toward zero. An **advance** is the same action taken earlier —
+the app does not ask which it is, because the balance afterwards says. And
+**buying on account** works at the register with no special case at all, because
+they really are a customer.
+
+**Wages reach the profit report** the only way they honestly can: running a month
+also writes an ordinary `wages` expense, dated to that month, which is what the
+profit report already subtracts. Paying it later moves cash and the balance and
+writes no second expense — a wage counted when earned *and* when paid would halve
+the shop's profit on paper.
+
+Running the month twice is refused rather than paid twice, per person per month,
+because somebody will press it twice. A month run against the wrong period can be
+taken back: the entry is reversed rather than erased, so the account still shows
+that it happened and was undone.
+
+Somebody who leaves is **archived, not deleted** — and the shop refuses while
+anything is outstanding in either direction, because a leaver still owed half a
+month is exactly the record somebody needs three weeks later.
+
+Their account appears in the customer list beside everybody else, marked with
+their job, so nobody wonders why the technician is a customer.
+
+## Statements
+
+Any customer or supplier — and any employee — can be handed **a statement of
+account**: one column, in date order, on A4.
+
+The facts were always there and always spread across four screens: the invoices
+in Documents, the counter sales in Sales, the money in Vouchers, and the balance
+on the contact card. None of those is what a supplier standing at the counter
+with a folder is asking for.
+
+So the statement is built from **the ledger** — the one table where every
+movement of the balance is already written down — with the purchase invoices,
+sales invoices, counter sales and payment vouchers hung off it by reference, each
+line naming the piece of paper behind it. Three things make it a statement rather
+than a list:
+
+- **an opening balance**, so a period picks up where the last one ended. A
+  statement that began at zero on the 1st would tell a customer owing three
+  thousand dollars that they owe nothing, which is how arguments start
+- **a running balance on every line**, because the disagreement is almost never
+  about the total and almost always about one week inside it
+- **a closing balance** that is the opening plus the period's movement — stated
+  as arithmetic the person holding it can check, not as a figure they have to
+  take on trust
+
+Two columns rather than one signed number, with the headings changing sides of
+the book: positive means outstanding on both sides, so the same figure means
+opposite things for a customer and for a supplier, and the page says which.
+
+An invoice settled in cash at the counter never touched the balance, so it is not
+a line in the running total — but the customer has it in their folder, so it is
+listed underneath, apart from the arithmetic it did not change.
 
 ## Who can do what
 
