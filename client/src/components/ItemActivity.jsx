@@ -22,7 +22,7 @@ const KINDS = {
  * happened around the time the margin changed", and that only answers itself
  * when purchases, sales and cost changes sit in the same column.
  */
-export default function ItemActivity({ productId, onClose, onOpenDocument }) {
+export default function ItemActivity({ productId, onClose, onOpenDocument, onOpenSale }) {
   const [data, setData] = useState(null);
   /* The sale behind a row, fetched only when somebody asks for it. */
   const [showing, setShowing] = useState(null);
@@ -175,14 +175,24 @@ export default function ItemActivity({ productId, onClose, onOpenDocument }) {
                  * eighteen of these arrive" is always "on what, and can I have
                  * a copy". Adjustments and cost changes have no paper, so they
                  * stay ordinary rows rather than becoming buttons that shrug.
+                 *
+                 * Decided from the reference rather than from an id, so this
+                 * keeps working against a server that has not been restarted
+                 * onto the build that started sending ids. The id is still
+                 * preferred where it is there — it opens the receipt in place
+                 * instead of walking to another screen.
                  */
-                const opens = a.orderId ? 'sale' : a.documentId ? 'document' : null;
+                const isSale = /^ORD-/.test(a.reference || '');
+                const opens = a.orderId || isSale ? 'sale' : a.documentId || a.reference ? 'document' : null;
                 return (
                   <tr
                     key={`${a.kind}-${a.at}-${i}`}
                     onClick={
                       opens === 'sale'
-                        ? () => setShowing({ orderId: a.orderId })
+                        ? () =>
+                            a.orderId
+                              ? setShowing({ orderId: a.orderId })
+                              : onOpenSale?.(a)
                         : opens === 'document'
                           ? () => onOpenDocument?.(a)
                           : undefined

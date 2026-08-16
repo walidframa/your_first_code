@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router';
+import { useNavigate, useSearchParams } from 'react-router';
 import api from '../../api';
 import PageHeader from '../../components/PageHeader';
 import OrderTable from '../../components/OrderTable';
@@ -18,7 +18,16 @@ export default function Orders() {
   const navigate = useNavigate();
   const [orders, setOrders] = useState(null);
   const [invoices, setInvoices] = useState([]);
-  const filter = useHistoryFilter('month');
+  /*
+   * Arrived here looking for one sale, from an item's history.
+   *
+   * A number in hand means the period is not the question — the sale could be
+   * from March — so that landing opens on everything with the number already
+   * typed, exactly as the documents screen does.
+   */
+  const [params] = useSearchParams();
+  const arrivedFor = params.get('number') || '';
+  const filter = useHistoryFilter(arrivedFor ? 'all' : 'month', arrivedFor);
   const { range, within, matches } = filter;
 
   const load = useCallback(() => {
