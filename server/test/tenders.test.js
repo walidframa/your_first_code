@@ -234,3 +234,32 @@ test('a till that never heard of splits still checks out', async () => {
   assert.equal(await drawer(), before + 100);
   assert.equal(sale.json.tenders.length, 0, 'nothing invented for a sale that named one method');
 });
+
+/* ------------------------------------------------------- who it was for */
+
+/**
+ * The receipt printed the instant a sale goes through has to name the customer.
+ *
+ * It could not: the response was built from a bare `SELECT *`, which carries
+ * the customer's id and not their name. A reprint read the same order through
+ * a join and did have it, so the two paths disagreed about the same sale and
+ * the counter's copy was the one missing it.
+ */
+test('a sale comes back with the customer’s name on it, not just their id', async () => {
+  const sale = await sell([{ method: 'account', amountUsd: 100 }], { customerId: customer.id });
+  assert.equal(sale.status, 201, JSON.stringify(sale.json));
+
+  assert.equal(sale.json.order.customer_id, customer.id);
+  assert.equal(sale.json.order.customer_name, 'Rami Haddad', 'the name the receipt prints');
+  assert.ok(sale.json.order.cashier_name, 'and who served them');
+
+  // The same sale read back must say the same thing.
+  const again = await req('GET', `/orders/${sale.json.order.id}`, null, adminToken);
+  assert.equal(again.json.order.customer_name, sale.json.order.customer_name);
+});
+
+test('and a sale to nobody in particular has no name to print', async () => {
+  const sale = await sell([{ method: 'cash', amountUsd: 100 }]);
+  assert.equal(sale.status, 201, JSON.stringify(sale.json));
+  assert.equal(sale.json.order.customer_name, null, 'most sales are to whoever walked in');
+});

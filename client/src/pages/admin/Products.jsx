@@ -38,6 +38,7 @@ import {
   money,
   useToast,
 } from '../../components/ui';
+import { useNavigate } from 'react-router';
 
 const emptyForm = {
   name: '',
@@ -338,6 +339,7 @@ export default function Products() {
   const [showArchived, setShowArchived] = useState(false);
   const [editing, setEditing] = useState(undefined);
   const [activityFor, setActivityFor] = useState(null);
+  const navigate = useNavigate();
   const [unitsFor, setUnitsFor] = useState(null);
 
   const load = useCallback(async () => {
@@ -550,7 +552,18 @@ export default function Products() {
         />
       )}
 
-      {activityFor && <ItemActivity productId={activityFor} onClose={() => setActivityFor(null)} />}
+      {activityFor && (
+        <ItemActivity
+          productId={activityFor}
+          onClose={() => setActivityFor(null)}
+          /* An invoice is opened where it can be read, printed and corrected —
+             the documents screen already does all three, and lands on the one
+             asked for by number. */
+          onOpenDocument={(row) =>
+            navigate(`/admin/documents?number=${encodeURIComponent(row.reference)}`)
+          }
+        />
+      )}
 
       {managingCategories && (
         <CategoryManager onClose={() => setManagingCategories(false)} onChanged={load} />
