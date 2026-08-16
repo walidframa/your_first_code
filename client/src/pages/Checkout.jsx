@@ -46,6 +46,7 @@ import {
 import { useSettings, lbp } from '../context/SettingsContext';
 import { useConfirm } from '../components/ConfirmProvider';
 import { useAuth } from '../context/AuthContext';
+import BarcodeScanner, { ScanButton, canScan } from '../components/BarcodeScanner';
 
 /**
  * A request the screen can open without.
@@ -583,6 +584,7 @@ export default function Checkout() {
    * customer holding a phone it thinks it sold.
    */
   const [tradeIn, setTradeIn] = useState(null);
+  const [scanning, setScanning] = useState(false);
   const { can } = useAuth();
 
   const subtotal = round2(
@@ -825,7 +827,13 @@ export default function Checkout() {
       {/* Catalog */}
       <section className="flex min-w-0 flex-1 flex-col bg-slate-100 lg:min-h-0">
         <div className="border-b border-slate-200 bg-white px-5 py-3">
-          <div className="relative">
+          {/*
+            * The camera sits beside the box rather than inside it: a scan is a
+            * different act from typing, and a button tucked into the field is
+            * one somebody hits while reaching for the clear cross.
+            */}
+          <div className="flex items-center gap-2">
+          <div className="relative min-w-0 flex-1">
             <Search
               size={17}
               className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-slate-400"
@@ -851,6 +859,19 @@ export default function Checkout() {
                 <X size={15} />
               </button>
             )}
+          </div>
+
+          {/*
+            * Only where the browser can actually decode. A scanner that opens
+            * a camera and never finds anything is worse than none, because
+            * somebody will stand there holding a box up to it.
+            */}
+          {canScan() && (
+            <ScanButton
+              onClick={() => setScanning(true)}
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-600 transition hover:bg-slate-200 hover:text-slate-900"
+            />
+          )}
           </div>
 
           <div className="mt-3 flex flex-wrap gap-1.5">
@@ -1470,6 +1491,21 @@ export default function Checkout() {
         onClose={() => setPaymentOpen(false)}
         onConfirm={handleConfirmPayment}
       />
+
+      {scanning && (
+        <BarcodeScanner
+          onCancel={() => setScanning(false)}
+          /*
+           * Straight into the path a USB scanner's keystrokes already end up
+           * in, so a code read by the camera behaves exactly like one read by
+           * the gun: found, it joins the sale; unknown, it says so.
+           */
+          onScanned={(code) => {
+            setScanning(false);
+            handleScan(code);
+          }}
+        />
+      )}
 
       {pricing && (
         <LinePrice

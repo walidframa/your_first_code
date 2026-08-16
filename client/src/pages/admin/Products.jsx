@@ -39,6 +39,7 @@ import {
   useToast,
 } from '../../components/ui';
 import { useNavigate } from 'react-router';
+import BarcodeScanner, { ScanButton, canScan } from '../../components/BarcodeScanner';
 
 const emptyForm = {
   name: '',
@@ -339,6 +340,7 @@ export default function Products() {
   const [showArchived, setShowArchived] = useState(false);
   const [editing, setEditing] = useState(undefined);
   const [activityFor, setActivityFor] = useState(null);
+  const [scanning, setScanning] = useState(false);
   const navigate = useNavigate();
   const [unitsFor, setUnitsFor] = useState(null);
 
@@ -411,6 +413,10 @@ export default function Products() {
                 className="h-9 w-full rounded-lg bg-slate-100 pr-3 pl-9 text-sm ring-1 ring-transparent transition focus:bg-white focus:ring-brand-600 focus:outline-none"
               />
             </div>
+
+            {/* Walking the shelves with a phone: point it at the box rather
+                than typing thirteen digits off it. */}
+            {canScan() && <ScanButton onClick={() => setScanning(true)} />}
             <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-600">
               <input
                 type="checkbox"
@@ -548,6 +554,18 @@ export default function Products() {
           onSaved={() => {
             setEditing(undefined);
             load();
+          }}
+        />
+      )}
+
+      {scanning && (
+        <BarcodeScanner
+          onCancel={() => setScanning(false)}
+          onScanned={(code) => {
+            setScanning(false);
+            // Into the box, which already matches on barcode as well as name
+            // and SKU — so a scan narrows the list the way typing would.
+            setSearch(code);
           }}
         />
       )}

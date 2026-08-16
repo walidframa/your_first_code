@@ -1426,6 +1426,87 @@ try {
    * only the part that crossed the till.
    */
   /*
+   * Reading a barcode with the camera.
+   *
+   * The decoder is the browser's own and the camera is a real device, so
+   * neither is what this checks — both are stubbed. What is checked is the
+   * wiring: that the button only appears where decoding is possible, and that
+   * a code read by the camera takes exactly the same path as one typed in or
+   * fired by the USB gun on the counter.
+   */
+  await step('a barcode read by the camera joins the sale like any other', async () => {
+    await goTo('Register');
+    await page.waitForSelector('text=Current sale', { timeout: 15000 });
+
+    // Without a decoder there is no button — a scanner that opens a camera and
+    // never finds anything is worse than none.
+    if (await page.locator('[aria-label="Scan a barcode with the camera"]').count()) {
+      throw new Error('the scan button is offered in a browser that cannot decode');
+    }
+
+    /*
+     * A browser that can, and a camera that yields one known code. The product
+     * is made first so the code belongs to something real.
+     */
+    const code = '5901234123457';
+    await page.evaluate(async (barcode) => {
+      const h = {
+        Authorization: `Bearer ${localStorage.getItem('pos_token')}`,
+        'Content-Type': 'application/json',
+      };
+      await fetch('/api/products', {
+        method: 'POST',
+        headers: h,
+        body: JSON.stringify({
+          name: 'Scanned Widget',
+          sku: 'SCN-1',
+          barcode,
+          price: 12,
+          cost: 4,
+          stock: 9,
+        }),
+      });
+    }, code);
+
+    await page.addInitScript((barcode) => {
+      globalThis.BarcodeDetector = class {
+        static getSupportedFormats() {
+          return Promise.resolve(['ean_13']);
+        }
+        detect() {
+          return Promise.resolve([{ rawValue: barcode, format: 'ean_13' }]);
+        }
+      };
+      /*
+       * A stand-in for the camera. It has to actually paint: the scanner will
+       * not hand an empty video to the decoder — a frame that has not arrived
+       * yet decodes to nothing and would burn battery on a real phone — so a
+       * canvas that never draws produces a video that is never ready.
+       */
+      const canvas = document.createElement('canvas');
+      canvas.width = 320;
+      canvas.height = 240;
+      const ctx = canvas.getContext('2d');
+      setInterval(() => {
+        ctx.fillStyle = ctx.fillStyle === '#000000' ? '#ffffff' : '#000000';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }, 50);
+      navigator.mediaDevices.getUserMedia = async () => canvas.captureStream(20);
+    }, code);
+
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.waitForSelector('text=Current sale', { timeout: 15000 });
+
+    await page.click('[aria-label="Scan a barcode with the camera"]');
+    await page.waitForSelector('[role=dialog] >> text=Scan a barcode', { timeout: 10000 });
+
+    // Straight onto the sale, exactly as a typed code would have gone.
+    await page.waitForSelector('aside >> text=Scanned Widget', { timeout: 15000 });
+    await page.click('button:has-text("Clear")');
+    await page.waitForTimeout(300);
+  });
+
+  /*
    * What a sale is worth making, before it is agreed. The whole reason a
    * counter haggles is to find out how far down it can go, and working that
    * out on paper while a customer waits is how a shop sells at a loss and
