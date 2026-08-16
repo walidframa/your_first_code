@@ -25,6 +25,7 @@ import importRoutes from './routes/imports.js';
 import shopifyRoutes from './routes/shopify.js';
 import cashRoutes from './routes/cash.js';
 import expenseRoutes from './routes/expenses.js';
+import employeeRoutes from './routes/employees.js';
 import walletRoutes from './routes/wallets.js';
 import simRoutes from './routes/sims.js';
 import creditRoutes from './routes/credit.js';
@@ -233,6 +234,7 @@ app.use('/api/vouchers', voucherRoutes);
 app.use('/api/held-sales', heldSaleRoutes);
 app.use('/api/branches', branchRoutes);
 app.use('/api/stock-transfers', stockTransferRoutes);
+app.use('/api/employees', employeeRoutes);
 app.use('/api/customers', partyRouter('customer'));
 app.use('/api/suppliers', partyRouter('supplier'));
 

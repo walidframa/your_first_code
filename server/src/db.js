@@ -73,9 +73,49 @@ db.exec('PRAGMA foreign_keys = ON');
  *
  * Not reentrant: SQLite has no nested BEGIN, and nothing here nests.
  */
+/*
+ * How deep we are. SQLite has one transaction, not a stack of them, so a
+ * second BEGIN inside the first is an error rather than a nested transaction.
+ */
+let depth = 0;
+
 export function transaction(fn) {
   return (...args) => {
+    /*
+     * Nested calls use a savepoint instead of a second BEGIN.
+     *
+     * Two things that are each properly atomic on their own turn out to belong
+     * together — accruing a month's salary writes a ledger entry *and* an
+     * expense, and each of those already knew how to look after itself. Before
+     * this, composing them threw "cannot start a transaction within a
+     * transaction", which pushed the caller towards either giving up atomicity
+     * or copying the inner function's SQL out into itself.
+     *
+     * Nothing that worked before behaves differently: a call that was not
+     * nested still opens and commits a real transaction, and a call that *was*
+     * nested used to throw, so no existing path depended on the old answer.
+     */
+    if (depth > 0) {
+      const name = `sp_${depth}`;
+      db.exec(`SAVEPOINT ${name}`);
+      depth += 1;
+      try {
+        const result = fn(...args);
+        // Releasing a savepoint does not commit — the outermost BEGIN still
+        // decides whether any of this is kept.
+        db.exec(`RELEASE ${name}`);
+        return result;
+      } catch (err) {
+        db.exec(`ROLLBACK TO ${name}`);
+        db.exec(`RELEASE ${name}`);
+        throw err;
+      } finally {
+        depth -= 1;
+      }
+    }
+
     db.exec('BEGIN');
+    depth = 1;
     try {
       const result = fn(...args);
       db.exec('COMMIT');
@@ -83,6 +123,8 @@ export function transaction(fn) {
     } catch (err) {
       db.exec('ROLLBACK');
       throw err;
+    } finally {
+      depth = 0;
     }
   };
 }

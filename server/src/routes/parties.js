@@ -12,6 +12,7 @@ import {
   recordPayment,
   dealingsWith,
 } from '../lib/accounts.js';
+import { statementFor } from '../lib/statements.js';
 
 /**
  * Customers and suppliers are the same shape — a contact with a running
@@ -199,6 +200,21 @@ export function partyRouter(partyType) {
       res.status(201).json({ ...result, balance: balanceOf(partyType, party.id) });
     } catch (err) {
       res.status(400).json({ error: err.message });
+    }
+  });
+
+  /**
+   * The account, as a piece of paper.
+   *
+   * Behind the same permission as the rest of the account, and no further: it
+   * contains nothing that is not already on the party's own screen — it is the
+   * same facts arranged so they can be handed to the person they are about.
+   */
+  router.get('/:id/statement', requireAuth, requirePermission('parties'), (req, res) => {
+    try {
+      res.json(statementFor(partyType, req.params.id, { from: req.query.from, to: req.query.to }));
+    } catch (err) {
+      res.status(404).json({ error: err.message });
     }
   });
 
