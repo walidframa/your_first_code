@@ -395,6 +395,18 @@ try {
     await page.click('[role=dialog] button:has-text("Cash")');
     const dialog = page.locator('[role=dialog]');
 
+    /*
+     * Typed rather than tapped.
+     *
+     * The keypad on screen is for a touch monitor; a shop on a desktop with a
+     * numeric keypad under its hand was having to point at the screen for every
+     * digit, which is slower than the till it replaced. Backspace clears it
+     * again, so the whole entry is the keyboard's.
+     */
+    await page.keyboard.press('7');
+    await page.waitForSelector('[role=dialog] >> text=$7.00', { timeout: 5000 });
+    await page.keyboard.press('Backspace');
+
     // A small USD amount alone leaves a balance still due.
     await dialog.getByRole('button', { name: '1', exact: true }).click();
     await page.waitForSelector('text=Still due');
