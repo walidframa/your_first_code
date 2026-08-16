@@ -45,6 +45,7 @@ import {
 } from '../components/ui';
 import { useSettings, lbp } from '../context/SettingsContext';
 import { useConfirm } from '../components/ConfirmProvider';
+import { useAuth } from '../context/AuthContext';
 
 /**
  * A request the screen can open without.
@@ -568,6 +569,7 @@ export default function Checkout() {
    * customer holding a phone it thinks it sold.
    */
   const [tradeIn, setTradeIn] = useState(null);
+  const { can } = useAuth();
 
   const subtotal = round2(
     cart.reduce(
@@ -588,6 +590,32 @@ export default function Checkout() {
   const taxableAmount = round2(subtotal - discountAmount);
   const tax = round2(taxableAmount * taxRate);
   const total = round2(taxableAmount + tax);
+
+  /*
+   * What the shop stands to make on the sale in front of it.
+   *
+   * The figure a shopkeeper wants before agreeing to a price, not after — the
+   * whole reason a counter haggles is to find out how far down it can go, and
+   * working that out on paper while a customer waits is how a shop sells at a
+   * loss and finds out at the end of the month.
+   *
+   * Tax is not in it. Tax is collected, not earned; counting it as margin would
+   * flatter every line by whatever the government's share is.
+   *
+   * A gift is priced at nothing and still cost what it cost, so it drags the
+   * figure down — which is exactly what giving something away does.
+   */
+  const costOf = (i) =>
+    i.unit?.cost ?? (i.cost === null || i.cost === undefined ? null : Number(i.cost));
+  const priced = cart.filter((i) => costOf(i) !== null);
+  const unknownCost = cart.length - priced.length;
+  const cartCost = round2(priced.reduce((sum, i) => sum + costOf(i) * i.quantity, 0));
+  const cartTakings = round2(
+    priced.reduce((sum, i) => sum + (i.isGift ? 0 : i.price * i.quantity - (i.discount || 0)), 0),
+  );
+  // The whole-sale discount comes off the margin, not off the cost.
+  const cartProfit = round2(cartTakings - cartCost - discountAmount);
+  const cartMargin = cartTakings > 0 ? Math.round((cartProfit / cartTakings) * 100) : 0;
   /*
    * What somebody actually hands over — allowed to be negative, which is the
    * whole point. `total` stays what the goods came to, because that is what the
@@ -941,12 +969,41 @@ export default function Checkout() {
         <CashBox refreshOn={salesMade} showProfit />
 
         <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3.5">
-          <div>
-            <h2 className="font-semibold text-slate-900">{t('Current sale')}</h2>
-            {rate > 0 && (
-              <p className="tnum text-[11px] text-slate-400">
-                1 USD = {Number(rate).toLocaleString('en-US')} LL
-              </p>
+          <div className="flex min-w-0 items-baseline gap-2.5">
+            <div className="min-w-0">
+              <h2 className="font-semibold text-slate-900">{t('Current sale')}</h2>
+              {rate > 0 && (
+                <p className="tnum text-[11px] text-slate-400">
+                  1 USD = {Number(rate).toLocaleString('en-US')} LL
+                </p>
+              )}
+            </div>
+
+            {/*
+              * What this sale is worth making, before it is agreed.
+              *
+              * Behind the same permission as the drawer's own profit: a cashier
+              * who can see the margin on every line can work out what the shop
+              * paid for everything on the shelf, and that is not theirs to know.
+              * The owner haggling at the counter is exactly who needs it.
+              */}
+            {can('reports') && cart.length > 0 && (
+              <span
+                aria-label="What this sale makes"
+                className={cx(
+                  'tnum shrink-0 rounded-lg px-2 py-0.5 text-xs font-semibold',
+                  cartProfit < 0 ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-700',
+                )}
+                title={
+                  unknownCost > 0
+                    ? `${unknownCost} line${unknownCost === 1 ? '' : 's'} on this sale have no cost recorded, so this is understated`
+                    : 'What this sale makes, before tax'
+                }
+              >
+                {money(cartProfit)}
+                {cartTakings > 0 && <span className="font-normal"> · {cartMargin}%</span>}
+                {unknownCost > 0 && <span className="font-normal"> · ?</span>}
+              </span>
             )}
           </div>
           <div className="flex items-center gap-1">

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { ArrowDown, ArrowUp, History, Tag, TrendingDown, TrendingUp } from 'lucide-react';
 import api from '../api';
 import { Badge, Modal, Skeleton, cx, money } from './ui';
+import Receipt from './Receipt';
 
 /** What each kind of thing that can happen to a product looks like. */
 const KINDS = {
@@ -21,8 +22,16 @@ const KINDS = {
  * happened around the time the margin changed", and that only answers itself
  * when purchases, sales and cost changes sit in the same column.
  */
-export default function ItemActivity({ productId, onClose }) {
+export default function ItemActivity({ productId, onClose, onOpenDocument }) {
   const [data, setData] = useState(null);
+  /* The sale behind a row, fetched only when somebody asks for it. */
+  const [showing, setShowing] = useState(null);
+  const [sale, setSale] = useState(null);
+
+  useEffect(() => {
+    if (!showing) return setSale(null);
+    api.get(`/orders/${showing.orderId}`).then((res) => setSale(res.data));
+  }, [showing]);
 
   useEffect(() => {
     api.get(`/products/${productId}/activity`).then((res) => setData(res.data));
@@ -158,8 +167,29 @@ export default function ItemActivity({ productId, onClose }) {
               {activity.map((a, i) => {
                 const meta = KINDS[a.kind] || KINDS.adjustment;
                 const Icon = meta.icon;
+                /*
+                 * The paper behind the line.
+                 *
+                 * Every row here is a thing that happened somewhere else — a
+                 * sale, a delivery — and the question that follows "when did
+                 * eighteen of these arrive" is always "on what, and can I have
+                 * a copy". Adjustments and cost changes have no paper, so they
+                 * stay ordinary rows rather than becoming buttons that shrug.
+                 */
+                const opens = a.orderId ? 'sale' : a.documentId ? 'document' : null;
                 return (
-                  <tr key={`${a.kind}-${a.at}-${i}`}>
+                  <tr
+                    key={`${a.kind}-${a.at}-${i}`}
+                    onClick={
+                      opens === 'sale'
+                        ? () => setShowing({ orderId: a.orderId })
+                        : opens === 'document'
+                          ? () => onOpenDocument?.(a)
+                          : undefined
+                    }
+                    title={opens ? `Open ${a.reference}` : undefined}
+                    className={cx(opens && 'cursor-pointer transition hover:bg-slate-50')}
+                  >
                     <td className="w-24 px-3 py-1.5 text-xs whitespace-nowrap text-slate-400">
                       {new Date(`${a.at}Z`).toLocaleDateString()}
                     </td>
@@ -173,7 +203,11 @@ export default function ItemActivity({ productId, onClose }) {
                       {a.detail}
                       {a.who && <span className="ml-1 text-xs text-slate-400">{a.who}</span>}
                     </td>
-                    <td className="px-2 py-1.5 text-xs text-slate-400">{a.reference || ''}</td>
+                    <td className="px-2 py-1.5 text-xs">
+                      <span className={opens ? 'font-medium text-brand-700 underline' : 'text-slate-400'}>
+                        {a.reference || ''}
+                      </span>
+                    </td>
                     <td className="tnum w-20 px-3 py-1.5 text-right">
                       {a.kind === 'cost' ? (
                         <span className="text-violet-700">{money(a.cost)}</span>
@@ -194,8 +228,17 @@ export default function ItemActivity({ productId, onClose }) {
 
       <p className="mt-3 text-xs text-slate-400">
         <Badge tone="neutral">note</Badge> Stock movements a sale or document already explains are shown
-        once, under that sale or document.
+        once, under that sale or document. Press a row with a number on it to open the paper behind it.
       </p>
+
+      {/* Over the list it came from, with its own print button and paper. */}
+      {sale && (
+        <Receipt
+          receipt={{ order: sale.order, items: sale.items, tenders: sale.tenders }}
+          reprint
+          onClose={() => setShowing(null)}
+        />
+      )}
     </Modal>
   );
 }

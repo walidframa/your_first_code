@@ -920,7 +920,25 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
       };
     })();
 
-    const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(result.orderId);
+    /*
+     * Read back with the names on it, not as a bare row.
+     *
+     * The receipt shown the instant a sale goes through was built from
+     * `SELECT *`, which carries `customer_id` and no customer *name* — so it
+     * could never print who the sale was for, however much the receipt asked
+     * for one. A reprint reads the same order through the join below and did
+     * have the name, which is what made this look fixed when it was not: the
+     * two paths were showing different things about the same sale.
+     */
+    const order = db
+      .prepare(
+        `SELECT o.*, u.name AS cashier_name, c.name AS customer_name
+         FROM orders o
+         JOIN users u ON u.id = o.cashier_id
+         LEFT JOIN customers c ON c.id = o.customer_id
+         WHERE o.id = ?`,
+      )
+      .get(result.orderId);
     const orderItems = db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(result.orderId);
     /*
      * What they still owe, for the receipt.

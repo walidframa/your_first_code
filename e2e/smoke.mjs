@@ -395,6 +395,18 @@ try {
     await page.click('[role=dialog] button:has-text("Cash")');
     const dialog = page.locator('[role=dialog]');
 
+    /*
+     * Typed rather than tapped.
+     *
+     * The keypad on screen is for a touch monitor; a shop on a desktop with a
+     * numeric keypad under its hand was having to point at the screen for every
+     * digit, which is slower than the till it replaced. Backspace clears it
+     * again, so the whole entry is the keyboard's.
+     */
+    await page.keyboard.press('7');
+    await page.waitForSelector('[role=dialog] >> text=$7.00', { timeout: 5000 });
+    await page.keyboard.press('Backspace');
+
     // A small USD amount alone leaves a balance still due.
     await dialog.getByRole('button', { name: '1', exact: true }).click();
     await page.waitForSelector('text=Still due');
@@ -1414,6 +1426,39 @@ try {
    * only the part that crossed the till.
    */
   /*
+   * What a sale is worth making, before it is agreed. The whole reason a
+   * counter haggles is to find out how far down it can go, and working that
+   * out on paper while a customer waits is how a shop sells at a loss and
+   * finds out at the end of the month.
+   */
+  await step('the cart says what the sale in front of you makes', async () => {
+    await goTo('Register');
+    await page.waitForSelector('text=Current sale', { timeout: 15000 });
+
+    // Nothing on the sale, nothing to say about it.
+    const badge = page.locator('[aria-label="What this sale makes"]');
+    if (await badge.count()) throw new Error('an empty cart is claiming a margin');
+
+    await page.locator('button', { hasText: 'Croissant' }).first().click();
+    await page.waitForTimeout(400);
+
+    await badge.waitFor({ timeout: 10000 });
+    const shown = await badge.innerText();
+    /*
+     * A figure, and a mark saying it is understated when a line on the sale has
+     * no cost recorded — which is most of a freshly seeded catalogue, so the
+     * check is that the shop is told, not that the number is large.
+     */
+    if (!/\$/.test(shown)) {
+      throw new Error(`the cart does not say what the sale makes: ${shown}`);
+    }
+
+    await page.click('button:has-text("Clear")');
+    await page.waitForTimeout(400);
+    if (await badge.count()) throw new Error('the margin outlived the sale it was about');
+  });
+
+  /*
    * The commonest transaction the app could not write down: some of it in
    * notes, the rest on an app. A cashier used to pick whichever piece was
    * biggest and the other went unrecorded.
@@ -2289,6 +2334,20 @@ try {
     // Price, cost and margin are on every product; whether this one's cost has
     // moved depends on what the run bought, and is pinned in the API tests.
     await page.waitForSelector('[role=dialog] >> text=Sells for');
+
+    /*
+     * And the paper behind a line. "When did eighteen of these arrive" is
+     * always followed by "on what, and can I have a copy" — so a row that came
+     * from a sale opens that sale's receipt, print button and all.
+     */
+    await page.locator('[role=dialog] tr', { hasText: /ORD-/ }).first().click();
+    await page.waitForSelector('[role=dialog] >> text=/80mm roll/', { timeout: 15000 });
+    const reprint = page.locator('[role=dialog]').last();
+    if (!/ORD-/.test(await reprint.innerText())) {
+      throw new Error('the row opened something that is not the sale it names');
+    }
+    await reprint.getByRole('button', { name: 'Done', exact: true }).click();
+    await page.waitForTimeout(300);
     await page.waitForSelector('[role=dialog] >> text=Margin');
     await closeDialog();
   });

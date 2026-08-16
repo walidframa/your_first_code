@@ -103,7 +103,7 @@ export function activityFor(productId, limit = 200) {
 
   const sales = db
     .prepare(
-      `SELECT o.created_at, o.order_number AS reference, o.status,
+      `SELECT o.id AS order_id, o.created_at, o.order_number AS reference, o.status,
               oi.quantity, oi.price, oi.cost, u.name AS user_name
        FROM order_items oi
        JOIN orders o ON o.id = oi.order_id
@@ -120,13 +120,16 @@ export function activityFor(productId, limit = 200) {
       price: r.price,
       cost: r.cost,
       reference: r.reference,
+      // What to open when somebody presses the row: the sale it came from.
+      orderId: r.order_id,
       who: r.user_name,
       detail: r.status === 'refunded' ? 'Refunded' : 'Sold at the register',
     }));
 
   const documents = db
     .prepare(
-      `SELECT d.created_at, d.confirmed_at, d.doc_number AS reference, d.doc_type, d.status,
+      `SELECT d.id AS document_id, d.created_at, d.confirmed_at, d.doc_number AS reference,
+              d.doc_type, d.status,
               di.quantity, di.price, di.cost, COALESCE(c.name, s.name) AS party_name
        FROM document_items di
        JOIN documents d ON d.id = di.document_id
@@ -143,6 +146,7 @@ export function activityFor(productId, limit = 200) {
       price: r.price,
       cost: r.cost,
       reference: r.reference,
+      documentId: r.document_id,
       who: r.party_name,
       detail: r.doc_type === 'purchase_invoice' ? 'Received from supplier' : 'Invoiced to customer',
     }));

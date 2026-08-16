@@ -121,6 +121,64 @@ export default function PaymentSheet({ open, total, customer, onClose, onConfirm
   }
 
   /**
+   * The counter's own keyboard.
+   *
+   * The keypad on screen is there for a touch monitor, and it was the only way
+   * in — a shop on a desktop with a numeric keypad under its hand had to point
+   * at the screen for every digit, which is slower than the thing it replaced.
+   *
+   * Bound to the document rather than to an input, because the amounts are not
+   * inputs: they are two fields the keypad fills, and which one is being typed
+   * into is a choice the cashier has already made. Tab moves between them, so
+   * "fifty dollars and two hundred thousand" is one uninterrupted run at the
+   * keys.
+   *
+   * Only while the cash sheet is up, and never over a modifier — Ctrl+R has to
+   * keep reloading the page.
+   */
+  useEffect(() => {
+    if (!open || method !== 'cash') return undefined;
+
+    const onKey = (e) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+
+      if (/^[0-9]$/.test(e.key)) {
+        e.preventDefault();
+        press(e.key);
+        return;
+      }
+      if (e.key === '.' || e.key === ',') {
+        e.preventDefault();
+        press('.');
+        return;
+      }
+      if (e.key === 'Backspace') {
+        e.preventDefault();
+        press('back');
+        return;
+      }
+      if (e.key === 'Tab') {
+        // Round the two amounts rather than out of the dialog, which is where
+        // the browser would otherwise send it.
+        e.preventDefault();
+        setActive((now) => (now === 'USD' ? 'LBP' : 'USD'));
+        return;
+      }
+      if (e.key === 'Enter' && covered && !overGiving && !submitting) {
+        e.preventDefault();
+        confirm();
+      }
+    };
+
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+    // `press` and `confirm` close over the entry state, so this is rebound as
+    // it changes — cheap, and the alternative is a listener typing into a
+    // stale field.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, method, active, usdEntry, lbpEntry, covered, overGiving, submitting]);
+
+  /**
    * Give the whole change in one currency.
    *
    * Naming every dollar of a $27.87 change is five keystrokes for the commonest
@@ -350,6 +408,12 @@ export default function PaymentSheet({ open, total, customer, onClose, onConfirm
               </button>
             ))}
           </div>
+
+          {/* Discoverable rather than a secret: a shop on a desktop should not
+              have to find out by accident that the keys work. */}
+          <p className="no-print -mt-2 text-center text-[11px] text-slate-400">
+            Type on the keyboard too — Tab swaps currency, Enter confirms
+          </p>
 
           <div
             className={cx(
