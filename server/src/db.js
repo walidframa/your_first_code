@@ -401,6 +401,38 @@ function migrateOrdersPaymentMethods() {
 
 migrateOrdersPaymentMethods();
 
+/**
+ * How a sale was actually paid for, when it took more than one thing.
+ *
+ * "Half cash, half Whish" is an ordinary Lebanese counter transaction and the
+ * app could not write it down: a sale carried one method, so the cashier had to
+ * pick whichever half was bigger and the other half vanished. The same hole
+ * swallowed the common case of a customer who is short — part now, the rest on
+ * their account — which had to be done as two sales or not at all.
+ *
+ * `orders.payment_method` stays, holding the main way it was paid, so every
+ * report and receipt written before this still reads correctly. These lines are
+ * the detail underneath it, and they are what the drawer and the ledger are
+ * driven from when they exist.
+ *
+ * `label` is what the customer would call it — Whish, OMT, Visa. From the
+ * shop's books they are all "not cash, arrived electronically", but a shop that
+ * wants to know how much came through which app should not have to guess.
+ */
+db.exec(`
+  CREATE TABLE IF NOT EXISTS order_payments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id INTEGER NOT NULL REFERENCES orders(id),
+    method TEXT NOT NULL CHECK (method IN ('cash', 'card', 'account')),
+    amount_usd REAL NOT NULL DEFAULT 0,
+    amount_lbp REAL NOT NULL DEFAULT 0,
+    label TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_order_payments_order ON order_payments(order_id);
+`);
+
 /*
  * Paying a document at the counter.
  *

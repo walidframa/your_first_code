@@ -49,6 +49,55 @@ export function costHistoryFor(productId, limit = 50) {
  * stock corrections and cost changes — and a shopkeeper asking "what happened
  * to this item?" wants one list, in order, not four screens.
  */
+/**
+ * How much of this has been sold, and over what stretch.
+ *
+ * The list below says what happened one line at a time, which answers "when
+ * did that go out" and not "do we sell these". A shopkeeper deciding whether to
+ * order more wants the second question answered without counting rows.
+ *
+ * Register sales and confirmed invoices both count, because both are the shop
+ * selling one. Returns are taken off rather than listed separately: eleven sold
+ * and three brought back is eight sold, and any other answer is a number
+ * somebody has to do arithmetic on before they can use it.
+ */
+export function salesSummaryFor(productId) {
+  const counter = db
+    .prepare(
+      `SELECT COALESCE(SUM(oi.quantity - COALESCE(oi.returned_qty, 0)), 0) AS units,
+              COALESCE(SUM((oi.quantity - COALESCE(oi.returned_qty, 0)) * oi.price), 0) AS revenue,
+              MIN(o.created_at) AS first_at, MAX(o.created_at) AS last_at
+       FROM order_items oi
+       JOIN orders o ON o.id = oi.order_id
+       WHERE oi.product_id = ? AND o.status != 'refunded'`,
+    )
+    .get(productId);
+
+  const invoiced = db
+    .prepare(
+      `SELECT COALESCE(SUM(di.quantity), 0) AS units,
+              COALESCE(SUM(di.line_total), 0) AS revenue,
+              MIN(COALESCE(d.confirmed_at, d.created_at)) AS first_at,
+              MAX(COALESCE(d.confirmed_at, d.created_at)) AS last_at
+       FROM document_items di
+       JOIN documents d ON d.id = di.document_id
+       WHERE di.product_id = ? AND d.doc_type = 'sales_invoice' AND d.status = 'confirmed'`,
+    )
+    .get(productId);
+
+  const earliest = [counter.first_at, invoiced.first_at].filter(Boolean).sort()[0] || null;
+  const latest = [counter.last_at, invoiced.last_at].filter(Boolean).sort().pop() || null;
+
+  return {
+    units: round2(counter.units + invoiced.units),
+    revenue: round2(counter.revenue + invoiced.revenue),
+    atCounter: round2(counter.units),
+    onInvoices: round2(invoiced.units),
+    firstSoldAt: earliest,
+    lastSoldAt: latest,
+  };
+}
+
 export function activityFor(productId, limit = 200) {
   const cap = Math.min(Number(limit) || 200, 500);
 

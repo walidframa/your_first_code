@@ -32,7 +32,7 @@ const readPaper = () => (globalThis.localStorage?.getItem(PAPER_KEY) === 'a4' ? 
  */
 export default function Receipt({ receipt, onClose, reprint = false }) {
   const t = useT();
-  const { order, items } = receipt;
+  const { order, items, tenders = [] } = receipt;
   const [paper, setPaper] = useState(readPaper);
 
   function choosePaper(next) {
@@ -90,6 +90,7 @@ export default function Receipt({ receipt, onClose, reprint = false }) {
         <Body
           order={order}
           items={items}
+          tenders={tenders}
           rate={rate}
           totalLbp={totalLbp}
           changeText={changeText}
@@ -147,7 +148,7 @@ export default function Receipt({ receipt, onClose, reprint = false }) {
  * 72mm cannot hold a column of anything, and a receipt that wraps is a receipt
  * nobody reads.
  */
-function Roll({ order, items, rate, totalLbp, changeText, reprint, t }) {
+function Roll({ order, items, tenders, rate, totalLbp, changeText, reprint, t }) {
   return (
     <>
       {/* Who the shop is, so the slip is something that can be brought back. */}
@@ -170,6 +171,17 @@ function Roll({ order, items, rate, totalLbp, changeText, reprint, t }) {
         <p className="mt-2 text-xs text-slate-400">{order.order_number}</p>
         {/* A reprint is dated, so nobody mistakes it for today's sale. */}
         {reprint && <p className="text-xs text-slate-400">{order.created_at}</p>}
+        {/*
+          * Who it was for, on the roll as well as the sheet.
+          *
+          * A customer coming back with a slip is asking the shop to recognise
+          * it, and a name settles that in one look — most of all on the ones
+          * that went on account, where whose account is the whole point. Left
+          * off when nobody was named, which is most sales over a counter.
+          */}
+        {order.customer_name && (
+          <p className="mt-1 text-sm font-medium text-slate-700">{order.customer_name}</p>
+        )}
       </div>
 
       <div className="my-4 space-y-1.5 border-y border-dashed border-slate-200 py-3 text-sm">
@@ -217,6 +229,32 @@ function Roll({ order, items, rate, totalLbp, changeText, reprint, t }) {
             <dt className="text-slate-400">Total in LBP</dt>
             <dd className="tnum text-slate-500">{lbp(totalLbp)}</dd>
           </div>
+        )}
+        {/*
+          * How it was actually paid for, when that took more than one thing.
+          *
+          * A customer who handed over notes, sent the rest on Whish and left
+          * ten on their account is owed a slip that says so — it is the only
+          * record either side has of which pieces were settled and which were
+          * not, and "cash" alone would be three-quarters of a lie.
+          */}
+        {tenders.length > 1 && (
+          <>
+            {tenders.map((piece) => (
+              <div key={piece.id} className="flex justify-between">
+                <dt className="text-slate-500">
+                  {piece.method === 'account'
+                    ? 'On account'
+                    : piece.label || (piece.method === 'cash' ? 'Cash' : 'Card')}
+                </dt>
+                <dd className="tnum text-slate-700">
+                  {piece.amount_usd > 0 && money(piece.amount_usd)}
+                  {piece.amount_usd > 0 && piece.amount_lbp > 0 && ' + '}
+                  {piece.amount_lbp > 0 && lbp(piece.amount_lbp)}
+                </dd>
+              </div>
+            ))}
+          </>
         )}
         {order.payment_method === 'cash' && (
           <>
@@ -295,7 +333,7 @@ function Roll({ order, items, rate, totalLbp, changeText, reprint, t }) {
  * right, and the lines in a real table with a heading over every column so the
  * figures can be checked rather than taken on trust.
  */
-function Sheet({ order, items, rate, totalLbp, changeText, reprint, t }) {
+function Sheet({ order, items, tenders, rate, totalLbp, changeText, reprint, t }) {
   return (
     <>
       <Letterhead variant="sheet" className="mb-5 border-b border-slate-200 pb-4" subtitle={t('Sales receipt')} />
@@ -403,6 +441,32 @@ function Sheet({ order, items, rate, totalLbp, changeText, reprint, t }) {
           </div>
         )}
 
+        {/*
+          * How it was actually paid for, when that took more than one thing.
+          *
+          * A customer who handed over notes, sent the rest on Whish and left
+          * ten on their account is owed a slip that says so — it is the only
+          * record either side has of which pieces were settled and which were
+          * not, and "cash" alone would be three-quarters of a lie.
+          */}
+        {tenders.length > 1 && (
+          <>
+            {tenders.map((piece) => (
+              <div key={piece.id} className="flex justify-between">
+                <dt className="text-slate-500">
+                  {piece.method === 'account'
+                    ? 'On account'
+                    : piece.label || (piece.method === 'cash' ? 'Cash' : 'Card')}
+                </dt>
+                <dd className="tnum text-slate-700">
+                  {piece.amount_usd > 0 && money(piece.amount_usd)}
+                  {piece.amount_usd > 0 && piece.amount_lbp > 0 && ' + '}
+                  {piece.amount_lbp > 0 && lbp(piece.amount_lbp)}
+                </dd>
+              </div>
+            ))}
+          </>
+        )}
         <div className="mt-2 flex justify-between border-t border-slate-100 pt-1.5">
           <dt className="text-slate-500">Paid by</dt>
           <dd className="text-slate-800 capitalize">{order.payment_method}</dd>

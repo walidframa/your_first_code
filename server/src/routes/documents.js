@@ -280,7 +280,13 @@ router.put('/:id', requireAuth, requirePermission('documents'), (req, res) => {
       // Then apply the edited version, against its new party and totals.
       if (doc.status === 'confirmed') {
         const updated = db.prepare('SELECT * FROM documents WHERE id = ?').get(doc.id);
-        applyEffects(updated, itemsOf(doc.id), req.user.id, `Edited ${doc.doc_number}`);
+        applyEffects(
+          updated,
+          itemsOf(doc.id),
+          req.user.id,
+          `Edited ${doc.doc_number}`,
+          req.body?.accountId ?? null,
+        );
       }
     })();
 
@@ -303,7 +309,12 @@ router.post('/:id/confirm', requireAuth, requirePermission('documents'), (req, r
 
   try {
     transaction(() => {
-      applyEffects(doc, itemsOf(doc.id), req.user.id);
+      /*
+       * `accountId` says which drawer the money went into. Left out it falls to
+       * the shop's default till, which is right for a shop that has one and
+       * wrong for a shop whose office keeps its own float.
+       */
+      applyEffects(doc, itemsOf(doc.id), req.user.id, doc.doc_number, req.body?.accountId ?? null);
       db.prepare("UPDATE documents SET status = 'confirmed', confirmed_at = datetime('now') WHERE id = ?").run(
         doc.id,
       );
