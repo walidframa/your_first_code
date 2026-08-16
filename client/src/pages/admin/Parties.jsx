@@ -707,11 +707,30 @@ export default function Parties({ type }) {
    */
   const [showArchived, setShowArchived] = useState(false);
 
+  /*
+   * Which of these names are on the payroll.
+   *
+   * An employee's account is an ordinary customer account — that is the whole
+   * design — so it sits in this list beside everybody else, and without a mark
+   * the owner is left wondering why their technician is a customer. Just the
+   * flag, never the salary: this screen is behind the customers permission and
+   * wages are not.
+   */
+  const [staff, setStaff] = useState(new Map());
+
   const load = useCallback(() => {
     api
       .get(`/${config.path}`, { params: showArchived ? { includeArchived: 'true' } : {} })
       .then((res) => setParties(res.data.parties));
-  }, [config.path, showArchived]);
+
+    if (config.single !== 'customer') return;
+    api
+      .get('/employees/accounts/flags')
+      // A shop without the wages module, or a request that simply failed, is a
+      // list with no badges on it rather than a screen that will not load.
+      .then((res) => setStaff(new Map(res.data.staff.map((e) => [e.customer_id, e]))))
+      .catch(() => setStaff(new Map()));
+  }, [config.path, config.single, showArchived]);
 
   useEffect(() => {
     setParties(null);
@@ -820,6 +839,11 @@ export default function Parties({ type }) {
                       {p.active === false && (
                         <Badge tone="neutral" className="ml-2">
                           Removed
+                        </Badge>
+                      )}
+                      {staff.has(p.id) && (
+                        <Badge tone="info" className="ml-2">
+                          {staff.get(p.id).job_title || 'staff'}
                         </Badge>
                       )}
                     </td>

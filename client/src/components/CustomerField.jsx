@@ -102,6 +102,9 @@ export default function CustomerField({ value, onChange, autoFocus = false, requ
       <div className="relative">
         <input
           id="repair-customer"
+          // Still `customerName`: it is the field it always was, and the thing
+          // it posts has not changed — only that it now offers the list too.
+          name="customerName"
           value={value.customerName || ''}
           onChange={(e) => type(e.target.value)}
           onFocus={() => setOpen(true)}
