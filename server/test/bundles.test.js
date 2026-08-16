@@ -230,3 +230,206 @@ test('emptying the list makes it an ordinary product again', async () => {
   const pack = list.json.products.find((p) => p.id === ids.pack);
   assert.ok(!pack.isBundle);
 });
+
+/* ------------------------------------------- changing one at the counter */
+
+/*
+ * The reason packs exist at all: the customer wants the blue case.
+ *
+ * Until now the shop's only answers were to refuse them, or to sell the pack
+ * and correct the shelves by hand afterwards. What is being checked here is
+ * that the *right* shelves move — and, on the way back, that they move again.
+ */
+test('a pack can be made of something else at the counter', async () => {
+  // Put the pack back together after the last test emptied it.
+  await req('PUT', `/products/${ids.pack}/bundle`, {
+    components: [
+      { productId: ids.phone, quantity: 1 },
+      { productId: ids.case, quantity: 1 },
+    ],
+  });
+  ids.blue = await addProduct('Blue case', 'BND-BLUE', 14, 5, 6);
+
+  const before = {
+    phone: onShelf(ids.phone),
+    case: onShelf(ids.case),
+    blue: onShelf(ids.blue),
+  };
+
+  const sale = await req('POST', '/orders', {
+    items: [
+      {
+        productId: ids.pack,
+        quantity: 1,
+        // The black case swapped for the blue one, on this sale only.
+        components: [
+          { productId: ids.phone, quantity: 1 },
+          { productId: ids.blue, quantity: 1 },
+        ],
+      },
+    ],
+    paymentMethod: 'card',
+  });
+  assert.equal(sale.status, 201, JSON.stringify(sale.json));
+
+  assert.equal(onShelf(ids.phone), before.phone - 1, 'the phone still came off');
+  assert.equal(onShelf(ids.blue), before.blue - 1, 'the blue case came off');
+  assert.equal(onShelf(ids.case), before.case, 'and the black one was left alone');
+
+  // The line says what went in the bag, so the receipt and the history do too.
+  const line = sale.json.items.find((i) => i.product_id === ids.pack);
+  assert.ok(line.components, 'the line carries its parts');
+  assert.deepEqual(
+    line.components.map((c) => c.product_id ?? c.productId).sort(),
+    [ids.phone, ids.blue].sort(),
+  );
+
+  ids.swappedOrder = sale.json.order.id;
+});
+
+test('the margin is worked out from what was really in it', async () => {
+  // Phone 142 + blue case 5 = 147, not the catalogue's 142 + 3 = 145.
+  const { json } = await req('GET', `/orders/${ids.swappedOrder}`);
+  const line = json.items.find((i) => i.product_id === ids.pack);
+  assert.equal(line.cost, 147);
+});
+
+/*
+ * The bug this whole table exists to prevent. Reading the definition on the way
+ * back would credit a black case to the shelf, leaving the shop one short of
+ * the blue and holding a phantom of the black.
+ */
+test('refunding it puts back what came out, not what the pack is defined as', async () => {
+  const before = {
+    phone: onShelf(ids.phone),
+    case: onShelf(ids.case),
+    blue: onShelf(ids.blue),
+  };
+
+  const refund = await req('POST', `/orders/${ids.swappedOrder}/refund`, {});
+  assert.equal(refund.status, 200, JSON.stringify(refund.json));
+
+  assert.equal(onShelf(ids.blue), before.blue + 1, 'the blue case came back');
+  assert.equal(onShelf(ids.case), before.case, 'the black one was not invented');
+  assert.equal(onShelf(ids.phone), before.phone + 1);
+});
+
+test('a pack still sells as the catalogue defines it when nobody says otherwise', async () => {
+  const before = { phone: onShelf(ids.phone), case: onShelf(ids.case), blue: onShelf(ids.blue) };
+
+  const sale = await req('POST', '/orders', {
+    items: [{ productId: ids.pack, quantity: 1 }],
+    paymentMethod: 'card',
+  });
+  assert.equal(sale.status, 201, JSON.stringify(sale.json));
+
+  assert.equal(onShelf(ids.case), before.case - 1, 'the defined case came off');
+  assert.equal(onShelf(ids.blue), before.blue, 'and nothing else did');
+  assert.equal(onShelf(ids.phone), before.phone - 1);
+});
+
+test('what the shelves allow is asked of the swapped parts, not the defined ones', async () => {
+  // Six blue cases, and the shelf is what limits the pack — the black one has
+  // forty on it and is irrelevant to a pack made of blue.
+  const tooMany = await req('POST', '/orders', {
+    items: [
+      {
+        productId: ids.pack,
+        quantity: 99,
+        components: [
+          { productId: ids.phone, quantity: 1 },
+          { productId: ids.blue, quantity: 1 },
+        ],
+      },
+    ],
+    paymentMethod: 'card',
+  });
+  assert.equal(tooMany.status, 400);
+  assert.match(tooMany.json.error, /Blue case/, 'the refusal names the part that is short');
+});
+
+test('the counter cannot use a swap to get round the rules on a pack', async () => {
+  const cases = [
+    [{ productId: ids.pack, quantity: 1 }, /cannot contain itself/i],
+    [{ productId: ids.phone, quantity: 0 }, /quantity above zero/i],
+    [{ productId: 999_999, quantity: 1 }, /no longer exists/i],
+  ];
+
+  for (const [component, expected] of cases) {
+    const { status, json } = await req('POST', '/orders', {
+      items: [{ productId: ids.pack, quantity: 1, components: [component] }],
+      paymentMethod: 'card',
+    });
+    assert.equal(status, 400, JSON.stringify(json));
+    assert.match(json.error, expected);
+  }
+
+  // And a pack emptied out is refused rather than quietly sold as the
+  // catalogue's version — taking everything out is a thing somebody meant.
+  const emptied = await req('POST', '/orders', {
+    items: [{ productId: ids.pack, quantity: 1, components: [] }],
+    paymentMethod: 'card',
+  });
+  assert.equal(emptied.status, 400);
+  assert.match(emptied.json.error, /at least one item/i);
+});
+
+test('one product named twice is added up, not counted twice against the shelf', async () => {
+  const before = onShelf(ids.glass);
+
+  const sale = await req('POST', '/orders', {
+    items: [
+      {
+        productId: ids.pack,
+        quantity: 1,
+        components: [
+          { productId: ids.glass, quantity: 1 },
+          { productId: ids.glass, quantity: 2 },
+        ],
+      },
+    ],
+    paymentMethod: 'card',
+  });
+  assert.equal(sale.status, 201, JSON.stringify(sale.json));
+
+  // Three, once — not one and then two off a shelf each check thought was full.
+  assert.equal(onShelf(ids.glass), before - 3);
+  const line = sale.json.items.find((i) => i.product_id === ids.pack);
+  assert.equal(line.components.length, 1);
+  assert.equal(line.components[0].quantity, 3);
+});
+
+/*
+ * A definition that moves afterwards must not rewrite what a sale took. The
+ * shelves were emptied by the sale that happened, not by the pack as it is
+ * described today.
+ */
+test('changing the definition later does not change what an old sale took', async () => {
+  const sale = await req('POST', '/orders', {
+    items: [
+      {
+        productId: ids.pack,
+        quantity: 1,
+        components: [
+          { productId: ids.phone, quantity: 1 },
+          { productId: ids.blue, quantity: 1 },
+        ],
+      },
+    ],
+    paymentMethod: 'card',
+  });
+  assert.equal(sale.status, 201, JSON.stringify(sale.json));
+
+  // The pack is redefined entirely — no phone, no blue case.
+  await req('PUT', `/products/${ids.pack}/bundle`, {
+    components: [{ productId: ids.glass, quantity: 5 }],
+  });
+
+  const before = { phone: onShelf(ids.phone), blue: onShelf(ids.blue), glass: onShelf(ids.glass) };
+  const refund = await req('POST', `/orders/${sale.json.order.id}/refund`, {});
+  assert.equal(refund.status, 200, JSON.stringify(refund.json));
+
+  assert.equal(onShelf(ids.phone), before.phone + 1, 'the phone that left came back');
+  assert.equal(onShelf(ids.blue), before.blue + 1, 'and the blue case with it');
+  assert.equal(onShelf(ids.glass), before.glass, 'the new definition put nothing back');
+});
