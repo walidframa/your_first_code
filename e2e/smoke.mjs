@@ -3087,14 +3087,14 @@ try {
       await dialog.getByRole('textbox', { name: 'SKU', exact: true }).fill(sku);
       await dialog.getByRole('spinbutton', { name: 'Price', exact: true }).fill(price);
       await dialog.getByRole('spinbutton', { name: 'Cost', exact: true }).fill(cost);
-      await dialog.getByRole('spinbutton', { name: 'Stock', exact: true }).fill(stock);
+      await dialog.getByRole('spinbutton', { name: 'Stock on hand', exact: true }).fill(stock);
       await dialog.getByRole('button', { name: /Create|Save/ }).click();
       await page.waitForSelector(`text=${name}`, { timeout: 15000 });
     }
 
     // The pack itself: no shelf of its own, made of the black case.
     await page.click('button:has-text("New product")');
-    await page.waitForSelector('[role=dialog] >> text=Made up of other products');
+    await page.waitForSelector('[role=dialog] >> text=Made of other products');
     const pack = page.locator('[role=dialog]').last();
     await pack.getByRole('textbox', { name: 'Name', exact: true }).fill('Case pack');
     await pack.getByRole('textbox', { name: 'SKU', exact: true }).fill('PK-PACK');
@@ -3144,28 +3144,30 @@ try {
 
   await step('selling it takes the blue one off the shelf and leaves the black alone', async () => {
     await page.click('aside button:has-text("Charge $")');
-    await page.waitForSelector('text=/Cash|Card/', { timeout: 15000 });
-    await page.click('button:has-text("Card")');
-    await page.click('button:has-text("Charge $")');
+    await page.click('[role=dialog] button:has-text("Card")');
+    await page.click('[role=dialog] button:has-text("Confirm $")');
     await page.waitForSelector('text=Payment complete', { timeout: 20000 });
     await page.click('button:has-text("New sale")');
 
-    await page.goto(`${BASE_URL}/admin/products`, { waitUntil: 'networkidle' });
-    await page.waitForSelector('text=Blue case', { timeout: 15000 });
-
     /*
-     * Four blue cases became three; twenty black ones stayed twenty. Read off
-     * the rows rather than trusted, because this one number is the whole
-     * feature — everything else is arranging it on a screen.
+     * Asked of the catalogue rather than read off the table.
+     *
+     * This one number is the whole feature — everything else is arranging it on
+     * a screen — so it is worth being exact about. Scraping the row would have
+     * matched a black case whose *cost* is 3 against a blue case whose stock is
+     * 3, and passed for the wrong reason.
      */
-    const rowStock = async (name) => {
-      const row = page.locator('tr', { hasText: name }).first();
-      return (await row.innerText()).match(/\b(\d+)\b/g);
-    };
-    const blue = await rowStock('Blue case');
-    const black = await rowStock('Black case');
-    if (!blue?.includes('3')) throw new Error(`the blue case did not come off the shelf: ${blue}`);
-    if (!black?.includes('20')) throw new Error(`the black case moved when it should not have: ${black}`);
+    const shelves = await page.evaluate(async () => {
+      const token = localStorage.getItem('pos_token') || sessionStorage.getItem('pos_token');
+      const res = await fetch('/api/products', { headers: { Authorization: `Bearer ${token}` } });
+      const { products } = await res.json();
+      const of = (sku) => products.find((p) => p.sku === sku)?.stock;
+      return { blue: of('PK-BLUE'), black: of('PK-BLACK') };
+    });
+
+    // Four blue became three; twenty black stayed twenty.
+    if (shelves.blue !== 3) throw new Error(`the blue case did not come off the shelf: ${shelves.blue}`);
+    if (shelves.black !== 20) throw new Error(`the black case moved when it should not have: ${shelves.black}`);
   });
 
   console.log('\nA repair, its money, and the people who work here');
