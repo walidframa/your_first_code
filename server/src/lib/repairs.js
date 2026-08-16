@@ -308,6 +308,101 @@ export function takePayment(ticketId, { charged = null, paidUsd = 0, paidLbp = 0
 }
 
 /**
+ * What the bench made over a period.
+ *
+ * Two figures, because a repair takes money and finishes on two different days
+ * and a shop wants both answers:
+ *
+ *   collected   jobs handed back in the period — what they were charged, what
+ *               their parts cost, and the difference. This is profit.
+ *   taken       money that actually crossed the counter in the period, whether
+ *               or not the phone has gone home yet.
+ *
+ * They are reported side by side rather than reconciled into one, because they
+ * are genuinely different questions and merging them would answer neither. A
+ * phone paid for in March and collected in April earns its profit in April and
+ * filled the drawer in March; both of those are true, and a single number would
+ * have to be wrong about one of them.
+ *
+ * Parts are costed at what they cost when they were fitted — the figure frozen
+ * on the row — so a supplier raising a screen's price next week does not rewrite
+ * what last month's jobs made. A part with no cost recorded contributes nothing
+ * and is counted, so the screen can say the figure is short rather than quietly
+ * flattering the margin.
+ *
+ * A warranty job is charged nothing and its parts cost real money, so it shows
+ * as a loss. That is what a warranty is, and a report that hid it would be
+ * hiding the cost of the promise.
+ */
+export function repairProfit({ from = null, to = null, branchId = null } = {}) {
+  // Inclusive of the whole end day: a report "to the 31st" that stopped at
+  // midnight would drop the busiest day of the month.
+  const lo = from ? `${from} 00:00:00` : '0000-01-01';
+  const hi = to ? `${to} 23:59:59` : '9999-12-31';
+  const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+
+  const collected = db
+    .prepare(
+      `SELECT COUNT(*) AS jobs,
+              COALESCE(SUM(t.charged), 0) AS revenue,
+              SUM(CASE WHEN t.under_warranty = 1 THEN 1 ELSE 0 END) AS warranty_jobs
+         FROM repair_tickets t
+        WHERE t.status = 'collected' AND t.collected_at BETWEEN ? AND ?
+          AND (? IS NULL OR t.branch_id = ?)`,
+    )
+    .get(lo, hi, branchId, branchId);
+
+  const parts = db
+    .prepare(
+      `SELECT COALESCE(SUM(p.cost * p.quantity), 0) AS cost,
+              SUM(CASE WHEN p.cost IS NULL OR p.cost = 0 THEN 1 ELSE 0 END) AS unknown_lines
+         FROM repair_parts p
+         JOIN repair_tickets t ON t.id = p.ticket_id
+        WHERE t.status = 'collected' AND t.collected_at BETWEEN ? AND ?
+          AND (? IS NULL OR t.branch_id = ?)`,
+    )
+    .get(lo, hi, branchId, branchId);
+
+  /*
+   * Money in, dated by when it was first taken. A job part-paid across two
+   * periods lands in the earlier one; the alternative is a per-payment table,
+   * which is more machinery than a repair bench needs.
+   */
+  const { exchange_rate: rate } = getSettings();
+  const taken = db
+    .prepare(
+      `SELECT COUNT(*) AS jobs,
+              COALESCE(SUM(t.paid_usd), 0) AS usd,
+              COALESCE(SUM(t.paid_lbp), 0) AS lbp
+         FROM repair_tickets t
+        WHERE t.paid_at BETWEEN ? AND ?
+          AND (? IS NULL OR t.branch_id = ?)`,
+    )
+    .get(lo, hi, branchId, branchId);
+
+  const revenue = round2(collected.revenue);
+  const partsCost = round2(parts.cost);
+
+  return {
+    from,
+    to,
+    jobs: collected.jobs,
+    warrantyJobs: collected.warranty_jobs || 0,
+    revenue,
+    partsCost,
+    profit: round2(revenue - partsCost),
+    // So a screen can say the figure is short rather than pretending.
+    unknownCostParts: parts.unknown_lines || 0,
+    taken: {
+      jobs: taken.jobs,
+      usd: round2(taken.usd),
+      lbp: Math.round(taken.lbp),
+      total: round2(Number(taken.usd) + (rate > 0 ? Number(taken.lbp) / rate : 0)),
+    },
+  };
+}
+
+/**
  * Fit a part.
  *
  * Taken out of stock at the moment it is fitted, not when the job is invoiced —

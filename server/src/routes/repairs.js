@@ -10,6 +10,7 @@ import {
   addPart,
   openTicket,
   removePart,
+  repairProfit,
   setStatus,
   takePayment,
   takeTradeIn,
@@ -25,9 +26,24 @@ router.get('/statuses', requireAuth, (req, res) => {
   res.json({ statuses: REPAIR_STATUSES });
 });
 
+/**
+ * What the bench made.
+ *
+ * Behind `reports` rather than `repairs`, like every other profit figure in
+ * this app: taking a phone in and knowing what the bench earns last month are
+ * different jobs, and the second is the owner's.
+ *
+ * Declared above `/:id` because Express matches in order and "profit" is a
+ * perfectly good id as far as a route pattern is concerned.
+ */
+router.get('/profit', requireAuth, requirePermission('reports'), (req, res) => {
+  const { from = null, to = null } = req.query;
+  res.json(repairProfit({ from: from || null, to: to || null, branchId: req.branchId }));
+});
+
 /** The workshop board: what is in, and what is waiting on whom. */
 router.get('/', requireAuth, (req, res) => {
-  const { status, q } = req.query;
+  const { status, q, from = null, to = null } = req.query;
   const clauses = [];
   const params = [];
 
@@ -40,6 +56,23 @@ router.get('/', requireAuth, (req, res) => {
   } else if (status === 'open') {
     // The default view is work still on the bench; collected jobs pile up fast.
     clauses.push("t.status NOT IN ('collected', 'cancelled')");
+  }
+
+  /*
+   * Dated here rather than filtered in the browser.
+   *
+   * The list is capped at the newest 200, and the screen used to narrow *those*
+   * by date — so asking for March on a busy bench showed however much of March
+   * happened to fall inside the most recent two hundred tickets, silently. The
+   * cap is still there; it now applies to the period asked for.
+   */
+  if (from) {
+    clauses.push('t.created_at >= ?');
+    params.push(`${from} 00:00:00`);
+  }
+  if (to) {
+    clauses.push('t.created_at <= ?');
+    params.push(`${to} 23:59:59`);
   }
 
   if (q) {

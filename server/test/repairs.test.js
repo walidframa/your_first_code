@@ -55,6 +55,9 @@ async function waitForServer(timeoutMs = 20000) {
   throw new Error('Server did not become ready in time');
 }
 
+/* Two decimals, so a float comparison is about the money and not about IEEE. */
+const round = (n) => Math.round((Number(n) || 0) * 100) / 100;
+
 let n = 0;
 async function sellOne(warrantyMonths) {
   const imei = `35990000000${String(++n).padStart(4, '0')}`;
@@ -713,4 +716,117 @@ test('the ID can be deleted, and the purchase stays', async () => {
 
   const list = (await req('GET', '/repairs/trade-ins/list', null, adminToken)).json.tradeIns;
   assert.ok(list.find((t) => t.id === idTradeIn), 'the purchase itself is untouched');
+});
+
+/* ------------------------------------------------------- what the bench made */
+
+/*
+ * A repair takes money and finishes on two different days, so the bench has two
+ * honest figures and neither is the other. Profit belongs to the day the phone
+ * went home; the drawer was filled on the day it was paid.
+ */
+test('the bench reports what it made, and what it took', async () => {
+  const opened = await req('POST', '/cash/open', { openingUsd: 100 }, adminToken);
+  assert.ok([201, 400].includes(opened.status));
+
+  const part = (
+    await req(
+      'POST',
+      '/products',
+      { name: 'Screen A15', sku: 'RP-SCR', price: 40, cost: 25, stock: 5 },
+      adminToken,
+    )
+  ).json.product;
+
+  const ticket = (
+    await req(
+      'POST',
+      '/repairs',
+      { customerName: 'Profit Job', device: 'Galaxy A15', fault: 'Cracked screen' },
+      adminToken,
+    )
+  ).json.ticket;
+
+  // A screen off the shelf at 25, charged out at 90.
+  const fitted = await req('POST', `/repairs/${ticket.id}/parts`, { productId: part.id }, adminToken);
+  assert.equal(fitted.status, 201, JSON.stringify(fitted.json));
+
+  const before = (await req('GET', '/repairs/profit', null, adminToken)).json;
+
+  const handed = await req(
+    'POST',
+    `/repairs/${ticket.id}/collect`,
+    { charged: 90, payments: [{ currency: 'USD', amount: 90 }] },
+    adminToken,
+  );
+  assert.equal(handed.status, 200, JSON.stringify(handed.json));
+
+  const after = (await req('GET', '/repairs/profit', null, adminToken)).json;
+  assert.equal(round(after.revenue - before.revenue), 90);
+  assert.equal(round(after.partsCost - before.partsCost), 25);
+  assert.equal(round(after.profit - before.profit), 65, '90 charged less a 25 screen');
+  assert.equal(round(after.taken.total - before.taken.total), 90);
+});
+
+/*
+ * The cost of the promise, said out loud. A warranty job is charged nothing and
+ * its parts cost real money; a report that hid that would be hiding what the
+ * warranty costs to honour.
+ */
+test('a warranty job shows as the loss it is', async () => {
+  const before = (await req('GET', '/repairs/profit', null, adminToken)).json;
+
+  const imei = await sellOne(12);
+  const ticket = (
+    await req(
+      'POST',
+      '/repairs',
+      { imei, customerName: 'Under Cover', device: 'Galaxy S22', fault: 'Dead battery' },
+      adminToken,
+    )
+  ).json.ticket;
+
+  const battery = (
+    await req(
+      'POST',
+      '/products',
+      { name: 'Battery S22', sku: 'RP-BAT', price: 30, cost: 18, stock: 3 },
+      adminToken,
+    )
+  ).json.product;
+  await req('POST', `/repairs/${ticket.id}/parts`, { productId: battery.id }, adminToken);
+  await req('POST', `/repairs/${ticket.id}/collect`, { charged: 0 }, adminToken);
+
+  const after = (await req('GET', '/repairs/profit', null, adminToken)).json;
+  assert.equal(round(after.revenue - before.revenue), 0, 'nothing was charged');
+  assert.equal(round(after.partsCost - before.partsCost), 18, 'the battery still cost 18');
+  assert.equal(round(after.profit - before.profit), -18);
+  assert.ok(after.warrantyJobs > before.warrantyJobs, 'and it is counted as a warranty job');
+});
+
+test('a period with nothing in it reports nothing, not everything', async () => {
+  const res = await req('GET', '/repairs/profit?from=1999-01-01&to=1999-12-31', null, adminToken);
+  assert.equal(res.status, 200);
+  assert.equal(res.json.jobs, 0);
+  assert.equal(res.json.revenue, 0);
+  assert.equal(res.json.profit, 0);
+});
+
+test('the profit figure is the owner’s, not the counter’s', async () => {
+  const res = await req('GET', '/repairs/profit', null, cashierToken);
+  assert.equal(res.status, 403);
+});
+
+/*
+ * The board is capped at the newest two hundred. Narrowing those by date in the
+ * browser meant asking for a month and being shown however much of it fell
+ * inside the cap, with nothing on screen to say the rest had been dropped.
+ */
+test('the board is dated by the server, not by the browser', async () => {
+  const future = await req('GET', '/repairs?status=&from=2999-01-01&to=2999-12-31', null, adminToken);
+  assert.equal(future.status, 200);
+  assert.equal(future.json.tickets.length, 0, 'nothing was taken in the year 2999');
+
+  const everything = await req('GET', '/repairs?status=', null, adminToken);
+  assert.ok(everything.json.tickets.length > 0, 'and without a period, the board is the board');
 });
