@@ -10,6 +10,7 @@ import { moveStock, stockAt } from './stock.js';
 import { encryptSecret } from './secrets.js';
 import { normaliseImei, receiveUnits, syncStockFromUnits } from './units.js';
 import { setIdPhoto } from './idPhotos.js';
+import { getSettings } from './settings.js';
 
 export const REPAIR_STATUSES = [
   'received',
@@ -21,12 +22,15 @@ export const REPAIR_STATUSES = [
   'cancelled',
 ];
 
-/** Statuses from which nothing more happens. */
+/** Statuses that mean the phone is no longer on the bench. */
 const CLOSED = ['collected', 'cancelled'];
 
 export function isClosed(status) {
   return CLOSED.includes(status);
 }
+
+/** Statuses a job can be put back onto the bench at. */
+export const OPEN_STATUSES = REPAIR_STATUSES.filter((s) => !CLOSED.includes(s));
 
 /* ------------------------------------------------------------------ warranty */
 
@@ -87,11 +91,13 @@ export function ticketWithDetail(id) {
       `SELECT t.*, u.imei AS unit_imei, u.imei2 AS unit_imei2,
               u.warranty_months, u.warranty_starts,
               p.name AS unit_product_name,
-              tk.name AS taken_by_name
+              tk.name AS taken_by_name,
+              c.name AS account_name
        FROM repair_tickets t
        LEFT JOIN product_units u ON u.id = t.unit_id
        LEFT JOIN products p ON p.id = u.product_id
        LEFT JOIN users tk ON tk.id = t.taken_by
+       LEFT JOIN customers c ON c.id = t.customer_id
        WHERE t.id = ?`,
     )
     .get(id);
@@ -107,12 +113,16 @@ export function ticketWithDetail(id) {
     .all(id);
 
   const partsTotal = parts.reduce((sum, p) => sum + p.price * p.quantity, 0);
+  const { exchange_rate: rate } = getSettings();
 
   return {
     ticket,
     parts,
     events,
     partsTotal: Math.round(partsTotal * 100) / 100,
+    // What is still to pay, so the counter is not doing the subtraction in its
+    // head on a job that was half-paid at intake.
+    outstanding: outstandingOn(ticket, rate),
     warranty: ticket.unit_id ? warrantyOf(ticket) : null,
   };
 }
@@ -130,7 +140,24 @@ export function openTicket(input, userId, branchId = null) {
     ? db.prepare('SELECT * FROM product_units WHERE imei = ? OR imei2 = ?').get(imei, imei)
     : null;
 
-  if (!input.customerName?.trim()) throw new Error('Whose phone is it? A name is needed');
+  /*
+   * Picked off the customer list, or typed in.
+   *
+   * Both are real: a regular gets chosen and their account, their other repairs
+   * and what they owe all follow the ticket; a stranger with a cracked screen
+   * gets typed. The name is *copied* onto the ticket either way, so a slip
+   * printed today still reads the same after the contact is renamed, and so a
+   * walk-in needs no account created for them.
+   */
+  const customer = input.customerId
+    ? db.prepare('SELECT * FROM customers WHERE id = ?').get(input.customerId)
+    : null;
+  if (input.customerId && !customer) throw new Error('That customer does not exist');
+
+  const customerName = input.customerName?.trim() || customer?.name || '';
+  const customerPhone = input.customerPhone?.trim() || customer?.phone || null;
+
+  if (!customerName) throw new Error('Whose phone is it? A name is needed');
   if (!input.device?.trim() && !unit) throw new Error('Say what the device is');
   if (!input.fault?.trim()) throw new Error('Say what is wrong with it');
 
@@ -151,9 +178,9 @@ export function openTicket(input, userId, branchId = null) {
     .run(
       ticketNumber,
       unit?.id ?? null,
-      input.customerId || null,
-      input.customerName.trim(),
-      input.customerPhone?.trim() || null,
+      customer?.id ?? null,
+      customerName,
+      customerPhone,
       input.device?.trim() || product?.name || 'Device',
       imei || null,
       input.fault.trim(),
@@ -178,9 +205,19 @@ export function openTicket(input, userId, branchId = null) {
  * Move a ticket along.
  *
  * Statuses are not a strict pipeline — a job goes back to "awaiting parts" as
- * often as it goes forward — so any status is reachable except out of a closed
- * one. Collection is not done here: that is a sale, and it goes through the
- * register so the money lands in the drawer.
+ * often as it goes forward — so every status is reachable from every other one,
+ * **including out of a collected job**.
+ *
+ * That last part is the whole reason this reads the way it does. A repair used
+ * to freeze the moment the money was taken, because taking the money and handing
+ * the phone back were the same action. They are not: half the shop's customers
+ * pay when they drop the phone off, and a ticket that says "collected" while the
+ * phone is still on the bench, and cannot be moved off it, is worse than no
+ * status at all. So money is recorded by `takePayment` and the status is
+ * recorded here, and neither one decides the other.
+ *
+ * Handing the phone back is still not done here — see the collect route — so
+ * that the date it left and any money still owing are written together.
  */
 export function setStatus(ticketId, status, note, userId) {
   const ticket = db.prepare('SELECT * FROM repair_tickets WHERE id = ?').get(ticketId);
@@ -188,21 +225,86 @@ export function setStatus(ticketId, status, note, userId) {
   if (!REPAIR_STATUSES.includes(status)) {
     throw new Error(`Status must be one of: ${REPAIR_STATUSES.join(', ')}`);
   }
-  if (isClosed(ticket.status)) {
-    throw new Error(`${ticket.ticket_number} is already ${ticket.status}`);
-  }
   if (status === 'collected') {
-    throw new Error('Collect the repair from the register, so the money reaches the drawer');
+    throw new Error('Use "Hand it back", so the date it left and anything still owing are recorded');
   }
+  if (status === ticket.status) return ticketWithDetail(ticketId).ticket;
+
+  /*
+   * Putting a collected job back on the bench clears the date it left, because
+   * that date answers "is it gone?" and it is not gone. What was paid stays
+   * exactly where it is: the money really did cross the counter, and a customer
+   * who brings the phone back the next day has not been refunded.
+   */
+  const reopening = isClosed(ticket.status) && !isClosed(status);
 
   db.prepare(
-    `UPDATE repair_tickets SET status = ?, updated_at = datetime('now') WHERE id = ?`,
+    `UPDATE repair_tickets
+       SET status = ?, updated_at = datetime('now')${reopening ? ', collected_at = NULL' : ''}
+     WHERE id = ?`,
   ).run(status, ticketId);
   db.prepare(
     'INSERT INTO repair_events (ticket_id, status, note, user_id) VALUES (?, ?, ?, ?)',
-  ).run(ticketId, status, note || null, userId);
+  ).run(
+    ticketId,
+    status,
+    note || (reopening ? `Back on the bench from ${ticket.status}` : null),
+    userId,
+  );
 
   return ticketWithDetail(ticketId).ticket;
+}
+
+/**
+ * What is still owing on a job, in dollars.
+ *
+ * The pounds taken are converted at the rate handed in rather than at a rate
+ * stored on the ticket, because a repair is quoted and settled inside a few
+ * days and carrying a third rate around would be precision the counter has not
+ * got. `charged` is what was agreed; before anything is agreed the quote stands
+ * in for it, and a warranty job is nothing to pay whatever either of them says.
+ */
+export function outstandingOn(ticket, rate = 0) {
+  if (ticket.under_warranty) return 0;
+  const agreed = Number(ticket.charged ?? ticket.quoted ?? 0) || 0;
+  const paid = Number(ticket.paid_usd || 0) + (rate > 0 ? Number(ticket.paid_lbp || 0) / rate : 0);
+  return Math.round(Math.max(0, agreed - paid) * 100) / 100;
+}
+
+/**
+ * Take money on a job without handing the phone back.
+ *
+ * Records what was paid and, if a figure was agreed at the same time, what the
+ * job is being charged. The caller moves the drawer — this only writes down what
+ * the ticket now says, so the two cannot be recorded in different transactions.
+ */
+export function takePayment(ticketId, { charged = null, paidUsd = 0, paidLbp = 0, note = null }, userId) {
+  const ticket = db.prepare('SELECT * FROM repair_tickets WHERE id = ?').get(ticketId);
+  if (!ticket) throw new Error('Ticket not found');
+
+  const usd = Math.round((Number(paidUsd) || 0) * 100) / 100;
+  const lbp = Math.round(Number(paidLbp) || 0);
+  if (usd < 0 || lbp < 0) throw new Error('A payment cannot be less than nothing');
+  if (usd === 0 && lbp === 0) throw new Error('Enter an amount in dollars, pounds, or both');
+
+  db.prepare(
+    `UPDATE repair_tickets
+       SET paid_usd = paid_usd + ?, paid_lbp = paid_lbp + ?,
+           charged = COALESCE(?, charged),
+           paid_at = COALESCE(paid_at, datetime('now')),
+           updated_at = datetime('now')
+     WHERE id = ?`,
+  ).run(usd, lbp, charged === null || charged === undefined ? null : Number(charged), ticketId);
+
+  /*
+   * Filed against the status the job is actually at, so the history reads as
+   * one column of events rather than as a status that jumped and came back.
+   */
+  db.prepare(
+    'INSERT INTO repair_events (ticket_id, status, note, user_id) VALUES (?, ?, ?, ?)',
+  ).run(ticketId, 'payment', note || null, userId);
+
+  return ticketWithDetail(ticketId);
 }
 
 /**

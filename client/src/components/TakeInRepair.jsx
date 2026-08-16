@@ -3,6 +3,7 @@ import { Wrench } from 'lucide-react';
 import api from '../api';
 import RepairSlip, { PrintSlipButton } from './RepairSlip';
 import WhatsAppButton from './WhatsAppButton';
+import CustomerField from './CustomerField';
 import { Button, Input, Modal, ModalActions, useToast } from './ui';
 
 /**
@@ -20,6 +21,7 @@ import { Button, Input, Modal, ModalActions, useToast } from './ui';
 export default function TakeInRepair({ onClose, onTaken }) {
   const toast = useToast();
   const [form, setForm] = useState({
+    customerId: null,
     customerName: '',
     customerPhone: '',
     device: '',
@@ -87,12 +89,13 @@ export default function TakeInRepair({ onClose, onTaken }) {
     <Modal open onClose={onClose} title="Take in a repair" subtitle="Write it down while they are here">
       <form onSubmit={submit} className="space-y-4">
         <div className="grid grid-cols-2 gap-3">
-          <Input
-            label="Customer name"
-            name="customerName"
-            value={form.customerName}
-            onChange={set('customerName')}
-            required
+          {/*
+            * A regular gets picked off the list and the ticket joins their
+            * account; a stranger gets typed. See CustomerField.
+            */}
+          <CustomerField
+            value={form}
+            onChange={(next) => setForm((f) => ({ ...f, ...next }))}
             autoFocus
           />
           <Input

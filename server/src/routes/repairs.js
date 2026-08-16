@@ -8,10 +8,10 @@ import { recordMovement, currentSession, requiresSession } from '../lib/cash.js'
 import {
   REPAIR_STATUSES,
   addPart,
-  isClosed,
   openTicket,
   removePart,
   setStatus,
+  takePayment,
   takeTradeIn,
   ticketWithDetail,
   warrantyOf,
@@ -144,12 +144,66 @@ router.delete('/parts/:partId', requireAuth, (req, res) => {
   }
 });
 
+/** Add up a list of {currency, amount} into the two currencies. */
+function tally(payments) {
+  let paidUsd = 0;
+  let paidLbp = 0;
+  for (const p of payments || []) {
+    if (p?.currency === 'USD') paidUsd += Number(p.amount) || 0;
+    if (p?.currency === 'LBP') paidLbp += Number(p.amount) || 0;
+  }
+  return { paidUsd, paidLbp };
+}
+
 /**
- * Hand the phone back and take the money.
+ * Take money on a job that is still on the bench.
+ *
+ * The common case, and until now the app had no way to say it: the customer
+ * hands over the phone and pays the agreed price on the spot, then comes back
+ * on Thursday. The cash goes into the drawer the moment it is taken, because it
+ * is in the drawer, and the ticket carries on being a ticket.
+ */
+router.post('/:id/payment', requireAuth, (req, res) => {
+  const { charged = null, payments = [], note } = req.body || {};
+
+  try {
+    const detail = transaction(() => {
+      const ticket = db.prepare('SELECT * FROM repair_tickets WHERE id = ?').get(req.params.id);
+      if (!ticket) throw new Error('Ticket not found');
+
+      const { paidUsd, paidLbp } = tally(payments);
+      if (requiresSession() && !currentSession(null, ticket.branch_id)) {
+        throw new Error('The cashbox is closed — open it before taking cash');
+      }
+      recordMovement({
+        kind: 'sale',
+        amountUsd: paidUsd,
+        amountLbp: paidLbp,
+        note: `Repair ${ticket.ticket_number}`,
+        userId: req.user.id,
+        branchId: ticket.branch_id,
+      });
+
+      return takePayment(ticket.id, { charged, paidUsd, paidLbp, note }, req.user.id);
+    })();
+
+    res.status(201).json(detail);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+/**
+ * Hand the phone back, and take whatever is left to pay.
  *
  * Cash goes into the drawer the same way a sale's does, so the close still
  * balances. A warranty job is collected at nothing to pay, which is the whole
  * point of having recorded the warranty.
+ *
+ * A job already paid for is collected at nothing to pay too, and that is the
+ * change worth naming: this route used to be the only way money could be
+ * recorded against a repair, which is why it was also the only way a ticket
+ * could reach its last status. Now it is only the handing back.
  */
 router.post('/:id/collect', requireAuth, (req, res) => {
   const { charged = null, payments = [], note } = req.body || {};
@@ -158,24 +212,24 @@ router.post('/:id/collect', requireAuth, (req, res) => {
     const detail = transaction(() => {
       const ticket = db.prepare('SELECT * FROM repair_tickets WHERE id = ?').get(req.params.id);
       if (!ticket) throw new Error('Ticket not found');
-      if (isClosed(ticket.status)) throw new Error(`${ticket.ticket_number} is already ${ticket.status}`);
+      if (ticket.status === 'collected') {
+        throw new Error(`${ticket.ticket_number} has already been handed back`);
+      }
+      if (ticket.status === 'cancelled') {
+        throw new Error(`${ticket.ticket_number} was cancelled — put it back on the bench first`);
+      }
 
-      const amount = charged === null ? 0 : Math.max(0, Number(charged) || 0);
+      const amount = charged === null ? Number(ticket.charged ?? 0) || 0 : Math.max(0, Number(charged) || 0);
       if (ticket.under_warranty && amount > 0 && !req.body.chargeAnyway) {
         throw new Error(
           'This phone is under warranty — collect at nothing to pay, or send chargeAnyway to override',
         );
       }
 
-      let paidUsd = 0;
-      let paidLbp = 0;
-      for (const p of payments) {
-        if (p?.currency === 'USD') paidUsd += Number(p.amount) || 0;
-        if (p?.currency === 'LBP') paidLbp += Number(p.amount) || 0;
-      }
+      const { paidUsd, paidLbp } = tally(payments);
 
       if (paidUsd > 0 || paidLbp > 0) {
-        if (requiresSession() && !currentSession()) {
+        if (requiresSession() && !currentSession(null, ticket.branch_id)) {
           throw new Error('The cashbox is closed — open it before taking cash');
         }
         recordMovement({
@@ -184,14 +238,18 @@ router.post('/:id/collect', requireAuth, (req, res) => {
           amountLbp: paidLbp,
           note: `Repair ${ticket.ticket_number}`,
           userId: req.user.id,
+          branchId: ticket.branch_id,
         });
       }
 
       db.prepare(
         `UPDATE repair_tickets
-         SET status = 'collected', charged = ?, collected_at = datetime('now'), updated_at = datetime('now')
+         SET status = 'collected', charged = ?,
+             paid_usd = paid_usd + ?, paid_lbp = paid_lbp + ?,
+             paid_at = CASE WHEN ? > 0 OR ? > 0 THEN COALESCE(paid_at, datetime('now')) ELSE paid_at END,
+             collected_at = datetime('now'), updated_at = datetime('now')
          WHERE id = ?`,
-      ).run(amount, ticket.id);
+      ).run(amount, paidUsd, paidLbp, paidUsd, paidLbp, ticket.id);
       db.prepare(
         `INSERT INTO repair_events (ticket_id, status, note, user_id) VALUES (?, 'collected', ?, ?)`,
       ).run(ticket.id, note || null, req.user.id);

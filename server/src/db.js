@@ -2037,6 +2037,76 @@ addColumn('users', 'theme', 'TEXT');
 addColumn('orders', 'trade_in_value', 'REAL NOT NULL DEFAULT 0');
 addColumn('orders', 'trade_in_id', 'INTEGER REFERENCES trade_ins(id)');
 
+/*
+ * Money taken on a repair, kept apart from the status.
+ *
+ * The two were the same thing: taking the money set the ticket to collected and
+ * a collected ticket could not be moved again. That is not how the counter
+ * works — plenty of customers pay the moment they hand the phone over, and the
+ * screen still has to be ordered, fitted and tested afterwards.
+ *
+ * So payment is now its own event. `paid_usd` and `paid_lbp` accumulate across
+ * however many part-payments there are, `paid_at` is the first of them, and the
+ * status goes on moving underneath.
+ */
+addColumn('repair_tickets', 'paid_usd', 'REAL NOT NULL DEFAULT 0');
+addColumn('repair_tickets', 'paid_lbp', 'REAL NOT NULL DEFAULT 0');
+addColumn('repair_tickets', 'paid_at', 'TEXT');
+
+/**
+ * The people who work here.
+ *
+ * An employee is a contact with a wage attached, and the shop already knows how
+ * to keep a running balance with a contact — so each one gets a customer
+ * account and everything else follows from that. Buying a charger on payday, an
+ * advance handed over on a Tuesday, and the salary itself are all entries on
+ * the one balance, which is the number the owner actually wants: what is owed,
+ * in which direction, today.
+ *
+ * Deleting is archiving, for the same reason it is for a customer: the ledger
+ * has to stay readable after somebody leaves.
+ */
+db.exec(`
+  CREATE TABLE IF NOT EXISTS employees (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- The account their pay and their purchases both run through.
+    customer_id INTEGER NOT NULL REFERENCES customers(id),
+    -- Set when they also sign in to the app, so a person is one person.
+    user_id INTEGER REFERENCES users(id),
+    name TEXT NOT NULL,
+    phone TEXT,
+    job_title TEXT,
+    monthly_salary REAL NOT NULL DEFAULT 0,
+    started_on TEXT,
+    branch_id INTEGER REFERENCES branches(id),
+    note TEXT,
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  /*
+   * One row per person per month, and the unique index is the whole point:
+   * running the month twice must not pay anybody twice, and somebody will run
+   * it twice.
+   */
+  CREATE TABLE IF NOT EXISTS employee_salaries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    employee_id INTEGER NOT NULL REFERENCES employees(id),
+    period TEXT NOT NULL,
+    amount_usd REAL NOT NULL DEFAULT 0,
+    entry_id INTEGER REFERENCES account_entries(id),
+    expense_id INTEGER REFERENCES expenses(id),
+    note TEXT,
+    user_id INTEGER REFERENCES users(id),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (employee_id, period)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_employees_customer ON employees(customer_id);
+  CREATE INDEX IF NOT EXISTS idx_employee_salaries_period ON employee_salaries(period);
+`);
+
 export const ADJUSTMENT_REASONS = [
   'received',
   'damaged',
