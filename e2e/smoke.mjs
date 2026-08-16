@@ -3064,6 +3064,112 @@ try {
     await page.keyboard.press('Escape');
   });
 
+  console.log('\nA pack, and the customer who wants the blue one');
+
+  /*
+   * The reason a shop sells packs at all is that most of what is in one is the
+   * same every time and one thing is not. Until the counter could change it,
+   * the answers were to refuse the customer or to sell the pack and fix the
+   * shelves by hand — which nobody does on a Saturday.
+   */
+  await step('two cases and a pack made of one of them', async () => {
+    await page.goto(`${BASE_URL}/admin/products`, { waitUntil: 'networkidle' });
+    await page.waitForSelector('text=New product', { timeout: 15000 });
+
+    for (const [name, sku, price, cost, stock] of [
+      ['Black case', 'PK-BLACK', '10', '3', '20'],
+      ['Blue case', 'PK-BLUE', '14', '5', '4'],
+    ]) {
+      await page.click('button:has-text("New product")');
+      await page.waitForSelector('[role=dialog] >> text=Track each one by IMEI');
+      const dialog = page.locator('[role=dialog]').last();
+      await dialog.getByRole('textbox', { name: 'Name', exact: true }).fill(name);
+      await dialog.getByRole('textbox', { name: 'SKU', exact: true }).fill(sku);
+      await dialog.getByRole('spinbutton', { name: 'Price', exact: true }).fill(price);
+      await dialog.getByRole('spinbutton', { name: 'Cost', exact: true }).fill(cost);
+      await dialog.getByRole('spinbutton', { name: 'Stock on hand', exact: true }).fill(stock);
+      await dialog.getByRole('button', { name: /Create|Save/ }).click();
+      await page.waitForSelector(`text=${name}`, { timeout: 15000 });
+    }
+
+    // The pack itself: no shelf of its own, made of the black case.
+    await page.click('button:has-text("New product")');
+    await page.waitForSelector('[role=dialog] >> text=Made of other products');
+    const pack = page.locator('[role=dialog]').last();
+    await pack.getByRole('textbox', { name: 'Name', exact: true }).fill('Case pack');
+    await pack.getByRole('textbox', { name: 'SKU', exact: true }).fill('PK-PACK');
+    await pack.getByRole('spinbutton', { name: 'Price', exact: true }).fill('12');
+    // Typed, not scrolled — a real catalogue is far too long for a dropdown.
+    await pack.getByRole('textbox', { name: 'Search for something to put in it' }).fill('Black');
+    await page.waitForSelector('[role=dialog] button:has-text("Black case")', { timeout: 10000 });
+    await pack.locator('button:has-text("Black case")').first().click();
+    await page.waitForSelector('[role=dialog] >> text=/can be made up/', { timeout: 10000 });
+    await pack.getByRole('button', { name: /Create|Save/ }).click();
+    await page.waitForSelector('text=Case pack', { timeout: 15000 });
+  });
+
+  await step('the pack goes on the sale saying what is in it', async () => {
+    await page.goto(`${BASE_URL}/`, { waitUntil: 'networkidle' });
+    await page.waitForSelector('text=Current sale', { timeout: 15000 });
+
+    await page.click(scanBox);
+    await page.fill(scanBox, 'Case pack');
+    await page.waitForTimeout(400);
+    await page.getByRole('button', { name: /^Case pack/ }).first().click();
+
+    await page.waitForSelector('aside >> text=Case pack', { timeout: 15000 });
+    // What the cashier has to put in the bag, under the line.
+    await page.waitForSelector('aside >> text=Black case', { timeout: 10000 });
+  });
+
+  await step('and the black case is swapped for the blue one', async () => {
+    await page.click('aside button:has-text("Swap something")');
+    await page.waitForSelector('[role=dialog] >> text=What goes in Case pack', { timeout: 15000 });
+
+    const editor = page.locator('[role=dialog]').last();
+    await editor.getByRole('button', { name: 'Take Black case out' }).click();
+    await editor.getByRole('textbox', { name: /Search for something to put in the pack/ }).fill('Blue');
+    await page.waitForSelector('[role=dialog] button:has-text("Blue case")', { timeout: 10000 });
+    await editor.locator('button:has-text("Blue case")').first().click();
+    await editor.getByRole('button', { name: 'Put it in the bag' }).click();
+
+    // The line now says what is really going in it, and says it was changed.
+    await page.waitForSelector('aside >> text=Blue case', { timeout: 15000 });
+    await page.waitForSelector('aside >> text=Changed — edit again', { timeout: 10000 });
+    if (await page.locator('aside >> text=Black case').count()) {
+      throw new Error('the line is still promising the black case');
+    }
+  });
+  await shot('pack-swapped');
+
+  await step('selling it takes the blue one off the shelf and leaves the black alone', async () => {
+    await page.click('aside button:has-text("Charge $")');
+    await page.click('[role=dialog] button:has-text("Card")');
+    await page.click('[role=dialog] button:has-text("Confirm $")');
+    await page.waitForSelector('text=Payment complete', { timeout: 20000 });
+    await page.click('button:has-text("New sale")');
+
+    /*
+     * Asked of the catalogue rather than read off the table.
+     *
+     * This one number is the whole feature — everything else is arranging it on
+     * a screen — so it is worth being exact about. Scraping the row would have
+     * matched a black case whose *cost* is 3 against a blue case whose stock is
+     * 3, and passed for the wrong reason.
+     */
+    const shelves = await page.evaluate(async () => {
+      const token = localStorage.getItem('pos_token') || sessionStorage.getItem('pos_token');
+      const res = await fetch('/api/products', { headers: { Authorization: `Bearer ${token}` } });
+      const { products } = await res.json();
+      const of = (sku) => products.find((p) => p.sku === sku)?.stock;
+      return { blue: of('PK-BLUE'), black: of('PK-BLACK') };
+    });
+
+    // Four blue became three; twenty black stayed twenty.
+    if (shelves.blue !== 3) throw new Error(`the blue case did not come off the shelf: ${shelves.blue}`);
+    if (shelves.black !== 20) throw new Error(`the black case moved when it should not have: ${shelves.black}`);
+  });
+
   console.log('\nA repair, its money, and the people who work here');
 
   /*

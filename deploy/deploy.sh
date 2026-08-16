@@ -94,17 +94,11 @@ npm run build
 
 # The database migrates itself on boot, so there is no separate migration step —
 # but that also means the new code and the old file meet for the first time here.
-say "Restarting $SERVICE"
-if command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files | grep -q "^${SERVICE}.service"; then
-  sudo systemctl restart "$SERVICE"
-else
-  die "No systemd service called '$SERVICE' — install deploy/pos.service first (see the README)."
-fi
 
 #
-# Everything else running this same checkout.
+# Everything running this same checkout.
 #
-# One machine now serves the vendor's own shop, a process per renting shop, and
+# One machine may serve the vendor's own shop, a process per renting shop, and
 # the console — all from these files. Restarting only the first would leave every
 # client on the old code with no sign anything was missed, and the next person to
 # notice would be a shopkeeper whose bug was supposedly fixed last week.
@@ -112,6 +106,9 @@ fi
 # Only *shops* that are already running are touched. A shop taken off the air
 # with `pos-tenant remove` stays off; a deploy is not the place to start it
 # again.
+#
+# Gathered before anything is restarted, because on a machine with no shop of
+# its own this list is the only thing there is to restart — see below.
 RUNNING="$(systemctl list-units --state=running --no-legend --plain 'pos-tenant@*.service' 2>/dev/null | awk '{print $1}' || true)"
 
 #
@@ -131,8 +128,36 @@ fi
 
 RUNNING="$(printf '%s\n' "$RUNNING" | grep -v '^$' || true)"
 
+#
+# Whether this machine keeps a shop of its own.
+#
+# It usually does — the vendor's own — and then `pos.service` is the thing to
+# restart and the thing to ask for a health check. But a machine can be purely
+# a landlord: every shop on it is a `pos-tenant@` unit on its own port, and
+# there is no `pos.service` and nothing listening on $PORT.
+#
+# This used to be fatal. The script built the new code, reached this line,
+# announced that pos.service did not exist and stopped — *before* restarting a
+# single tenant. So the deploy looked like it had failed, and its real effect
+# was to leave the new build on disk with every shop still running the old one.
+# The person at the keyboard had no reason to think anything had been restarted,
+# because nothing had.
+#
+# So a missing pos.service is only an error when there is nothing else either.
+OWN_SHOP=no
+if command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files | grep -q "^${SERVICE}.service"; then
+  OWN_SHOP=yes
+elif [ -z "$RUNNING" ]; then
+  die "Nothing to restart: no '$SERVICE' service and no shops running on this machine. Install deploy/pos.service, or start a shop with 'pos-tenant add' (see the README)."
+fi
+
+if [ "$OWN_SHOP" = yes ]; then
+  say "Restarting $SERVICE"
+  sudo systemctl restart "$SERVICE"
+fi
+
 if [ -n "$RUNNING" ]; then
-  say "Restarting everything else on this machine"
+  say "$([ "$OWN_SHOP" = yes ] && echo 'Restarting everything else on this machine' || echo 'Restarting the shops on this machine')"
   printf '%s\n' "$RUNNING" | while read -r unit; do
     [ -n "$unit" ] || continue
     printf '    %s\n' "$unit"
@@ -147,33 +172,52 @@ fi
 # A deploy that finished is not the same as a shop that is serving. Ask the
 # thing itself, and fail loudly while you are still at the keyboard rather than
 # leaving it to be discovered by a customer.
-say "Waiting for it to answer"
-PORT="${PORT:-4000}"
-for attempt in $(seq 1 30); do
-  if curl -fsS "http://127.0.0.1:${PORT}/api/health" >/dev/null 2>&1; then
-    # The main shop is answering. Now say plainly whether the others are, too:
-    # a deploy that quietly left one client's till down is the failure this
-    # whole section exists to catch, and it has to be visible before the person
-    # who ran this walks away from the keyboard.
-    FAILED=""
-    if [ -n "$RUNNING" ]; then
-      for unit in $RUNNING; do
-        systemctl is-active --quiet "$unit" || FAILED="$FAILED $unit"
-      done
-    fi
 
-    if [ -n "$FAILED" ]; then
-      printf '\n\033[1;31m!! Live, but these did not come back:%s\033[0m\n' "$FAILED"
-      printf '   Look at one with:  sudo journalctl -u <name> -n 50 --no-pager\n\n'
-      exit 1
-    fi
-
-    printf '\n\033[1;32m==> Live at %s\033[0m\n\n' "$(git log --oneline -1)"
-    exit 0
-  fi
-  sleep 1
+#
+# Every unit that was restarted has to be back. A deploy that quietly left one
+# client's till down is the failure this whole section exists to catch, and it
+# has to be visible before the person who ran this walks away from the keyboard.
+#
+# systemd is given a moment: `restart` returns when the unit is *started*, and a
+# process that boots, opens its database and then dies would be reported active
+# by a check made in the same instant.
+sleep 2
+FAILED=""
+for unit in $RUNNING; do
+  systemctl is-active --quiet "$unit" || FAILED="$FAILED $unit"
 done
 
-printf '\n'
-sudo systemctl status "$SERVICE" --no-pager --lines 30 || true
-die "It did not come back up. The service log is above; the database was backed up before any of this."
+if [ "$OWN_SHOP" = yes ]; then
+  #
+  # The shop this machine keeps for itself answers on $PORT, and being asked is
+  # better than being assumed: a unit can be "active" while the app inside it is
+  # failing every request.
+  #
+  # Only for `pos.service`. A tenant listens on a port of its own, held in its
+  # env file rather than here, so asking $PORT for one would be asking the wrong
+  # door and calling the shop dead when it is serving.
+  say "Waiting for it to answer"
+  PORT="${PORT:-4000}"
+  ANSWERED=no
+  for attempt in $(seq 1 30); do
+    if curl -fsS "http://127.0.0.1:${PORT}/api/health" >/dev/null 2>&1; then
+      ANSWERED=yes
+      break
+    fi
+    sleep 1
+  done
+
+  if [ "$ANSWERED" = no ]; then
+    printf '\n'
+    sudo systemctl status "$SERVICE" --no-pager --lines 30 || true
+    die "It did not come back up. The service log is above; the database was backed up before any of this."
+  fi
+fi
+
+if [ -n "$FAILED" ]; then
+  printf '\n\033[1;31m!! These did not come back:%s\033[0m\n' "$FAILED"
+  printf '   Look at one with:  sudo journalctl -u <name> -n 50 --no-pager\n\n'
+  exit 1
+fi
+
+printf '\n\033[1;32m==> Live at %s\033[0m\n\n' "$(git log --oneline -1)"

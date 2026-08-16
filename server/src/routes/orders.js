@@ -20,7 +20,14 @@ import {
   refundOrderLine as refundWalletLine,
 } from '../lib/wallets.js';
 import { moveStock, stockAt, stockElsewhere } from '../lib/stock.js';
-import { availableBundles, componentsOf, moveBundleStock } from '../lib/bundles.js';
+import {
+  availableFromParts,
+  movePartsStock,
+  partsCost,
+  partsUsedOn,
+  recordLineParts,
+  resolveLineParts,
+} from '../lib/bundles.js';
 import { encryptSecret } from '../lib/secrets.js';
 import { setIdPhoto } from '../lib/idPhotos.js';
 import { quote, describe as describeCredit } from '../lib/credit.js';
@@ -128,6 +135,28 @@ function buildCreditLine(item, branchId, exchangeRate) {
   };
 }
 
+/**
+ * The lines of a sale, each pack carrying what actually went in the bag.
+ *
+ * Attached here rather than left to the caller because there are three places
+ * that read a sale back — the receipt printed at the counter, a reprint, and an
+ * offline till catching up — and a pack that listed its parts on one of them
+ * and not the others would be a receipt that disagreed with itself depending on
+ * which screen it was printed from.
+ */
+function itemsOfOrder(orderId) {
+  return db
+    .prepare('SELECT * FROM order_items WHERE order_id = ?')
+    .all(orderId)
+    .map((item) => {
+      if (!item.product_id) return item;
+      const parts = partsUsedOn(item.id, item.product_id);
+      // Absent, not empty, for anything that is not a pack — so the screens can
+      // ask "is this a pack?" without a second field to keep in step.
+      return parts.length ? { ...item, components: parts } : item;
+    });
+}
+
 router.post('/', requireAuth, requirePermission('register'), (req, res) => {
   // The shop this sale happens in: the cashier's own counter, or whichever the
   // owner has switched to. Set by resolveBranch on every request.
@@ -192,7 +221,7 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
     if (already) {
       return res.status(200).json({
         order: already,
-        items: db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(already.id),
+        items: itemsOfOrder(already.id),
         alreadyHad: true,
       });
     }
@@ -288,6 +317,14 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
          * with its own cost, so the cart carries a line per unit.
          */
         let unit = null;
+        /*
+         * What this pack is being made of, or null for anything that is not a
+         * pack. Declared out here because it is decided in the branch below and
+         * needed when the line is written, and because "not a bundle" and "a
+         * bundle whose parts we have not worked out yet" must not be the same
+         * value.
+         */
+        let lineParts = null;
         if (product.tracks_units) {
           if (!item.unitId) throw new Error(`Pick which ${product.name} — it is tracked by IMEI`);
           if (quantity !== 1) throw new Error(`${product.name} sells one unit per line`);
@@ -331,11 +368,18 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
            * sale ever attempted, because that row is always zero and always
            * will be.
            */
-          const parts = componentsOf(product.id);
-          if (parts.length) {
-            const canMake = availableBundles(branchId, product.id, parts);
+          /*
+           * And what limits it is what *this* pack is being made of, which the
+           * counter is allowed to change. A cashier swapping the black case for
+           * the blue one has not made a different product; they have made this
+           * pack out of what the customer wanted, and the shelf that has to be
+           * counted is the blue one.
+           */
+          lineParts = resolveLineParts(product.id, item.components);
+          if (lineParts) {
+            const canMake = availableFromParts(branchId, lineParts);
             if (canMake < quantity) {
-              const short = parts
+              const short = lineParts
                 .filter((c) => stockAt(branchId, c.productId) < c.quantity * quantity)
                 .map((c) => `${c.name} (${stockAt(branchId, c.productId)} left)`);
               throw new Error(
@@ -351,7 +395,7 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
            * spent — counting a quantity here would refuse a sale the shop can
            * perfectly well make.
            */
-          if (!parts.length && !product.wallet_id && !product.validity_days && here < quantity) {
+          if (!lineParts && !product.wallet_id && !product.validity_days && here < quantity) {
             const elsewhere = stockElsewhere(branchId, product.id);
             const alsoAt = elsewhere.length
               ? ` — ${elsewhere.map((b) => `${b.stock} at ${b.branch_name}`).join(', ')}`
@@ -395,6 +439,10 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
           unit,
           isGift,
           price: agreed,
+          // Null for an ordinary product; for a pack, exactly what goes in the
+          // bag — which is what comes off the shelves and what a refund puts
+          // back, whether or not it matches the catalogue.
+          parts: lineParts,
           /*
            * Only meaningful on a SIM, and only ever set by the register's SIM
            * dialog. A photo sent against anything else is simply carried and
@@ -666,7 +714,16 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
           ? li.creditSend.realCost
           : li.unit
             ? li.unit.cost
-            : (li.product.cost ?? null);
+            : li.parts
+              ? /*
+                 * A pack costs what its parts cost, and it has to be *these*
+                 * parts. A swapped-in case at twice the price is a swapped-in
+                 * case at twice the price, and a margin worked out from the
+                 * catalogue would quietly report the pack as earning what it
+                 * would have earned if nobody had asked for anything.
+                 */
+                partsCost(li.parts)
+              : (li.product.cost ?? null);
 
         const lineInfo = insertItem.run(
           orderId,
@@ -688,6 +745,17 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
          * different buyer the second time.
          */
         if (li.idPhoto) setIdPhoto('sim_sale', orderItemId, li.idPhoto, req.user.id);
+
+        /*
+         * What actually went in the bag, frozen against the line.
+         *
+         * Written for every pack, not only for a substituted one. A definition
+         * that changes next month must not rewrite what a sale last month took
+         * off the shelves — and a refund reads this, so "the pack as it was
+         * sold" has to be a fact on the row rather than a lookup that has moved
+         * on.
+         */
+        if (li.parts) recordLineParts(orderItemId, li.parts);
 
         if (li.creditSend) {
           const { wallet, to, quoted } = li.creditSend;
@@ -807,13 +875,14 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
             orderId,
             userId: req.user.id,
           });
-        } else if (!moveBundleStock({ branchId, bundleId: li.product.id, quantity: li.quantity })) {
+        } else if (li.parts) {
           /*
-           * A bundle comes off the shelves its parts are on, not off a shelf of
-           * its own — `moveBundleStock` says whether this was one, so an
-           * ordinary product still takes the ordinary path and there is no flag
-           * to keep in step with the rows that decide it.
+           * A pack comes off the shelves its parts are on, not off a shelf of
+           * its own — and off the shelves of the parts *this* pack was made of,
+           * which is the whole point of letting the counter change them.
            */
+          movePartsStock({ branchId, parts: li.parts, quantity: li.quantity });
+        } else {
           moveStock({ branchId, productId: li.product.id, delta: -li.quantity });
         }
       }
@@ -939,7 +1008,7 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
          WHERE o.id = ?`,
       )
       .get(result.orderId);
-    const orderItems = db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(result.orderId);
+    const orderItems = itemsOfOrder(result.orderId);
     /*
      * What they still owe, for the receipt.
      *
@@ -1019,7 +1088,7 @@ router.get('/:id', requireAuth, (req, res) => {
   if (req.user.role !== 'admin' && order.cashier_id !== req.user.id) {
     return res.status(403).json({ error: 'Insufficient permissions' });
   }
-  const items = db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(req.params.id);
+  const items = itemsOfOrder(req.params.id);
   // See the note where a sale is created: a reprint carries the balance too.
   const withBalance = order.customer_id
     ? { ...order, customer_balance: balanceOf('customer', order.customer_id) }
@@ -1087,14 +1156,23 @@ router.post('/:id/refund', requireAuth, requirePermission('refunds'), (req, res)
       // Serialised lines are put back by identity below; adding to `stock` here
       // as well would count the returned handset twice.
       if (item.product_id && !item.unit_id && !fromWallet.has(item.product_id)) {
-        if (
-          !moveBundleStock({
+        /*
+         * A pack goes back as the parts that came out of it, which are recorded
+         * against the line rather than looked up on the product. Reading the
+         * definition here was the bug this table exists to prevent: a customer
+         * who asked for the blue case would have handed back a pack and been
+         * credited a black one to the shelf, leaving the shop short of one and
+         * holding a phantom of the other.
+         */
+        const parts = partsUsedOn(item.id, item.product_id);
+        if (parts.length) {
+          movePartsStock({
             branchId: order.branch_id,
-            bundleId: item.product_id,
+            parts,
             quantity: item.quantity,
             sign: 1,
-          })
-        ) {
+          });
+        } else {
           moveStock({ branchId: order.branch_id, productId: item.product_id, delta: item.quantity });
         }
       }
@@ -1209,14 +1287,12 @@ router.post('/:id/return-line', requireAuth, requirePermission('refunds'), (req,
         userId: req.user.id,
       });
     } else if (item.product_id) {
-      if (
-        !moveBundleStock({
-          branchId: order.branch_id,
-          bundleId: item.product_id,
-          quantity: returning,
-          sign: 1,
-        })
-      ) {
+      // As above: the parts this line actually went out with, not the ones the
+      // catalogue says the pack contains today.
+      const parts = partsUsedOn(item.id, item.product_id);
+      if (parts.length) {
+        movePartsStock({ branchId: order.branch_id, parts, quantity: returning, sign: 1 });
+      } else {
         moveStock({ branchId: order.branch_id, productId: item.product_id, delta: returning });
       }
     }
