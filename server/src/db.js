@@ -2096,6 +2096,43 @@ addColumn('repair_tickets', 'paid_lbp', 'REAL NOT NULL DEFAULT 0');
 addColumn('repair_tickets', 'paid_at', 'TEXT');
 
 /**
+ * What actually went in the bag.
+ *
+ * A bundle's contents were a property of the *product* — sell a starter pack
+ * and the shelves gave up whatever the catalogue said a starter pack was. But
+ * the whole reason a shop sells packs is that the customer wants this case
+ * rather than that one, and the counter's answer was either to refuse them or
+ * to sell the pack and fix the stock by hand afterwards.
+ *
+ * So a bundle line now carries its own list of parts. The definition is still
+ * what a pack starts as; this is what one particular pack turned out to be, and
+ * it is what stock came off and what goes back on a refund. Frozen the way
+ * every other line on a sale is frozen — the name and the cost are copied, so
+ * a pack sold in March still reads correctly after the case is renamed or the
+ * supplier puts its price up.
+ *
+ * Rows sold before this existed have none of these, and the readers fall back
+ * to the definition for them, which is what those sales really did take.
+ */
+db.exec(`
+  CREATE TABLE IF NOT EXISTS order_item_components (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_item_id INTEGER NOT NULL REFERENCES order_items(id),
+    product_id INTEGER NOT NULL REFERENCES products(id),
+    name TEXT NOT NULL,
+    -- Per one of the bundle, not for the whole line: three packs of two cases
+    -- is stored as 2, so the line's quantity can change what it means without
+    -- rewriting these.
+    quantity REAL NOT NULL,
+    cost REAL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_order_item_components_item
+    ON order_item_components(order_item_id);
+`);
+
+/**
  * The people who work here.
  *
  * An employee is a contact with a wage attached, and the shop already knows how
