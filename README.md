@@ -917,6 +917,28 @@ scratch on the back are worth typing.
 - **Parts come out of stock when they are fitted**, not when the job is invoiced
   — the screen has left the drawer either way, and waiting would let the shop
   sell one it no longer has. Taking a part back off returns it.
+**What the bench made** sits above the board, for whatever period is showing, and
+is two figures rather than one — because a repair takes money and finishes on two
+different days:
+
+- **Profit on jobs handed back**: what they were charged, less what their parts
+  cost at the price frozen when they were fitted. This belongs to the day the
+  phone went home.
+- **Money taken**: what actually crossed the counter in the period, whether or
+  not the phone has gone home yet.
+
+A phone paid for in March and collected in April earns its profit in April and
+filled the drawer in March. Both are true, so both are shown; a single number
+would have to be wrong about one of them. A warranty job is charged nothing and
+its parts cost real money, so it shows as a loss — that is what a warranty is,
+and hiding it would hide the cost of the promise. The figure is behind the
+`reports` permission, like every other profit figure here.
+
+The period and the search are applied **by the server**, not to whatever it sent
+back. The board is capped at the newest two hundred tickets, and narrowing those
+in the browser meant asking for March and being shown however much of March fell
+inside the cap, with nothing on screen to say the rest had been dropped.
+
 - Statuses are not a strict pipeline; a job goes back to *awaiting parts* as
   often as it goes forward, and a phone that comes straight back through the
   door goes **back on the bench after it was handed over**. Every move is on the

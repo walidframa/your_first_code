@@ -541,6 +541,7 @@ export default function Repairs() {
   const [filter, setFilter] = useState(asked ? '' : 'open');
   const [intake, setIntake] = useState(false);
   const [openId, setOpenId] = useState(null);
+  const [profit, setProfit] = useState(null);
   /*
    * A device left in March is still a device the shop had, and until now the
    * only way to it was a status nobody remembered choosing.
@@ -548,16 +549,33 @@ export default function Repairs() {
   const history = useHistoryFilter(asked ? 'all' : 'month', asked);
   const q = history.term;
 
+  /*
+   * The period goes to the server, not to a filter over what it sent back.
+   *
+   * The list is capped at the newest two hundred. Narrowing *those* by date
+   * meant asking for March and being shown however much of March fell inside
+   * the most recent two hundred tickets — with nothing on screen to say the
+   * rest had been left out.
+   */
+  const { from, to } = history.range;
+
   const load = useCallback(async () => {
-    const res = await api.get('/repairs', { params: { status: filter || undefined, q: q || undefined } });
-    setTickets(res.data.tickets);
-  }, [filter, q]);
+    const params = { status: filter || undefined, q: q || undefined, from: from || undefined, to: to || undefined };
+    const [list, earned] = await Promise.all([
+      api.get('/repairs', { params }),
+      // The owner's figure. A cashier has no `reports` permission and simply
+      // does not get one, which is not an error worth showing them.
+      api.get('/repairs/profit', { params: { from: from || undefined, to: to || undefined } }).catch(() => null),
+    ]);
+    setTickets(list.data.tickets);
+    setProfit(earned?.data ?? null);
+  }, [filter, q, from, to]);
 
   useEffect(() => {
     load();
   }, [load]);
 
-  const shown = (tickets || []).filter((t) => history.within(t.created_at));
+  const shown = tickets || [];
 
   return (
     <div className="flex h-full flex-col">
@@ -589,6 +607,62 @@ export default function Repairs() {
             </Select>
           </div>
         </HistoryFilter>
+
+        {/*
+          * What the bench made over whatever period is on screen.
+          *
+          * Two figures, because a repair takes money and finishes on two
+          * different days: profit belongs to the day the phone went home, and
+          * the drawer was filled on the day it was paid. Reporting one number
+          * would have to be wrong about one of them.
+          */}
+        {profit && (
+          <Card className="mb-4 flex flex-wrap items-end gap-x-8 gap-y-3 px-5 py-4">
+            <div>
+              <p className="text-xs text-slate-500">Profit on jobs handed back</p>
+              <p
+                className={cx(
+                  'tnum text-2xl font-semibold',
+                  profit.profit < 0 ? 'text-red-600' : 'text-slate-900',
+                )}
+              >
+                {money(profit.profit)}
+              </p>
+              <p className="mt-0.5 text-xs text-slate-400">
+                {money(profit.revenue)} charged less {money(profit.partsCost)} of parts ·{' '}
+                {profit.jobs} {profit.jobs === 1 ? 'job' : 'jobs'}
+              </p>
+            </div>
+
+            <div>
+              <p className="text-xs text-slate-500">Money taken</p>
+              <p className="tnum text-2xl font-semibold text-slate-700">{money(profit.taken.total)}</p>
+              <p className="mt-0.5 text-xs text-slate-400">
+                across {profit.taken.jobs} {profit.taken.jobs === 1 ? 'job' : 'jobs'}
+                {profit.taken.lbp > 0 &&
+                  ` · ${Number(profit.taken.lbp).toLocaleString('en-US')} LL of it in pounds`}
+              </p>
+            </div>
+
+            {/*
+              * Said plainly rather than folded into the figure. A warranty job
+              * is charged nothing and its parts cost real money, so it shows as
+              * a loss — which is what a warranty is, and hiding it would hide
+              * the cost of the promise.
+              */}
+            {profit.warrantyJobs > 0 && (
+              <p className="text-xs text-slate-500">
+                {profit.warrantyJobs} under warranty, charged nothing
+              </p>
+            )}
+            {profit.unknownCostParts > 0 && (
+              <p className="text-xs text-amber-700">
+                {profit.unknownCostParts} {profit.unknownCostParts === 1 ? 'part has' : 'parts have'}{' '}
+                no cost recorded, so the profit is flattered by whatever they cost
+              </p>
+            )}
+          </Card>
+        )}
 
         {!tickets ? (
           <Skeleton className="h-64" />
