@@ -2321,14 +2321,19 @@ try {
   await step('the cashbox closes against a blind count', async () => {
     await goTo('Register');
     /*
-     * The drawer's figures are always on the strip; its buttons are folded away
-     * so the cart keeps the column. Unfold it to reach them — and once open it
-     * is remembered, so this is the only step that has to.
+     * The drawer's figures are always on the strip in the header; its buttons
+     * hang below as a menu. A menu closes when you touch anything else, so each
+     * of the three trips to it opens it again — which is what a person does.
      */
-    await page.click('button[aria-label="Show the drawer detail"]');
-    await page.waitForSelector('button:has-text("Cash out")', { timeout: 15000 });
+    const openMoney = async () => {
+      if (await page.locator('button:has-text("Cash out"):visible').count()) return;
+      await page.click('button[aria-label="Show the drawer detail"]');
+      await page.waitForSelector('button:has-text("Cash out")', { timeout: 15000 });
+    };
+    await openMoney();
 
     // Money out of the drawer for an expense.
+    await openMoney();
     await page.click('button:has-text("Cash out")');
     await page.waitForSelector('text=Money coming out of the drawer', { timeout: 10000 });
     await page.getByLabel('Reason').selectOption('expense');
@@ -2342,6 +2347,7 @@ try {
      * and refusing it only stops the shop writing that down. It is said out
      * loud instead, and the panel keeps saying so until somebody looks.
      */
+    await openMoney();
     await page.click('button:has-text("Cash out")');
     await page.waitForSelector('text=Money coming out of the drawer', { timeout: 10000 });
     await page.getByLabel('Reason').selectOption('expense');
@@ -2349,9 +2355,17 @@ try {
     await page.getByLabel('What for?').fill('More than is in there');
     await page.click('button:has-text("Take out")');
     await page.waitForSelector('text=/more than the drawer holds/i', { timeout: 15000 });
+    /*
+     * The drawer has gone below zero, and the header says so in words rather
+     * than only in red. The sentence explaining it is in the menu, which is
+     * where somebody who reads "Drawer short" goes next.
+     */
+    await page.waitForSelector('text=Drawer short', { timeout: 15000 });
+    await openMoney();
     await page.waitForSelector('text=/More has gone out than came in/', { timeout: 15000 });
 
     // Put it back, so the count below is against a drawer that makes sense.
+    await openMoney();
     await page.click('button:has-text("Cash in")');
     await page.waitForSelector('text=Money going into the drawer', { timeout: 10000 });
     await page.getByLabel('Reason').selectOption('correction');
@@ -2360,6 +2374,7 @@ try {
     await page.click('button:has-text("Put in")');
     await page.waitForSelector('text=/added to the drawer/i', { timeout: 15000 });
 
+    await openMoney();
     await page.click('button[aria-label="Close the cashbox"]');
     await page.waitForSelector('text=Count what is in the drawer', { timeout: 10000 });
 
