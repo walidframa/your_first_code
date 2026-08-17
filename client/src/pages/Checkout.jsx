@@ -20,6 +20,7 @@ import { HeldSalesDialog, HoldSaleDialog, ResumeIssues } from '../components/Hel
 import TakeInRepair from '../components/TakeInRepair';
 import PaymentSheet from '../components/PaymentSheet';
 import CustomerPicker from '../components/CustomerPicker';
+import { createPortal } from 'react-dom';
 import CashBox from '../components/CashBox';
 import UnitPicker from '../components/UnitPicker';
 import PhoneSaleDialog from '../components/PhoneSaleDialog';
@@ -629,6 +630,17 @@ export default function Checkout() {
    */
   const [tradeIn, setTradeIn] = useState(null);
   const [scanning, setScanning] = useState(false);
+  /*
+   * The header's slot, once the shell has painted it.
+   *
+   * Held in state rather than read straight from the DOM: on the first render
+   * the node does not exist yet, and a portal into null is a strip that never
+   * appears until something else happens to re-render this page.
+   */
+  const [headerSlot, setHeaderSlot] = useState(null);
+  useEffect(() => {
+    setHeaderSlot(document.getElementById('pos-header-slot'));
+  }, []);
   // The pack somebody is changing the contents of, or null.
   const [editingPack, setEditingPack] = useState(null);
   const { can } = useAuth();
@@ -1041,20 +1053,19 @@ export default function Checkout() {
         * It grows only past `lg`, so the small counter monitor the app is
         * usually on keeps its shelf of products at the width it had.
         */}
-      <aside className="no-print flex w-full shrink-0 flex-col border-slate-200 bg-white lg:w-[420px] xl:w-[500px] lg:border-s">
-        {/*
-         * The drawer's state belongs where the money is taken. A cashier who
-         * only finds out it is shut when a cash sale is refused has already
-         * kept a customer waiting.
-         */}
-        {/*
-         * Profit belongs on this till and not the others: the register is where
-         * the shop's trade happens, and the same figure repeated over the
-         * transfer desk's drawer would read as a second lot of profit rather
-         * than the same one.
-         */}
-        <CashBox refreshOn={salesMade} showProfit />
-
+      {/*
+        * Two thirds of the window, on a screen with room for it.
+        *
+        * The cart is what this screen is for. The shelf beside it is a way of
+        * getting things into the cart, and a cashier looks at it for a second
+        * at a time; the cart is read on every line, checked against what is on
+        * the counter, and handed over. Giving the reading to the searching was
+        * the wrong way round.
+        *
+        * Only past `lg`. Below that the register is one column at a time and
+        * the cart already takes the window.
+        */}
+      <aside className="no-print flex w-full shrink-0 flex-col border-slate-200 bg-white lg:w-2/3 lg:border-s">
         <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3.5">
           <div className="flex min-w-0 items-baseline gap-2.5">
             <div className="min-w-0">
@@ -1251,15 +1262,27 @@ export default function Checkout() {
                 */}
               {cart.map((item) => (
                 <li key={item.lineKey} className="flex gap-2.5 rounded-xl px-2 py-2 hover:bg-slate-50">
-                  <ProductThumb product={item} size="sm" className="mt-0.5 shrink-0" />
+                  <ProductThumb product={item} size="sm" className="mt-0.5 shrink-0 lg:mt-0" />
                   <div className="min-w-0 flex-1">
+                    {/*
+                      * One row per item once there is width for it.
+                      *
+                      * The panel got two thirds of the window so the cart could
+                      * be read, and a line stacked into three rows spends that
+                      * width on emptiness in the middle while showing four
+                      * items where twelve would fit. Wide, the name, the
+                      * stepper and the total sit on one line; narrow, it stacks
+                      * exactly as it did.
+                      */}
+                    <div className="lg:flex lg:items-center lg:gap-4">
+                    <div className="min-w-0 lg:flex-1">
                     <div className="flex items-baseline gap-2">
                       <p className="min-w-0 flex-1 truncate text-sm font-medium text-slate-800">
                         {item.name}
                       </p>
                       <span
                         className={cx(
-                          'tnum shrink-0 text-sm font-semibold',
+                          'tnum shrink-0 text-sm font-semibold lg:hidden',
                           item.isGift ? 'text-slate-300 line-through' : 'text-slate-900',
                         )}
                       >
@@ -1275,7 +1298,7 @@ export default function Checkout() {
                         * neither is ours to argue with.
                         */}
                       {item.isGift || item.creditSend ? (
-                        <span className="tnum min-w-0 flex-1 truncate">
+                        <span className="tnum min-w-0 flex-1 truncate lg:flex-none">
                           {money(item.price)} each
                           {rate > 0 && <> · {lbp(toLbp(item.price))}</>}
                         </span>
@@ -1284,7 +1307,7 @@ export default function Checkout() {
                           onClick={() => setPricing(item)}
                           title={t('Change the price for this sale')}
                           className={cx(
-                            'tnum min-w-0 flex-1 truncate rounded px-1 py-0.5 text-left transition',
+                            'tnum min-w-0 flex-1 truncate rounded px-1 py-0.5 text-left transition lg:flex-none',
                             'hover:bg-slate-100 hover:text-slate-700',
                             item.listPrice != null && item.listPrice !== item.price
                               ? 'font-medium text-amber-700'
@@ -1298,7 +1321,13 @@ export default function Checkout() {
                           )}
                         </button>
                       )}
-                      {rate > 0 && (
+                      {/*
+                        * Only when it says something the unit price did not.
+                        * At a quantity of one the two are the same number, and
+                        * printing it twice on one line reads as a mistake in
+                        * the arithmetic rather than as a total.
+                        */}
+                      {rate > 0 && item.quantity > 1 && (
                         <span className="tnum shrink-0">{lbp(toLbp(item.price * item.quantity))}</span>
                       )}
                     </div>
@@ -1313,7 +1342,9 @@ export default function Checkout() {
                       </p>
                     )}
 
-                    <div className="mt-1 flex items-center gap-1">
+                    </div>
+
+                    <div className="mt-1 flex items-center gap-1 lg:mt-0 lg:shrink-0">
                       <button
                         onClick={() => updateQuantity(item.lineKey, item.quantity - 1)}
                         aria-label={`Decrease ${item.name}`}
@@ -1341,6 +1372,18 @@ export default function Checkout() {
                       >
                         {item.isGift ? t('★ Gift — free') : t('Make it a gift')}
                       </button>
+                    </div>
+
+                    {/* The line total, at the end of the row where a wide cart
+                        reads like a receipt rather than a stack of cards. */}
+                    <span
+                      className={cx(
+                        'tnum hidden w-28 shrink-0 text-end text-sm font-semibold lg:block',
+                        item.isGift ? 'text-slate-300 line-through' : 'text-slate-900',
+                      )}
+                    >
+                      {money(item.price * item.quantity)}
+                    </span>
                     </div>
 
                     {/*
@@ -1557,6 +1600,16 @@ export default function Checkout() {
         onClose={() => setPaymentOpen(false)}
         onConfirm={handleConfirmPayment}
       />
+
+      {/*
+        * The drawer and the profit, drawn in the header.
+        *
+        * A portal rather than a move: the figures have to follow the till the
+        * moment a sale lands, which only this component knows about. Lifting
+        * that state into the shell to put two numbers in a bar would be paying
+        * for the pixels with the wiring.
+        */}
+      {headerSlot && createPortal(<CashBox refreshOn={salesMade} showProfit compact />, headerSlot)}
 
       {editingPack && (
         <PackEditor

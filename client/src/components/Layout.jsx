@@ -352,6 +352,18 @@ export default function Layout() {
             <BranchSwitcher expanded />
           </div>
 
+          {/*
+           * Where the register hangs its drawer and its profit.
+           *
+           * A slot rather than the panel itself: the figures have to follow the
+           * till without a reload, which means they belong to the page that
+           * knows a sale just happened. The register portals into this — see
+           * Checkout — so the state stays where it is understood and only the
+           * pixels move up here, next to the shop's name, where the rest of
+           * "which shop, whose money" already lives.
+           */}
+          <div id="pos-header-slot" className="flex min-w-0 items-center gap-2" />
+
           {onRegister && (
             <button
               onClick={() => setRailOnRegister((v) => !v)}

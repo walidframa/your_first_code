@@ -661,7 +661,26 @@ function MoveCash({ direction, accountId, onClose, onDone }) {
  * Omitted, it is the shop's default till, which is what every screen used
  * before there was more than one.
  */
-export default function CashBox({ onChanged, refreshOn = 0, accountId = null, showProfit = false }) {
+export default function CashBox({
+  onChanged,
+  refreshOn = 0,
+  accountId = null,
+  showProfit = false,
+  /*
+   * Laid out for the top bar rather than for a column.
+   *
+   * The drawer and the day's profit are a *status*: glanced at, rarely acted
+   * on. Sitting at the head of the cart they were charging the thing used every
+   * minute for the space of the thing read twice a day — so on the register
+   * they now live in the header, where the rest of the shop's state already is,
+   * and the fold-out hangs below them as a menu instead of pushing the cart
+   * down the screen.
+   *
+   * The same component either way, deliberately. Two copies of a drawer figure
+   * is two chances for one of them to be stale.
+   */
+  compact = false,
+}) {
   const t = useT();
   const [state, setState] = useState(null);
   const [dialog, setDialog] = useState(null);
@@ -717,6 +736,31 @@ export default function CashBox({ onChanged, refreshOn = 0, accountId = null, sh
   const { session, denominations, expected, profit, short } = state;
 
   if (!session) {
+    if (compact) {
+      return (
+        <>
+          <button
+            onClick={() => setDialog('open')}
+            title={state.required ? t('Cash sales are refused until it is open') : undefined}
+            className="flex h-10 shrink-0 items-center gap-1.5 rounded-xl bg-amber-50 px-2.5 text-sm font-semibold text-amber-900 ring-1 ring-amber-200 transition hover:bg-amber-100"
+          >
+            <Lock size={15} />
+            <span className="hidden sm:inline">{t('Open the cashbox')}</span>
+          </button>
+
+          {dialog === 'open' && (
+            <OpenDrawer
+              denominations={denominations}
+              accountId={accountId}
+              onClose={() => setDialog(null)}
+              onOpened={done}
+            />
+          )}
+          {reportFor && <CashReport sessionId={reportFor} onClose={() => setReportFor(null)} />}
+        </>
+      );
+    }
+
     return (
       <>
         <div className="border-b border-amber-200 bg-amber-50 px-4 py-3">
@@ -766,7 +810,7 @@ export default function CashBox({ onChanged, refreshOn = 0, accountId = null, sh
         * only when the server sent it, which it does for whoever may see profit
         * at all. A cashier gets nothing here, not a hidden or blanked-out box.
         */}
-      <div className="border-b border-slate-200 bg-slate-50">
+      <div className={cx(compact ? 'relative shrink-0' : 'border-b border-slate-200 bg-slate-50')}>
         {/*
           * The whole strip is the handle. One row, both figures, and the
           * chevron — a cashier glancing at the drawer gets what they came for
@@ -776,9 +820,24 @@ export default function CashBox({ onChanged, refreshOn = 0, accountId = null, sh
           onClick={toggleDetail}
           aria-expanded={detailOpen}
           aria-label={detailOpen ? t('Hide the drawer detail') : t('Show the drawer detail')}
-          className="flex w-full items-center gap-2 px-4 py-2 text-left transition hover:bg-slate-100"
+          className={cx(
+            'flex items-center gap-2 text-left transition hover:bg-slate-100',
+            compact
+              ? 'h-10 rounded-xl px-2.5 ring-1 ring-slate-200'
+              : 'w-full px-4 py-2',
+          )}
         >
-          <Banknote size={14} className={short ? 'text-red-500' : 'text-brand-600'} />
+          {short && compact ? (
+            /*
+              * In the header the paragraph below does not fit, and a drawer that
+              * has gone short is the one thing on this strip that must not wait
+              * to be noticed. The figure already turns red; this makes it a
+              * warning rather than a colour somebody has to interpret.
+              */
+            <AlertTriangle size={14} className="text-red-500" />
+          ) : (
+            <Banknote size={14} className={short ? 'text-red-500' : 'text-brand-600'} />
+          )}
           {expected ? (
             <>
               <span
@@ -806,7 +865,7 @@ export default function CashBox({ onChanged, refreshOn = 0, accountId = null, sh
           )}
 
           {showProfit && profit && (
-            <span className="ml-auto flex items-baseline gap-1">
+            <span className={cx('flex items-baseline gap-1', compact ? 'ms-1' : 'ml-auto')}>
               <TrendingUp size={12} className="text-brand-600" />
               <span className="tnum text-sm font-semibold text-brand-700">
                 {money(profit.netProfit)}
@@ -819,7 +878,7 @@ export default function CashBox({ onChanged, refreshOn = 0, accountId = null, sh
             size={15}
             className={cx(
               'shrink-0 text-slate-400 transition-transform',
-              showProfit && profit ? '' : 'ml-auto',
+              showProfit && profit ? '' : compact ? '' : 'ml-auto',
               detailOpen && 'rotate-180',
             )}
           />
@@ -835,6 +894,15 @@ export default function CashBox({ onChanged, refreshOn = 0, accountId = null, sh
           * Shown to a cashier too, who cannot see the figure: they are told the
           * drawer is short, not how short, which is still enough to act on.
           */}
+        <div
+          className={cx(
+            compact &&
+              detailOpen &&
+              'absolute end-0 top-full z-30 mt-1 w-80 rounded-xl bg-white py-2 shadow-lg ring-1 ring-slate-200',
+            // Folded away, there is nothing to hang below the handle.
+            compact && !detailOpen && 'hidden',
+          )}
+        >
         {short && (
           <p className="mx-4 mb-2 flex items-start gap-1.5 rounded-lg bg-red-50 px-2 py-1.5 text-[11px] leading-snug text-red-700">
             <AlertTriangle size={13} className="mt-px shrink-0" />
@@ -921,6 +989,7 @@ export default function CashBox({ onChanged, refreshOn = 0, accountId = null, sh
             </div>
           </div>
         )}
+        </div>
       </div>
 
       {dialog === 'open' && (
