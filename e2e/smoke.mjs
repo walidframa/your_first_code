@@ -283,7 +283,9 @@ try {
     await page.waitForSelector('text=Cashbox closed', { timeout: 15000 });
     await page.waitForSelector('text=/Cash sales are refused/');
 
-    await page.click('button:has-text("Open the cashbox")');
+    // On the register the closed state is one amber chip in the header: it says
+    // what is wrong, what it costs, and is itself the way to fix it.
+    await page.click('button:has-text("Cashbox closed")');
     await page.waitForSelector('text=What is in the drawer to start with?', { timeout: 10000 });
     await page.getByLabel('Dollars').fill('100');
     await page.getByLabel('Lebanese pounds (LBP)').fill('2000000');

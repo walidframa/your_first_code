@@ -148,11 +148,21 @@ test('paying extends from the day already paid for', () => {
   pos('pay', 'rami', '--periods', '1', '--amount', '25');
   const after = row('rami').paid_through;
 
-  // A month on from the day already covered, not from today: paying a week
-  // late must not quietly buy a week less.
-  const expected = new Date(`${before}T00:00:00Z`);
-  expected.setUTCMonth(expected.getUTCMonth() + 1);
-  assert.equal(after, expected.toISOString().slice(0, 10));
+  /*
+   * A month on from the day already covered, not from today: paying a week late
+   * must not quietly buy a week less.
+   *
+   * Checked as the rule rather than by doing the arithmetic again. The obvious
+   * way to write this — setUTCMonth(+1) on the old date — is the very thing
+   * `extend` exists to avoid: Javascript rolls the 31st of August into the 1st
+   * of October, so the test agreed with the code only on the days of the month
+   * where no clamping happens, passed for a year, and failed the first morning
+   * a fixture landed on a 31st.
+   */
+  const [y, m, d] = before.split('-').map(Number);
+  const lastOfNextMonth = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
+  const expected = new Date(Date.UTC(y, m, Math.min(d, lastOfNextMonth)));
+  assert.equal(after, expected.toISOString().slice(0, 10), `extending from ${before}`);
 });
 
 test('a payment is written down, with both dates', () => {
