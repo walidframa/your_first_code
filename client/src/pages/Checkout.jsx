@@ -1054,18 +1054,15 @@ export default function Checkout() {
         * usually on keeps its shelf of products at the width it had.
         */}
       {/*
-        * Two thirds of the window, on a screen with room for it.
+        * A third of the window, leaving the shelf the rest of it.
         *
-        * The cart is what this screen is for. The shelf beside it is a way of
-        * getting things into the cart, and a cashier looks at it for a second
-        * at a time; the cart is read on every line, checked against what is on
-        * the counter, and handed over. Giving the reading to the searching was
-        * the wrong way round.
-        *
-        * Only past `lg`. Below that the register is one column at a time and
-        * the cart already takes the window.
+        * `@container` is the important word. What the lines inside want to know
+        * is how wide *this panel* is, not how wide the window is — those are
+        * only the same thing until somebody changes the fraction, and then
+        * every rule written against the window is wrong in a way that only
+        * shows up on one size of monitor.
         */}
-      <aside className="no-print flex w-full shrink-0 flex-col border-slate-200 bg-white lg:w-2/3 lg:border-s">
+      <aside className="@container no-print flex w-full shrink-0 flex-col border-slate-200 bg-white lg:w-1/3 lg:border-s">
         <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3.5">
           <div className="flex min-w-0 items-baseline gap-2.5">
             <div className="min-w-0">
@@ -1262,27 +1259,29 @@ export default function Checkout() {
                 */}
               {cart.map((item) => (
                 <li key={item.lineKey} className="flex gap-2.5 rounded-xl px-2 py-2 hover:bg-slate-50">
-                  <ProductThumb product={item} size="sm" className="mt-0.5 shrink-0 lg:mt-0" />
+                  <ProductThumb product={item} size="sm" className="mt-0.5 shrink-0 @xl:mt-0" />
                   <div className="min-w-0 flex-1">
                     {/*
                       * One row per item once there is width for it.
                       *
-                      * The panel got two thirds of the window so the cart could
-                      * be read, and a line stacked into three rows spends that
-                      * width on emptiness in the middle while showing four
-                      * items where twelve would fit. Wide, the name, the
-                      * stepper and the total sit on one line; narrow, it stacks
-                      * exactly as it did.
+                      * Measured against the cart rather than the window, so it
+                      * is right whatever fraction the panel is given and on a
+                      * phone as well as a counter monitor. Stacked into three
+                      * rows a line spends any spare width on emptiness down the
+                      * middle while showing four items where twelve would fit;
+                      * on one line the name, the stepper and the total read
+                      * across like a receipt. Narrow, it stacks exactly as it
+                      * always did.
                       */}
-                    <div className="lg:flex lg:items-center lg:gap-4">
-                    <div className="min-w-0 lg:flex-1">
+                    <div className="@xl:flex @xl:items-center @xl:gap-4">
+                    <div className="min-w-0 @xl:flex-1">
                     <div className="flex items-baseline gap-2">
                       <p className="min-w-0 flex-1 truncate text-sm font-medium text-slate-800">
                         {item.name}
                       </p>
                       <span
                         className={cx(
-                          'tnum shrink-0 text-sm font-semibold lg:hidden',
+                          'tnum shrink-0 text-sm font-semibold @xl:hidden',
                           item.isGift ? 'text-slate-300 line-through' : 'text-slate-900',
                         )}
                       >
@@ -1298,7 +1297,7 @@ export default function Checkout() {
                         * neither is ours to argue with.
                         */}
                       {item.isGift || item.creditSend ? (
-                        <span className="tnum min-w-0 flex-1 truncate lg:flex-none">
+                        <span className="tnum min-w-0 flex-1 truncate @xl:flex-none">
                           {money(item.price)} each
                           {rate > 0 && <> · {lbp(toLbp(item.price))}</>}
                         </span>
@@ -1307,7 +1306,7 @@ export default function Checkout() {
                           onClick={() => setPricing(item)}
                           title={t('Change the price for this sale')}
                           className={cx(
-                            'tnum min-w-0 flex-1 truncate rounded px-1 py-0.5 text-left transition lg:flex-none',
+                            'tnum min-w-0 flex-1 truncate rounded px-1 py-0.5 text-left transition @xl:flex-none',
                             'hover:bg-slate-100 hover:text-slate-700',
                             item.listPrice != null && item.listPrice !== item.price
                               ? 'font-medium text-amber-700'
@@ -1344,7 +1343,7 @@ export default function Checkout() {
 
                     </div>
 
-                    <div className="mt-1 flex items-center gap-1 lg:mt-0 lg:shrink-0">
+                    <div className="mt-1 flex items-center gap-1 @xl:mt-0 @xl:shrink-0">
                       <button
                         onClick={() => updateQuantity(item.lineKey, item.quantity - 1)}
                         aria-label={`Decrease ${item.name}`}
@@ -1378,7 +1377,7 @@ export default function Checkout() {
                         reads like a receipt rather than a stack of cards. */}
                     <span
                       className={cx(
-                        'tnum hidden w-28 shrink-0 text-end text-sm font-semibold lg:block',
+                        'tnum hidden w-28 shrink-0 text-end text-sm font-semibold @xl:block',
                         item.isGift ? 'text-slate-300 line-through' : 'text-slate-900',
                       )}
                     >
