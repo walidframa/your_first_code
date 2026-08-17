@@ -1,6 +1,9 @@
-import { Printer } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Printer, Trash2 } from 'lucide-react';
+import api from '../api';
 import { lbp } from '../context/SettingsContext';
-import { Button, Modal, ModalActions, money } from './ui';
+import { useConfirm } from './ConfirmProvider';
+import { Button, Modal, ModalActions, money, useToast } from './ui';
 import { useCompany } from './Letterhead';
 import { ROLL, usePageSize } from '../lib/pageSize';
 
@@ -122,7 +125,72 @@ export function VoucherPaper({ voucher }) {
   );
 }
 
-export default function VoucherSlip({ voucher, onClose }) {
+/**
+ * The slip, on screen.
+ *
+ * Takes the voucher itself where the caller already has it, or an id where it
+ * only has a reference — a ledger row knows which slip it wrote and nothing
+ * else about it, and fetching one voucher is cheaper than carrying every field
+ * of every voucher on every row that might be opened.
+ *
+ * `onChanged` is what makes it voidable. Without it this is a thing to read and
+ * print; with it, the screen that opened it wants to know when the money moved
+ * back, so the balance behind can catch up.
+ */
+export default function VoucherSlip({ voucher: given, voucherId, onClose, onChanged }) {
+  const toast = useToast();
+  const confirm = useConfirm();
+  const [voucher, setVoucher] = useState(given ?? null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (given || !voucherId) return;
+    api
+      .get(`/vouchers/${voucherId}`)
+      .then((res) => setVoucher(res.data.voucher))
+      .catch((err) => setError(err.response?.data?.error || 'Could not open that voucher'));
+  }, [given, voucherId]);
+
+  async function voidIt() {
+    const ok = await confirm({
+      title: `Void ${voucher.voucher_number}?`,
+      body: 'The money goes back the way it came — the drawer and the account both move, and the slip stays on the record marked cancelled. Its number is never reused.',
+      confirmLabel: 'Void it',
+      tone: 'danger',
+    });
+    if (!ok) return;
+
+    setBusy(true);
+    setError('');
+    try {
+      const res = await api.post(`/vouchers/${voucher.id}/cancel`);
+      setVoucher(res.data.voucher);
+      toast(`${res.data.voucher.voucher_number} voided`);
+      onChanged?.();
+    } catch (err) {
+      // An invoice's own receipt says to cancel the invoice instead, and that
+      // sentence is more useful than anything this screen could invent.
+      setError(err.response?.data?.error || 'Could not void that voucher');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!voucher) {
+    return (
+      <Modal open onClose={onClose} title="Voucher" size="sm">
+        {error ? (
+          <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
+        ) : (
+          <p className="py-6 text-center text-sm text-slate-400">Loading…</p>
+        )}
+      </Modal>
+    );
+  }
+
+  const voidable = onChanged && voucher.status !== 'cancelled';
+
   return (
     <Modal
       open
@@ -130,7 +198,12 @@ export default function VoucherSlip({ voucher, onClose }) {
       title={voucher.voucher_number}
       subtitle={voucher.kind === 'payment' ? 'Payment voucher' : 'Receipt voucher'}
       footer={
-        <ModalActions>
+        <ModalActions className="no-print">
+          {voidable && (
+            <Button variant="danger" onClick={voidIt} loading={busy}>
+              <Trash2 size={16} /> Void it
+            </Button>
+          )}
           <Button variant="secondary" className="flex-1" onClick={onClose}>
             Close
           </Button>
@@ -140,6 +213,9 @@ export default function VoucherSlip({ voucher, onClose }) {
         </ModalActions>
       }
     >
+      {error && (
+        <p className="no-print mb-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
+      )}
       <div className="rounded-xl bg-slate-100 p-4">
         <VoucherPaper voucher={voucher} />
       </div>

@@ -16,6 +16,7 @@ import {
 import api from '../../api';
 import PageHeader from '../../components/PageHeader';
 import AccountStatement from '../../components/AccountStatement';
+import VoucherSlip from '../../components/VoucherSlip';
 import { useSettings, lbp } from '../../context/SettingsContext';
 import {
   Badge,
@@ -193,7 +194,16 @@ function MoneyModal({ party, config, mode, onClose, onSaved }) {
         const payments = [];
         if (Number(usd) > 0) payments.push({ currency: 'USD', amount: Number(usd) });
         if (Number(lbpAmount) > 0) payments.push({ currency: 'LBP', amount: Number(lbpAmount) });
-        await api.post(`/${config.path}/${party.id}/payments`, { payments, note: note || null });
+        const res = await api.post(`/${config.path}/${party.id}/payments`, {
+          payments,
+          note: note || null,
+        });
+        // Straight to the paper, while the person who handed the money over is
+        // still standing there to sign it.
+        if (res.data?.voucher) onSaved(res.data.voucher);
+        else onSaved();
+        toast('Payment recorded');
+        return;
       } else {
         await api.post(`/${config.path}/${party.id}/charges`, {
           amount: Number(amount),
@@ -377,6 +387,8 @@ function PartyDetail({ partyId, config, onClose, onChanged }) {
   // The invoice or sale somebody has asked to look inside.
   const [opening, setOpening] = useState(null);
   const [statement, setStatement] = useState(false);
+  // The voucher somebody has asked to look at, print, or void.
+  const [slip, setSlip] = useState(null);
 
   const load = useCallback(() => {
     api.get(`/${config.path}/${partyId}`).then((res) => setData(res.data));
@@ -394,7 +406,9 @@ function PartyDetail({ partyId, config, onClose, onChanged }) {
     );
   }
 
-  const { party, entries, dealings = [] } = data;
+  const { party, entries, dealings = [], vouchers = [] } = data;
+  // The slip behind a ledger line, where the payment wrote one.
+  const slipFor = new Map(vouchers.map((v) => [v.entry_id, v]));
 
   return (
     <>
@@ -552,6 +566,45 @@ function PartyDetail({ partyId, config, onClose, onChanged }) {
                         {e.note && !e.order_number ? ` · ${e.note}` : ''}
                       </p>
                     </div>
+
+                    {/*
+                      * The slip, on the line it belongs to.
+                      *
+                      * A payment is a piece of paper before it is a row — the
+                      * person handed the money signs it — so being able to
+                      * print it again, or void one taken in error, belongs
+                      * where the payment is read rather than in a separate
+                      * book somebody has to match up by number.
+                      *
+                      * A span, not a button: this row may itself be a button,
+                      * and a button inside a button is markup no browser
+                      * agrees about.
+                      */}
+                    {slipFor.has(e.id) && (
+                      <span
+                        role="button"
+                        tabIndex={0}
+                        onClick={(ev) => {
+                          ev.stopPropagation();
+                          setSlip(slipFor.get(e.id));
+                        }}
+                        onKeyDown={(ev) => {
+                          if (ev.key !== 'Enter' && ev.key !== ' ') return;
+                          ev.preventDefault();
+                          ev.stopPropagation();
+                          setSlip(slipFor.get(e.id));
+                        }}
+                        title={`Open ${slipFor.get(e.id).voucher_number}`}
+                        className={cx(
+                          'mt-0.5 shrink-0 cursor-pointer rounded px-1.5 py-0.5 font-mono text-[11px] transition',
+                          slipFor.get(e.id).status === 'cancelled'
+                            ? 'text-slate-400 line-through hover:bg-slate-100'
+                            : 'text-brand-700 hover:bg-brand-50',
+                        )}
+                      >
+                        {slipFor.get(e.id).voucher_number}
+                      </span>
+                    )}
                   </Row>
                 </li>
               );
@@ -561,6 +614,18 @@ function PartyDetail({ partyId, config, onClose, onChanged }) {
       </Modal>
 
       {opening && <DealingItems dealing={opening} onClose={() => setOpening(null)} />}
+
+      {slip && (
+        <VoucherSlip
+          voucher={slip.voucher_number && slip.from_name ? slip : undefined}
+          voucherId={slip.id}
+          onClose={() => setSlip(null)}
+          onChanged={() => {
+            load();
+            onChanged();
+          }}
+        />
+      )}
 
       {statement && (
         <AccountStatement
@@ -577,8 +642,11 @@ function PartyDetail({ partyId, config, onClose, onChanged }) {
           config={config}
           mode={money_}
           onClose={() => setMoneyModal(null)}
-          onSaved={() => {
+          onSaved={(voucher) => {
             setMoneyModal(null);
+            // Cash settlements write a numbered slip; a transfer or a cheque
+            // has no till at either end and so has none to show.
+            if (voucher) setSlip(voucher);
             load();
             onChanged();
           }}
