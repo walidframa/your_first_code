@@ -128,7 +128,7 @@ export default function Profit() {
         }
       />
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-6">
+      <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
         {preset === 'custom' && (
           <div className="mb-4 flex items-end gap-3">
             <Input label="From" name="from" type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
@@ -152,7 +152,7 @@ export default function Profit() {
 
             <Waterfall report={report} />
 
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
               <Card className="p-5">
                 <p className="mb-2 text-xs font-medium tracking-wide text-slate-500 uppercase">Where it came from</p>
                 <dl className="space-y-1.5 text-sm">

@@ -345,7 +345,7 @@ export default function Installments() {
         }
       />
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-6">
+      <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
         {/*
           * What is out there, and what is late. The second number is the one
           * worth acting on, so it is the one that goes red.
@@ -397,7 +397,7 @@ export default function Installments() {
         </div>
 
         {!shown ? (
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {Array.from({ length: 6 }).map((_, i) => (
               <Skeleton key={i} className="h-44" />
             ))}
@@ -413,7 +413,7 @@ export default function Installments() {
             }
           />
         ) : (
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {shown.map((plan) => (
               <PlanCard key={plan.id} plan={plan} onPay={setPaying} onCancel={cancel} />
             ))}

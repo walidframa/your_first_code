@@ -162,7 +162,7 @@ export default function TradeIns() {
         }
       />
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-6">
+      <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
         {products.length === 0 && rows !== null && (
           <p className="mb-4 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800 ring-1 ring-amber-200">
             No product is tracked by IMEI yet. Tick <strong>Track each one by IMEI</strong> on the models

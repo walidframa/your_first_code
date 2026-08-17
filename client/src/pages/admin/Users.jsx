@@ -358,7 +358,7 @@ export default function Users() {
         }
       />
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-6">
+      <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
         <Card>
           {!users ? (
             <div className="space-y-2 p-5">

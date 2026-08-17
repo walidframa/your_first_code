@@ -3491,7 +3491,73 @@ try {
   });
   await shot('register-phone');
 
+  /*
+   * Reported from a phone: the header drawing on top of itself.
+   *
+   * The bar carries the menu, the branch, the drawer and the way out, and on a
+   * handset they wanted more room than there is. Nothing overflowed the page —
+   * the last two simply overlapped, so the till figure sat across the name and
+   * the log-out button, and pressing one of them was a guess.
+   */
+  await step('and the top bar lays its own things out, not on top of each other', async () => {
+    const drawer = page
+      .locator('button[aria-label$="the drawer detail"], button:has-text("Cashbox closed")')
+      .first();
+    await drawer.waitFor({ timeout: 10000 });
+    const chip = await drawer.boundingBox();
+    const out = await page.locator('button[aria-label="Log out"]').first().boundingBox();
+
+    if (!chip || !out) throw new Error('the header is missing the drawer or the way out');
+    if (chip.x + chip.width > out.x + 1) {
+      throw new Error(
+        `the drawer chip runs to ${Math.round(chip.x + chip.width)} and log out starts at ${Math.round(out.x)}`,
+      );
+    }
+  });
+
+  /*
+   * The back office on a phone, which is where the owner actually reads it —
+   * standing in the shop, not at the desk. Its tiles were laid out four across
+   * whatever the screen, so on a handset each one was seventy pixels wide with
+   * a dollar figure spilling over the one beside it.
+   */
+  await step('and the back office reads on a phone, with nothing on top of anything', async () => {
+    for (const path of ['/admin', '/admin/products', '/admin/customers', '/transfers']) {
+      await page.goto(`${BASE_URL}${path}`, { waitUntil: 'networkidle' });
+      await page.waitForTimeout(500);
+
+      const overflow = await page.evaluate(
+        () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      );
+      if (overflow > 2) throw new Error(`${path} is ${overflow}px wider than the phone`);
+    }
+
+    // Every tile in a row keeps to its own column.
+    await page.goto(`${BASE_URL}/admin`, { waitUntil: 'networkidle' });
+    await page.waitForSelector('text=Revenue', { timeout: 15000 });
+    const clash = await page.evaluate(() => {
+      for (const grid of document.querySelectorAll('[class*="grid-cols-"]')) {
+        const boxes = [...grid.children].map((c) => c.getBoundingClientRect());
+        for (let i = 0; i < boxes.length; i += 1) {
+          for (let j = i + 1; j < boxes.length; j += 1) {
+            const a = boxes[i];
+            const b = boxes[j];
+            if (a.width === 0 || b.width === 0) continue;
+            const over =
+              a.left < b.right - 1 && b.left < a.right - 1 && a.top < b.bottom - 1 && b.top < a.bottom - 1;
+            if (over) return `${Math.round(a.left)},${Math.round(a.top)} overlaps ${Math.round(b.left)},${Math.round(b.top)}`;
+          }
+        }
+      }
+      return null;
+    });
+    if (clash) throw new Error(`two tiles are on top of each other: ${clash}`);
+  });
+  await shot('dashboard-phone');
+
   await step('and the menu on a phone is the page, not a rail', async () => {
+    await page.goto(`${BASE_URL}/`, { waitUntil: 'networkidle' });
+    await page.waitForSelector('text=Current sale', { timeout: 15000 });
     if (await page.locator('nav a:has-text("Dashboard"):visible').count()) {
       throw new Error('the rail is on screen on a phone');
     }

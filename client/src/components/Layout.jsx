@@ -348,7 +348,16 @@ export default function Layout() {
            * tiles, the drawer, the takings — so a register with no rail must
            * not also be a register with no way to tell, or to change it.
            */}
-          <div className="w-40 shrink-0 sm:w-48 [&>*]:mb-0">
+          {/*
+           * The one thing on this bar that gives way.
+           *
+           * It and the drawer chip were fighting over the same forty pixels on
+           * a phone — worse with the bigger-text setting on — and the drawer was
+           * winning by drawing on top of the name. Something has to yield, and
+           * a shop name shortened to "Main bra…" still says which shop; a till
+           * figure shortened to "$8…" says nothing at all.
+           */}
+          <div className="max-w-[8rem] min-w-0 flex-1 sm:w-48 sm:max-w-none sm:flex-none [&>*]:mb-0">
             <BranchSwitcher expanded />
           </div>
 
@@ -375,18 +384,29 @@ export default function Layout() {
             </button>
           )}
 
-          <span className="ms-auto truncate text-sm font-medium text-slate-500">{user.name}</span>
-
-          {/* The way out. Only ever in the rail before, which on a screen with
-              no rail meant a till nobody could hand over at the end of a shift. */}
-          <button
-            onClick={logout}
-            title={t('Log out')}
-            aria-label={t('Log out')}
-            className="flex h-10 shrink-0 items-center rounded-xl px-2.5 text-slate-500 transition hover:bg-slate-100 hover:text-red-700"
-          >
-            <LogOut size={18} />
-          </button>
+          {/*
+           * Who is signed in, and the way out — kept together at the end of the
+           * bar so neither can be pushed off it.
+           *
+           * The name goes on a phone. It is on the menu page, one press away,
+           * and a bar that overlaps itself is worse than a bar that says less:
+           * the way out is what has to survive, because a till nobody can hand
+           * over at the end of a shift is a real problem and a missing name is
+           * not.
+           */}
+          <div className="ms-auto flex min-w-0 items-center gap-1">
+            <span className="hidden truncate text-sm font-medium text-slate-500 sm:block">
+              {user.name}
+            </span>
+            <button
+              onClick={logout}
+              title={t('Log out')}
+              aria-label={t('Log out')}
+              className="flex h-10 shrink-0 items-center rounded-xl px-2.5 text-slate-500 transition hover:bg-slate-100 hover:text-red-700"
+            >
+              <LogOut size={18} />
+            </button>
+          </div>
         </div>
 
         {/* Above everything, because it changes what the next press means. */}

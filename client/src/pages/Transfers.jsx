@@ -163,7 +163,7 @@ function TransferDialog({ companies, tillId, tillName, onClose, onSaved }) {
           />
         </div>
 
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <Input
             label={sending ? 'Sender' : 'Collecting'}
             name="customerName"
@@ -435,7 +435,14 @@ export default function Transfers() {
         }
       />
 
-      <div className="flex min-h-0 flex-1">
+      {/*
+        * A column on a monitor, stacked on a phone.
+        *
+        * The drawer panel used to be hidden outright below `lg`, which on a
+        * handset meant a desk whose every action needs an open cashbox with no
+        * way to open one. Stacked, it goes above the work instead of beside it.
+        */}
+      <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
         {/*
          * `min-w-0` is doing real work here, and its absence was a bug.
          *
@@ -445,7 +452,7 @@ export default function Transfers() {
          * clipped off the left-hand edge with no way to scroll to it. The
          * table now scrolls inside its own column instead.
          */}
-        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-6">
+        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-4 sm:p-6">
           {!data ? (
             <Skeleton className="h-64" />
           ) : (
@@ -485,8 +492,8 @@ export default function Transfers() {
                 }}
               />
 
-              <div className="mb-3 flex items-center gap-2">
-                <div className="relative min-w-0 flex-1">
+              <div className="mb-3 flex flex-wrap items-center gap-2">
+                <div className="relative min-w-[12rem] flex-1">
                   <Search
                     size={16}
                     className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-slate-400"
@@ -620,7 +627,7 @@ export default function Transfers() {
           * and look somewhere else for the till figure will not look, and the
           * one number this screen exists to protect is that one.
           */}
-        <aside className="hidden w-[300px] shrink-0 overflow-y-auto border-l border-slate-200 bg-white lg:block xl:w-[340px]">
+        <aside className="order-first w-full shrink-0 overflow-y-auto border-b border-slate-200 bg-white lg:order-none lg:w-[300px] lg:border-b-0 lg:border-l xl:w-[340px]">
           <CashBox refreshOn={moved} accountId={tillId} />
           <div className="px-4 py-3">
             <p className="text-xs text-slate-500">
