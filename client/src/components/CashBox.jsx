@@ -739,13 +739,24 @@ export default function CashBox({
     if (compact) {
       return (
         <>
+          {/*
+            * A shut drawer is not a mild status: it refuses every cash sale, and
+            * a cashier who finds that out at the payment sheet has already kept
+            * somebody waiting. So the chip says what is wrong and what it costs,
+            * and is itself the way to fix it — one press, not a press to reveal
+            * a press.
+            */}
           <button
             onClick={() => setDialog('open')}
-            title={state.required ? t('Cash sales are refused until it is open') : undefined}
             className="flex h-10 shrink-0 items-center gap-1.5 rounded-xl bg-amber-50 px-2.5 text-sm font-semibold text-amber-900 ring-1 ring-amber-200 transition hover:bg-amber-100"
           >
             <Lock size={15} />
-            <span className="hidden sm:inline">{t('Open the cashbox')}</span>
+            {t('Cashbox closed')}
+            {state.required && (
+              <span className="hidden font-normal text-amber-700 sm:inline">
+                · {t('Cash sales are refused until it is open')}
+              </span>
+            )}
           </button>
 
           {dialog === 'open' && (
