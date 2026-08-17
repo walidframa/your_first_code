@@ -5,6 +5,44 @@ import { Input, cx } from './ui';
 const round2 = (n) => Math.round(n * 100) / 100;
 
 /**
+ * A figure that is pounds, full stop.
+ *
+ * Not every amount is dollars-with-a-way-to-type-pounds. A transfer agency's
+ * opening balance is two separate piles — what is owed in dollars and what is
+ * owed in pounds — and the pound pile is stored in pounds, so offering to
+ * "switch" it to dollars is offering to convert the number being saved into
+ * something else.
+ *
+ * Its own component rather than a mode of the one below, because the two differ
+ * in what `value` even means: dollars there, pounds here. A prop that changed
+ * the meaning of another prop was exactly the confusion that produced three
+ * different numbers for one box — `289` sent as pounds, sitting in a field
+ * labelled dollars, under a line reading 25,721,000 LL.
+ */
+export function PoundsInput({ label, name, value, onChange, hint, ...props }) {
+  return (
+    <div className="w-full">
+      <label htmlFor={name} className="mb-1.5 block text-sm font-medium text-slate-700">
+        {label}
+      </label>
+      <Input
+        name={name}
+        id={name}
+        type="number"
+        min="0"
+        step="1000"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        {...props}
+      />
+      <p className="mt-1 text-xs text-slate-500">
+        {Number(value) > 0 ? lbp(Number(value)) : hint || 'Lebanese pounds'}
+      </p>
+    </div>
+  );
+}
+
+/**
  * A figure that can be typed in either currency.
  *
  * Half of what this shop pays for is quoted in pounds — a dealer says "six

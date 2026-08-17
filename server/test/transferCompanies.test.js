@@ -429,3 +429,128 @@ test('two agencies cannot share a name', async () => {
   assert.equal(clash.status, 400);
   assert.match(clash.json.error, /already on the list/);
 });
+
+/* --------------------------------------------------- settling at the desk */
+
+/**
+ * The end of a day.
+ *
+ * Settling used to mean leaving the counter for the voucher screen and filling
+ * in both ends of a general-purpose form — a permission the operator does not
+ * have, on a screen they were not on. It is the last thing before locking up,
+ * so it happens where the balance that says it is due is.
+ *
+ * On an agency of its own, because these tests are about what settling does to
+ * a balance and the ones above have been moving OMT's around all morning.
+ */
+const DESK = 'Bob Finance';
+
+test('the operator squares up with an agency without leaving the desk', async () => {
+  // A day's sends: the shop is holding the agency's money.
+  await req(
+    'POST',
+    '/transfers',
+    { company: DESK, direction: 'send', amountUsd: 100, accountId: till.id },
+    deskToken,
+  );
+  const before = await named(DESK);
+  assert.equal(before.balance, 100, 'holding their money');
+  assert.equal(before.standing, 'owed_to_company');
+
+  // Counted out the way it is counted out: some dollars, some pounds.
+  const settled = await req(
+    'POST',
+    `/transfers/companies/${before.id}/settle`,
+    { accountId: till.id, amountUsd: 40, amountLbp: 890000 },
+    deskToken,
+  );
+  assert.equal(settled.status, 201, JSON.stringify(settled.json));
+
+  const { voucher, company } = settled.json;
+  assert.equal(voucher.kind, 'payment', 'out of our till into theirs');
+  assert.match(voucher.voucher_number, /^PV-/);
+  assert.equal(voucher.reason, 'transfer_agency');
+  assert.equal(voucher.amount_usd, 40);
+  assert.equal(voucher.amount_lbp, 890000);
+
+  // Both piles come off what is owed, at the rate written on the voucher.
+  const moved = 40 + 890000 / voucher.exchange_rate;
+  assert.ok(
+    Math.abs(company.balance - (100 - moved)) < 0.01,
+    `balance came to ${company.balance}, expected ${100 - moved}`,
+  );
+});
+
+test('and the direction follows the balance when nobody names one', async () => {
+  let agency = await named(DESK);
+
+  // Clear whatever is left, so the sign is the only thing being tested.
+  if (Math.abs(agency.balance) >= 0.005) {
+    await req(
+      'POST',
+      `/transfers/companies/${agency.id}/settle`,
+      { accountId: till.id, amountUsd: Math.abs(agency.balance) },
+      deskToken,
+    );
+  }
+  assert.equal((await named(DESK)).standing, 'square');
+
+  // A payout with nothing held against it: the shop's own cash went out.
+  await req(
+    'POST',
+    '/transfers',
+    { company: DESK, direction: 'payout', amountUsd: 60, accountId: till.id },
+    deskToken,
+  );
+  agency = await named(DESK);
+  assert.equal(agency.balance, -60);
+
+  // No direction asked for, and the money comes in rather than going out.
+  const made = await req(
+    'POST',
+    `/transfers/companies/${agency.id}/settle`,
+    { accountId: till.id, amountUsd: 60 },
+    deskToken,
+  );
+  assert.equal(made.status, 201);
+  assert.equal(made.json.voucher.kind, 'receipt', 'they made the shop good');
+  assert.match(made.json.voucher.voucher_number, /^RV-/);
+  assert.equal(made.json.company.balance, 0);
+  assert.equal(made.json.company.standing, 'square');
+});
+
+test('a settlement paid by mistake is voided and the balance comes back', async () => {
+  await req(
+    'POST',
+    '/transfers',
+    { company: DESK, direction: 'send', amountUsd: 25, accountId: till.id },
+    deskToken,
+  );
+  const before = await named(DESK);
+
+  const settled = await req(
+    'POST',
+    `/transfers/companies/${before.id}/settle`,
+    { accountId: till.id, amountUsd: 25 },
+    deskToken,
+  );
+  assert.equal(settled.json.company.balance, before.balance - 25);
+
+  // Voiding is the voucher book's job, and the agency's balance follows it.
+  const voided = await req('POST', `/vouchers/${settled.json.voucher.id}/cancel`, null, adminToken);
+  assert.equal(voided.status, 200);
+  assert.equal(voided.json.voucher.status, 'cancelled');
+  assert.equal((await named(DESK)).balance, before.balance, 'back where it was');
+});
+
+test('settling an amount of nothing is refused', async () => {
+  const agency = await named(DESK);
+  const empty = await req(
+    'POST',
+    `/transfers/companies/${agency.id}/settle`,
+    { accountId: till.id },
+    deskToken,
+  );
+  assert.equal(empty.status, 400);
+  assert.match(empty.json.error, /Enter an amount/);
+});

@@ -2714,6 +2714,49 @@ try {
     await page.waitForSelector('text=$50.00', { timeout: 15000 });
   });
 
+  // The slip the settlement writes, checked against the drawer further down.
+  let settleSlip;
+
+  /*
+   * The end of the day at the counter.
+   *
+   * The whole reason the balance is kept: the rider comes round and either the
+   * shop hands over what it is holding or the agency makes it good. Done from
+   * the desk, by the operator, on the screen showing the balance that says it
+   * is due — not on a general-purpose voucher form they may not even have.
+   */
+  await step('the operator settles the day up with the agency', async () => {
+    const row = page.locator('tr', { hasText: 'Whish' }).first();
+    await row.waitFor({ timeout: 15000 });
+    // $50 was paid out on their behalf and nothing held against it.
+    if (!/we collect this from them/i.test(await row.innerText())) {
+      throw new Error(`the row does not say which way the money goes: ${await row.innerText()}`);
+    }
+
+    await row.getByRole('button', { name: 'Settle up' }).click();
+    const dialog = page.locator('[role=dialog]');
+    await dialog.locator('text=Settle with Whish').waitFor({ timeout: 15000 });
+
+    // Filled in from the balance, and pointed the way the balance points.
+    if ((await dialog.locator('#settleUsd').inputValue()) !== '50.00') {
+      throw new Error('the amount owing was not carried into the form');
+    }
+    await dialog.locator('text=they owe us').waitFor();
+
+    await dialog.getByRole('button', { name: 'Take it in' }).click();
+
+    // Straight to the slip, because a settlement is a piece of paper too.
+    const slip = page.locator('[role=dialog]', { hasText: /RV-\d{4}/ }).first();
+    await slip.waitFor({ timeout: 15000 });
+    settleSlip = (await slip.innerText()).match(/RV-\d{4}/)[0];
+    // The payee, which the slip printed blank until the day it was noticed.
+    await slip.locator('text=Received from').waitFor();
+    await slip.locator('text=Settling with a transfer agency').waitFor();
+    await closeDialog();
+
+    await page.waitForSelector('tr:has-text("Whish") >> text=nothing to settle', { timeout: 15000 });
+  });
+
   await step('an expense out of the same drawer is recorded, not absorbed', async () => {
     /*
      * Exactly "Expense", not anything containing it.
@@ -2891,10 +2934,11 @@ try {
     await page.waitForSelector('[role=dialog] >> text=Every movement', { timeout: 15000 });
 
     const dialog = page.locator('[role=dialog]');
-    // $100 float + $153 in − $49 out − $4 spent − $300 paid + $25 taken.
-    await dialog.locator('text=-$75.00').first().waitFor();
+    // $100 float + $153 in − $49 out + $50 settled − $4 spent − $300 paid + $25 taken.
+    await dialog.locator('text=-$25.00').first().waitFor();
     await dialog.locator('text=OMT send').first().waitFor();
     await dialog.locator('text=Whish payout').first().waitFor();
+    await dialog.locator(`text=${settleSlip}`).first().waitFor();
     await dialog.locator(`text=${paymentSlip}`).first().waitFor();
     await dialog.locator(`text=${receiptSlip}`).first().waitFor();
 

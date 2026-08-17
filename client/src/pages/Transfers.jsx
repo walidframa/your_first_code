@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router';
 import {
   ArrowDownLeft,
   ArrowLeftRight,
@@ -318,7 +317,6 @@ function Stat({ label, usd, lbpAmount, tone = 'neutral' }) {
 
 export default function Transfers() {
   const toast = useToast();
-  const navigate = useNavigate();
   const { user, can } = useAuth();
 
   const [data, setData] = useState(null);
@@ -479,13 +477,12 @@ export default function Transfers() {
                */}
               <TransferAgencies
                 refreshKey={moved}
-                onSettle={(company) =>
-                  navigate(
-                    `/vouchers?settle=transfer_company&partyId=${company.id}` +
-                      `&amount=${Math.abs(company.balance).toFixed(2)}` +
-                      `&direction=${company.balance > 0 ? 'pay' : 'receive'}`,
-                  )
-                }
+                tillId={tillId}
+                tillName={tillName}
+                onSettled={() => {
+                  setMoved((n) => n + 1);
+                  load();
+                }}
               />
 
               <div className="mb-3 flex items-center gap-2">

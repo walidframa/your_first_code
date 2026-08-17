@@ -15,6 +15,7 @@ import {
   createCompany,
   listCompanies,
   setOpeningBalance,
+  settleWithCompany,
   updateCompany,
 } from '../lib/transferCompanies.js';
 import { listEntries } from '../lib/accounts.js';
@@ -99,6 +100,23 @@ router.put('/companies/:id/opening', ...owner, (req, res) => {
   try {
     const company = setOpeningBalance(req.params.id, { ...req.body, userId: req.user.id });
     res.json({ company });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+/**
+ * Squaring up with the agency, at the counter that owes it.
+ *
+ * The operator's job, not the owner's — it happens every evening, and sending
+ * whoever is on the desk to the voucher screen to fill in both ends of a form
+ * they would have to get right is how a day ends with the balance uncounted.
+ * The slip it writes is an ordinary voucher, printable and voidable like any
+ * other.
+ */
+router.post('/companies/:id/settle', ...desk, (req, res) => {
+  try {
+    res.status(201).json(settleWithCompany(req.params.id, { ...req.body, userId: req.user.id }));
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
