@@ -1256,6 +1256,27 @@ took it.
 Cancelling reverses both ends at once and keeps the row. The number was on
 something somebody signed, so it is never reused.
 
+### Settling an account writes a voucher
+
+Paying off what a customer owes, or paying a supplier, is the same act as every
+other movement of money in and out of a till — so it goes in the same book. Each
+one gets a **numbered slip** (RV coming in, PV going out) that prints on the
+receipt printer with room at the bottom for two names and a pen, and appears in
+the voucher list beside everything else.
+
+The slip is reachable from the line it wrote: on the contact's screen each
+payment carries its voucher number, and opening it offers **Print** and **Void
+it**. Voiding puts the money back the way it came — the drawer and the account
+both move — and the slip stays on the record marked cancelled, because a
+voucher already signed and handed over is part of what happened and its number
+must never be reused.
+
+This replaced two calls that each did half the job, and the half that could fail
+did so silently: a cash payment recorded while the cashbox was shut left a ledger
+saying paid and a drawer that never saw the money. Now it is refused, with the
+same message the register gives for a cash sale. A settlement that is not cash —
+a transfer, a cheque — has no till at either end and so has no slip.
+
 ## Recharge and gift cards
 
 A recharge card is not stock. Nothing comes out of a box when one sells: the
@@ -1753,6 +1774,19 @@ EAN-13, UPC-A or EAN-8 is encoded as such, and anything else — an internal SKU
 a code whose check digit is wrong — falls back to Code 128 so a label always
 prints something scannable. A retail-length code with a bad check digit is
 flagged in the UI rather than silently mis-encoded.
+
+## Finding what you have, and what it is worth
+
+Searching the catalogue totals what it found, above the rows: how many products
+matched, **how many of them are on the shelf**, and what that stock is worth at
+cost. Type "battery" and the answer to "how many have I got and what did they
+cost me?" is one line rather than a column to add up by eye.
+
+At cost, not at the shelf price, because stock is money the shop has spent and
+not yet got back — that is the figure a stocktake is about. The retail total is
+shown beside it for comparison. A product with no cost recorded is counted in
+the quantity and **said out loud**, so the value can be short but never quietly
+so.
 
 ## Packs made of other products
 

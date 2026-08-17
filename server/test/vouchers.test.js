@@ -579,3 +579,85 @@ test('an invoice paid in cash writes its own receipt', async () => {
   const after = (await req('GET', `/vouchers?search=${doc.doc_number}`, null, adminToken)).json.vouchers;
   assert.equal(after[0].status, 'cancelled');
 });
+
+/* ---------------------------------------- settling an account at the counter */
+
+/*
+ * Paying off a balance is the same act as every other movement of money in and
+ * out of a till, so it goes in the same book and comes out with the same slip.
+ * It used to be two calls that each did half of it, and one half could fail
+ * silently — see the route.
+ */
+test('a customer settling their account gets a numbered slip', async () => {
+  const customer = (
+    await req('POST', '/customers', { name: 'Settling Up', credit_limit: 500 }, adminToken)
+  ).json.party;
+  await req('POST', `/customers/${customer.id}/charges`, { amount: 80 }, adminToken);
+
+  const before = (await tillBalance(mainTill.id)).balance;
+  const paid = await req(
+    'POST',
+    `/customers/${customer.id}/payments`,
+    { payments: [{ currency: 'USD', amount: 30 }], note: 'On account' },
+    adminToken,
+  );
+  assert.equal(paid.status, 201, JSON.stringify(paid.json));
+
+  // A receipt, because the money came in. The direction is the two accounts.
+  assert.match(paid.json.voucher.voucher_number, /^RV-/);
+  assert.equal(paid.json.voucher.kind, 'receipt');
+  assert.equal(paid.json.voucher.from_name, 'Settling Up');
+  assert.equal(paid.json.balance, 50, '80 owed less 30 paid');
+  assert.equal((await tillBalance(mainTill.id)).balance, before + 30, 'and the drawer has it');
+});
+
+test('paying a supplier is the same slip the other way round', async () => {
+  const supplier = (await req('POST', '/suppliers', { name: 'Owed Money Co' }, adminToken)).json.party;
+  await req('POST', `/suppliers/${supplier.id}/charges`, { amount: 100 }, adminToken);
+
+  const before = (await tillBalance(mainTill.id)).balance;
+  const paid = await req(
+    'POST',
+    `/suppliers/${supplier.id}/payments`,
+    { payments: [{ currency: 'USD', amount: 40 }] },
+    adminToken,
+  );
+  assert.equal(paid.status, 201, JSON.stringify(paid.json));
+  assert.match(paid.json.voucher.voucher_number, /^PV-/);
+  assert.equal(paid.json.voucher.to_name, 'Owed Money Co');
+  assert.equal(paid.json.balance, 60, '100 owed less 40 paid');
+  assert.equal((await tillBalance(mainTill.id)).balance, before - 40, 'out of the drawer');
+});
+
+/*
+ * The slip is reachable from the line it wrote, which is what makes reprinting
+ * and voiding possible without hunting through the voucher book by number.
+ */
+test('the payment’s slip is on the account it settled', async () => {
+  const customer = (
+    await req('POST', '/customers', { name: 'Has A Slip', credit_limit: 500 }, adminToken)
+  ).json.party;
+  await req('POST', `/customers/${customer.id}/charges`, { amount: 25 }, adminToken);
+  const paid = await req(
+    'POST',
+    `/customers/${customer.id}/payments`,
+    { payments: [{ currency: 'USD', amount: 25 }] },
+    adminToken,
+  );
+
+  const detail = (await req('GET', `/customers/${customer.id}`, null, adminToken)).json;
+  const slip = detail.vouchers.find((v) => v.id === paid.json.voucher.id);
+  assert.ok(slip, 'the account knows which slip its payment wrote');
+  assert.ok(
+    detail.entries.some((e) => e.id === slip.entry_id),
+    'and it is keyed to the line that moved the balance',
+  );
+
+  // Voided, and the money goes back the way it came.
+  const voided = await req('POST', `/vouchers/${slip.id}/cancel`, null, adminToken);
+  assert.equal(voided.status, 200, JSON.stringify(voided.json));
+  assert.equal(voided.json.voucher.status, 'cancelled');
+
+  const after = (await req('GET', `/customers/${customer.id}`, null, adminToken)).json;
+  assert.equal(after.party.balance, 25, 'they owe it again');
+});

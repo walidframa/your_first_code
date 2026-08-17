@@ -374,6 +374,26 @@ export default function Products() {
     return matchesSearch && (showArchived ? true : p.active);
   });
 
+  /*
+   * The search's own totals. Worked out from the rows on screen rather than
+   * asked of the server, so it can never disagree with the list underneath it.
+   */
+  const found = (() => {
+    let units = 0;
+    let cost = 0;
+    let retail = 0;
+    let noCost = 0;
+    for (const p of visible) {
+      const stock = Number(p.stock) || 0;
+      units += stock;
+      retail += (Number(p.price) || 0) * stock;
+      if (p.cost === null || p.cost === undefined) noCost += 1;
+      else cost += Number(p.cost) * stock;
+    }
+    const round2 = (n) => Math.round(n * 100) / 100;
+    return { units, cost: round2(cost), retail: round2(retail), noCost };
+  })();
+
   return (
     <div className="flex h-full flex-col">
       <PageHeader
@@ -427,6 +447,45 @@ export default function Products() {
               Show archived
             </label>
           </div>
+
+          {/*
+            * What the search just added up to.
+            *
+            * "How many batteries have I got, and what are they worth?" is a
+            * stocktaking question, and the answer was a column of numbers to
+            * add up by eye — or an export. Typing the word is already the
+            * whole query; this is just the total of what came back.
+            *
+            * Cost, not price: what is on the shelf is money the shop has spent
+            * and not yet got back, which is the figure a stocktake is about.
+            * A product with no cost recorded is counted in the quantity and
+            * said out loud below, rather than quietly valued at nothing.
+            */}
+          {products && search.trim() && visible.length > 0 && (
+            <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1 border-b border-slate-100 bg-slate-50 px-5 py-2.5 text-sm">
+              <span className="text-slate-500">
+                <span className="tnum font-semibold text-slate-800">{visible.length}</span>{' '}
+                {visible.length === 1 ? 'product' : 'products'} matching “{search.trim()}”
+              </span>
+              <span className="text-slate-500">
+                <span className="tnum font-semibold text-slate-800">{found.units}</span> in stock
+              </span>
+              <span className="text-slate-500">
+                worth <span className="tnum font-semibold text-slate-800">{money(found.cost)}</span> at
+                cost
+              </span>
+              {found.retail > 0 && (
+                <span className="text-slate-400">
+                  · {money(found.retail)} at the shelf price
+                </span>
+              )}
+              {found.noCost > 0 && (
+                <span className="text-amber-700">
+                  · {found.noCost} with no cost recorded, so the value is short
+                </span>
+              )}
+            </div>
+          )}
 
           {!products ? (
             <div className="space-y-2 p-5">

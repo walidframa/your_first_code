@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import { db, transaction } from '../db.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
-import { recordMovement } from '../lib/cash.js';
+import { defaultAccount } from '../lib/cashAccounts.js';
+import { recordVoucher } from '../lib/vouchers.js';
 import { round2 } from '../lib/currency.js';
 import {
   PARTY_TABLES,
@@ -51,11 +52,27 @@ export function partyRouter(partyType) {
     const party = db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(req.params.id);
     if (!party) return res.status(404).json({ error: 'Not found' });
 
+    /*
+     * The slip behind each line, where there is one.
+     *
+     * Keyed by the ledger entry the voucher wrote, so a payment on the account
+     * can be printed again — or cancelled — from the same row that shows it,
+     * rather than by finding it again in the voucher book by its number.
+     */
+    const vouchers = db
+      .prepare(
+        `SELECT id, voucher_number, kind, status, entry_id, amount_usd, amount_lbp, issued_on
+           FROM vouchers WHERE entry_id IS NOT NULL
+            AND ((from_type = ? AND from_id = ?) OR (to_type = ? AND to_id = ?))`,
+      )
+      .all(partyType, party.id, partyType, party.id);
+
     res.json({
       party: { ...party, active: !!party.active, balance: balanceOf(partyType, party.id) },
       entries: listEntries(partyType, party.id, req.query.limit),
       // What was actually done with them, on account or not — see accounts.js.
       dealings: dealingsWith(partyType, party.id, req.query.limit),
+      vouchers,
     });
   });
 
@@ -166,12 +183,73 @@ export function partyRouter(partyType) {
     res.json({ ok: true });
   });
 
-  /** Money received from a customer, or paid out to a supplier. */
+  /**
+   * Money received from a customer, or paid out to a supplier.
+   *
+   * Written as a **voucher**, which is the change worth explaining. Settling an
+   * account is the same act as every other movement of money in and out of a
+   * till, and the shop's voucher book already knows how to do it: one
+   * transaction that moves the drawer, moves the party's balance, and produces
+   * a numbered slip the person handing the money over can sign.
+   *
+   * It used to be two calls that each did half of it, and the half that could
+   * fail did so quietly — `recordMovement` returns null when no cashbox is
+   * open, so a customer paying cash into a shut till left a ledger saying paid
+   * and a drawer that never saw it. The voucher path refuses instead, with the
+   * same message the register gives, which is the answer a counter can act on.
+   *
+   * A settlement that is not cash — a transfer, a cheque — has no till at
+   * either end and no slip to print, so it stays on the ledger-only path.
+   */
   router.post('/:id/payments', requireAuth, requirePermission('parties'), (req, res) => {
     const party = db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(req.params.id);
     if (!party) return res.status(404).json({ error: 'Not found' });
 
+    const inCash = req.body?.inCash !== false;
+    const till = req.body?.accountId ?? (inCash ? defaultAccount()?.id ?? null : null);
+
     try {
+      if (inCash && till) {
+        let amountUsd = 0;
+        let amountLbp = 0;
+        for (const p of req.body?.payments || []) {
+          if (p?.currency === 'USD') amountUsd += Number(p.amount) || 0;
+          if (p?.currency === 'LBP') amountLbp += Number(p.amount) || 0;
+        }
+
+        /*
+         * Which way round it goes is the two accounts, never a flag: in from a
+         * customer is a receipt, out to a supplier is a payment, and the ledger
+         * sign falls out of that rather than being asserted here.
+         */
+        const voucher = recordVoucher({
+          fromType: isCustomer ? 'customer' : 'cash',
+          fromId: isCustomer ? party.id : till,
+          toType: isCustomer ? 'cash' : 'supplier',
+          toId: isCustomer ? till : party.id,
+          amountUsd,
+          amountLbp,
+          reason: isCustomer ? 'customer' : 'supplier',
+          note: req.body?.note || null,
+          userId: req.user.id,
+        });
+
+        /*
+         * `amountUsd` is what the payment came to *in dollars* — the two piles
+         * added up at the rate the voucher was written at, not the dollar pile
+         * on its own. It is the figure the balance moved by, and callers have
+         * always read it that way.
+         */
+        const rate = Number(voucher.exchange_rate) || 0;
+        return res.status(201).json({
+          voucher,
+          amountUsd: round2(amountUsd + (rate > 0 ? amountLbp / rate : 0)),
+          paidUsd: round2(amountUsd),
+          paidLbp: Math.round(amountLbp),
+          balance: balanceOf(partyType, party.id),
+        });
+      }
+
       const result = recordPayment({
         partyType,
         partyId: party.id,
@@ -179,23 +257,6 @@ export function partyRouter(partyType) {
         note: req.body?.note || null,
         userId: req.user.id,
       });
-
-      /*
-       * Settling an account moves real notes: a customer paying what they owe
-       * fills the drawer, paying a supplier empties it. Cheques and transfers
-       * do not, so only cash is recorded here.
-       */
-      if (req.body?.inCash !== false) {
-        const sign = isCustomer ? 1 : -1;
-        recordMovement({
-          kind: isCustomer ? 'customer_payment' : 'supplier_payment',
-          amountUsd: sign * result.paidUsd,
-          amountLbp: sign * result.paidLbp,
-          reason: isCustomer ? 'customer_payment' : 'supplier',
-          note: `${party.name}${req.body?.note ? ` — ${req.body.note}` : ''}`,
-          userId: req.user.id,
-        });
-      }
 
       res.status(201).json({ ...result, balance: balanceOf(partyType, party.id) });
     } catch (err) {
