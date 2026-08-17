@@ -16,13 +16,12 @@ const REASONS = {
   refund: 'Refund',
   wallet_top_up: 'Buying credit',
   customer: 'Customer paying',
+  transfer_agency: 'Settling with a transfer agency',
   owner_funds: "Owner's money in",
   deposit: 'Deposit',
   wallet_withdrawal: 'Credit taken back',
   other: 'Other',
 };
-
-const METHODS = { cash: 'Cash', bank: 'Bank transfer', card: 'Card', other: 'Other' };
 
 function Rule() {
   return <div className="my-1.5 border-t border-dashed border-black" />;
@@ -68,8 +67,16 @@ export function VoucherPaper({ voucher }) {
       <dl className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5">
         <dt>Date</dt>
         <dd>{voucher.issued_on}</dd>
+        {/*
+          * Both ends, from the columns that hold them.
+          *
+          * These read `account_name` and `method` until the day a voucher grew
+          * a second side, and nobody noticed the slip had been printing an
+          * empty payee ever since — the one line on the paper the person
+          * signing it is looking for.
+          */}
         <dt>{paying ? 'Paid to' : 'Received from'}</dt>
-        <dd className="font-bold">{voucher.account_name}</dd>
+        <dd className="font-bold">{paying ? voucher.to_name : voucher.from_name}</dd>
         {voucher.reason && (
           <>
             <dt>For</dt>
@@ -82,8 +89,8 @@ export function VoucherPaper({ voucher }) {
             <dd>{voucher.reference}</dd>
           </>
         )}
-        <dt>By</dt>
-        <dd>{METHODS[voucher.method] || voucher.method}</dd>
+        <dt>{paying ? 'Out of' : 'Into'}</dt>
+        <dd>{paying ? voucher.from_name : voucher.to_name}</dd>
       </dl>
 
       <Rule />

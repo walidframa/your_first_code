@@ -39,6 +39,7 @@ export const OWN_TYPES = ['cash', 'wallet'];
 export const VOUCHER_REASONS = [
   'supplier',
   'customer',
+  'transfer_agency',
   'wages',
   'rent',
   'utilities',

@@ -23,6 +23,7 @@ import { db, transaction } from '../db.js';
 import { round2 } from './currency.js';
 import { addEntry, balanceOf } from './accounts.js';
 import { getSettings } from './settings.js';
+import { recordVoucher } from './vouchers.js';
 
 /** What the balance means, in the words an operator would use. */
 export function standing(balanceUsd) {
@@ -146,6 +147,61 @@ export function setOpeningBalance(id, { amountUsd = 0, amountLbp = 0, userId = n
     const balance = balanceOf('transfer_company', id);
     return { ...companyById(id), balance, standing: standing(balance) };
   })();
+}
+
+/**
+ * The end of a day at the counter.
+ *
+ * A transfer counter does not settle by netting off next week's sends: the
+ * agency's rider comes round, and either the shop hands over the cash it has
+ * been holding or the agency makes the shop good for what it paid out. Both are
+ * a voucher — money out of a named till into a named account, or the reverse —
+ * and going through `recordVoucher` is what makes the drawer, the agency's
+ * ledger and a numbered slip agree with each other.
+ *
+ * Which way round is not asked twice. The balance already says it: positive is
+ * the shop holding their money, so the shop pays. It can still be overridden,
+ * because an operator handing over a float in advance is settling too.
+ *
+ * Both currencies, separately, because that is how it is counted out on the
+ * counter — a bundle of dollars and a brick of pounds — and converting one into
+ * the other to store a single figure would leave the drawer disagreeing with
+ * what is in it.
+ */
+export function settleWithCompany(
+  id,
+  { accountId, direction = null, amountUsd = 0, amountLbp = 0, note = null, userId = null },
+) {
+  const company = companyById(id);
+  if (!company) throw new Error('That agency does not exist');
+
+  const balance = balanceOf('transfer_company', company.id);
+  const way = direction || (balance < 0 ? 'receive' : 'pay');
+  if (way !== 'pay' && way !== 'receive') {
+    throw new Error('Settling is either paying them or receiving from them');
+  }
+
+  const till = { type: 'cash', id: accountId };
+  const agency = { type: 'transfer_company', id: company.id };
+  const [from, to] = way === 'pay' ? [till, agency] : [agency, till];
+
+  const voucher = recordVoucher({
+    fromType: from.type,
+    fromId: from.id,
+    toType: to.type,
+    toId: to.id,
+    amountUsd,
+    amountLbp,
+    reason: 'transfer_agency',
+    note: note?.trim() || `Settled with ${company.name}`,
+    userId,
+  });
+
+  const after = balanceOf('transfer_company', company.id);
+  return {
+    voucher,
+    company: { ...companyById(company.id), balance: after, standing: standing(after) },
+  };
 }
 
 /**
