@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AlertTriangle,
   ArrowDownLeft,
@@ -689,22 +689,49 @@ export default function CashBox({
   // the panel itself while the drawer is still open.
   const [reportFor, setReportFor] = useState(null);
   /*
-   * Folded away by default, and remembered.
+   * Folded away by default.
    *
    * The drawer and the day's profit are worth a glance, not a quarter of the
    * column — and the column's real job is the cart. Folded, the figures are
    * still on screen; it is the buttons under them, which are used a few times a
    * day, that stop crowding out the thing used every minute.
+   *
+   * Remembered only in the column. A panel that pushes the cart down is a
+   * preference somebody expressed; a popover hanging out of the header is a
+   * menu, and a menu that reopens itself on every page load is a menu covering
+   * the register — which is precisely what it did, silently swallowing clicks
+   * on the search box until a test noticed.
    */
   const [detailOpen, setDetailOpen] = useState(
-    () => globalThis.localStorage?.getItem('pos_money_open') === '1',
+    () => !compact && globalThis.localStorage?.getItem('pos_money_open') === '1',
   );
 
   const toggleDetail = () =>
     setDetailOpen((wasOpen) => {
-      globalThis.localStorage?.setItem('pos_money_open', wasOpen ? '0' : '1');
+      if (!compact) globalThis.localStorage?.setItem('pos_money_open', wasOpen ? '0' : '1');
       return !wasOpen;
     });
+
+  /*
+   * And it closes the way every other menu closes: click elsewhere, or Escape.
+   * In the column there is nothing to dismiss — the panel is part of the page.
+   */
+  const holder = useRef(null);
+  useEffect(() => {
+    if (!compact || !detailOpen) return undefined;
+    const away = (e) => {
+      if (holder.current && !holder.current.contains(e.target)) setDetailOpen(false);
+    };
+    const key = (e) => {
+      if (e.key === 'Escape') setDetailOpen(false);
+    };
+    document.addEventListener('mousedown', away);
+    document.addEventListener('keydown', key);
+    return () => {
+      document.removeEventListener('mousedown', away);
+      document.removeEventListener('keydown', key);
+    };
+  }, [compact, detailOpen]);
 
   const load = useCallback(async () => {
     const res = await api.get('/cash/current', { params: accountId ? { accountId } : undefined });
@@ -821,7 +848,10 @@ export default function CashBox({
         * only when the server sent it, which it does for whoever may see profit
         * at all. A cashier gets nothing here, not a hidden or blanked-out box.
         */}
-      <div className={cx(compact ? 'relative shrink-0' : 'border-b border-slate-200 bg-slate-50')}>
+      <div
+        ref={holder}
+        className={cx(compact ? 'relative shrink-0' : 'border-b border-slate-200 bg-slate-50')}
+      >
         {/*
           * The whole strip is the handle. One row, both figures, and the
           * chevron — a cashier glancing at the drawer gets what they came for
@@ -873,6 +903,20 @@ export default function CashBox({
             <span className="flex items-center gap-1.5 text-sm text-slate-500">
               <EyeOff size={13} /> {t('Counted at close')}
             </span>
+          )}
+
+          {/*
+            * Said in words, not only in red.
+            *
+            * A drawer below zero means the money and the books have drifted
+            * apart, and the sooner somebody looks the better the chance of
+            * remembering why — so it stays on screen until it is fixed or the
+            * sitting is closed. The full sentence does not fit in a header and
+            * is in the menu below; two words do, and two words are enough to
+            * make somebody open it.
+            */}
+          {short && compact && (
+            <span className="ms-1 text-sm font-semibold text-red-600">{t('Drawer short')}</span>
           )}
 
           {showProfit && profit && (
