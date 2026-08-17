@@ -73,7 +73,7 @@ function AdjustModal({ product, reasons, onClose, onSaved }) {
           </div>
         </div>
 
-        <div className="flex rounded-lg bg-slate-100 p-0.5 text-sm font-medium">
+        <div className="flex max-w-full overflow-x-auto rounded-lg bg-slate-100 p-0.5 text-sm font-medium">
           {[
             { key: 'add', label: 'Add' },
             { key: 'remove', label: 'Remove' },
@@ -84,7 +84,7 @@ function AdjustModal({ product, reasons, onClose, onSaved }) {
               type="button"
               onClick={() => setMode(m.key)}
               className={cx(
-                'flex-1 rounded-md px-3 py-1.5 transition',
+                'flex-1 rounded-md px-3 py-1.5 whitespace-nowrap transition',
                 mode === m.key ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800',
               )}
             >
@@ -228,12 +228,12 @@ export default function Inventory() {
     <div className="flex h-full flex-col">
       <PageHeader title="Inventory" subtitle="Stock levels, adjustments and movement history" />
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-6">
+      <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
         {!data ? (
           <Skeleton className="h-64" />
         ) : (
           <>
-            <div className="mb-4 grid grid-cols-4 gap-4">
+            <div className="mb-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
               <Card className="px-4 py-3.5">
                 <p className="text-xs text-slate-500">SKUs tracked</p>
                 <p className="mt-1 text-2xl font-semibold text-slate-900">{data.totals.skuCount}</p>
@@ -274,7 +274,7 @@ export default function Inventory() {
                     className="h-9 w-full rounded-lg bg-slate-100 pr-3 pl-9 text-sm ring-1 ring-transparent transition focus:bg-white focus:ring-brand-600 focus:outline-none"
                   />
                 </div>
-                <div className="flex rounded-lg bg-slate-100 p-0.5 text-sm font-medium">
+                <div className="flex max-w-full overflow-x-auto rounded-lg bg-slate-100 p-0.5 text-sm font-medium">
                   {[
                     { key: 'all', label: 'All' },
                     { key: 'low', label: 'Low' },

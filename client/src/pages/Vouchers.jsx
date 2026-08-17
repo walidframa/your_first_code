@@ -278,7 +278,7 @@ function VoucherDialog({ meta, onClose, onSaved, prefill = null }) {
           />
         </div>
 
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <Select label="What for" name="reason" value={reason} onChange={(e) => setReason(e.target.value)}>
             {meta.reasons.map((r) => (
               <option key={r} value={r}>
@@ -466,7 +466,14 @@ export default function Vouchers() {
         }
       />
 
-      <div className="flex min-h-0 flex-1">
+      {/*
+        * A column on a monitor, stacked on a phone.
+        *
+        * The drawer panel used to be hidden outright below `lg`, which on a
+        * handset meant a desk whose every action needs an open cashbox with no
+        * way to open one. Stacked, it goes above the work instead of beside it.
+        */}
+      <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
         {/*
          * `min-w-0` is doing real work here, and its absence was a bug.
          *
@@ -476,7 +483,7 @@ export default function Vouchers() {
          * clipped off the left-hand edge with no way to scroll to it. The
          * table now scrolls inside its own column instead.
          */}
-        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-6">
+        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-4 sm:p-6">
           {!data ? (
             <Skeleton className="h-64" />
           ) : (
@@ -641,7 +648,7 @@ export default function Vouchers() {
           * money you do not have is a mistake best caught before the money is
           * counted out, not at closing.
           */}
-        <aside className="no-print hidden w-[300px] shrink-0 overflow-y-auto border-l border-slate-200 bg-white lg:block xl:w-[340px]">
+        <aside className="no-print order-first w-full shrink-0 overflow-y-auto border-b border-slate-200 bg-white lg:order-none lg:w-[300px] lg:border-b-0 lg:border-l xl:w-[340px]">
           <CashBox refreshOn={moved} />
         </aside>
       </div>

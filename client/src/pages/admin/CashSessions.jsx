@@ -49,7 +49,7 @@ export default function CashSessions() {
     <div className="flex h-full flex-col">
       <PageHeader title="Cashbox" subtitle="Every sitting of the till, and how it counted" />
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-6">
+      <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
         {/*
          * Cash on hand first, because it is the question this page is opened to
          * answer. Everything below is history.

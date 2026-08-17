@@ -196,7 +196,7 @@ export default function Shopify() {
     return (
       <div className="flex h-full flex-col">
         <PageHeader title="Shopify" subtitle="Keep website and shop stock in step" />
-        <div className="min-h-0 flex-1 overflow-y-auto p-6">
+        <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
           <ConnectForm onConnected={load} />
         </div>
       </div>
@@ -244,7 +244,7 @@ export default function Shopify() {
         }
       />
 
-      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-6">
+      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4 sm:p-6">
         {error && (
           <p className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700 ring-1 ring-red-200">{error}</p>
         )}
@@ -257,7 +257,7 @@ export default function Shopify() {
           </p>
         )}
 
-        <div className="grid grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           {[
             ['Linked products', status.linkedCount, null],
             ['Not linked', status.unlinkedCount, status.unlinkedCount > 0 ? 'text-amber-600' : null],

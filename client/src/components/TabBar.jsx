@@ -77,14 +77,22 @@ export default function TabBar() {
         })}
       </div>
 
+      {/*
+        * Words where there is room for them, a cross where there is not.
+        *
+        * "Close the rest" is a third of a phone's bar, and it was spending it
+        * to explain a button nobody presses by accident — while the tabs it
+        * talks about were squeezed down to four letters and a fade.
+        */}
       <button
         type="button"
         onClick={closeAll}
-        className="shrink-0 rounded-lg px-2.5 py-1 text-xs font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+        aria-label="Close the rest"
+        title="Close the rest"
+        className="shrink-0 rounded-lg px-2 py-1 text-xs font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-800"
       >
-        {/* What it does, said plainly: the page in front of you is not one of
-            the ones being put away. */}
-        Close the rest
+        <X size={15} className="sm:hidden" />
+        <span className="hidden sm:inline">Close the rest</span>
       </button>
     </nav>
   );

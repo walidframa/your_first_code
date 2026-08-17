@@ -407,9 +407,15 @@ export function ToastProvider({ children }) {
       {/* Bottom-left, clear of the nav rail: away from the scan bar at the top
           and from the cart totals and Charge button down the right. The offset
           follows the rail's own width, which the layout publishes — a fixed one
-          sat under the menu the moment it could be widened. */}
+          sat under the menu the moment it could be widened.
+
+          On a phone there is no "down the right": the cart is underneath the
+          shelf and the Charge button is at the bottom of it, which is exactly
+          where these were landing — two toasts sitting on the one button the
+          sale is waiting for. So on a narrow screen they come down from the
+          top instead, where the only thing they cover is the search bar. */}
       <div
-        className="pointer-events-none fixed bottom-4 left-[calc(var(--rail-width,68px)+1rem)] z-[100] flex flex-col items-start gap-2"
+        className="pointer-events-none fixed top-14 left-2 z-[100] flex flex-col items-start gap-2 sm:top-auto sm:bottom-4 sm:left-[calc(var(--rail-width,68px)+1rem)]"
         aria-live="polite"
         aria-atomic="false"
       >

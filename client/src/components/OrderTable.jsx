@@ -109,9 +109,11 @@ export default function OrderTable({
               <thead className="border-b border-slate-100 text-left text-xs text-slate-500">
                 <tr>
                   <th className="px-5 py-2.5 font-medium">Sale</th>
-                  {showCashier && <th className="px-3 py-2.5 font-medium">Cashier</th>}
+                  {showCashier && (
+                    <th className="hidden px-3 py-2.5 font-medium md:table-cell">Cashier</th>
+                  )}
                   <th className="px-3 py-2.5 font-medium">Date</th>
-                  <th className="px-3 py-2.5 font-medium">Payment</th>
+                  <th className="hidden px-3 py-2.5 font-medium sm:table-cell">Payment</th>
                   <th className="px-3 py-2.5 font-medium">Status</th>
                   <th className="px-5 py-2.5 text-right font-medium">Total</th>
                 </tr>
@@ -130,12 +132,12 @@ export default function OrderTable({
                       )}
                     </td>
                     {showCashier && (
-                      <td className="px-3 py-2.5 text-slate-500">
+                      <td className="hidden px-3 py-2.5 text-slate-500 md:table-cell">
                         {o.kind === 'order' ? o.cashier_name : o.user_name}
                       </td>
                     )}
                     <td className="px-3 py-2.5 text-slate-500">{o.at}</td>
-                    <td className="px-3 py-2.5 text-slate-500 capitalize">
+                    <td className="hidden px-3 py-2.5 text-slate-500 capitalize sm:table-cell">
                       {o.kind === 'order'
                         ? o.payment_method
                         : o.outstanding > 0

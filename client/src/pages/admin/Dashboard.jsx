@@ -86,13 +86,13 @@ export default function Dashboard() {
         subtitle="Sales performance and stock health"
         actions={
           /* One filter row scoping every chart below. */
-          <div className="flex rounded-lg bg-slate-100 p-0.5 text-sm font-medium">
+          <div className="flex max-w-full overflow-x-auto rounded-lg bg-slate-100 p-0.5 text-sm font-medium">
             {RANGES.map((r) => (
               <button
                 key={r.key}
                 onClick={() => setRange(r.key)}
                 className={cx(
-                  'rounded-md px-3 py-1.5 transition',
+                  'shrink-0 rounded-md px-3 py-1.5 whitespace-nowrap transition',
                   range === r.key ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800',
                 )}
               >
@@ -103,10 +103,10 @@ export default function Dashboard() {
         }
       />
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-6">
+      <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
         {!summary ? (
           <div className="space-y-4">
-            <div className="grid grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
               {Array.from({ length: 4 }).map((_, i) => (
                 <Skeleton key={i} className="h-[86px]" />
               ))}
@@ -127,7 +127,7 @@ export default function Dashboard() {
             </section>
 
             {accounts && (
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
                 <Link to="/admin/customers">
                   <Card className="px-4 py-3.5 transition hover:ring-brand-300">
                     <p className="text-xs text-slate-500">Owed to you</p>
@@ -165,7 +165,7 @@ export default function Dashboard() {
               </div>
             )}
 
-            <div className="grid grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
               <StatTile label="Orders" value={summary.orderCount} />
               <StatTile label="Average order" value={money(summary.averageOrderValue)} />
               {/* A tile reading $0.00 every day is a tile that teaches people
@@ -184,7 +184,7 @@ export default function Dashboard() {
               <RevenueChart data={fillDays(summary.byDay, RANGES.find((r) => r.key === range).days)} />
             </Card>
 
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
               <Card>
                 <CardHeader title="Top sellers" subtitle="By units sold" />
                 <TopSellers products={summary.topProducts} />

@@ -343,7 +343,7 @@ function DocumentForm({ existing, onClose, onSaved }) {
         <form onSubmit={submit} className="space-y-4">
           {/* Type is picked by icon — it decides everything else on this form. */}
           {!editing && (
-            <div className="grid grid-cols-4 gap-2">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
               {Object.entries(TYPE_META).map(([key, m]) => {
                 const Icon = m.icon;
                 const selected = docType === key;
@@ -674,7 +674,7 @@ function DocumentForm({ existing, onClose, onSaved }) {
               </legend>
 
               <div className="space-y-3 px-3 pt-1 pb-3">
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                   {[
                     ['account', 'On account', partyType === 'supplier' ? 'Pay later' : 'They pay later'],
                     ['full', 'Paid in full', 'Nothing left owing'],
@@ -701,7 +701,7 @@ function DocumentForm({ existing, onClose, onSaved }) {
                 </div>
 
                 {settleAs !== 'account' && (
-                  <div className="grid grid-cols-3 items-start gap-3">
+                  <div className="grid grid-cols-1 items-start gap-3 sm:grid-cols-3">
                     <Select
                       label="Method"
                       name="payMethod"
@@ -1277,9 +1277,9 @@ export default function Documents() {
         }
       />
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-6">
+      <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
         {/* Type tiles double as the filter. */}
-        <div className="mb-4 grid grid-cols-5 gap-3">
+        <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
           <button
             onClick={() => setFilter('all')}
             className={cx(
@@ -1342,9 +1342,9 @@ export default function Documents() {
               <thead className="border-b border-slate-100 text-left text-xs text-slate-500">
                 <tr>
                   <th className="px-5 py-2.5 font-medium">Number</th>
-                  <th className="px-3 py-2.5 font-medium">Type</th>
+                  <th className="hidden px-3 py-2.5 font-medium sm:table-cell">Type</th>
                   <th className="px-3 py-2.5 font-medium">Party</th>
-                  <th className="px-3 py-2.5 font-medium">Date</th>
+                  <th className="hidden px-3 py-2.5 font-medium md:table-cell">Date</th>
                   <th className="px-3 py-2.5 font-medium">Status</th>
                   <th className="px-5 py-2.5 text-right font-medium">Total</th>
                 </tr>
@@ -1353,7 +1353,7 @@ export default function Documents() {
                 {visible.map((d) => (
                   <tr key={d.id} onClick={() => setViewing(d.id)} className="cursor-pointer hover:bg-slate-50/60">
                     <td className="px-5 py-2.5 font-medium text-slate-800">{d.doc_number}</td>
-                    <td className="px-3 py-2.5">
+                    <td className="hidden px-3 py-2.5 sm:table-cell">
                       <span className="flex items-center gap-1.5 text-slate-500">
                         <span className={cx('rounded p-1', TYPE_META[d.doc_type]?.tint)}>
                           <TypeIcon type={d.doc_type} size={13} />
@@ -1362,7 +1362,7 @@ export default function Documents() {
                       </span>
                     </td>
                     <td className="px-3 py-2.5 text-slate-500">{d.party_name || '—'}</td>
-                    <td className="px-3 py-2.5 text-slate-500">{d.issue_date}</td>
+                    <td className="hidden px-3 py-2.5 text-slate-500 md:table-cell">{d.issue_date}</td>
                     <td className="px-3 py-2.5">
                       <Badge tone={STATUS_TONES[d.status]}>{d.status}</Badge>
                     </td>

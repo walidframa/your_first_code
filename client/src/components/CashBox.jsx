@@ -775,10 +775,13 @@ export default function CashBox({
             */}
           <button
             onClick={() => setDialog('open')}
-            className="flex h-10 shrink-0 items-center gap-1.5 rounded-xl bg-amber-50 px-2.5 text-sm font-semibold text-amber-900 ring-1 ring-amber-200 transition hover:bg-amber-100"
+            className="flex h-10 min-w-0 items-center gap-1.5 rounded-xl bg-amber-50 px-2.5 text-sm font-semibold text-amber-900 ring-1 ring-amber-200 transition hover:bg-amber-100"
           >
-            <Lock size={15} />
-            {t('Cashbox closed')}
+            <Lock size={15} className="shrink-0" />
+            {/* Gives way rather than drawing over the rest of the bar: on a
+                phone this chip and the name beside it wanted the same space,
+                and a fixed-width chip simply took it. */}
+            <span className="truncate">{t('Cashbox closed')}</span>
             {state.required && (
               <span className="hidden font-normal text-amber-700 sm:inline">
                 · {t('Cash sales are refused until it is open')}
@@ -850,7 +853,14 @@ export default function CashBox({
         */}
       <div
         ref={holder}
-        className={cx(compact ? 'relative shrink-0' : 'border-b border-slate-200 bg-slate-50')}
+        /*
+         * `min-w-0`, not `shrink-0`. This wrapper is the flex item the header
+         * actually lays out, and while it refused to shrink the handle inside
+         * it kept its full width no matter what the button was told — which is
+         * how a $824.00 ended up printed across the log-out button on a phone
+         * with the bigger-text setting on.
+         */
+        className={cx(compact ? 'relative flex min-w-0' : 'border-b border-slate-200 bg-slate-50')}
       >
         {/*
           * The whole strip is the handle. One row, both figures, and the
@@ -864,7 +874,7 @@ export default function CashBox({
           className={cx(
             'flex items-center gap-2 text-left transition hover:bg-slate-100',
             compact
-              ? 'h-10 rounded-xl px-2.5 ring-1 ring-slate-200'
+              ? 'h-10 min-w-0 rounded-xl px-2.5 ring-1 ring-slate-200'
               : 'w-full px-4 py-2',
           )}
         >
@@ -883,14 +893,25 @@ export default function CashBox({
             <>
               <span
                 className={cx(
-                  'tnum text-base leading-none font-semibold',
+                  'tnum leading-none font-semibold',
                   short ? 'text-red-600' : 'text-slate-900',
+                  // In the header the figure gives way rather than growing past
+                  // the end of the bar — which is what it did on a phone with
+                  // the bigger-text setting on, straight over the way out.
+                  compact ? 'min-w-0 truncate text-sm' : 'text-base',
                 )}
               >
                 {money(expected.usd)}
               </span>
+              {/* The pounds go first when the bar runs out of room: on a phone
+                  the dollars are the figure being glanced at, and losing the
+                  logout button to keep both is a poor trade. */}
               <span
-                className={cx('tnum text-xs leading-none', short ? 'text-red-500' : 'text-slate-500')}
+                className={cx(
+                  'tnum text-xs leading-none',
+                  short ? 'text-red-500' : 'text-slate-500',
+                  compact && 'hidden sm:inline',
+                )}
               >
                 {lbp(expected.lbp)}
               </span>
@@ -900,8 +921,14 @@ export default function CashBox({
              * A cashier counts blind, so the figure is withheld — said plainly,
              * because a blank space where a number should be looks broken.
              */
-            <span className="flex items-center gap-1.5 text-sm text-slate-500">
-              <EyeOff size={13} /> {t('Counted at close')}
+            <span
+              className={cx(
+                'flex items-center gap-1.5 text-sm text-slate-500',
+                compact && 'min-w-0 truncate',
+              )}
+            >
+              <EyeOff size={13} className="shrink-0" />{' '}
+              <span className="truncate">{t('Counted at close')}</span>
             </span>
           )}
 
@@ -916,16 +943,28 @@ export default function CashBox({
             * make somebody open it.
             */}
           {short && compact && (
-            <span className="ms-1 text-sm font-semibold text-red-600">{t('Drawer short')}</span>
+            <span className="ms-1 shrink-0 text-sm font-semibold text-red-600">
+              {t('Drawer short')}
+            </span>
           )}
 
           {showProfit && profit && (
-            <span className={cx('flex items-baseline gap-1', compact ? 'ms-1' : 'ml-auto')}>
+            <span
+              className={cx(
+                'flex items-baseline gap-1',
+                // On a phone the bar holds the drawer or the profit, not both,
+                // and the drawer is the one a cashier is looking at. The profit
+                // is a press away, in the panel this handle opens.
+                compact ? 'ms-1 hidden sm:flex' : 'ml-auto',
+              )}
+            >
               <TrendingUp size={12} className="text-brand-600" />
               <span className="tnum text-sm font-semibold text-brand-700">
                 {money(profit.netProfit)}
               </span>
-              <span className="text-[11px] text-brand-700/60">{t('profit')}</span>
+              <span className={cx('text-[11px] text-brand-700/60', compact && 'hidden sm:inline')}>
+                {t('profit')}
+              </span>
             </span>
           )}
 

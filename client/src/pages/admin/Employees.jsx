@@ -517,7 +517,7 @@ export default function Employees() {
         }
       />
 
-      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-6">
+      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4 sm:p-6">
         <Card className="flex flex-wrap items-end gap-3 p-4">
           <Input
             label="Run the month"

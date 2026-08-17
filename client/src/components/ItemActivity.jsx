@@ -67,7 +67,7 @@ export default function ItemActivity({ productId, onClose, onOpenDocument, onOpe
       subtitle={`${product.sku} · ${product.stock} in stock`}
       size="lg"
     >
-      <div className="mb-4 grid grid-cols-4 gap-3">
+      <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
         {[
           ['Sells for', money(product.price), null],
           ['Costs', money(product.cost), null],

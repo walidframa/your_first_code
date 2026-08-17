@@ -29,6 +29,7 @@ import SellSim from '../components/SellSim';
 import SendCredit from '../components/SendCredit';
 import SittingSales from '../components/SittingSales';
 import { ringUp } from '../lib/sales';
+import { useNarrow } from '../lib/screen';
 import { useOffline } from '../context/OfflineContext';
 import { useLicence } from '../context/LicenceContext';
 import { useT } from '../context/LanguageContext';
@@ -154,6 +155,8 @@ export default function Checkout() {
   // What this shop actually bought — see lib/nav.js.
   const { hasModule } = useLicence();
   const t = useT();
+  // Keyboard advice belongs on things with keyboards.
+  const narrow = useNarrow();
 
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
@@ -910,7 +913,11 @@ export default function Checkout() {
                 if (e.key === 'Enter' && search.trim()) handleScan(search.trim());
                 if (e.key === 'Escape') setSearch('');
               }}
-              placeholder={`${t('Scan barcode or search products…')}  (${t('press / to focus')})`}
+              placeholder={
+                narrow
+                  ? t('Scan barcode or search products…')
+                  : `${t('Scan barcode or search products…')}  (${t('press / to focus')})`
+              }
               aria-label={t('Scan barcode or search products')}
               className="h-11 w-full rounded-xl bg-slate-100 pr-9 pl-10 text-sm ring-1 ring-transparent transition focus:bg-white focus:ring-brand-600 focus:outline-none"
             />
@@ -1063,8 +1070,8 @@ export default function Checkout() {
         * shows up on one size of monitor.
         */}
       <aside className="@container no-print flex w-full shrink-0 flex-col border-slate-200 bg-white lg:w-1/3 lg:border-s">
-        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3.5">
-          <div className="flex min-w-0 items-baseline gap-2.5">
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-slate-100 px-4 py-3 @xl:px-5 @xl:py-3.5">
+          <div className="flex min-w-0 flex-wrap items-baseline gap-x-2.5 gap-y-1">
             <div className="min-w-0">
               <h2 className="font-semibold text-slate-900">{t('Current sale')}</h2>
               {rate > 0 && (
@@ -1120,7 +1127,7 @@ export default function Checkout() {
               </span>
             )}
           </div>
-          <div className="flex items-center gap-1">
+          <div className="flex shrink-0 items-center gap-1">
             {/*
              * What this till has already sold, and the way to put something
              * back. The sale somebody wants to correct is almost always the

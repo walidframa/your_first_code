@@ -418,10 +418,10 @@ export default function Products() {
         }
       />
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-6">
+      <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
         <Card>
-          <div className="flex items-center gap-3 border-b border-slate-100 px-5 py-3">
-            <div className="relative flex-1">
+          <div className="flex flex-wrap items-center gap-3 border-b border-slate-100 px-4 py-3 sm:px-5">
+            <div className="relative min-w-[12rem] flex-1">
               <Search
                 size={16}
                 className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-slate-400"
@@ -511,12 +511,12 @@ export default function Products() {
               <table className="w-full text-sm">
                 <thead className="border-b border-slate-100 text-left text-xs text-slate-500">
                   <tr>
-                    <th className="px-5 py-2.5 font-medium">Product</th>
-                    <th className="px-3 py-2.5 font-medium">Category</th>
+                    <th className="px-3 py-2.5 font-medium sm:px-5">Product</th>
+                    <th className="hidden px-3 py-2.5 font-medium sm:table-cell">Category</th>
                     <th className="px-3 py-2.5 text-right font-medium">Price</th>
-                    <th className="px-3 py-2.5 text-right font-medium">Margin</th>
+                    <th className="hidden px-3 py-2.5 text-right font-medium md:table-cell">Margin</th>
                     <th className="px-3 py-2.5 font-medium">Stock</th>
-                    <th className="px-5 py-2.5 text-right font-medium">Actions</th>
+                    <th className="px-3 py-2.5 text-right font-medium sm:px-5">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
@@ -524,8 +524,8 @@ export default function Products() {
                     const margin = p.price > 0 ? ((p.price - p.cost) / p.price) * 100 : 0;
                     return (
                       <tr key={p.id} className={cx('hover:bg-slate-50/60', !p.active && 'opacity-55')}>
-                        <td className="px-5 py-2.5">
-                          <div className="flex items-center gap-3">
+                        <td className="px-3 py-2.5 sm:px-5">
+                          <div className="flex items-center gap-2 sm:gap-3">
                             <ProductThumb product={p} size="sm" />
                             <div className="min-w-0">
                               <p className="flex items-center gap-2 truncate font-medium text-slate-800">
@@ -539,14 +539,16 @@ export default function Products() {
                             </div>
                           </div>
                         </td>
-                        <td className="px-3 py-2.5 text-slate-500">{p.category_name || '—'}</td>
+                        <td className="hidden px-3 py-2.5 text-slate-500 sm:table-cell">{p.category_name || '—'}</td>
                         <td className="tnum px-3 py-2.5 text-right">
                           <span className="block font-medium text-slate-800">{money(p.price)}</span>
                           {rate > 0 && (
-                            <span className="block text-xs text-slate-400">{lbp(toLbp(p.price))}</span>
+                            <span className="hidden text-xs text-slate-400 sm:block">
+                              {lbp(toLbp(p.price))}
+                            </span>
                           )}
                         </td>
-                        <td className="tnum px-3 py-2.5 text-right text-slate-500">{margin.toFixed(0)}%</td>
+                        <td className="tnum hidden px-3 py-2.5 text-right text-slate-500 md:table-cell">{margin.toFixed(0)}%</td>
                         <td className="px-3 py-2.5">
                           {/* A card cannot be out of stock, and saying so on
                               every one of them would bury the products that
@@ -557,7 +559,7 @@ export default function Products() {
                             <StockBadge stock={p.stock} reorderPoint={p.reorder_point} />
                           )}
                         </td>
-                        <td className="px-5 py-2.5">
+                        <td className="px-3 py-2.5 sm:px-5">
                           <div className="flex justify-end gap-1">
                             {/* Serialised products are managed by handset, so the
                                 shortcut goes where the work actually is. */}
@@ -569,7 +571,7 @@ export default function Products() {
                                 aria-label={`Handsets of ${p.name}`}
                                 title="Book in and track each IMEI"
                               >
-                                <Smartphone size={14} /> IMEIs
+                                <Smartphone size={14} /> <span className="hidden sm:inline">IMEIs</span>
                               </Button>
                             ) : null}
                             <Button
@@ -579,10 +581,10 @@ export default function Products() {
                               aria-label={`Activity for ${p.name}`}
                               title="Sales, deliveries and cost changes"
                             >
-                              <History size={14} /> History
+                              <History size={14} /> <span className="hidden sm:inline">History</span>
                             </Button>
                             <Button size="sm" variant="secondary" onClick={() => setEditing(p)}>
-                              <Pencil size={13} /> Edit
+                              <Pencil size={13} /> <span className="hidden sm:inline">Edit</span>
                             </Button>
                             <Button
                               size="sm"

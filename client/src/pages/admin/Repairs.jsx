@@ -589,7 +589,7 @@ export default function Repairs() {
         }
       />
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-6">
+      <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
         <HistoryFilter
           filter={history}
           label="Search repairs"
@@ -679,9 +679,9 @@ export default function Repairs() {
                 <tr>
                   <th className="px-5 py-2 font-medium">Ticket</th>
                   <th className="px-3 py-2 font-medium">Device</th>
-                  <th className="px-3 py-2 font-medium">Customer</th>
-                  <th className="px-3 py-2 font-medium">Fault</th>
-                  <th className="px-3 py-2 text-right font-medium">Parts</th>
+                  <th className="hidden px-3 py-2 font-medium sm:table-cell">Customer</th>
+                  <th className="hidden px-3 py-2 font-medium md:table-cell">Fault</th>
+                  <th className="hidden px-3 py-2 text-right font-medium sm:table-cell">Parts</th>
                   <th className="px-5 py-2 font-medium">Status</th>
                 </tr>
               </thead>
@@ -700,15 +700,18 @@ export default function Repairs() {
                         </span>
                       )}
                     </td>
-                    <td className="px-3 py-2.5 text-slate-800">{t.device}</td>
-                    <td className="px-3 py-2.5 text-slate-600">
+                    <td className="px-3 py-2.5 text-slate-800">
+                      {t.device}
+                      <span className="block text-xs text-slate-400 sm:hidden">{t.customer_name}</span>
+                    </td>
+                    <td className="hidden px-3 py-2.5 text-slate-600 sm:table-cell">
                       {t.customer_name}
                       {t.customer_phone && (
                         <span className="block text-xs text-slate-400">{t.customer_phone}</span>
                       )}
                     </td>
-                    <td className="max-w-[16rem] truncate px-3 py-2.5 text-slate-500">{t.fault}</td>
-                    <td className="tnum px-3 py-2.5 text-right text-slate-600">
+                    <td className="hidden max-w-[16rem] truncate px-3 py-2.5 text-slate-500 md:table-cell">{t.fault}</td>
+                    <td className="tnum hidden px-3 py-2.5 text-right text-slate-600 sm:table-cell">
                       {t.part_count ? money(t.parts_total) : '—'}
                     </td>
                     <td className="px-5 py-2.5">

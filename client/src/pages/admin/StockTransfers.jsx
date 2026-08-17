@@ -343,7 +343,7 @@ export default function StockTransfers() {
         }
       />
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-6">
+      <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
         {branches.length < 2 && (
           <Card className="mb-4 px-5 py-4">
             <p className="text-sm text-slate-600">
