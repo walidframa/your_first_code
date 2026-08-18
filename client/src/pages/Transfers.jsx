@@ -315,6 +315,129 @@ function Stat({ label, usd, lbpAmount, tone = 'neutral' }) {
   );
 }
 
+/**
+ * Which drawer this counter works out of.
+ *
+ * A transfer desk sharing the register's till is two people putting money in
+ * one box: the cashier's float, the operator's sends and both of their payouts
+ * land together, and at closing neither count means anything. Naming a drawer
+ * here is what separates them, and it is the shop's decision rather than the
+ * browser's — the money physically goes into one box or the other.
+ */
+function DeskTillDialog({ tills, deskTillId, onClose, onSaved }) {
+  const toast = useToast();
+  // A shop with one till is choosing to create a second; a shop with several is
+  // choosing between them, and starts on the one it already uses.
+  const [mode, setMode] = useState(tills.length > 1 ? 'pick' : 'new');
+  const [pick, setPick] = useState(deskTillId ?? tills.find((t) => t.is_default)?.id ?? '');
+  const [name, setName] = useState('Transfer desk');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  async function submit(e) {
+    e.preventDefault();
+    setBusy(true);
+    setError('');
+    try {
+      const body = mode === 'new' ? { name } : { accountId: Number(pick) };
+      const res = await api.put('/transfers/till', body);
+      toast('The desk has its own drawer');
+      onSaved(res.data);
+    } catch (err) {
+      setError(err.response?.data?.error || 'Could not set that');
+      setBusy(false);
+    }
+  }
+
+  async function share() {
+    setBusy(true);
+    try {
+      const res = await api.put('/transfers/till', { accountId: null });
+      toast('The desk is back on the register’s drawer');
+      onSaved(res.data);
+    } catch (err) {
+      setError(err.response?.data?.error || 'Could not set that');
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal open onClose={onClose} size="sm" title="The desk’s drawer">
+      <form onSubmit={submit}>
+        <p className="text-sm text-slate-600">
+          Money the counter takes and pays out goes into this till. Give it one of its own and the
+          register’s drawer stops carrying transfers — each is counted on its own at the end of the
+          day.
+        </p>
+
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          {[
+            ['new', 'A new drawer', 'Opened for this desk'],
+            ['pick', 'One that exists', 'Choose from the tills'],
+          ].map(([value, label, hint]) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => setMode(value)}
+              className={cx(
+                'rounded-xl px-3 py-2.5 text-left ring-1 transition',
+                mode === value
+                  ? 'bg-brand-50 ring-2 ring-brand-600'
+                  : 'bg-white ring-slate-200 hover:bg-slate-50',
+              )}
+            >
+              <span className="block text-sm font-semibold text-slate-900">{label}</span>
+              <span className="block text-xs text-slate-500">{hint}</span>
+            </button>
+          ))}
+        </div>
+
+        <div className="mt-3">
+          {mode === 'new' ? (
+            <Input
+              label="Call it"
+              name="tillName"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              hint="It appears wherever tills are listed, and is counted on its own"
+              autoFocus
+            />
+          ) : (
+            <Select
+              label="Which till"
+              name="deskTill"
+              value={pick}
+              onChange={(e) => setPick(e.target.value)}
+            >
+              {tills.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </Select>
+          )}
+        </div>
+
+        {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
+
+        <ModalActions>
+          {deskTillId && (
+            <Button type="button" variant="ghost" onClick={share} disabled={busy}>
+              Share the register’s
+            </Button>
+          )}
+          <Button type="button" variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button type="submit" loading={busy}>
+            Use it
+          </Button>
+        </ModalActions>
+      </form>
+    </Modal>
+  );
+}
+
 export default function Transfers() {
   const toast = useToast();
   const { user, can } = useAuth();
@@ -327,6 +450,9 @@ export default function Transfers() {
    */
   const [tills, setTills] = useState([]);
   const [tillId, setTillId] = useState(() => Number(localStorage.getItem('pos_transfer_till')) || null);
+  // The drawer the shop has given this desk, if it has given it one.
+  const [deskTillId, setDeskTillId] = useState(null);
+  const [choosingTill, setChoosingTill] = useState(false);
   const [preset, setPreset] = useState('today');
   const [search, setSearch] = useState('');
   const [mine, setMine] = useState(false);
@@ -347,8 +473,18 @@ export default function Transfers() {
     api.get('/transfers/meta').then((res) => {
       setCompanies(res.data.companies);
       setTills(res.data.tills);
-      // Remembered per browser: whoever sits at this counter sits at one till.
+      setDeskTillId(res.data.deskTillId ?? null);
+      /*
+       * The shop's answer beats the browser's.
+       *
+       * Which drawer the money goes into is a fact about the counter, not a
+       * preference of whoever last sat at it — so a desk with a till of its own
+       * uses it everywhere. Without one, this falls back to what this browser
+       * remembered and then to the default till, which is how it worked before
+       * and is right for a shop with a single counter.
+       */
       setTillId((current) => {
+        if (res.data.deskTillId) return res.data.deskTillId;
         const known = res.data.tills.some((t) => t.id === current);
         return known ? current : (res.data.tills.find((t) => t.is_default) ?? res.data.tills[0])?.id ?? null;
       });
@@ -405,21 +541,39 @@ export default function Transfers() {
         subtitle="Money sent and paid out over the counter, and what it does to the drawer"
         actions={
           <div className="flex items-center gap-2">
-            {tills.length > 1 && (
-              <div className="w-44 shrink-0">
-                <Select
-                  name="till"
-                  aria-label="Which till"
-                  value={tillId ?? ''}
-                  onChange={(e) => setTillId(Number(e.target.value))}
-                >
-                  {tills.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.name}
-                    </option>
-                  ))}
-                </Select>
-              </div>
+            {/*
+              * A desk with a drawer of its own says so and does not offer to
+              * change it — that is the owner's to set. Without one, the old
+              * per-browser picker stands, for a shop that runs two counters off
+              * whichever till is free.
+              */}
+            {deskTillId ? (
+              <span className="flex items-center gap-1.5 rounded-lg bg-slate-100 px-2.5 py-1.5 text-xs font-medium text-slate-600">
+                <Wallet size={13} className="text-slate-400" />
+                {tillName}
+              </span>
+            ) : (
+              tills.length > 1 && (
+                <div className="w-44 shrink-0">
+                  <Select
+                    name="till"
+                    aria-label="Which till"
+                    value={tillId ?? ''}
+                    onChange={(e) => setTillId(Number(e.target.value))}
+                  >
+                    {tills.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+              )
+            )}
+            {user?.role === 'admin' && (
+              <Button variant="secondary" onClick={() => setChoosingTill(true)}>
+                <Wallet size={16} /> {deskTillId ? 'Change the drawer' : 'Its own drawer'}
+              </Button>
             )}
             {/* Recording what the shop spends is its own permission. A button
                 that always fails is worse than no button. */}
@@ -638,6 +792,21 @@ export default function Transfers() {
           </div>
         </aside>
       </div>
+
+      {choosingTill && (
+        <DeskTillDialog
+          tills={tills}
+          deskTillId={deskTillId}
+          onClose={() => setChoosingTill(false)}
+          onSaved={({ tills: next, deskTillId: id }) => {
+            setTills(next);
+            setDeskTillId(id ?? null);
+            setTillId(id ?? next.find((t) => t.is_default)?.id ?? null);
+            setChoosingTill(false);
+            setMoved((n) => n + 1);
+          }}
+        />
+      )}
 
       {adding && (
         <TransferDialog
