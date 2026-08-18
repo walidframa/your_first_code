@@ -2733,6 +2733,44 @@ try {
   });
 
   /*
+   * And the same screen against a server that has not caught up.
+   *
+   * A shop deploys by pulling the code and restarting; if the API is missed,
+   * the new client talks to the old server, which answers without the two
+   * piles. That used to render an empty cell where the balance goes — a
+   * transfer desk that has quietly stopped saying what is owed, which is worse
+   * than showing the old figure. It shows the old figure.
+   */
+  await step('and a server that has not caught up still shows a balance', async () => {
+    await page.route('**/api/transfers/companies*', async (route) => {
+      const res = await route.fetch();
+      const body = await res.json();
+      body.companies = (body.companies || []).map((c) => {
+        const { balanceUsd, balanceLbp, ...rest } = c;
+        void balanceUsd;
+        void balanceLbp;
+        return rest;
+      });
+      await route.fulfill({ response: res, json: body });
+    });
+
+    await page.reload({ waitUntil: 'networkidle' });
+    const row = page.locator('tr', { hasText: 'OMT' }).first();
+    await row.waitFor({ timeout: 15000 });
+    await row
+      .locator('text=/\\$\\d/')
+      .first()
+      .waitFor({ timeout: 15000 })
+      .catch(() => {
+        throw new Error('the balance went blank when the split was missing');
+      });
+
+    await page.unroute('**/api/transfers/companies*');
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.waitForSelector('tr:has-text("OMT") >> text=/890,000/', { timeout: 15000 });
+  });
+
+  /*
    * Running the desk and saying where the count starts are different jobs.
    *
    * The opening balance is the figure every later balance is measured from, so

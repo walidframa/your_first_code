@@ -38,18 +38,26 @@ function Standing({ balance }) {
 function StandingAmounts({ balanceUsd = 0, balanceLbp = 0, balance = 0, className }) {
   const usd = Math.abs(Number(balanceUsd) || 0);
   const lbp_ = Math.abs(Number(balanceLbp) || 0);
-  const square = Math.abs(Number(balance) || 0) < 0.005 && usd < 0.005 && lbp_ < 1;
+  const total = Math.abs(Number(balance) || 0);
 
-  if (square) return <span className={className}>{money(0)}</span>;
+  /*
+   * No split to show, so show the total.
+   *
+   * Two different situations arrive here and both want the same answer. One is
+   * a settled account, where the figure is $0.00. The other is a server that
+   * has not been restarted since this was added and answers without the two
+   * piles at all — and there the old combined figure is right, whereas the
+   * blank cell this used to render told an operator their balance had
+   * disappeared. A screen must never go quiet about money.
+   */
+  if (usd < 0.005 && lbp_ < 1) return <span className={className}>{money(total)}</span>;
 
   return (
     <span className={cx('block', className)}>
       {usd >= 0.005 && <span className="block">{money(usd)}</span>}
       {lbp_ >= 1 && <span className="block">{lbp(lbp_)}</span>}
       {usd >= 0.005 && lbp_ >= 1 && (
-        <span className="block text-[11px] font-normal text-slate-400">
-          {money(Math.abs(balance))} in all
-        </span>
+        <span className="block text-[11px] font-normal text-slate-400">{money(total)} in all</span>
       )}
     </span>
   );
