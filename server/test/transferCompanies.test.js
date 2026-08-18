@@ -645,3 +645,62 @@ test('a cancelled transfer takes both of its piles back off the account', async 
   assert.equal(after.balanceUsd, before.balanceUsd, 'the dollars came back');
   assert.equal(after.balanceLbp, before.balanceLbp, 'and the pounds with them');
 });
+
+/* ------------------------------------------------- a drawer of its own */
+
+/**
+ * The transfer counter as its own position.
+ *
+ * Reported from a shop where the agency desk shares the cashier's till: the
+ * operator's float, their sends and their payouts all land in the register's
+ * drawer, and at closing neither count means anything. Naming a till for the
+ * desk is what separates them.
+ */
+test('the desk can be given a drawer of its own, and the money goes into it', async () => {
+  // It starts on the register's, which is right for a shop with one counter.
+  let meta = (await req('GET', '/transfers/meta', null, deskToken)).json;
+  assert.equal(meta.deskTillId ?? null, null, 'no drawer of its own to begin with');
+
+  // The operator cannot move the desk onto another drawer.
+  const refused = await req('PUT', '/transfers/till', { name: 'Sneaky' }, deskToken);
+  assert.equal(refused.status, 403);
+
+  // The owner can, and naming one opens it.
+  const set = await req('PUT', '/transfers/till', { name: 'Transfer desk' }, adminToken);
+  assert.equal(set.status, 200, JSON.stringify(set.json));
+  const desk = set.json.tills.find((t) => t.name === 'Transfer desk');
+  assert.ok(desk, 'the drawer was opened');
+  assert.equal(set.json.deskTillId, desk.id);
+
+  meta = (await req('GET', '/transfers/meta', null, deskToken)).json;
+  assert.equal(meta.deskTillId, desk.id, 'and every screen is told');
+
+  // Its own cashbox: the register's is open, this one is not.
+  const before = (await req('GET', `/cash/current?accountId=${desk.id}`, null, adminToken)).json;
+  assert.equal(before.session ?? null, null, 'a new drawer is closed until it is opened');
+
+  await req('POST', '/cash/open', { accountId: desk.id, openingUsd: 50 }, adminToken);
+
+  // A transfer taken on the desk's till moves the desk's till.
+  const registerBefore = (await req('GET', `/cash/current?accountId=${till.id}`, null, adminToken)).json;
+  await req(
+    'POST',
+    '/transfers',
+    { company: 'OMT', direction: 'send', amountUsd: 70, accountId: desk.id },
+    deskToken,
+  );
+
+  const deskNow = (await req('GET', `/cash/current?accountId=${desk.id}`, null, adminToken)).json;
+  const registerNow = (await req('GET', `/cash/current?accountId=${till.id}`, null, adminToken)).json;
+  assert.equal(deskNow.expected.usd, 120, 'the float plus what came over the counter');
+  assert.equal(
+    registerNow.expected.usd,
+    registerBefore.expected.usd,
+    'and the register did not move at all',
+  );
+
+  // And it can be handed back to the register's drawer.
+  const shared = await req('PUT', '/transfers/till', { accountId: null }, adminToken);
+  assert.equal(shared.status, 200);
+  assert.equal(shared.json.deskTillId ?? null, null);
+});

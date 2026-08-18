@@ -54,6 +54,18 @@ export const SETTING_DEFAULTS = {
   tax_name: 'Tax',
 
   /*
+   * The till the transfer counter works out of.
+   *
+   * Empty means it shares the register's drawer, which is right for a shop with
+   * one counter and wrong for every shop that runs the agency desk as its own
+   * position: the operator's float, their sends and their payouts all landing
+   * in the cashier's drawer makes both of them impossible to count. Stored as
+   * the id of a cash account, shop-wide rather than per browser, because which
+   * physical drawer the money goes into is not a matter of opinion.
+   */
+  transfer_account_id: '',
+
+  /*
    * Whether a cash sale needs an open drawer. On by default: a till that can
    * take money with nothing to put it in cannot be counted at the end of the
    * day, which is the whole point of a cashbox.

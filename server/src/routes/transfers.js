@@ -1,6 +1,11 @@
 import { Router } from 'express';
 import { requireAuth, requirePermission, requireRole } from '../middleware/auth.js';
-import { listAccounts as listCashAccounts } from '../lib/cashAccounts.js';
+import {
+  accountById,
+  createAccount,
+  listAccounts as listCashAccounts,
+} from '../lib/cashAccounts.js';
+import { getSettings, setSetting } from '../lib/settings.js';
 import {
   TRANSFER_COMPANIES,
   TRANSFER_DIRECTIONS,
@@ -50,7 +55,53 @@ router.get('/meta', ...desk, (req, res) => {
     agencies: listCompanies(),
     directions: TRANSFER_DIRECTIONS,
     tills: listCashAccounts({ activeOnly: true }),
+    // Which drawer this desk works out of, if the shop has said. Empty means
+    // it shares the register's, which is the old behaviour and still right for
+    // a shop with one counter.
+    deskTillId: deskTill(),
   });
+});
+
+/** The till the transfer counter works out of, or null for the register's. */
+function deskTill() {
+  const id = Number(getSettings().transfer_account_id) || null;
+  return id && accountById(id)?.active ? id : null;
+}
+
+/**
+ * Give the desk a drawer of its own.
+ *
+ * Reported from a shop running the agency counter as its own position: the
+ * operator's float, their sends and their payouts were all landing in the
+ * cashier's drawer, so neither could be counted at the end of a day. Naming a
+ * till here is what separates them — and it is shop-wide, because which
+ * physical drawer money goes into is not a per-browser preference.
+ *
+ * The owner's, like the opening balance: an operator who could move the desk
+ * onto another drawer mid-shift could move a shortfall with it.
+ */
+router.put('/till', ...owner, (req, res) => {
+  try {
+    const { accountId = undefined, name = undefined } = req.body || {};
+
+    if (name !== undefined && String(name).trim()) {
+      const account = createAccount({ name, kind: 'drawer' });
+      setSetting('transfer_account_id', String(account.id), req.user.id);
+    } else if (accountId === null || accountId === '') {
+      // Back to sharing the register's drawer.
+      setSetting('transfer_account_id', '', req.user.id);
+    } else if (accountId !== undefined) {
+      const account = accountById(Number(accountId));
+      if (!account) throw new Error('That till does not exist');
+      setSetting('transfer_account_id', String(account.id), req.user.id);
+    } else {
+      throw new Error('Name a new drawer, or pick one that exists');
+    }
+
+    res.json({ tills: listCashAccounts({ activeOnly: true }), deskTillId: deskTill() });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
 });
 
 /* --------------------------------------------------------------- agencies */

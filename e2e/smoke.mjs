@@ -3032,6 +3032,46 @@ try {
     await closeDialog();
   });
 
+  /*
+   * The transfer counter as its own position.
+   *
+   * Reported from the shop: the desk and the register were sharing one drawer,
+   * so the operator's float and the cashier's takings were the same pile and
+   * neither could be counted. The desk gets a till of its own, and the two
+   * cashboxes stop being one.
+   */
+  await step('the transfer desk can be given a drawer of its own', async () => {
+    await goTo('Transfers');
+    await page.waitForSelector('text=/Money sent and paid out/', { timeout: 15000 });
+
+    await page.getByRole('button', { name: 'Its own drawer' }).click();
+    await page.waitForSelector('[role=dialog] >> text=The desk’s drawer', { timeout: 10000 });
+    // This shop already has more than one till by now, so the dialog opens on
+    // choosing between them; the counter wants one of its own.
+    await page.locator('[role=dialog]').getByRole('button', { name: 'A new drawer' }).click();
+    await page.locator('[role=dialog] #tillName').fill('Transfer desk');
+    await page.locator('[role=dialog]').getByRole('button', { name: 'Use it' }).click();
+    await page.waitForSelector('text=/The desk has its own drawer/', { timeout: 15000 });
+
+    // The desk names its drawer, and that drawer is shut — the register's is
+    // not, which is the whole point of them being two.
+    await page.waitForSelector('text=working the Transfer desk', { timeout: 15000 });
+    await page.waitForSelector('aside >> text=Cashbox closed', { timeout: 15000 });
+
+    await page.goto(`${BASE_URL}/`, { waitUntil: 'networkidle' });
+    await page.waitForSelector('text=Current sale', { timeout: 15000 });
+    if (await page.locator('button:has-text("Cashbox closed")').count()) {
+      throw new Error('opening a drawer for the desk closed the register’s');
+    }
+
+    // And handed back, so the rest of this run counts one till as it did.
+    await goTo('Transfers');
+    await page.getByRole('button', { name: 'Change the drawer' }).click();
+    await page.waitForSelector('[role=dialog] >> text=The desk’s drawer', { timeout: 10000 });
+    await page.locator('[role=dialog]').getByRole('button', { name: 'Share the register’s' }).click();
+    await page.waitForSelector('text=/back on the register/', { timeout: 15000 });
+  });
+
   console.log('\nAuthorization');
 
   /*
