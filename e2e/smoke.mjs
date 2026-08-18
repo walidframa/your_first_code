@@ -2709,14 +2709,26 @@ try {
     await dialog.getByRole('button', { name: 'Take the money' }).click();
     await page.waitForSelector('text=Transfer sent', { timeout: 15000 });
 
+    /*
+     * Waited for, not read once. The toast fires when the server answers and
+     * the agency list reloads a moment later, so reading the row on the toast
+     * is reading the row as it was before the transfer — which is what CI saw
+     * and this machine did not.
+     */
     const row = page.locator('tr', { hasText: 'OMT' }).first();
     await row.waitFor({ timeout: 15000 });
+    await row
+      .locator('text=/890,000/')
+      .first()
+      .waitFor({ timeout: 15000 })
+      .catch(() => {
+        throw new Error('the pounds were converted away instead of being owed');
+      });
+
+    // And the dollars are still their own figure beside them.
     const text = await row.innerText();
     if (!text.includes('$150.00')) {
-      throw new Error(`the dollars are no longer their own figure: ${text}`);
-    }
-    if (!/890,000/.test(text)) {
-      throw new Error(`the pounds were converted away instead of being owed: ${text}`);
+      throw new Error(`the dollars stopped being their own figure: ${text}`);
     }
   });
 
