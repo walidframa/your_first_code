@@ -59,6 +59,17 @@ export function addEntry({
   amountUsd,
   paidUsd = 0,
   paidLbp = 0,
+  /*
+   * The two piles this entry moved, signed the same way as `amountUsd`.
+   *
+   * `amountUsd` is the combined figure and stays the one every balance is built
+   * from. These say what it was made of — four hundred dollars and a million
+   * pounds, rather than $411.24 — which is the only form an agency's rider can
+   * be paid in. Left out where the caller does not know or does not care, and
+   * then the entry reads as dollars, which is how it was entered.
+   */
+  nativeUsd = null,
+  nativeLbp = null,
   exchangeRate = null,
   orderId = null,
   note = null,
@@ -67,11 +78,44 @@ export function addEntry({
   const info = db
     .prepare(
       `INSERT INTO account_entries
-         (party_type, party_id, kind, amount_usd, paid_usd, paid_lbp, exchange_rate, order_id, note, user_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (party_type, party_id, kind, amount_usd, paid_usd, paid_lbp, native_usd, native_lbp,
+          exchange_rate, order_id, note, user_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
-    .run(partyType, partyId, kind, round2(amountUsd), round2(paidUsd), Math.round(paidLbp), exchangeRate, orderId, note, userId);
+    .run(
+      partyType,
+      partyId,
+      kind,
+      round2(amountUsd),
+      round2(paidUsd),
+      Math.round(paidLbp),
+      nativeUsd === null ? null : round2(nativeUsd),
+      nativeLbp === null ? null : Math.round(nativeLbp),
+      exchangeRate,
+      orderId,
+      note,
+      userId,
+    );
   return info.lastInsertRowid;
+}
+
+/**
+ * What an account stands at, currency by currency.
+ *
+ * The combined figure answers "how much is this account worth"; this answers
+ * "what do I hand over", which at a transfer counter is a bundle of dollars and
+ * a brick of pounds counted separately. An entry that never recorded its split
+ * counts as dollars — see the migration.
+ */
+export function balanceByCurrency(partyType, partyId) {
+  const row = db
+    .prepare(
+      `SELECT COALESCE(SUM(COALESCE(native_usd, amount_usd)), 0) AS usd,
+              COALESCE(SUM(COALESCE(native_lbp, 0)), 0) AS lbp
+       FROM account_entries WHERE party_type = ? AND party_id = ?`,
+    )
+    .get(partyType, partyId);
+  return { usd: round2(row.usd), lbp: Math.round(row.lbp) };
 }
 
 /**

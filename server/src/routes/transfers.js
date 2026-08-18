@@ -18,7 +18,7 @@ import {
   settleWithCompany,
   updateCompany,
 } from '../lib/transferCompanies.js';
-import { listEntries } from '../lib/accounts.js';
+import { balanceByCurrency, balanceOf, listEntries } from '../lib/accounts.js';
 
 const router = Router();
 
@@ -68,8 +68,13 @@ router.get('/companies', ...desk, (req, res) => {
 router.get('/companies/:id', ...desk, (req, res) => {
   const company = companyById(req.params.id);
   if (!company) return res.status(404).json({ error: 'That agency does not exist' });
+  const balance = balanceOf('transfer_company', company.id);
+  const split = balanceByCurrency('transfer_company', company.id);
   res.json({
-    company,
+    // With its standing, in both the combined figure and the two currencies it
+    // is settled in — a screen that opened one agency should not have to go
+    // back to the list for what the list already knows.
+    company: { ...company, balance, balanceUsd: split.usd, balanceLbp: split.lbp },
     entries: listEntries('transfer_company', company.id),
   });
 });

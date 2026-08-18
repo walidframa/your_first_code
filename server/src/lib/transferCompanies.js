@@ -21,7 +21,7 @@
  */
 import { db, transaction } from '../db.js';
 import { round2 } from './currency.js';
-import { addEntry, balanceOf } from './accounts.js';
+import { addEntry, balanceByCurrency, balanceOf } from './accounts.js';
 import { getSettings } from './settings.js';
 import { recordVoucher } from './vouchers.js';
 
@@ -60,7 +60,14 @@ export function listCompanies({ includeInactive = false } = {}) {
 
   return rows.map((c) => {
     const balance = balanceOf('transfer_company', c.id);
-    return { ...c, balance, standing: standing(balance) };
+    /*
+     * And the same standing in the two currencies it is actually settled in.
+     * The combined figure says what the account is worth; these say what the
+     * rider is here to collect, which is never "$2,290.47" — it is dollars in
+     * one hand and pounds in the other.
+     */
+    const { usd, lbp } = balanceByCurrency('transfer_company', c.id);
+    return { ...c, balance, balanceUsd: usd, balanceLbp: lbp, standing: standing(balance) };
   });
 }
 
@@ -132,6 +139,10 @@ export function setOpeningBalance(id, { amountUsd = 0, amountLbp = 0, userId = n
         partyId: id,
         kind: 'opening',
         amountUsd: total,
+        // Typed as two figures and kept as two: what was owed in dollars and
+        // what was owed in pounds are different debts.
+        nativeUsd: usd,
+        nativeLbp: lbp,
         exchangeRate: rate,
         note: 'Opening balance',
         userId,
@@ -145,7 +156,14 @@ export function setOpeningBalance(id, { amountUsd = 0, amountLbp = 0, userId = n
     ).run(usd, lbp, id);
 
     const balance = balanceOf('transfer_company', id);
-    return { ...companyById(id), balance, standing: standing(balance) };
+    const split = balanceByCurrency('transfer_company', id);
+    return {
+      ...companyById(id),
+      balance,
+      balanceUsd: split.usd,
+      balanceLbp: split.lbp,
+      standing: standing(balance),
+    };
   })();
 }
 
@@ -198,9 +216,16 @@ export function settleWithCompany(
   });
 
   const after = balanceOf('transfer_company', company.id);
+  const split = balanceByCurrency('transfer_company', company.id);
   return {
     voucher,
-    company: { ...companyById(company.id), balance: after, standing: standing(after) },
+    company: {
+      ...companyById(company.id),
+      balance: after,
+      balanceUsd: split.usd,
+      balanceLbp: split.lbp,
+      standing: standing(after),
+    },
   };
 }
 

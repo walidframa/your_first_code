@@ -2111,9 +2111,18 @@ try {
     await page.click('button:has-text("Delete PI-0002")');
     await page.waitForSelector('text=/PI-0002 deleted/', { timeout: 15000 });
 
-    if (await page.locator('td:has-text("PI-0002")').count()) {
-      throw new Error('the deleted document is still listed');
-    }
+    /*
+     * Waited for rather than asserted on the spot: the toast fires when the
+     * server answers and the list reloads a moment after it, so a bare count
+     * here was a race the suite lost about one run in ten.
+     */
+    await page
+      .locator('td:has-text("PI-0002")')
+      .first()
+      .waitFor({ state: 'detached', timeout: 15000 })
+      .catch(() => {
+        throw new Error('the deleted document is still listed');
+      });
   });
 
   await step('a document another was created from cannot be deleted', async () => {
@@ -2685,6 +2694,45 @@ try {
   });
 
   /*
+   * Pounds are owed as pounds.
+   *
+   * The balance used to be one converted figure, which is the right answer to
+   * "what is this account worth" and no use at all to the operator counting
+   * money into the rider's hand at seven o'clock. Both piles, side by side.
+   */
+  await step('and pounds stay pounds on the agency\u2019s account', async () => {
+    await page.click('button:has-text("New transfer")');
+    await page.waitForSelector('[role=dialog] >> text=Send a transfer', { timeout: 10000 });
+    const dialog = page.locator('[role=dialog]');
+    await dialog.locator('#customerName').fill('Nadia Khoury');
+    await dialog.locator('#amountLbp').fill('890000');
+    await dialog.getByRole('button', { name: 'Take the money' }).click();
+    await page.waitForSelector('text=Transfer sent', { timeout: 15000 });
+
+    /*
+     * Waited for, not read once. The toast fires when the server answers and
+     * the agency list reloads a moment later, so reading the row on the toast
+     * is reading the row as it was before the transfer — which is what CI saw
+     * and this machine did not.
+     */
+    const row = page.locator('tr', { hasText: 'OMT' }).first();
+    await row.waitFor({ timeout: 15000 });
+    await row
+      .locator('text=/890,000/')
+      .first()
+      .waitFor({ timeout: 15000 })
+      .catch(() => {
+        throw new Error('the pounds were converted away instead of being owed');
+      });
+
+    // And the dollars are still their own figure beside them.
+    const text = await row.innerText();
+    if (!text.includes('$150.00')) {
+      throw new Error(`the dollars stopped being their own figure: ${text}`);
+    }
+  });
+
+  /*
    * Running the desk and saying where the count starts are different jobs.
    *
    * The opening balance is the figure every later balance is measured from, so
@@ -3165,6 +3213,28 @@ try {
     await page.waitForSelector('[role=dialog] button:has-text("Black case")', { timeout: 10000 });
     await pack.locator('button:has-text("Black case")').first().click();
     await page.waitForSelector('[role=dialog] >> text=/can be made up/', { timeout: 10000 });
+
+    /*
+     * What went in, said in words.
+     *
+     * The row carried a bare number box handed a width class that its own
+     * wrapper overrode, so the box took the whole row and the product's name
+     * was squeezed to nothing: a recipe that read "1" and no more.
+     */
+    await pack.locator('text=Black case').first().waitFor({ timeout: 10000 });
+    await pack.locator('text=/PK-BLACK/').first().waitFor({ timeout: 10000 });
+    await pack.locator('text=/20 in stock/').first().waitFor({ timeout: 10000 });
+
+    // And how many of it go in one, without typing.
+    const many = pack.getByRole('spinbutton', { name: 'How many Black case in one' });
+    await pack.getByRole('button', { name: 'One more Black case' }).click();
+    if ((await many.inputValue()) !== '2') {
+      throw new Error(`the stepper left the quantity at ${await many.inputValue()}`);
+    }
+    await pack.getByRole('button', { name: 'One fewer Black case' }).click();
+    if ((await many.inputValue()) !== '1') {
+      throw new Error('the stepper would not come back down');
+    }
     await pack.getByRole('button', { name: /Create|Save/ }).click();
     await page.waitForSelector('text=Case pack', { timeout: 15000 });
   });
