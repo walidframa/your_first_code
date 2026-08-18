@@ -28,6 +28,33 @@ function Standing({ balance }) {
   );
 }
 
+/**
+ * What an agency stands at, in the money it is settled in.
+ *
+ * Dollars and pounds on separate lines, and the combined equivalent only where
+ * both are in play — that one is for comparing against the agency's own app,
+ * not for counting out.
+ */
+function StandingAmounts({ balanceUsd = 0, balanceLbp = 0, balance = 0, className }) {
+  const usd = Math.abs(Number(balanceUsd) || 0);
+  const lbp_ = Math.abs(Number(balanceLbp) || 0);
+  const square = Math.abs(Number(balance) || 0) < 0.005 && usd < 0.005 && lbp_ < 1;
+
+  if (square) return <span className={className}>{money(0)}</span>;
+
+  return (
+    <span className={cx('block', className)}>
+      {usd >= 0.005 && <span className="block">{money(usd)}</span>}
+      {lbp_ >= 1 && <span className="block">{lbp(lbp_)}</span>}
+      {usd >= 0.005 && lbp_ >= 1 && (
+        <span className="block text-[11px] font-normal text-slate-400">
+          {money(Math.abs(balance))} in all
+        </span>
+      )}
+    </span>
+  );
+}
+
 /** Where a shop that was trading before this screen starts counting from. */
 function OpeningDialog({ company, onClose, onSaved }) {
   const toast = useToast();
@@ -107,12 +134,33 @@ function SettleDialog({ company, tillId, tillName, onClose, onSettled }) {
   const toast = useToast();
   const { rate } = useSettings();
   const owed = company.balance;
+  /*
+   * The two piles, which is what is actually owed.
+   *
+   * A day of sends leaves the shop holding dollars *and* pounds, and the rider
+   * collects both. Filling the form from one converted total would have the
+   * operator counting out dollars for money that came in as pounds, and the
+   * agency's own app disagreeing about both halves by the end of the week.
+   */
+  const owedUsd = Number(company.balanceUsd ?? company.balance) || 0;
+  const owedLbp = Number(company.balanceLbp) || 0;
 
   // Which way the money goes is already known — the balance says so. Still a
   // choice, because a float handed over in advance settles the other way.
   const [direction, setDirection] = useState(owed < 0 ? 'receive' : 'pay');
-  const [usd, setUsd] = useState(Math.abs(owed) > 0.005 ? Math.abs(owed).toFixed(2) : '');
-  const [lbpAmount, setLbpAmount] = useState('');
+  // Each pile is only offered where it points the same way as the settlement:
+  // the shop can owe dollars while the agency owes it pounds, and prefilling
+  // both would settle one of them backwards.
+  const [usd, setUsd] = useState(
+    Math.sign(owedUsd) === Math.sign(owed) && Math.abs(owedUsd) > 0.005
+      ? Math.abs(owedUsd).toFixed(2)
+      : '',
+  );
+  const [lbpAmount, setLbpAmount] = useState(
+    Math.sign(owedLbp) === Math.sign(owed) && Math.abs(owedLbp) >= 1
+      ? String(Math.round(Math.abs(owedLbp)))
+      : '',
+  );
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -121,7 +169,10 @@ function SettleDialog({ company, tillId, tillName, onClose, onSettled }) {
   const paying = direction === 'pay';
   const moving = (Number(usd) || 0) + (rate > 0 ? (Number(lbpAmount) || 0) / rate : 0);
   // Paying brings what the shop owes down; being paid brings what it is owed up.
-  const after = Math.round((owed + (paying ? -moving : moving)) * 100) / 100;
+  const sign = paying ? -1 : 1;
+  const after = Math.round((owed + sign * moving) * 100) / 100;
+  const afterUsd = Math.round((owedUsd + sign * (Number(usd) || 0)) * 100) / 100;
+  const afterLbp = Math.round(owedLbp + sign * (Number(lbpAmount) || 0));
 
   async function submit(e) {
     e.preventDefault();
@@ -185,7 +236,7 @@ function SettleDialog({ company, tillId, tillName, onClose, onSettled }) {
                 owed > 0 ? 'text-amber-700' : owed < 0 ? 'text-emerald-700' : 'text-slate-500',
               )}
             >
-              {money(Math.abs(owed))}
+              <StandingAmounts balanceUsd={owedUsd} balanceLbp={owedLbp} balance={owed} />
             </p>
             <p className="text-[11px] text-slate-400">
               {Math.abs(owed) < 0.005 ? 'square' : owed > 0 ? 'they need it from us' : 'they owe us'}
@@ -193,7 +244,9 @@ function SettleDialog({ company, tillId, tillName, onClose, onSettled }) {
           </div>
           <div className="rounded-xl bg-slate-900 px-3 py-2 text-white">
             <p className="text-xs text-slate-300">After this</p>
-            <p className="tnum text-sm font-semibold">{money(Math.abs(after))}</p>
+            <p className="tnum text-sm font-semibold">
+              <StandingAmounts balanceUsd={afterUsd} balanceLbp={afterLbp} balance={after} />
+            </p>
             <p className="text-[11px] text-slate-400">
               {Math.abs(after) < 0.005 ? 'square' : after > 0 ? 'still to pay' : 'still to collect'}
             </p>
@@ -428,9 +481,16 @@ export default function TransferAgencies({ tillId = null, tillName = 'the drawer
                       c.balance > 0 ? 'text-amber-700' : c.balance < 0 ? 'text-emerald-700' : 'text-slate-500',
                     )}
                   >
-                    {money(Math.abs(c.balance))}
-                    {/* The sentence, not just the sign: "how much does the
-                        agency need from us" is the question being asked. */}
+                    {/*
+                      * Both currencies, because both are owed.
+                      *
+                      * The rider does not collect $2,290.47 — he collects some
+                      * dollars and some pounds, and converting the two into one
+                      * figure at today's rate answers a question nobody at the
+                      * counter is asking. The combined total stays underneath
+                      * as what the account is worth.
+                      */}
+                    <StandingAmounts balanceUsd={c.balanceUsd} balanceLbp={c.balanceLbp} balance={c.balance} />
                     <span className="block text-[11px] font-normal text-slate-400">
                       {Math.abs(c.balance) < 0.005
                         ? 'nothing to settle'

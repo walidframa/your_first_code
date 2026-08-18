@@ -185,6 +185,11 @@ function applySide(side, direction, { usd, lbp, usdEquivalent, rate, number, not
     amountUsd: sign * usdEquivalent,
     paidUsd: usd,
     paidLbp: lbp,
+    // What was counted out, kept apart: settling with a transfer agency means
+    // handing over dollars and pounds, and the account has to say how much of
+    // each is still owed rather than one converted total.
+    nativeUsd: sign * usd,
+    nativeLbp: sign * lbp,
     exchangeRate: rate,
     note: `${number}${note ? ` · ${note}` : ''}`,
     userId,

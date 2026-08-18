@@ -316,6 +316,23 @@ function addColumn(table, column, definition) {
   }
 }
 
+/*
+ * The two piles an entry actually moved.
+ *
+ * `amount_usd` is the combined figure — dollars plus pounds at the rate of the
+ * day — and every balance in the shop is built from it. That is the right
+ * answer to "what is this account worth", and the wrong answer to the question
+ * a transfer counter asks every evening: the agency wants its dollars *and* its
+ * pounds, and one converted total tells the operator neither.
+ *
+ * Added rather than substituted, and nullable on purpose: a row written before
+ * this existed says nothing about its split, and pretending otherwise would
+ * invent a pound figure nobody recorded. Read with COALESCE — old rows count as
+ * dollars, which is how they were entered.
+ */
+addColumn('account_entries', 'native_usd', 'REAL');
+addColumn('account_entries', 'native_lbp', 'REAL');
+
 addColumn('products', 'barcode', 'TEXT');
 addColumn('products', 'image_url', 'TEXT');
 

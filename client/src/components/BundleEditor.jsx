@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Package, Search, Trash2 } from 'lucide-react';
+import { Minus, Package, Plus, Search, Trash2 } from 'lucide-react';
 import api from '../api';
-import { Button, Input, cx, money } from './ui';
+import { Button, cx, money } from './ui';
 
 /**
  * What a product is made of, when it is made of other products.
@@ -78,6 +78,22 @@ export default function BundleEditor({ productId, value, onChange, products }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [productId]);
 
+  /*
+   * How many of a part go into one of these.
+   *
+   * Kept as what was typed rather than coerced, so a box being cleared to
+   * retype it does not snap back to 1 under the cursor; empty reads as nothing
+   * everywhere it is used, and the stepper never goes below one.
+   */
+  const setQuantity = (productId, quantity) =>
+    onChange(
+      value.map((x) =>
+        x.productId === productId
+          ? { ...x, quantity: quantity === '' ? '' : Math.max(1, Number(quantity) || 1) }
+          : x,
+      ),
+    );
+
   /* What the row itself carries first; the catalogue only as a fallback. */
   const nameOf = (id, carried) =>
     carried || (products || []).find((p) => p.id === id)?.name || `#${id}`;
@@ -121,40 +137,75 @@ export default function BundleEditor({ productId, value, onChange, products }) {
 
       {value.length > 0 && (
         <div className="mb-3 space-y-2">
-          {value.map((c) => (
-            <div key={c.productId} className="flex items-center gap-2 rounded-lg bg-white px-3 py-2 ring-1 ring-slate-200">
-              <span className="min-w-0 flex-1 truncate text-sm text-slate-800">
-                {nameOf(c.productId, c.name)}
-                <span className="ml-2 text-xs text-slate-400">
-                  {Number(productOf(c.productId)?.stock ?? 0)} in stock
-                </span>
-              </span>
-              <Input
-                type="number"
-                min="1"
-                step="1"
-                value={c.quantity}
-                onChange={(e) =>
-                  onChange(
-                    value.map((x) =>
-                      x.productId === c.productId ? { ...x, quantity: e.target.value } : x,
-                    ),
-                  )
-                }
-                className="w-20"
-                aria-label={`How many ${nameOf(c.productId, c.name)} in one`}
-              />
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                onClick={() => onChange(value.filter((x) => x.productId !== c.productId))}
-                aria-label={`Take ${nameOf(c.productId, c.name)} out`}
+          {value.map((c) => {
+            const part = productOf(c.productId);
+            const per = Number(c.quantity) || 0;
+            const stock = Number(part?.stock ?? 0);
+            return (
+              <div
+                key={c.productId}
+                className="flex flex-wrap items-center gap-2 rounded-lg bg-white px-3 py-2 ring-1 ring-slate-200"
               >
-                <Trash2 size={14} className="text-red-600" />
-              </Button>
-            </div>
-          ))}
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-slate-800">
+                    {nameOf(c.productId, c.name)}
+                  </p>
+                  <p className="truncate text-xs text-slate-400">
+                    {part?.sku ? `${part.sku} · ` : ''}
+                    {stock} in stock
+                    {part?.cost ? ` · ${money(part.cost)} each` : ''}
+                  </p>
+                </div>
+
+                {/*
+                  * How many of it go in one, as a stepper.
+                  *
+                  * It was a bare number box, and a wide one: `Input` puts the
+                  * class it is handed on its own wrapper, which already carries
+                  * `w-full`, and `w-full` wins — so the box took the whole row
+                  * and squeezed the product's name down to nothing. A pack that
+                  * does not say what is in it is a pack nobody can check.
+                  */}
+                <div className="flex shrink-0 items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setQuantity(c.productId, per - 1)}
+                    disabled={per <= 1}
+                    aria-label={`One fewer ${nameOf(c.productId, c.name)}`}
+                    className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100 text-slate-600 transition hover:bg-slate-200 disabled:opacity-40"
+                  >
+                    <Minus size={14} />
+                  </button>
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={c.quantity}
+                    onChange={(e) => setQuantity(c.productId, e.target.value)}
+                    aria-label={`How many ${nameOf(c.productId, c.name)} in one`}
+                    className="tnum h-8 w-14 rounded-lg bg-white px-2 text-center text-sm ring-1 ring-slate-300 transition focus:ring-2 focus:ring-brand-600 focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setQuantity(c.productId, per + 1)}
+                    aria-label={`One more ${nameOf(c.productId, c.name)}`}
+                    className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100 text-slate-600 transition hover:bg-slate-200"
+                  >
+                    <Plus size={14} />
+                  </button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => onChange(value.filter((x) => x.productId !== c.productId))}
+                    aria-label={`Take ${nameOf(c.productId, c.name)} out`}
+                  >
+                    <Trash2 size={14} className="text-red-600" />
+                  </Button>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
 

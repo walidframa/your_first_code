@@ -554,3 +554,94 @@ test('settling an amount of nothing is refused', async () => {
   assert.equal(empty.status, 400);
   assert.match(empty.json.error, /Enter an amount/);
 });
+
+/* ------------------------------------------------- both currencies, apart */
+
+/**
+ * What the rider actually collects.
+ *
+ * A combined figure answers "what is this account worth" and nothing else. The
+ * agency wants its dollars and its pounds, and a shop that converts one into
+ * the other at today's rate is settling with a number neither side agreed.
+ */
+test('an agency carries its dollars and its pounds separately', async () => {
+  const name = 'Cash United';
+  await req(
+    'POST',
+    '/transfers',
+    { company: name, direction: 'send', amountUsd: 120, amountLbp: 3_000_000, accountId: till.id },
+    deskToken,
+  );
+
+  let agency = await named(name);
+  assert.equal(agency.balanceUsd, 120, 'the dollars they sent');
+  assert.equal(agency.balanceLbp, 3_000_000, 'and the pounds, unconverted');
+  // The combined figure is still the one every balance is built from.
+  assert.ok(agency.balance > 120, 'the total counts both');
+
+  // A payout takes from the pile it was paid out of, not from the total.
+  await req(
+    'POST',
+    '/transfers',
+    { company: name, direction: 'payout', amountUsd: 20, accountId: till.id },
+    deskToken,
+  );
+  agency = await named(name);
+  assert.equal(agency.balanceUsd, 100);
+  assert.equal(agency.balanceLbp, 3_000_000, 'the pounds did not move');
+
+  // And settling moves each pile by what was counted out in it.
+  const settled = await req(
+    'POST',
+    `/transfers/companies/${agency.id}/settle`,
+    { accountId: till.id, amountUsd: 100, amountLbp: 1_000_000 },
+    deskToken,
+  );
+  assert.equal(settled.status, 201, JSON.stringify(settled.json));
+  assert.equal(settled.json.company.balanceUsd, 0, 'the dollars are square');
+  assert.equal(settled.json.company.balanceLbp, 2_000_000, 'two million still owed');
+});
+
+test('and an opening balance starts each pile where it was typed', async () => {
+  const created = await req('POST', '/transfers/companies', { name: 'Bankers' }, adminToken);
+  const id = created.json.company.id;
+
+  const opened = await req(
+    'PUT',
+    `/transfers/companies/${id}/opening`,
+    { amountUsd: 500, amountLbp: 8_900_000 },
+    adminToken,
+  );
+  assert.equal(opened.status, 200);
+  assert.equal(opened.json.company.balanceUsd, 500);
+  assert.equal(opened.json.company.balanceLbp, 8_900_000);
+
+  // Setting it again replaces both piles rather than adding to them.
+  await req(
+    'PUT',
+    `/transfers/companies/${id}/opening`,
+    { amountUsd: 300, amountLbp: 1_000_000 },
+    adminToken,
+  );
+  const again = await named('Bankers');
+  assert.equal(again.balanceUsd, 300);
+  assert.equal(again.balanceLbp, 1_000_000);
+});
+
+test('a cancelled transfer takes both of its piles back off the account', async () => {
+  const name = 'Cash United';
+  const before = await named(name);
+
+  const sent = await req(
+    'POST',
+    '/transfers',
+    { company: name, direction: 'send', amountUsd: 40, amountLbp: 500_000, accountId: till.id },
+    deskToken,
+  );
+  assert.equal(sent.status, 201);
+
+  await req('POST', `/transfers/${sent.json.transfer.id}/cancel`, null, deskToken);
+  const after = await named(name);
+  assert.equal(after.balanceUsd, before.balanceUsd, 'the dollars came back');
+  assert.equal(after.balanceLbp, before.balanceLbp, 'and the pounds with them');
+});

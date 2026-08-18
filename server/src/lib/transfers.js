@@ -170,6 +170,13 @@ export function recordTransfer({
       partyId: agency.id,
       kind: direction === 'send' ? 'bill' : 'payment',
       amountUsd: balanceEffect({ direction, ...amounts, rate }),
+      /*
+       * And the same fact in the currencies it actually happened in. A send of
+       * a million pounds leaves the shop owing a million pounds, not $11.24 —
+       * which is what the agency's rider will ask for at the end of the day.
+       */
+      nativeUsd: (direction === 'send' ? 1 : -1) * (amounts.amountUsd || 0),
+      nativeLbp: (direction === 'send' ? 1 : -1) * (amounts.amountLbp || 0),
       exchangeRate: rate,
       note: `${direction === 'send' ? 'Sent' : 'Paid out'}${reference ? ` · ${reference}` : ''}`,
       userId,
@@ -224,6 +231,10 @@ export function cancelTransfer(id, userId = null) {
           amountLbp: transfer.amount_lbp,
           rate: transfer.exchange_rate || 0,
         }),
+        // Both piles come back too, or a cancelled transfer would leave pounds
+        // on the agency's account that nobody ever sent.
+        nativeUsd: -(transfer.direction === 'send' ? 1 : -1) * (transfer.amount_usd || 0),
+        nativeLbp: -(transfer.direction === 'send' ? 1 : -1) * (transfer.amount_lbp || 0),
         exchangeRate: transfer.exchange_rate,
         note: `Cancelled${transfer.reference ? ` · ${transfer.reference}` : ''}`,
         userId,
