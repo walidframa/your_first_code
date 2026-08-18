@@ -1446,11 +1446,9 @@ try {
     await goTo('Register');
     await page.waitForSelector('text=Current sale', { timeout: 15000 });
 
-    // Without a decoder there is no button — a scanner that opens a camera and
-    // never finds anything is worse than none.
-    if (await page.locator('[aria-label="Scan a barcode with the camera"]').count()) {
-      throw new Error('the scan button is offered in a browser that cannot decode');
-    }
+    // Offered wherever there is a camera to open — the decoding is no longer
+    // the browser's to refuse; see the step after this one.
+    await page.waitForSelector('[aria-label="Scan a barcode with the camera"]', { timeout: 10000 });
 
     /*
      * A browser that can, and a camera that yields one known code. The product
@@ -1510,6 +1508,52 @@ try {
 
     // Straight onto the sale, exactly as a typed code would have gone.
     await page.waitForSelector('aside >> text=Scanned Widget', { timeout: 15000 });
+    await page.click('button:has-text("Clear")');
+    await page.waitForTimeout(300);
+  });
+
+  /*
+   * The same thing on a browser with no decoder of its own.
+   *
+   * Which is Safari, which is the phone in the owner's pocket — the one device
+   * always with them while they walk the shelves, and until now the only one
+   * that could not scan. Nothing is stubbed here except the camera: the frame
+   * really carries a printed EAN-13, and the app really reads it.
+   */
+  await step('and a browser that cannot decode has the app do it instead', async () => {
+    await page.addInitScript((bars) => {
+      // No `BarcodeDetector`, the way Safari has none.
+      Object.defineProperty(globalThis, 'BarcodeDetector', { value: undefined, configurable: true });
+
+      // A camera pointed at a real barcode: the bars below are what this app's
+      // own label printer would put on the shelf edge.
+      const canvas = document.createElement('canvas');
+      canvas.width = 600;
+      canvas.height = 240;
+      const context = canvas.getContext('2d');
+      const module = 4;
+      const quiet = 60;
+      const paint = () => {
+        context.fillStyle = '#ffffff';
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        context.fillStyle = '#101010';
+        for (let i = 0; i < bars.length; i += 1) {
+          if (bars[i] === '1') context.fillRect(quiet + i * module, 50, module, 150);
+        }
+      };
+      paint();
+      setInterval(paint, 100);
+      navigator.mediaDevices.getUserMedia = async () => canvas.captureStream(10);
+    }, '10100010110100111011001100100110111101001110101010110011011011001000010101110010011101000100101');
+
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.waitForSelector('text=Current sale', { timeout: 15000 });
+
+    await page.click('[aria-label="Scan a barcode with the camera"]');
+    await page.waitForSelector('[role=dialog] >> text=Scan a barcode', { timeout: 10000 });
+
+    // Read off the picture by the app itself, and onto the sale.
+    await page.waitForSelector('aside >> text=Scanned Widget', { timeout: 20000 });
     await page.click('button:has-text("Clear")');
     await page.waitForTimeout(300);
   });

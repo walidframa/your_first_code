@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ScanLine, X } from 'lucide-react';
 import { Button, Modal } from './ui';
+import { decodeImage } from '../lib/barcodeRead';
 
 /**
  * Read a barcode off a product with the camera.
@@ -10,26 +11,38 @@ import { Button, Modal } from './ui';
  * off a box is slow and gets one digit wrong often enough to matter, which
  * shows up as "we do not stock that" for something sitting on the shelf.
  *
- * Decoded by the browser rather than by a library. `BarcodeDetector` is built
- * into Chromium — which is Android Chrome, Edge and the desktop the shop runs
- * on — and pulling in a decoder would add a large dependency to an app that
- * has deliberately written its own spreadsheet reader and its own PDF writer
- * rather than take one. Where it is missing, mostly Safari and Firefox, the
- * dialog says so plainly instead of showing a camera that will never find
- * anything: a scanner that silently does nothing is worse than no scanner,
- * because somebody will stand there holding a box up to it.
+ * Decoded by the browser where it can. `BarcodeDetector` is built into
+ * Chromium — Android Chrome, Edge, and the machine on the counter — and is one
+ * call.
+ *
+ * Safari does not have it, and that used to mean no button at all: the phone in
+ * the owner's pocket, the one device always with them while they walk the
+ * shelves, was the only one that could not scan. So where the browser will not
+ * decode, the app does it itself — see lib/barcodeRead.js, which reads the four
+ * symbologies this shop's labels and shelves actually carry.
  */
 const FORMATS = ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'itf', 'codabar'];
 
-/** Whether this browser can decode at all, asked once rather than per render. */
+/**
+ * Whether scanning is possible here at all.
+ *
+ * Which now means a camera and nothing else: decoding is no longer the
+ * browser's to refuse. `mediaDevices` is missing on plain http, so a shop
+ * running this over an insecure connection still gets no button rather than
+ * one that opens a permission prompt the browser will never grant.
+ */
 export function canScan() {
-  return typeof globalThis.BarcodeDetector === 'function';
+  return typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getUserMedia;
 }
 
 export default function BarcodeScanner({ onCancel, onScanned }) {
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const timerRef = useRef(null);
+  // Kept between frames: the canvas we draw on, and the last code read, which
+  // has to be read again before it is believed.
+  const canvasRef = useRef(null);
+  const lastRef = useRef(null);
   const [error, setError] = useState('');
   const [ready, setReady] = useState(false);
   // What was read last, held for a beat so the shop sees the number that was
@@ -46,13 +59,45 @@ export default function BarcodeScanner({ onCancel, onScanned }) {
   useEffect(() => {
     if (!canScan()) {
       setError(
-        'This browser cannot read barcodes with the camera. Chrome on Android or on the counter machine can — otherwise type the number, or use the scanner on the till.',
+        'This browser will not open the camera. Type the number instead, or use the scanner on the till.',
       );
       return undefined;
     }
 
     let live = true;
-    const detector = new globalThis.BarcodeDetector({ formats: FORMATS });
+
+    /*
+     * One question — "what is in this frame?" — answered by whichever of the
+     * two can. The browser's own decoder is faster and knows more symbologies,
+     * so it is asked first; ours reads the frame off a canvas, which is the
+     * only way to get at the pixels Safari will not decode for us.
+     */
+    const detector =
+      typeof globalThis.BarcodeDetector === 'function'
+        ? new globalThis.BarcodeDetector({ formats: FORMATS })
+        : null;
+
+    const read = async (video) => {
+      if (detector) {
+        const [hit] = await detector.detect(video);
+        return hit?.rawValue || null;
+      }
+
+      const canvas = (canvasRef.current ||= document.createElement('canvas'));
+      /*
+       * Downscaled, and deliberately: a 1280-wide frame is four times the work
+       * of a 640-wide one and no easier to read — a barcode that cannot be
+       * decoded at 640 is out of focus, not short of pixels.
+       */
+      const width = Math.min(video.videoWidth || 640, 640);
+      const height = Math.round(((video.videoHeight || 480) * width) / (video.videoWidth || 640));
+      if (!width || !height) return null;
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext('2d', { willReadFrequently: true });
+      context.drawImage(video, 0, 0, width, height);
+      return decodeImage(context.getImageData(0, 0, width, height));
+    };
 
     (async () => {
       try {
@@ -80,13 +125,27 @@ export default function BarcodeScanner({ onCancel, onScanned }) {
         timerRef.current = setInterval(async () => {
           if (!videoRef.current || videoRef.current.readyState < 2) return;
           try {
-            const [hit] = await detector.detect(videoRef.current);
-            if (!hit?.rawValue) return;
+            const value = await read(videoRef.current);
+            if (!value) return;
+
+            /*
+             * Twice, agreeing, before it counts.
+             *
+             * Every symbology here carries its own check digit, so a misread is
+             * already unlikely — but the cost of being wrong is the wrong
+             * product on somebody's sale, and a second frame costs a fifth of a
+             * second.
+             */
+            if (lastRef.current !== value) {
+              lastRef.current = value;
+              return;
+            }
+
             clearInterval(timerRef.current);
             timerRef.current = null;
-            setFound(hit.rawValue);
+            setFound(value);
             // Long enough to read the number, short enough not to be a wait.
-            setTimeout(() => onScanned(hit.rawValue), 350);
+            setTimeout(() => onScanned(value), 350);
           } catch {
             /* A frame that will not decode is the normal case, not an error. */
           }
