@@ -319,12 +319,61 @@ test('a restore has to name a copy', async () => {
   assert.equal((await req('POST', '/api/tenants/rami/restore', {})).status, 400);
 });
 
+/* ------------------------------------------------ wiping a shop clean */
+
+test('a reset is typed, not clicked', async () => {
+  /*
+   * The rows in the console look alike, and this is the one that ends a
+   * shop's year of work. Nothing happens until the vendor has written the
+   * shop's own name into the box — which is also the last check that they are
+   * on the row they think they are on.
+   */
+  for (const body of [
+    { scope: 'trading' },
+    { scope: 'trading', confirm: '' },
+    { scope: 'trading', confirm: 'nabil' },
+    { scope: 'everything', confirm: 'Rami' },
+  ]) {
+    const res = await req('POST', '/api/tenants/rami/reset', body);
+    assert.equal(res.status, 400, `${JSON.stringify(body)} was accepted`);
+  }
+});
+
+test('a reset says which of the two it is', async () => {
+  // Clearing a day's sales and clearing the product list are not the same
+  // request, and neither is the default for the other.
+  for (const body of [
+    { confirm: 'rami' },
+    { scope: '', confirm: 'rami' },
+    { scope: 'all', confirm: 'rami' },
+    { scope: 'products', confirm: 'rami' },
+  ]) {
+    const res = await req('POST', '/api/tenants/rami/reset', body);
+    assert.equal(res.status, 400, `${JSON.stringify(body)} was accepted`);
+  }
+});
+
+test('a confirmed reset goes through the shop rather than round it', async () => {
+  // Nothing is listening on the fixture's port, so a request that got this far
+  // fails at the shop's door — which is the proof that the console deletes
+  // nothing itself. It asks the shop to, and the shop takes a copy first.
+  const res = await req('POST', '/api/tenants/rami/reset', { scope: 'trading', confirm: 'rami' });
+  assert.equal(res.status, 502);
+  assert.match(res.json.error, /Could not reach that shop/);
+});
+
+test('there is no resetting a shop that does not exist', async () => {
+  const res = await req('POST', '/api/tenants/ghost/reset', { scope: 'trading', confirm: 'ghost' });
+  assert.equal(res.status, 404);
+});
+
 test('none of it is open without a token', async () => {
   for (const [method, route] of [
     ['POST', '/api/tenants/rami/support'],
     ['GET', '/api/tenants/rami/backups'],
     ['POST', '/api/tenants/rami/restore'],
     ['POST', '/api/tenants/rami/reset-password'],
+    ['POST', '/api/tenants/rami/reset'],
   ]) {
     const res = await req(method, route, method === 'POST' ? {} : null, null);
     assert.equal(res.status, 401, `${method} ${route} was open`);

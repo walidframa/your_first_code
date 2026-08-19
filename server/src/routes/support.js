@@ -8,6 +8,7 @@ import { databasePath, stagedRestorePath } from '../db.js';
 import { db } from '../db.js';
 import { backupDir, listBackups, makeBackup } from '../lib/backups.js';
 import { setPassword } from '../lib/passwords.js';
+import { RESET_SCOPES, resetShop } from '../lib/resetShop.js';
 import { activeSession, endSession, redeem, supportUser, visits } from '../lib/support.js';
 
 const router = Router();
@@ -216,6 +217,44 @@ router.post('/restore', requireAuth, requireSupport, (req, res) => {
    * can restart a process.
    */
   setTimeout(() => process.exit(0), 250).unref?.();
+});
+
+/**
+ * Empty the shop, because the shop asked.
+ *
+ * A fortnight of trialling — imaginary sales, a supplier's spreadsheet imported
+ * twice, a cashbox opened and never closed — and then "can we start clean on
+ * Monday". Done by hand that is forty DELETE statements typed into a live
+ * database in the evening, which is how the wrong shop gets emptied.
+ *
+ * A copy is taken first, always, and its name comes back in the answer: this is
+ * the one action here that cannot be undone by doing it again, and a client who
+ * says "not that one" ten minutes later needs the file to exist.
+ *
+ * The scope is named in full rather than defaulted, so a request that lost half
+ * its body empties nothing.
+ */
+router.post('/reset', requireAuth, requireSupport, (req, res) => {
+  const scope = String(req.body?.scope || '');
+  if (!RESET_SCOPES.includes(scope)) {
+    return res.status(400).json({ error: `Say which reset: ${RESET_SCOPES.join(' or ')}` });
+  }
+
+  let safety;
+  try {
+    safety = makeBackup();
+  } catch (err) {
+    return res
+      .status(500)
+      .json({ error: `No copy could be taken, so nothing was deleted: ${err.message}` });
+  }
+
+  try {
+    const result = resetShop(scope);
+    res.json({ ...result, safetyCopy: safety.name, database: databasePath });
+  } catch (err) {
+    res.status(500).json({ error: `The reset failed and was rolled back: ${err.message}` });
+  }
 });
 
 export default router;

@@ -377,6 +377,47 @@ export function createConsoleApp({ controlDb, secret, domain = 'xtechpos.com' })
     res.status(out.status).json(out.body);
   });
 
+  /**
+   * Empty a client's shop, because the client asked.
+   *
+   * The one button here that destroys work, so it is the one that asks for the
+   * shop's own name to be typed and says in words what will be gone. The shop
+   * does it to itself through a support visit, like every other action on this
+   * console — and takes a copy of itself first, whose name comes back so the
+   * operator can say where it is if the phone rings ten minutes later.
+   */
+  app.post('/api/tenants/:slug/reset', requireOperator, async (req, res) => {
+    const scope = String(req.body?.scope || '');
+    const confirm = String(req.body?.confirm || '').trim();
+    if (!['trading', 'everything'].includes(scope)) {
+      return res.status(400).json({ error: 'Say which reset' });
+    }
+    /*
+     * Typed, not clicked. The console lists every shop on the machine and the
+     * rows look alike; a mis-click on this one is somebody's year of work.
+     */
+    if (confirm !== req.params.slug) {
+      return res.status(400).json({ error: `Type ${req.params.slug} to confirm` });
+    }
+
+    const out = await inside(
+      req.params.slug,
+      req.operator.username,
+      scope === 'everything' ? 'Resetting the shop to new' : 'Clearing the trading data',
+      async (base, token) => {
+        const r = await fetch(`${base}/api/support/reset`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ scope }),
+          signal: AbortSignal.timeout(120000),
+        });
+        return { status: r.status, body: await r.json() };
+      },
+    );
+    if (out.error) return res.status(out.status).json({ error: out.error });
+    res.status(out.status).json(out.body);
+  });
+
   /** A way back in for an owner who is locked out of their own shop. */
   app.post('/api/tenants/:slug/reset-password', requireOperator, async (req, res) => {
     const username = String(req.body?.username || 'admin').trim();
