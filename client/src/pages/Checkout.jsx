@@ -729,6 +729,13 @@ export default function Checkout() {
     // A sale settled with more than one thing sends its pieces instead of a
     // method; the server understands either.
     tenders,
+    /*
+     * Whoever the credit half of a split was put on. It arrives with the
+     * confirmation rather than being read off state, because it can be chosen
+     * in the same breath as the sale is confirmed and React has not caught up
+     * yet — a sale is not the place to lose a customer to a render.
+     */
+    customerId: namedOnSplit = null,
     changeCurrency,
     changeUsd,
     changeLbp,
@@ -772,7 +779,7 @@ export default function Checkout() {
         // cashier is actually handing over.
         changeUsd,
         changeLbp,
-        customerId: customer?.id ?? null,
+        customerId: namedOnSplit ?? customer?.id ?? null,
         buyerName: buyer.name || null,
         buyerPhone: buyer.phone || null,
         accounts: accounts.filter((a) => a.username.trim()),
@@ -1605,6 +1612,9 @@ export default function Checkout() {
         submitting={submitting}
         onClose={() => setPaymentOpen(false)}
         onConfirm={handleConfirmPayment}
+        /* A customer named inside the split belongs to the sale — the receipt
+           and the account entry have to agree about who this was. */
+        onCustomer={setCustomer}
       />
 
       {/*

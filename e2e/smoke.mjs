@@ -1651,6 +1651,80 @@ try {
     await page.keyboard.press('Escape');
   });
 
+  /*
+   * Part now, the rest on the slate — which is how half the sales in this shop
+   * actually end.
+   *
+   * The credit half was offered only to a sale that already had a customer on
+   * it, so a cashier who had not thought to name one had to leave the payment
+   * sheet, find the customer and start the split again. Whose account it goes
+   * on is asked where the question arises.
+   */
+  await step('and part of it can go on an account named right there', async () => {
+    // A customer with room on their limit, made through the API: this step is
+    // about the payment sheet, not about the customers screen.
+    await page.evaluate(async () => {
+      const headers = {
+        Authorization: `Bearer ${localStorage.getItem('pos_token')}`,
+        'Content-Type': 'application/json',
+      };
+      await fetch('/api/customers', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ name: 'Nadia Khoury', phone: '03111222', credit_limit: 500 }),
+      });
+    });
+
+    await goTo('Register');
+    await page.waitForSelector('text=Current sale', { timeout: 15000 });
+    await page.locator('button', { hasText: 'Croissant' }).first().click();
+    await page.waitForTimeout(300);
+
+    // Nobody named on the sale, which is the case that used to have no answer.
+    await page.click('aside button:has-text("Charge $")');
+    await page.waitForSelector('[role=dialog] >> text=Take payment', { timeout: 15000 });
+    await page.click('[role=dialog] button:has-text("Split it")');
+    await page.waitForSelector('[role=dialog] >> text=Another payment', { timeout: 10000 });
+
+    const dialog = page.locator('[role=dialog]').last();
+    // By id rather than by label: both rows have a "Dollars" and this step is
+    // about which pile the money lands in.
+    await dialog.locator('#usd-1').fill('1');
+    await dialog.getByRole('button', { name: 'Another payment' }).click();
+    await dialog.locator('select[aria-label="How piece 2 was paid"]').selectOption('account');
+
+    // It will not go through until somebody owns the debt.
+    await dialog.getByRole('button', { name: 'Name the account first' }).waitFor({ timeout: 10000 });
+
+    await dialog.locator('text=/on whose account/').waitFor({ timeout: 10000 });
+    await dialog.getByRole('button', { name: /customer/i }).first().click();
+    await page.waitForTimeout(400);
+    await page.locator('button:has-text("Nadia Khoury")').first().click();
+
+    await page.waitForSelector('[role=dialog] >> text=/goes on Nadia Khoury/', { timeout: 10000 });
+
+    // What the sheet says will go on the account — the sale's total less the
+    // dollar in notes, whatever tax this run has left switched on.
+    const onAccount = Number(await dialog.locator('#usd-2').inputValue());
+    await dialog.getByRole('button', { name: /Confirm/ }).click();
+    await page.waitForSelector('text=Payment complete', { timeout: 20000 });
+    await page.keyboard.press('Escape');
+
+    // The cash went in the drawer and the rest is on her account, not lost.
+    await goTo('Customers');
+    await page.waitForSelector('text=/Balances, credit limits/', { timeout: 15000 });
+    const row = page.locator('tr', { hasText: 'Nadia Khoury' }).first();
+    await row.waitFor({ timeout: 15000 });
+    const owed = `$${onAccount.toFixed(2)}`;
+    await row
+      .locator(`text=${owed}`)
+      .first()
+      .waitFor({ timeout: 15000 })
+      .catch(async () => {
+        throw new Error(`she should owe ${owed}: ${await row.innerText()}`);
+      });
+  });
+
   await step('a cost can be typed in pounds, and is kept in dollars', async () => {
     await goTo('Products');
     await page.click('button:has-text("New product")');

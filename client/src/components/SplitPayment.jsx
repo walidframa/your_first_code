@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Banknote, CreditCard, Plus, Trash2, Wallet } from 'lucide-react';
 import MoneyInput from './MoneyInput';
+import CustomerPicker from './CustomerPicker';
 import { Button, Select, cx, money } from './ui';
 import { lbp, useSettings } from '../context/SettingsContext';
 
@@ -23,14 +24,30 @@ import { lbp, useSettings } from '../context/SettingsContext';
  */
 const APPS = ['Visa', 'Mastercard', 'Whish', 'OMT', 'Bank transfer'];
 
-const kinds = (hasCustomer) => [
+/*
+ * Always all three, whether or not a customer has been named yet.
+ *
+ * "Part cash, the rest on his account" is the ordinary way half the sales in
+ * this shop end, and it was offered only to a sale that already had a customer
+ * on it — so the cashier had to back out of the payment sheet, find the
+ * customer, and start the split again. Whose account it goes on is asked here
+ * instead, at the moment it becomes a question.
+ */
+const KINDS = [
   ['cash', 'Cash', Banknote],
   ['card', 'Card or app', CreditCard],
-  ...(hasCustomer ? [['account', 'On account', Wallet]] : []),
+  ['account', 'On account', Wallet],
 ];
 
-export default function SplitPayment({ total, customer, submitting, onConfirm, onBack }) {
+export default function SplitPayment({ total, customer, submitting, onConfirm, onCustomer, onBack }) {
   const { rate } = useSettings();
+  /*
+   * Whose account the credit half lands on. Starts as whoever the sale already
+   * names, and a change here is handed back up: the receipt, the balance and
+   * the ledger all have to agree about who this was, and the sale is where
+   * that is kept.
+   */
+  const [buyer, setBuyer] = useState(customer ?? null);
   const [rows, setRows] = useState([{ id: 1, method: 'cash', usd: '', lbpAmount: '', label: '' }]);
   const [changeCurrency, setChangeCurrency] = useState('USD');
 
@@ -60,8 +77,13 @@ export default function SplitPayment({ total, customer, submitting, onConfirm, o
       },
     ]);
 
+  const unnamed = owing > 0 && !buyer;
+
   function submit() {
     onConfirm({
+      // Named here rather than before the sheet was opened, so the register can
+      // put the balance on the right account.
+      customerId: buyer?.id ?? null,
       tenders: rows
         .map((r) => ({
           method: r.method,
@@ -86,7 +108,7 @@ export default function SplitPayment({ total, customer, submitting, onConfirm, o
                 onChange={(e) => set(row.id, { method: e.target.value, label: '' })}
                 className="max-w-[10rem]"
               >
-                {kinds(Boolean(customer)).map(([value, label]) => (
+                {KINDS.map(([value, label]) => (
                   <option key={value} value={value}>
                     {label}
                   </option>
@@ -142,6 +164,30 @@ export default function SplitPayment({ total, customer, submitting, onConfirm, o
             </div>
           </div>
         ))}
+
+        {/*
+          * Asked once, and only when it is a question: a split with nothing on
+          * account has no account to name.
+          */}
+        {owing > 0 && (
+          <div className="rounded-xl bg-white p-3 ring-1 ring-slate-200">
+            <p className="mb-2 text-sm font-medium text-slate-700">
+              {money(owing)} on whose account?
+            </p>
+            <CustomerPicker
+              customer={buyer}
+              onChange={(next) => {
+                setBuyer(next);
+                onCustomer?.(next);
+              }}
+            />
+            {!buyer && (
+              <p className="mt-2 text-xs text-amber-700">
+                Money left on an account nobody has named is money the shop cannot collect.
+              </p>
+            )}
+          </div>
+        )}
 
         <Button variant="secondary" className="w-full" onClick={add} disabled={submitting}>
           <Plus size={15} /> Another payment
@@ -201,9 +247,9 @@ export default function SplitPayment({ total, customer, submitting, onConfirm, o
           </p>
         )}
 
-        {owing > 0 && customer && (
+        {owing > 0 && buyer && (
           <p className="text-xs text-slate-500">
-            {money(owing)} goes on {customer.name}&rsquo;s account.
+            {money(owing)} goes on {buyer.name}&rsquo;s account, to be paid later.
           </p>
         )}
       </div>
@@ -215,11 +261,15 @@ export default function SplitPayment({ total, customer, submitting, onConfirm, o
         <Button
           size="lg"
           className="flex-1"
-          disabled={!covered || overOnAccount}
+          disabled={!covered || overOnAccount || unnamed}
           loading={submitting}
           onClick={submit}
         >
-          {covered ? `Confirm ${money(total)}` : `${money(left)} still due`}
+          {unnamed
+            ? 'Name the account first'
+            : covered
+              ? `Confirm ${money(total)}`
+              : `${money(left)} still due`}
         </Button>
       </div>
     </>

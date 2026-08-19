@@ -17,7 +17,15 @@ const CHANGE_FIELDS = ['CHANGE_USD', 'CHANGE_LBP'];
  * chooses how to give change back — all dollars, all pounds, or split between
  * the two — and the sheet shows the exact amounts to hand over.
  */
-export default function PaymentSheet({ open, total, customer, onClose, onConfirm, submitting }) {
+export default function PaymentSheet({
+  open,
+  total,
+  customer,
+  onClose,
+  onConfirm,
+  onCustomer,
+  submitting,
+}) {
   const t = useT();
   const { rate, step, toLbp } = useSettings();
 
@@ -306,6 +314,7 @@ export default function PaymentSheet({ open, total, customer, onClose, onConfirm
           customer={customer}
           submitting={submitting}
           onConfirm={onConfirm}
+          onCustomer={onCustomer}
           onBack={() => setMethod(null)}
         />
       )}
