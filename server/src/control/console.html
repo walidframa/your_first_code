@@ -82,6 +82,10 @@
       button.primary { background: var(--brand); border-color: var(--brand); color: #fff; }
       button.primary:hover { background: var(--brand-dark); }
       button:disabled { opacity: .5; cursor: default; }
+      /* The one kind of button here that deletes somebody's work. Red on the
+         row as well as in the dialog, because the row is where it is pressed. */
+      button.danger { border-color: #fecaca; color: #b91c1c; }
+      button.danger:hover { background: #fef2f2; }
 
       dialog { border: none; border-radius: 16px; padding: 0; width: min(440px, 92vw);
                box-shadow: 0 20px 50px rgba(15, 23, 42, .25); }
@@ -111,6 +115,12 @@
       .feat:first-child { border-top: 0; }
       .feat input { margin-top: 3px; }
       .row button { flex: 1; padding: 9px; }
+
+      /* Each choice in the reset dialog reads as a paragraph with its own
+         heading, because what they do differs by a whole catalogue. */
+      #wipeForm label { display: block; margin-bottom: 12px; }
+      #wipeForm label .sub { display: block; margin-top: 2px; }
+      #wipeForm #wipeConfirm { width: 100%; }
 
       .err { background: #fef2f2; color: #b91c1c; padding: 9px 12px; border-radius: 9px;
              font-size: 13px; margin-top: 12px; }
@@ -266,6 +276,47 @@
       </form>
     </dialog>
 
+    <!-- Emptying a shop, which is the one thing here that destroys work. -->
+    <dialog id="wipeDlg">
+      <form class="dlg" method="dialog" id="wipeForm">
+        <h2 id="wipeTitle">Reset a shop</h2>
+        <p class="sub" id="wipeSub"></p>
+
+        <label>
+          <input type="radio" name="scope" value="trading" checked />
+          <b>Clear the trading</b>
+          <span class="sub">
+            Sales, invoices, repairs, transfers, vouchers, cash sittings, what customers and
+            suppliers owe, and the stock on the shelves. Products, people, staff and settings stay.
+          </span>
+        </label>
+        <label>
+          <input type="radio" name="scope" value="everything" />
+          <b>Back to a new shop</b>
+          <span class="sub">
+            All of the above and the catalogue with it — products, categories, customers,
+            suppliers, employees, agencies, wallets. Only the logins and the shop's settings
+            survive, so somebody can still sign in.
+          </span>
+        </label>
+
+        <p class="sub">
+          A copy is taken first, whatever is chosen, and its name is shown when this is done. There
+          is no other way back.
+        </p>
+        <label>
+          Type <b id="wipeSlug"></b> to confirm
+          <input id="wipeConfirm" autocomplete="off" />
+        </label>
+
+        <div class="row">
+          <button type="button" id="wipeCancel">Cancel</button>
+          <button type="button" id="wipeGo" class="danger">Reset it</button>
+        </div>
+        <div id="wipeErr" class="err hide"></div>
+      </form>
+    </dialog>
+
     <!-- Their copies, and the two things worth doing with one. -->
     <dialog id="bakDlg">
       <form class="dlg" method="dialog" id="bakForm">
@@ -352,10 +403,12 @@
         const go = `<button data-in="${t.slug}">Go in</button>`;
         const copies = `<button data-bak="${t.slug}">Copies</button>`;
         const reset = `<button data-pw="${t.slug}">Reset password</button>`;
+        // Last, and set apart: it is the only one that deletes a shop's work.
+        const wipe = `<button data-wipe="${t.slug}" class="danger">Reset data</button>`;
         // What they bought, and what they pay for it.
         const feats = `<button data-mod="${t.slug}">Features</button>`;
         const plan = `<button data-plan="${t.slug}">Fee</button>`;
-        return [pay, stop, go, copies, reset, feats, plan].join(' ');
+        return [pay, stop, go, copies, reset, feats, plan, wipe].join(' ');
       }
 
       /*
@@ -437,6 +490,9 @@
         }
         for (const b of document.querySelectorAll('[data-pw]')) {
           b.onclick = () => resetPassword(tenants.find((t) => t.slug === b.dataset.pw));
+        }
+        for (const b of document.querySelectorAll('[data-wipe]')) {
+          b.onclick = () => openWipe(tenants.find((t) => t.slug === b.dataset.wipe));
         }
         for (const b of document.querySelectorAll('[data-mod]')) {
           b.onclick = () => openModules(tenants.find((t) => t.slug === b.dataset.mod));
@@ -675,6 +731,56 @@
         } catch (e2) {
           err.textContent = e2.message;
           err.classList.remove('hide');
+        }
+      };
+
+      /* ---------------------------------------- emptying a shop, on request */
+
+      let wiping = null;
+
+      function openWipe(t) {
+        wiping = t;
+        $('wipeTitle').textContent = 'Reset ' + t.shopName;
+        $('wipeSub').textContent =
+          'Everything chosen below is deleted from ' + t.shopName + ' and cannot be got back except from the copy taken first.';
+        $('wipeSlug').textContent = t.slug;
+        $('wipeConfirm').value = '';
+        $('wipeErr').classList.add('hide');
+        $('wipeDlg').showModal();
+      }
+
+      $('wipeCancel').onclick = () => $('wipeDlg').close();
+
+      $('wipeGo').onclick = async () => {
+        const err = $('wipeErr');
+        err.classList.add('hide');
+        const scope = document.querySelector('input[name=scope]:checked').value;
+        const button = $('wipeGo');
+        button.disabled = true;
+        button.textContent = 'Resetting…';
+        try {
+          const res = await api('/api/tenants/' + wiping.slug + '/reset', {
+            method: 'POST',
+            body: JSON.stringify({ scope, confirm: $('wipeConfirm').value.trim() }),
+          });
+          $('wipeDlg').close();
+          // What actually went, and where the copy is — the two things somebody
+          // needs when the shop rings back an hour later.
+          const rows = Object.entries(res.cleared || {})
+            .map(([table, n]) => n + ' ' + table.replace(/_/g, ' '))
+            .join('\n');
+          alert(
+            wiping.shopName + ' has been reset.\n\nA copy was taken first: ' +
+              res.safetyCopy +
+              (rows ? '\n\nWhat went:\n' + rows : '\n\nThere was nothing in it.'),
+          );
+          await load();
+        } catch (e) {
+          err.textContent = e.message;
+          err.classList.remove('hide');
+        } finally {
+          button.disabled = false;
+          button.textContent = 'Reset it';
         }
       };
 

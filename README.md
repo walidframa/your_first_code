@@ -601,13 +601,29 @@ Alongside it, on each row:
 - **Reset password** — for an owner locked out of his own shop. The password is
   generated, shown to you once, and **must be changed when they sign in**, so
   what you read down the phone is not a lasting key.
+- **Reset data** — for the client who trialled the app for a fortnight and wants
+  to start clean on Monday. Two choices, and the dialog says what each takes:
+  *clear the trading* leaves the catalogue, the customers, the staff and the
+  settings and empties everything that happened — sales, invoices, repairs,
+  transfers, vouchers, cash sittings, what is owed, and the stock on the
+  shelves; *back to a new shop* takes the catalogue with it and leaves only the
+  logins and the settings, so somebody can still sign in. **A copy is taken
+  first, always**, and its name is shown when it is done — it is the one action
+  here that cannot be undone by doing it again. You have to type the shop's slug
+  to confirm, because the rows all look alike and this is the one that ends
+  somebody's year of work.
+
+  It runs the same way as everything else on this list: the console asks the
+  *shop* to empty itself, over a support visit the shop logs. So a reset stands
+  in their Settings → Support visits under your name and the reason, like any
+  other visit.
 
 **What it deliberately cannot do:** create a shop, take one off the air, or
-delete one's data. Those need root — they write systemd units, edit nginx and
-remove files — and a web page on the open internet that could run them would be
-worth breaking into. It shows you the exact command to paste instead. Deleting
-a shop's books should take somebody sitting at a terminal, not a mis-click on a
-phone.
+delete one — its files, its unit, its place in nginx. Those need root, and a web
+page on the open internet that could run them would be worth breaking into. It
+shows you the exact command to paste instead. Emptying a shop's tables at their
+request is one thing; removing the shop is another, and that one still takes
+somebody sitting at a terminal.
 
 Five wrong passwords and that name is locked out for ten minutes, per address,
 so one person guessing cannot lock you out of your own console.
