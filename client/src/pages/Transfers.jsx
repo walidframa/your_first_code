@@ -575,6 +575,18 @@ export default function Transfers() {
                 <Wallet size={16} /> {deskTillId ? 'Change the drawer' : 'Its own drawer'}
               </Button>
             )}
+
+            {/*
+              * The drawer, on the header rather than down a column of its own.
+              *
+              * It used to have a third of the screen to say one figure in, with
+              * a paragraph under it explaining what the two buttons above were
+              * for and a great deal of white space under that. On the shop's
+              * laptop the whole right-hand side of this page was empty. The
+              * same strip the register carries says it in a line, opens the
+              * same cashbox, and gives the counter back its width.
+              */}
+            <CashBox refreshOn={moved} accountId={tillId} compact />
             {/* Recording what the shop spends is its own permission. A button
                 that always fails is worse than no button. */}
             {can('expenses') && (
@@ -589,14 +601,7 @@ export default function Transfers() {
         }
       />
 
-      {/*
-        * A column on a monitor, stacked on a phone.
-        *
-        * The drawer panel used to be hidden outright below `lg`, which on a
-        * handset meant a desk whose every action needs an open cashbox with no
-        * way to open one. Stacked, it goes above the work instead of beside it.
-        */}
-      <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
+      <div className="flex min-h-0 flex-1">
         {/*
          * `min-w-0` is doing real work here, and its absence was a bug.
          *
@@ -776,21 +781,6 @@ export default function Transfers() {
           )}
         </div>
 
-        {/*
-          * The drawer, beside the work that moves it. An operator who has to go
-          * and look somewhere else for the till figure will not look, and the
-          * one number this screen exists to protect is that one.
-          */}
-        <aside className="order-first w-full shrink-0 overflow-y-auto border-b border-slate-200 bg-white lg:order-none lg:w-[300px] lg:border-b-0 lg:border-l xl:w-[340px]">
-          <CashBox refreshOn={moved} accountId={tillId} />
-          <div className="px-4 py-3">
-            <p className="text-xs text-slate-500">
-              Signed in as <span className="font-medium text-slate-700">{user.name}</span>, working the{' '}
-              <span className="font-medium text-slate-700">{tillName}</span>. Cash in and cash out above
-              are for money that is not a transfer — a float, a run to the bank.
-            </p>
-          </div>
-        </aside>
       </div>
 
       {choosingTill && (

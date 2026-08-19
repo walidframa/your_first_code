@@ -330,12 +330,25 @@ export default function Layout() {
         <div
           className={cx(
             'no-print flex shrink-0 items-center gap-1.5 border-b border-slate-200 bg-white px-2 py-1.5',
-            showRail && 'lg:hidden',
+            /*
+             * Gone where the rail says everything this bar says — except on the
+             * register, where it says one thing the rail does not: the drawer.
+             *
+             * Reported from the counter with a photograph: a laptop with the
+             * menu showing had no till figure on the register at all, and no
+             * way to open the cashbox, because the strip carrying them was
+             * hidden the moment the rail appeared. What is duplicated hides
+             * below; what is not, stays.
+             */
+            showRail && !onRegister && 'lg:hidden',
           )}
         >
           <NavLink
             to="/menu"
-            className="flex h-10 items-center gap-2 rounded-xl px-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+            className={cx(
+              'flex h-10 items-center gap-2 rounded-xl px-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-100',
+              showRail && 'lg:hidden',
+            )}
           >
             <MenuIcon size={20} aria-hidden="true" />
             <span className="hidden sm:inline">{t('Menu')}</span>
@@ -357,7 +370,14 @@ export default function Layout() {
            * a shop name shortened to "Main bra…" still says which shop; a till
            * figure shortened to "$8…" says nothing at all.
            */}
-          <div className="max-w-[8rem] min-w-0 flex-1 sm:w-48 sm:max-w-none sm:flex-none [&>*]:mb-0">
+          <div
+            className={cx(
+              'max-w-[8rem] min-w-0 flex-1 sm:w-48 sm:max-w-none sm:flex-none [&>*]:mb-0',
+              // The rail carries the same switcher, and two of them on one
+              // screen is two things to wonder about.
+              showRail && 'lg:hidden',
+            )}
+          >
             <BranchSwitcher expanded />
           </div>
 
@@ -394,7 +414,13 @@ export default function Layout() {
            * over at the end of a shift is a real problem and a missing name is
            * not.
            */}
-          <div className="ms-auto flex min-w-0 items-center gap-1">
+          <div
+            className={cx(
+              'ms-auto flex min-w-0 items-center gap-1',
+              // Also in the rail, at the foot of it.
+              showRail && 'lg:hidden',
+            )}
+          >
             <span className="hidden truncate text-sm font-medium text-slate-500 sm:block">
               {user.name}
             </span>
