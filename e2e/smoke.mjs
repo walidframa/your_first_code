@@ -2684,7 +2684,9 @@ try {
 
   await step('a transfer moves the drawer with it', async () => {
     // The desk takes real money, so the drawer has to be open to take it into.
-    await page.click('button:has-text("Open the cashbox")');
+    // The chip on the header is the handle now — the column it used to live in
+    // was a third of a laptop screen saying one figure.
+    await page.click('button:has-text("Cashbox closed")');
     await page.waitForSelector('text=What is in the drawer to start with?', { timeout: 10000 });
     await page.getByLabel('Dollars').fill('100');
     await page.click('button:has-text("Open cashbox")');
@@ -3099,8 +3101,8 @@ try {
 
     // The desk names its drawer, and that drawer is shut — the register's is
     // not, which is the whole point of them being two.
-    await page.waitForSelector('text=working the Transfer desk', { timeout: 15000 });
-    await page.waitForSelector('aside >> text=Cashbox closed', { timeout: 15000 });
+    await page.waitForSelector('header >> text=Transfer desk', { timeout: 15000 });
+    await page.waitForSelector('header >> text=Cashbox closed', { timeout: 15000 });
 
     await page.goto(`${BASE_URL}/`, { waitUntil: 'networkidle' });
     await page.waitForSelector('text=Current sale', { timeout: 15000 });
