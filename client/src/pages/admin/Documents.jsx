@@ -7,6 +7,7 @@ import {
   Check,
   ClipboardList,
   FileText,
+  History,
   LayoutGrid,
   Pencil,
   Plus,
@@ -14,6 +15,7 @@ import {
   Receipt,
   Tag,
   Trash2,
+  TrendingUp,
   Truck,
 } from 'lucide-react';
 import api from '../../api';
@@ -141,6 +143,16 @@ function DocumentForm({ existing, onClose, onSaved }) {
   const [error, setError] = useState('');
   const [quickCreate, setQuickCreate] = useState(null);
   const [newParty, setNewParty] = useState(false);
+  /*
+   * What this customer was charged last time, product by product.
+   *
+   * A shop here does not have one price for a thing — it has a price for the
+   * public and a price it quoted this man in March, and going back on the
+   * second is how a regular stops being one. Asked once when the customer is
+   * picked rather than once per line, and only for the documents that sell:
+   * what a shop *pays* is on the purchase side and lives with the costs.
+   */
+  const [lastPrices, setLastPrices] = useState({});
 
   const meta = TYPE_META[docType];
   const partyType = meta.party;
@@ -189,6 +201,32 @@ function DocumentForm({ existing, onClose, onSaved }) {
   }, [editing, existing, products]);
 
   /*
+   * What this customer paid last time, fetched when they are picked.
+   *
+   * Nothing is applied automatically — the shop may well have put its prices
+   * up since, and quietly re-pricing a line to a figure from March would be
+   * worse than not knowing. It is shown beside the price, with one tap to use
+   * it, which is the decision the person writing the invoice is actually
+   * making.
+   */
+  useEffect(() => {
+    if (partyType !== 'customer' || !partyId) {
+      setLastPrices({});
+      return;
+    }
+    let live = true;
+    api
+      .get(`/customers/${partyId}/last-prices`)
+      .then((res) => live && setLastPrices(res.data.prices || {}))
+      // A customer with no history is the common case, and an error here must
+      // not stop an invoice being written.
+      .catch(() => live && setLastPrices({}));
+    return () => {
+      live = false;
+    };
+  }, [partyType, partyId]);
+
+  /*
    * Switching between a cost-based and a price-based type re-prices the lines.
    * The first run is skipped so opening an edit form does not overwrite the
    * prices the document was actually agreed at.
@@ -233,10 +271,30 @@ function DocumentForm({ existing, onClose, onSaved }) {
   const updateLine = (key, patch) =>
     setLines((prev) => prev.map((l) => (l.key === key ? { ...l, ...patch } : l)));
 
-  const priced = lines.map((l) => ({
-    ...l,
-    lineTotal: (Number(l.quantity) || 0) * (Number(l.price) || 0),
-  }));
+  const priced = lines.map((l) => {
+    const typed = Number(l.price) || 0;
+    /*
+     * A delivery that costs more than the last one.
+     *
+     * The moment to notice a supplier's price going up is while the invoice is
+     * being typed, with the paper still in your hand — not at the end of the
+     * month when the margin has already gone. It is a flag rather than a
+     * refusal: prices do go up, and the shop still has to book the delivery in.
+     */
+    const was = l.product?.last_cost;
+    const dearer =
+      docType === 'purchase_invoice' && was != null && typed > was + 0.005 ? was : null;
+
+    // And on the way out: what this customer was charged last time.
+    const before = l.product ? lastPrices[l.product.id] : null;
+    return {
+      ...l,
+      lineTotal: (Number(l.quantity) || 0) * typed,
+      dearer,
+      lastPaid: partyType === 'customer' && before ? before : null,
+    };
+  });
+  const dearerLines = priced.filter((l) => l.dearer !== null && l.product);
   const subtotal = priced.reduce((sum, l) => sum + l.lineTotal, 0);
   const discount = subtotal * ((Number(discountPercent) || 0) / 100);
   const tax = (subtotal - discount) * taxRate;
@@ -439,6 +497,32 @@ function DocumentForm({ existing, onClose, onSaved }) {
               onCreateNew={(name) => setQuickCreate(name)}
             />
 
+            {/*
+              * Said out loud as well as coloured in.
+              *
+              * The row tint answers "which line", and a shop working down a
+              * supplier's invoice at speed needs "there is one" first — the
+              * cost going up is the whole reason to look twice at a delivery
+              * that otherwise just gets booked in.
+              */}
+            {dearerLines.length > 0 && (
+              <div className="mt-3 flex gap-2 rounded-xl bg-red-50 px-3 py-2.5 text-sm text-red-800 ring-1 ring-red-200">
+                <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+                <p>
+                  <span className="font-medium">
+                    {dearerLines.length === 1
+                      ? `${dearerLines[0].product.name} costs more than last time.`
+                      : `${dearerLines.length} lines cost more than last time.`}
+                  </span>{' '}
+                  {dearerLines
+                    .map((l) => `${l.product.name} was ${money(l.dearer)}, now ${money(Number(l.price) || 0)}`)
+                    .join('; ')}
+                  . Book it in at the new price if that is what the supplier
+                  charged — or tap the old figure to put the line back.
+                </p>
+              </div>
+            )}
+
             {lines.length > 0 && (
               <div className="mt-3 overflow-hidden rounded-xl ring-1 ring-slate-200">
                 <table className="w-full text-sm">
@@ -455,7 +539,7 @@ function DocumentForm({ existing, onClose, onSaved }) {
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {priced.map((l) => (
-                      <tr key={l.key}>
+                      <tr key={l.key} className={cx(l.dearer !== null && 'bg-red-50')}>
                         <td className="px-3 py-2">
                           {l.product ? (
                             <div className="flex items-center gap-2">
@@ -536,8 +620,48 @@ function DocumentForm({ existing, onClose, onSaved }) {
                             value={l.price}
                             onChange={(e) => updateLine(l.key, { price: e.target.value })}
                             aria-label={`Unit price for ${l.product?.name || l.name || 'line'}`}
-                            className="h-8 w-full rounded-lg bg-white px-2 text-right text-sm ring-1 ring-slate-300 focus:ring-2 focus:ring-brand-600 focus:outline-none"
+                            className={cx(
+                              'h-8 w-full rounded-lg bg-white px-2 text-right text-sm ring-1 focus:ring-2 focus:outline-none',
+                              l.dearer !== null
+                                ? 'ring-red-400 focus:ring-red-500'
+                                : 'ring-slate-300 focus:ring-brand-600',
+                            )}
                           />
+
+                          {/* What the supplier charged last time, and the way
+                              back to it if the new figure was a slip. */}
+                          {l.dearer !== null && (
+                            <button
+                              type="button"
+                              onClick={() => updateLine(l.key, { price: String(l.dearer) })}
+                              title="Put the line back to what it cost last time"
+                              aria-label={`Was ${money(l.dearer)} last time — use that for ${l.product?.name || 'this line'}`}
+                              className="mt-1 flex w-full items-center justify-end gap-1 text-right text-xs font-medium text-red-700 hover:underline"
+                            >
+                              <TrendingUp size={11} className="shrink-0" />
+                              was {money(l.dearer)}
+                            </button>
+                          )}
+
+                          {/* And on a sale: what this customer paid last time.
+                              Never applied on its own — see the fetch above. */}
+                          {l.dearer === null && l.lastPaid && (
+                            <button
+                              type="button"
+                              onClick={() => updateLine(l.key, { price: String(l.lastPaid.price) })}
+                              title={`Last charged on ${l.lastPaid.reference}`}
+                              aria-label={`Last time ${money(l.lastPaid.price)} — use that for ${l.product?.name || 'this line'}`}
+                              className={cx(
+                                'mt-1 flex w-full items-center justify-end gap-1 text-right text-xs hover:underline',
+                                Math.abs(l.lastPaid.price - (Number(l.price) || 0)) < 0.005
+                                  ? 'text-slate-400'
+                                  : 'font-medium text-brand-700',
+                              )}
+                            >
+                              <History size={11} className="shrink-0" />
+                              last {money(l.lastPaid.price)}
+                            </button>
+                          )}
                         </td>
                         <td className="tnum px-2 py-2 text-right font-medium text-slate-800">
                           {money(l.lineTotal)}

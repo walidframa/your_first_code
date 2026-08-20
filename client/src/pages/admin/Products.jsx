@@ -21,6 +21,8 @@ import ItemActivity from '../../components/ItemActivity';
 import CategoryManager from '../../components/CategoryManager';
 import ProductImageField from '../../components/ProductImageField';
 import BundleEditor from '../../components/BundleEditor';
+import ColumnPicker from '../../components/ColumnPicker';
+import { useColumns } from '../../lib/tableColumns';
 import UnitsPanel from '../../components/UnitsPanel';
 import { useSettings, lbp } from '../../context/SettingsContext';
 import {
@@ -48,6 +50,7 @@ const emptyForm = {
   barcodes: [],
   price: '',
   cost: '',
+  wholesale_price: '',
   stock: '',
   reorder_point: '5',
   category_id: '',
@@ -68,6 +71,9 @@ function ProductModal({ product, categories, allProducts, onClose, onSaved }) {
           barcodes: product.barcodes || (product.barcode ? [product.barcode] : []),
           price: product.price,
           cost: product.cost,
+          // Null is "no trade price", and the box for it is empty rather than
+          // showing a zero the shop never typed.
+          wholesale_price: product.wholesale_price ?? '',
           stock: product.stock,
           reorder_point: product.reorder_point ?? 5,
           category_id: product.category_id || '',
@@ -130,6 +136,7 @@ function ProductModal({ product, categories, allProducts, onClose, onSaved }) {
       ...form,
       price: Number(form.price),
       cost: Number(form.cost) || 0,
+      wholesale_price: form.wholesale_price === '' ? null : Number(form.wholesale_price),
       stock: Number(form.stock) || 0,
       reorder_point: Number(form.reorder_point) || 0,
       category_id: form.category_id || null,
@@ -220,6 +227,21 @@ function ProductModal({ product, categories, allProducts, onClose, onSaved }) {
             name="cost"
             value={form.cost}
             onChange={(v) => setForm((f) => ({ ...f, cost: v }))}
+          />
+          {/*
+            * What the trade pays, for the shops that buy from this one.
+            *
+            * Left blank for most of a catalogue, which is what "there isn't a
+            * trade price" looks like. Not a percentage off the shelf price: a
+            * fixed markup is exactly what it is not — some lines carry the shop
+            * and some go out at barely over cost to keep a customer.
+            */}
+          <MoneyInput
+            label="Trade price"
+            name="wholesale_price"
+            value={form.wholesale_price}
+            onChange={(v) => setForm((f) => ({ ...f, wholesale_price: v }))}
+            hint="What another shop pays. Leave empty if there is no trade price."
           />
           <Input
             label="Stock on hand"
@@ -387,6 +409,188 @@ export default function Products() {
     load();
   }
 
+  /*
+   * The columns, and what each one puts in a cell.
+   *
+   * Declared in one list rather than as matching rows of <th> and <td>, because
+   * the two drifting apart is how a table ends up with the margin under the
+   * heading for stock. The reader picks which of them to show — see
+   * lib/tableColumns for why that is kept on the device.
+   *
+   * `fixed` is for the two nobody may hide: the product itself, and the buttons
+   * that act on it. A table of prices with no names against them is not a table
+   * of anything.
+   */
+  const COLUMNS = [
+    {
+      key: 'product',
+      label: 'Product',
+      fixed: true,
+      pad: true,
+      cell: (p) => (
+        <div className="flex items-center gap-2 sm:gap-3">
+          <ProductThumb product={p} size="sm" />
+          <div className="min-w-0">
+            <p className="flex items-center gap-2 truncate font-medium text-slate-800">
+              {p.name}
+              {!p.active && <Badge tone="neutral">Archived</Badge>}
+            </p>
+            <p className="text-xs text-slate-400">
+              {p.sku}
+              {p.supplier ? ` · ${p.supplier}` : ''}
+            </p>
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: 'category',
+      label: 'Category',
+      cell: (p) => <span className="text-slate-500">{p.category_name || '—'}</span>,
+    },
+    {
+      key: 'price',
+      label: 'Price',
+      align: 'right',
+      cell: (p) => (
+        <>
+          <span className="block font-medium text-slate-800">{money(p.price)}</span>
+          {rate > 0 && <span className="block text-xs text-slate-400">{lbp(toLbp(p.price))}</span>}
+        </>
+      ),
+    },
+    {
+      key: 'wholesale',
+      label: 'Trade price',
+      align: 'right',
+      // Blank rather than a dash-and-a-zero: most of a catalogue has no trade
+      // price, and a column of dashes reads as a column of missing data.
+      cell: (p) =>
+        p.wholesale_price === null || p.wholesale_price === undefined ? (
+          <span className="text-slate-300">—</span>
+        ) : (
+          <span className="text-slate-700">{money(p.wholesale_price)}</span>
+        ),
+    },
+    {
+      key: 'cost',
+      label: 'Cost',
+      align: 'right',
+      cell: (p) => <span className="text-slate-600">{money(p.cost)}</span>,
+    },
+    {
+      key: 'avgCost',
+      label: 'Average cost',
+      align: 'right',
+      /*
+       * What the shelf actually cost, across every delivery — $10 one month and
+       * $9 the next is $9.50 a unit, and that is the figure a margin means
+       * anything against. Blank when nothing has been received on a purchase
+       * invoice, because a number called "average" that nobody averaged is
+       * worse than nothing.
+       */
+      cell: (p) =>
+        p.avg_cost === null || p.avg_cost === undefined ? (
+          <span className="text-slate-300" title="Nothing received on a purchase invoice yet">
+            —
+          </span>
+        ) : (
+          <span
+            className={cx(
+              'font-medium',
+              // Worth a glance: the last delivery cost more than the shelf
+              // average, so the margin is thinner than the catalogue says.
+              p.last_cost > p.avg_cost ? 'text-amber-700' : 'text-slate-700',
+            )}
+            title={
+              p.last_cost
+                ? `Last paid ${money(p.last_cost)}${p.last_cost_ref ? ` on ${p.last_cost_ref}` : ''}`
+                : undefined
+            }
+          >
+            {money(p.avg_cost)}
+          </span>
+        ),
+    },
+    {
+      key: 'margin',
+      label: 'Margin',
+      align: 'right',
+      /*
+       * Against the average where there is one, and against the typed cost
+       * otherwise. A margin worked out from what somebody last typed, while
+       * stock bought at two prices is still on the shelf, is a number that
+       * flatters or frightens for no reason.
+       */
+      cell: (p) => {
+        const basis = p.avg_cost ?? p.cost;
+        const margin = p.price > 0 ? ((p.price - basis) / p.price) * 100 : 0;
+        return (
+          <span className="text-slate-500" title={p.avg_cost ? 'Against the average cost' : undefined}>
+            {margin.toFixed(0)}%
+          </span>
+        );
+      },
+    },
+    {
+      key: 'stock',
+      label: 'Stock',
+      cell: (p) =>
+        /* A card cannot be out of stock, and saying so on every one of them
+           would bury the products that genuinely are. */
+        p.wallet_id ? (
+          <Badge tone="brand">Card · {p.wallet_name}</Badge>
+        ) : (
+          <StockBadge stock={p.stock} reorderPoint={p.reorder_point} />
+        ),
+    },
+    {
+      key: 'actions',
+      label: 'Actions',
+      fixed: true,
+      pad: true,
+      align: 'right',
+      cell: (p) => (
+        <div className="flex justify-end gap-1">
+          {/* Serialised products are managed by handset, so the shortcut goes
+              where the work actually is. */}
+          {p.tracks_units ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setUnitsFor(p)}
+              aria-label={`Handsets of ${p.name}`}
+              title="Book in and track each IMEI"
+            >
+              <Smartphone size={14} /> <span className="hidden sm:inline">IMEIs</span>
+            </Button>
+          ) : null}
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => setActivityFor(p.id)}
+            aria-label={`Activity for ${p.name}`}
+            title="Sales, deliveries and cost changes"
+          >
+            <History size={14} /> <span className="hidden sm:inline">History</span>
+          </Button>
+          <Button size="sm" variant="secondary" onClick={() => setEditing(p)}>
+            <Pencil size={13} /> <span className="hidden sm:inline">Edit</span>
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => toggleArchive(p)}
+            aria-label={p.active ? `Archive ${p.name}` : `Restore ${p.name}`}
+          >
+            {p.active ? <Archive size={14} /> : <ArchiveRestore size={14} />}
+          </Button>
+        </div>
+      ),
+    },
+  ];
+  const cols = useColumns('products', COLUMNS);
+
   const visible = (products || []).filter((p) => {
     const term = search.trim().toLowerCase();
     const matchesSearch =
@@ -469,6 +673,15 @@ export default function Products() {
               />
               Show archived
             </label>
+
+            {/* Beside the search rather than in the header: it is a choice
+                about the table underneath, made while looking at it. */}
+            <ColumnPicker
+              table="products"
+              columns={COLUMNS}
+              hidden={cols.hidden}
+              onChange={cols.setHidden}
+            />
           </div>
 
           {/*
@@ -534,94 +747,37 @@ export default function Products() {
               <table className="w-full text-sm">
                 <thead className="border-b border-slate-100 text-left text-xs text-slate-500">
                   <tr>
-                    <th className="px-3 py-2.5 font-medium sm:px-5">Product</th>
-                    <th className="hidden px-3 py-2.5 font-medium sm:table-cell">Category</th>
-                    <th className="px-3 py-2.5 text-right font-medium">Price</th>
-                    <th className="hidden px-3 py-2.5 text-right font-medium md:table-cell">Margin</th>
-                    <th className="px-3 py-2.5 font-medium">Stock</th>
-                    <th className="px-3 py-2.5 text-right font-medium sm:px-5">Actions</th>
+                    {cols.visible.map((c) => (
+                      <th
+                        key={c.key}
+                        className={cx(
+                          'px-3 py-2.5 font-medium',
+                          c.align === 'right' && 'text-right',
+                          c.pad && 'sm:px-5',
+                        )}
+                      >
+                        {c.head ?? c.label}
+                      </th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                  {visible.map((p) => {
-                    const margin = p.price > 0 ? ((p.price - p.cost) / p.price) * 100 : 0;
-                    return (
-                      <tr key={p.id} className={cx('hover:bg-slate-50/60', !p.active && 'opacity-55')}>
-                        <td className="px-3 py-2.5 sm:px-5">
-                          <div className="flex items-center gap-2 sm:gap-3">
-                            <ProductThumb product={p} size="sm" />
-                            <div className="min-w-0">
-                              <p className="flex items-center gap-2 truncate font-medium text-slate-800">
-                                {p.name}
-                                {!p.active && <Badge tone="neutral">Archived</Badge>}
-                              </p>
-                              <p className="text-xs text-slate-400">
-                                {p.sku}
-                                {p.supplier ? ` · ${p.supplier}` : ''}
-                              </p>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="hidden px-3 py-2.5 text-slate-500 sm:table-cell">{p.category_name || '—'}</td>
-                        <td className="tnum px-3 py-2.5 text-right">
-                          <span className="block font-medium text-slate-800">{money(p.price)}</span>
-                          {rate > 0 && (
-                            <span className="hidden text-xs text-slate-400 sm:block">
-                              {lbp(toLbp(p.price))}
-                            </span>
+                  {visible.map((p) => (
+                    <tr key={p.id} className={cx('hover:bg-slate-50/60', !p.active && 'opacity-55')}>
+                      {cols.visible.map((c) => (
+                        <td
+                          key={c.key}
+                          className={cx(
+                            'px-3 py-2.5',
+                            c.align === 'right' && 'tnum text-right',
+                            c.pad && 'sm:px-5',
                           )}
+                        >
+                          {c.cell(p)}
                         </td>
-                        <td className="tnum hidden px-3 py-2.5 text-right text-slate-500 md:table-cell">{margin.toFixed(0)}%</td>
-                        <td className="px-3 py-2.5">
-                          {/* A card cannot be out of stock, and saying so on
-                              every one of them would bury the products that
-                              genuinely are. */}
-                          {p.wallet_id ? (
-                            <Badge tone="brand">Card · {p.wallet_name}</Badge>
-                          ) : (
-                            <StockBadge stock={p.stock} reorderPoint={p.reorder_point} />
-                          )}
-                        </td>
-                        <td className="px-3 py-2.5 sm:px-5">
-                          <div className="flex justify-end gap-1">
-                            {/* Serialised products are managed by handset, so the
-                                shortcut goes where the work actually is. */}
-                            {p.tracks_units ? (
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => setUnitsFor(p)}
-                                aria-label={`Handsets of ${p.name}`}
-                                title="Book in and track each IMEI"
-                              >
-                                <Smartphone size={14} /> <span className="hidden sm:inline">IMEIs</span>
-                              </Button>
-                            ) : null}
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => setActivityFor(p.id)}
-                              aria-label={`Activity for ${p.name}`}
-                              title="Sales, deliveries and cost changes"
-                            >
-                              <History size={14} /> <span className="hidden sm:inline">History</span>
-                            </Button>
-                            <Button size="sm" variant="secondary" onClick={() => setEditing(p)}>
-                              <Pencil size={13} /> <span className="hidden sm:inline">Edit</span>
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => toggleArchive(p)}
-                              aria-label={p.active ? `Archive ${p.name}` : `Restore ${p.name}`}
-                            >
-                              {p.active ? <Archive size={14} /> : <ArchiveRestore size={14} />}
-                            </Button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
+                      ))}
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>

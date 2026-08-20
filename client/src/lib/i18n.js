@@ -142,6 +142,7 @@ const AR = {
   'Add customer': 'إضافة زبون',
   'Change customer': 'تغيير الزبون',
   'Choose a customer': 'اختر زبوناً',
+  'New customer': 'زبون جديد',
   'Search by name or phone…': 'ابحث بالاسم أو الرقم…',
   owes: 'عليه',
   each: 'للواحدة',

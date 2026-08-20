@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { db, transaction } from '../db.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { activityFor, costHistoryFor, recordCostChange, salesSummaryFor } from '../lib/costHistory.js';
+import { averageCostMap, costingFor, lastCostMap } from '../lib/costing.js';
 import { barcodeMap, barcodesFor, barcodesFromBody, setBarcodes } from '../lib/barcodes.js';
 import { clearStockEverywhere, setStock, stockAt, stockByBranch, stockMap } from '../lib/stock.js';
 import { addStarterCategories } from '../lib/starterCategories.js';
@@ -49,6 +50,31 @@ function walletProblem(walletId, tracksUnits) {
   if (!wallet.active) return `${wallet.name} is closed — pick another wallet`;
   if (tracksUnits) return 'A card is sold from credit, so it cannot also be tracked by IMEI';
   return null;
+}
+
+/**
+ * The trade price, as the column holds it.
+ *
+ * Null is "there isn't one", which is most of the catalogue and is what a blank
+ * box means. Zero is a shop that gives it away, so an empty string must not
+ * become one — `Number('') || null` would be null anyway, but `Number(0)` has
+ * to survive, and the two are told apart here rather than in four call sites.
+ */
+function tradePrice(value) {
+  if (value === undefined || value === null || value === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
+/** The two cost figures a single product's screen wants, flattened onto it. */
+function priceHistory(productId) {
+  const { average, last } = costingFor(productId);
+  return {
+    avg_cost: average,
+    last_cost: last?.cost ?? null,
+    last_cost_at: last?.at ?? null,
+    last_cost_ref: last?.reference ?? null,
+  };
 }
 
 /**
@@ -182,13 +208,33 @@ router.get('/', requireAuth, (req, res) => {
    * how many can be made up or it will show every pack as out of stock.
    */
   const bundles = bundleIds();
+  /*
+   * What the shelf actually cost, and what the supplier charged last.
+   *
+   * Two more grouped queries rather than two per product. `products.cost` is
+   * what somebody last typed; these are what was paid, which is the figure a
+   * margin has to be worked out against while stock bought at two prices is
+   * still on the shelf.
+   */
+  const averages = averageCostMap();
+  const latest = lastCostMap();
   res.json({
     products: rows.map((p) => {
-      const base = serializeProduct(p, {
-        codes: codes.get(p.id) || [],
-        here: here.get(p.id) ?? 0,
-        branchId: req.branchId,
-      });
+      const last = latest.get(p.id) || null;
+      const base = {
+        ...serializeProduct(p, {
+          codes: codes.get(p.id) || [],
+          here: here.get(p.id) ?? 0,
+          branchId: req.branchId,
+        }),
+        // Null when the shop has never booked a purchase invoice for it, which
+        // is honest: falling back to `cost` would print a figure called
+        // "average" that nobody averaged.
+        avg_cost: averages.get(p.id) ?? null,
+        last_cost: last?.cost ?? null,
+        last_cost_at: last?.at ?? null,
+        last_cost_ref: last?.reference ?? null,
+      };
       if (!bundles.has(p.id)) return base;
       const parts = componentsOf(p.id);
       return {
@@ -264,6 +310,7 @@ router.post('/', requireAuth, requirePermission('catalogue'), (req, res) => {
     name, sku, price, cost, stock, category_id, image_emoji, barcode, supplier, image_url,
     reorder_point, tracks_units, warranty_months, wallet_id, is_sim,
     validity_days, linked_card_id, credit_recovered, credit_wallet_id, credits_included,
+    wholesale_price,
   } = req.body || {};
   if (!name || !sku || price == null) {
     return res.status(400).json({ error: 'name, sku and price are required' });
@@ -272,8 +319,8 @@ router.post('/', requireAuth, requirePermission('catalogue'), (req, res) => {
   if (problem) return res.status(400).json({ error: problem });
   try {
     const info = db.prepare(`
-      INSERT INTO products (name, sku, price, cost, stock, category_id, image_emoji, barcode, supplier, image_url, reorder_point, tracks_units, warranty_months, wallet_id, is_sim, validity_days, linked_card_id, credit_recovered, credit_wallet_id, credits_included)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO products (name, sku, price, cost, stock, category_id, image_emoji, barcode, supplier, image_url, reorder_point, tracks_units, warranty_months, wallet_id, is_sim, validity_days, linked_card_id, credit_recovered, credit_wallet_id, credits_included, wholesale_price)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       name,
       sku,
@@ -307,6 +354,9 @@ router.post('/', requireAuth, requirePermission('catalogue'), (req, res) => {
       Number(credit_recovered) || 0,
       credit_wallet_id || null,
       Number(credits_included) || null,
+      // Null rather than zero for "there isn't a trade price": zero would mean
+      // the shop hands it to the trade for nothing.
+      tradePrice(wholesale_price),
     );
     /*
      * The opening count lands on the shelf of the branch it was entered at —
@@ -348,7 +398,7 @@ router.get('/:id', requireAuth, (req, res) => {
   // Where the rest of them are, which is the question asked the moment a shelf
   // here is empty.
   res.json({
-    product: serializeProduct(product, { branchId: req.branchId }),
+    product: { ...serializeProduct(product, { branchId: req.branchId }), ...priceHistory(product.id) },
     branches: stockByBranch(product.id),
   });
 });
@@ -432,6 +482,9 @@ router.put('/:id', requireAuth, requirePermission('catalogue'), (req, res) => {
     'validity_days', 'linked_card_id', 'credit_recovered', 'credit_wallet_id',
     // What a card actually carries, which is none of its price nor its cost.
     'credits_included',
+    // What the trade pays, which is neither a discount off the shelf price nor
+    // a markup on the cost — see the column's own note in db.js.
+    'wholesale_price',
   ];
   const updates = {};
   for (const f of fields) {
@@ -491,7 +544,7 @@ router.put('/:id', requireAuth, requirePermission('catalogue'), (req, res) => {
       active = ?, barcode = ?, supplier = ?, image_url = ?, reorder_point = ?, tracks_units = ?,
       warranty_months = ?, wallet_id = ?, is_sim = ?,
       validity_days = ?, linked_card_id = ?, credit_recovered = ?, credit_wallet_id = ?,
-      credits_included = ?
+      credits_included = ?, wholesale_price = ?
     WHERE id = ?
   `).run(
     merged.name,
@@ -514,6 +567,7 @@ router.put('/:id', requireAuth, requirePermission('catalogue'), (req, res) => {
     Number(merged.credit_recovered) || 0,
     merged.credit_wallet_id || null,
     Number(merged.credits_included) || null,
+    tradePrice(merged.wholesale_price),
     req.params.id
   );
 
@@ -551,6 +605,13 @@ router.get('/:id/activity', requireAuth, requirePermission('catalogue'), (req, r
   res.json({
     product,
     activity: activityFor(product.id, req.query.limit),
+    /*
+     * What the shelf cost across every delivery, beside the list of the
+     * deliveries themselves. "$10 then $9" is on the lines; "so $9.33 the
+     * unit, over thirty of them" is the figure a margin is worked out from,
+     * and adding it up by eye is how it gets got wrong.
+     */
+    costing: costingFor(product.id),
     // How many have gone, over what stretch — the question the list of lines
     // below cannot answer without somebody adding it up.
     sales: salesSummaryFor(product.id),

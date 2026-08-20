@@ -14,6 +14,7 @@ import {
   dealingsWith,
 } from '../lib/accounts.js';
 import { statementFor } from '../lib/statements.js';
+import { lastPricesFor } from '../lib/lastPrices.js';
 
 /**
  * Customers and suppliers are the same shape — a contact with a running
@@ -47,6 +48,22 @@ export function partyRouter(partyType) {
 
     res.json({ parties });
   });
+
+  /**
+   * What this customer was last charged, product by product.
+   *
+   * Asked once when a sales invoice picks its customer, not once per line: an
+   * invoice with twenty lines on it is one question about one person's
+   * history. Suppliers have no such thing — what a shop *pays* is on the
+   * purchase side, and lives with the costs.
+   */
+  if (isCustomer) {
+    router.get('/:id/last-prices', requireAuth, (req, res) => {
+      const party = db.prepare(`SELECT id FROM ${table} WHERE id = ?`).get(req.params.id);
+      if (!party) return res.status(404).json({ error: 'Not found' });
+      res.json({ prices: lastPricesFor(party.id) });
+    });
+  }
 
   router.get('/:id', requireAuth, (req, res) => {
     const party = db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(req.params.id);
