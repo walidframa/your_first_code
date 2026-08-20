@@ -1966,7 +1966,7 @@ try {
   await step('label size and currency options change the sheet', async () => {
     await page.getByLabel('Label size').selectOption('small');
     await page.waitForTimeout(400);
-    await page.getByLabel('Price in pounds').uncheck();
+    await page.getByRole('checkbox', { name: 'Price in pounds' }).uncheck();
     await page.waitForTimeout(300);
     if (await page.locator('.label-sheet').first().locator('text=/ LL/').count()) {
       throw new Error('pound prices still shown after unticking');
@@ -1976,7 +1976,7 @@ try {
   await step("the shop's own name goes on top of the label", async () => {
     // The reason a shop wants it: a label on a shelf in somebody else's shop is
     // just a price, and one with the name on it is theirs.
-    await page.getByLabel('Shop name').check();
+    await page.getByRole('checkbox', { name: 'Shop name' }).check();
     await page.waitForTimeout(400);
     const heads = await page.locator('.label-sheet .label-shop').count();
     if (heads < 10) throw new Error(`expected the name on every label, found ${heads}`);
@@ -1988,14 +1988,14 @@ try {
     // allowed to ask for it; what it must not do is print half a barcode with
     // nothing said.
     for (const part of ['Product name', 'Price in dollars', 'Barcode']) {
-      await page.getByLabel(`Size of ${part.toLowerCase()}`).fill('2');
+      await page.getByRole('slider', { name: `Size of ${part.toLowerCase()}` }).fill('2');
     }
     await page.waitForTimeout(400);
     await page.waitForSelector('text=/will be cut off/', { timeout: 10000 });
 
     // Back down, and the warning goes with it.
     for (const part of ['Product name', 'Price in dollars', 'Barcode']) {
-      await page.getByLabel(`Size of ${part.toLowerCase()}`).fill('1');
+      await page.getByRole('slider', { name: `Size of ${part.toLowerCase()}` }).fill('1');
     }
     await page.waitForTimeout(400);
     if (await page.locator('text=/will be cut off/').count()) {
@@ -2003,8 +2003,8 @@ try {
     }
 
     // Put the pounds back so the steps after this see the ordinary label.
-    await page.getByLabel('Price in pounds').check();
-    await page.getByLabel('Shop name').uncheck();
+    await page.getByRole('checkbox', { name: 'Price in pounds' }).check();
+    await page.getByRole('checkbox', { name: 'Shop name' }).uncheck();
     await page.waitForTimeout(300);
   });
 
