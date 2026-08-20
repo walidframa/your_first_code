@@ -1,11 +1,23 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router';
-import { AlertTriangle, Minus, Plus, Printer, Search, Tag, Trash2, Truck } from 'lucide-react';
+import { AlertTriangle, Minus, Plus, Printer, RotateCcw, Search, Tag, Trash2, Truck } from 'lucide-react';
 import api from '../../api';
 import PageHeader from '../../components/PageHeader';
 import { useSettings } from '../../context/SettingsContext';
+import { useAuth } from '../../context/AuthContext';
 import LabelSheet from '../../components/LabelSheet';
-import { CUSTOM_LIMITS, LABEL_SIZES, customSize, perSheet } from '../../lib/labelLayout';
+import {
+  CUSTOM_LIMITS,
+  DEFAULT_STYLE,
+  LABEL_PARTS,
+  LABEL_SIZES,
+  SCALE_LIMITS,
+  customSize,
+  normaliseStyle,
+  overflows,
+  perSheet,
+  styleLayout,
+} from '../../lib/labelLayout';
 import { codeFor, hasSuspectCheckDigit } from '../../lib/barcode';
 import {
   Badge,
@@ -21,9 +33,15 @@ import {
   useToast,
 } from '../../components/ui';
 
+/** The preset that is exactly these dimensions, if there is one. */
+function presetFor(width, height) {
+  return Object.values(LABEL_SIZES).find((s) => s.width === width && s.height === height) || null;
+}
+
 export default function Labels() {
   const toast = useToast();
-  const { rate } = useSettings();
+  const { rate, settings, refresh } = useSettings();
+  const { can } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [products, setProducts] = useState(null);
@@ -32,15 +50,71 @@ export default function Labels() {
   const [sizeKey, setSizeKey] = useState('tiny');
   const [customW, setCustomW] = useState('40');
   const [customH, setCustomH] = useState('20');
-  const [showLbp, setShowLbp] = useState(true);
   const [mode, setMode] = useState('sheet');
   const [sourceLabel, setSourceLabel] = useState('');
+  const [style, setStyle] = useState(DEFAULT_STYLE);
+  const [savingStyle, setSavingStyle] = useState(false);
+
+  const shopName = settings?.company_name || '';
+
+  /*
+   * The shop's saved design, once. Not a dependency of anything below, so a
+   * later save does not reach back and undo what is on the screen.
+   */
+  const saved = settings?.label_style;
+  useEffect(() => {
+    if (!saved) return;
+    let stored;
+    try {
+      stored = normaliseStyle(JSON.parse(saved));
+    } catch {
+      return; // A row edited into nonsense leaves the built-in design alone.
+    }
+    setStyle(stored);
+    setMode(stored.mode);
+    setCustomW(String(stored.width));
+    setCustomH(String(stored.height));
+    const preset = presetFor(stored.width, stored.height);
+    setSizeKey(preset ? preset.key : 'custom');
+    // Only the first read: after that the screen is the source of truth.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [saved !== undefined]);
 
   // A custom size falls back to a preset while the typed values are unusable,
   // so the preview never blanks out mid-keystroke.
   const custom = customSize(customW, customH);
-  const size = sizeKey === 'custom' ? custom || LABEL_SIZES.tiny : LABEL_SIZES[sizeKey];
+  const base = sizeKey === 'custom' ? custom || LABEL_SIZES.tiny : LABEL_SIZES[sizeKey];
+  // The chosen size, as the shop has styled it. This is what prints.
+  const size = useMemo(() => styleLayout(base, style), [base, style]);
+  const clipped = overflows(size);
   const fromDocument = searchParams.get('fromDocument');
+  const fromProduct = searchParams.get('product');
+
+  const setPart = (key, value) => setStyle((s) => ({ ...s, [key]: value }));
+
+  async function saveStyle(next) {
+    setSavingStyle(true);
+    try {
+      await api.put('/settings', {
+        label_style: next === null ? null : { ...style, width: size.width, height: size.height, mode },
+      });
+      await refresh();
+      if (next === null) {
+        setStyle(DEFAULT_STYLE);
+        setMode(DEFAULT_STYLE.mode);
+        setCustomW(String(DEFAULT_STYLE.width));
+        setCustomH(String(DEFAULT_STYLE.height));
+        setSizeKey(presetFor(DEFAULT_STYLE.width, DEFAULT_STYLE.height)?.key || 'custom');
+        toast('Back to the built-in label');
+      } else {
+        toast('Saved — this is what the shop prints now');
+      }
+    } catch (err) {
+      toast(err.response?.data?.error || 'Could not save the design', 'error');
+    } finally {
+      setSavingStyle(false);
+    }
+  }
 
   useEffect(() => {
     api.get('/products').then((res) => setProducts(res.data.products.filter((p) => p.active)));
@@ -70,6 +144,28 @@ export default function Labels() {
     // Clear the parameter so a later manual change is not overwritten on re-render.
     setSearchParams({}, { replace: true });
   }, [fromDocument, products, setSearchParams, toast]);
+
+  /**
+   * Arriving from a product that was just created or edited.
+   *
+   * The count comes with it — what was typed into the stock box is how many of
+   * the thing are on the bench waiting for a label — and it is editable here
+   * like any other, because the box that came in and the shelf are not always
+   * the same number.
+   */
+  useEffect(() => {
+    if (!fromProduct || !products) return;
+
+    const product = products.find((p) => String(p.id) === String(fromProduct));
+    const quantity = Math.max(1, Math.round(Number(searchParams.get('qty')) || 1));
+    if (product) {
+      setSelection([{ product, quantity }]);
+      setSourceLabel(product.name);
+    } else {
+      toast('That product is not on the list to label', 'warning');
+    }
+    setSearchParams({}, { replace: true });
+  }, [fromProduct, products, searchParams, setSearchParams, toast]);
 
   const term = search.trim().toLowerCase();
   const matches = useMemo(() => {
@@ -258,15 +354,86 @@ export default function Labels() {
                   : `Up to ${size.perRow} labels across an A4 page. Set scale to 100% — "fit to page" will shift them off the die-cut.`}
               </p>
 
-              <label className="mt-3 flex items-center gap-2 text-sm text-slate-600">
-                <input
-                  type="checkbox"
-                  checked={showLbp}
-                  onChange={(e) => setShowLbp(e.target.checked)}
-                  className="h-4 w-4 rounded border-slate-300 accent-brand-600"
-                />
-                Show the price in LBP too
-              </label>
+            </Card>
+
+            {/*
+              * What is on the label, and how big.
+              *
+              * The sizes are multiples of what the label worked out for itself
+              * rather than points typed in, so a design set on a 40 × 20 still
+              * reads sensibly when the same shop prints a 70 × 42. The preview
+              * beside this is the whole point — nothing here needs explaining
+              * if you can see it change.
+              */}
+            <Card className="p-4">
+              <p className="mb-2 text-sm font-medium text-slate-700">What is on the label</p>
+
+              <div className="space-y-2.5">
+                {LABEL_PARTS.map(([key, name]) => {
+                  const scaleKey = `${key}Scale`;
+                  const on = style[key] !== false;
+                  return (
+                    <div key={key} className="flex items-center gap-3">
+                      <label className="flex min-w-0 flex-1 items-center gap-2 text-sm text-slate-700">
+                        <input
+                          type="checkbox"
+                          checked={on}
+                          onChange={(e) => setPart(key, e.target.checked)}
+                          className="h-4 w-4 shrink-0 rounded border-slate-300 accent-brand-600"
+                        />
+                        <span className="truncate">
+                          {name}
+                          {key === 'shop' && shopName && (
+                            <span className="ml-1 text-xs text-slate-400">{shopName}</span>
+                          )}
+                        </span>
+                      </label>
+                      <input
+                        type="range"
+                        min={SCALE_LIMITS.min}
+                        max={SCALE_LIMITS.max}
+                        step="0.05"
+                        disabled={!on}
+                        value={style[scaleKey] ?? 1}
+                        onChange={(e) => setPart(scaleKey, Number(e.target.value))}
+                        aria-label={`Size of ${name.toLowerCase()}`}
+                        className="w-24 accent-brand-600 disabled:opacity-40"
+                      />
+                      <span className="tnum w-10 shrink-0 text-right text-xs text-slate-400">
+                        {Math.round((style[scaleKey] ?? 1) * 100)}%
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {clipped && (
+                <p className="mt-3 flex gap-1.5 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                  <AlertTriangle size={14} className="mt-px shrink-0" />
+                  <span>
+                    That is taller than a {size.width} × {size.height} mm label. The bottom of it will
+                    be cut off — turn a line off, make one smaller, or use a taller label.
+                  </span>
+                </p>
+              )}
+
+              {can('settings') && (
+                <div className="mt-3 flex items-center gap-2 border-t border-slate-100 pt-3">
+                  <Button size="sm" className="flex-1" loading={savingStyle} onClick={() => saveStyle(style)}>
+                    Save as the shop's label
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={savingStyle}
+                    onClick={() => saveStyle(null)}
+                    title="Back to the built-in design"
+                    aria-label="Back to the built-in design"
+                  >
+                    <RotateCcw size={14} />
+                  </Button>
+                </div>
+              )}
             </Card>
 
             {sourceLabel && (
@@ -383,7 +550,14 @@ export default function Labels() {
               </Card>
             ) : (
               <div className="overflow-x-auto rounded-xl bg-white p-4 ring-1 ring-slate-200">
-                <LabelSheet labels={labels} size={size} rate={rate} showLbp={showLbp} mode={mode} />
+                <LabelSheet
+                  labels={labels}
+                  size={size}
+                  rate={rate}
+                  showLbp={style.lbp !== false}
+                  mode={mode}
+                  shopName={shopName}
+                />
               </div>
             )}
           </div>

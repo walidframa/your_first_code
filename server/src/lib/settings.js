@@ -30,6 +30,16 @@ export const SETTING_DEFAULTS = {
   company_logo_url: '',
   /* The line at the foot of a receipt: returns policy, thank you, opening hours. */
   receipt_footer: '',
+
+  /*
+   * How the shop's shelf labels are laid out — which lines print, and how big
+   * each one is against the size the label worked out for itself.
+   *
+   * Held as JSON in one row rather than a dozen keys, because it is one
+   * decision made on one screen. Empty means the built-in design; the label
+   * screen fills this in the first time somebody saves their own.
+   */
+  label_style: '',
   /*
    * The dialling code local numbers get when they are sent to WhatsApp, which
    * wants every number in international form. Lebanon by default; a shop

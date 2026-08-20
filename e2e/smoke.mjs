@@ -697,7 +697,7 @@ try {
     await dialog.getByRole('spinbutton', { name: 'Cost', exact: true }).fill('150');
     // Named: "Sold as a SIM" sits beside it now, and a bare checkbox is two.
     await dialog.getByRole('checkbox', { name: /Track each one by IMEI/ }).check();
-    await dialog.getByRole('button', { name: /Create|Save/ }).click();
+    await dialog.getByRole('button', { name: /^(Create product|Save changes)$/ }).click();
     await page.waitForSelector('text=Galaxy A15', { timeout: 15000 });
   });
 
@@ -1966,11 +1966,46 @@ try {
   await step('label size and currency options change the sheet', async () => {
     await page.getByLabel('Label size').selectOption('small');
     await page.waitForTimeout(400);
-    await page.getByLabel('Show the price in LBP too').uncheck();
+    await page.getByRole('checkbox', { name: 'Price in pounds' }).uncheck();
     await page.waitForTimeout(300);
     if (await page.locator('.label-sheet').first().locator('text=/ LL/').count()) {
       throw new Error('pound prices still shown after unticking');
     }
+  });
+
+  await step("the shop's own name goes on top of the label", async () => {
+    // The reason a shop wants it: a label on a shelf in somebody else's shop is
+    // just a price, and one with the name on it is theirs.
+    await page.getByRole('checkbox', { name: 'Shop name' }).check();
+    await page.waitForTimeout(400);
+    const heads = await page.locator('.label-sheet .label-shop').count();
+    if (heads < 10) throw new Error(`expected the name on every label, found ${heads}`);
+    await page.locator('.label-sheet .label-shop').first().waitFor();
+  });
+
+  await step('a label that no longer fits says so before it is printed', async () => {
+    // Everything at double on a 38 × 21 label runs off the bottom. The shop is
+    // allowed to ask for it; what it must not do is print half a barcode with
+    // nothing said.
+    for (const part of ['Product name', 'Price in dollars', 'Barcode']) {
+      await page.getByRole('slider', { name: `Size of ${part.toLowerCase()}` }).fill('2');
+    }
+    await page.waitForTimeout(400);
+    await page.waitForSelector('text=/will be cut off/', { timeout: 10000 });
+
+    // Back down, and the warning goes with it.
+    for (const part of ['Product name', 'Price in dollars', 'Barcode']) {
+      await page.getByRole('slider', { name: `Size of ${part.toLowerCase()}` }).fill('1');
+    }
+    await page.waitForTimeout(400);
+    if (await page.locator('text=/will be cut off/').count()) {
+      throw new Error('the clipping warning outstayed the design that caused it');
+    }
+
+    // Put the pounds back so the steps after this see the ordinary label.
+    await page.getByRole('checkbox', { name: 'Price in pounds' }).check();
+    await page.getByRole('checkbox', { name: 'Shop name' }).uncheck();
+    await page.waitForTimeout(300);
   });
 
   await step('label printer mode puts one label on each page', async () => {
@@ -2023,6 +2058,33 @@ try {
       ),
     );
     if (spill) throw new Error('label contents overflow the label');
+  });
+
+  await step('a new product goes straight to its labels, counted', async () => {
+    /*
+     * The usual reason a product is created at all: a box arrived, and the
+     * things in it need labels before they reach the shelf. The count comes
+     * from the stock that was just typed in, and is editable here — what came
+     * in the box and what goes on the shelf are not always the same number.
+     */
+    await goTo('Products');
+    await page.waitForSelector('button:has-text("New product")', { timeout: 15000 });
+    await page.click('button:has-text("New product")');
+
+    const dialog = page.locator('[role=dialog]');
+    await dialog.getByLabel('Name').fill('Car charger 30W');
+    await dialog.getByLabel('SKU').fill('CHG-30W');
+    await dialog.getByLabel('Price').fill('9.00');
+    await dialog.getByLabel('Stock on hand').fill('6');
+    await dialog.getByRole('button', { name: /Save & label/ }).click();
+
+    // On the label screen, with six of them waiting.
+    await page.waitForSelector('text=Loaded from Car charger 30W', { timeout: 15000 });
+    await page.waitForSelector('text=/6 labels/', { timeout: 15000 });
+
+    // And the count is the shop's to change, not the invoice's last word.
+    await page.getByLabel('Label count for Car charger 30W').fill('4');
+    await page.waitForSelector('text=/4 labels/', { timeout: 10000 });
   });
 
   await step('a quotation converts to a sales order', async () => {
@@ -3395,7 +3457,7 @@ try {
       await dialog.getByRole('spinbutton', { name: 'Price', exact: true }).fill(price);
       await dialog.getByRole('spinbutton', { name: 'Cost', exact: true }).fill(cost);
       await dialog.getByRole('spinbutton', { name: 'Stock on hand', exact: true }).fill(stock);
-      await dialog.getByRole('button', { name: /Create|Save/ }).click();
+      await dialog.getByRole('button', { name: /^(Create product|Save changes)$/ }).click();
       await page.waitForSelector(`text=${name}`, { timeout: 15000 });
     }
 
@@ -3433,7 +3495,7 @@ try {
     if ((await many.inputValue()) !== '1') {
       throw new Error('the stepper would not come back down');
     }
-    await pack.getByRole('button', { name: /Create|Save/ }).click();
+    await pack.getByRole('button', { name: /^(Create product|Save changes)$/ }).click();
     await page.waitForSelector('text=Case pack', { timeout: 15000 });
   });
 
