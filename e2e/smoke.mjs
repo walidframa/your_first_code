@@ -1309,7 +1309,7 @@ try {
 
     await dialog.getByLabel('Name').fill('Braided cable');
     await dialog.getByLabel('SKU').fill('CBL-BRAID');
-    await dialog.getByLabel('Price').fill('7.50');
+    await dialog.getByLabel('Price', { exact: true }).fill('7.50');
     // Stock, or the register refuses it at the scan and this proves nothing.
     await dialog.getByLabel('Stock on hand').fill('10');
 
@@ -1943,6 +1943,73 @@ try {
   });
   await shot('purchase-invoice');
 
+  await step('a second delivery at a different price averages out the cost', async () => {
+    /*
+     * The question a shopkeeper actually asks: I bought these at one price and
+     * then at another — what did they cost me? `products.cost` is whatever was
+     * last typed, and cannot answer it.
+     */
+    await goTo('Documents');
+    const dialog = await openNewDocument();
+    await dialog.getByRole('button', { name: /Purchase invoice/ }).click();
+    await dialog.locator('#doc-party').selectOption({ label: 'Corner Bakehouse' });
+    await dialog.getByLabel('Search products to add').fill('Bagel');
+    await dialog.locator('text=/BAK-002/').first().waitFor();
+    await dialog.getByLabel('Search products to add').press('Enter');
+    await dialog.getByLabel(/Quantity for Bagel/i).fill('10');
+    // Dearer than the first delivery, which is what the next step is about.
+    await dialog.getByLabel(/Unit price for Bagel/i).fill('4');
+
+    // Said before it is booked in, while the supplier's paper is still in hand.
+    await dialog.locator('text=/costs more than last time/').first().waitFor({ timeout: 10000 });
+
+    await page.click('button:has-text("Create draft")');
+    await page.waitForSelector('text=/PI-\\d{4}/', { timeout: 15000 });
+    await page.click('button:has-text("Confirm")');
+    await page.waitForSelector('[role=dialog] >> text=confirmed', { timeout: 15000 });
+    await page.keyboard.press('Escape');
+  });
+
+  await step('the catalogue can show what the shelf actually cost', async () => {
+    await goTo('Products');
+    await page.waitForSelector('button:has-text("New product")', { timeout: 15000 });
+
+    // Not on by default — the counter does not need it — so it is turned on.
+    await page.getByRole('button', { name: 'Columns' }).click();
+    await page.getByLabel('Average cost').check();
+    await page.keyboard.press('Escape');
+
+    await page.waitForSelector('th:has-text("Average cost")', { timeout: 10000 });
+    await page.getByPlaceholder(/Search by name, SKU or barcode/).fill('Bagel');
+    await page.waitForTimeout(300);
+
+    // Ten at the seeded cost and ten at $4: the average sits between them, and
+    // is neither of the two numbers on the invoices.
+    const row = page.locator('tbody tr', { hasText: 'Bagel' }).first();
+    const cells = await row.locator('td').allInnerTexts();
+    if (!cells.some((c) => /\$/.test(c))) throw new Error('no money in the row at all');
+
+    // And a column turned off goes away and stays away over a reload.
+    await page.getByRole('button', { name: 'Columns' }).click();
+    await page.getByLabel('Category').uncheck();
+    await page.keyboard.press('Escape');
+    if (await page.locator('th:has-text("Category")').count()) {
+      throw new Error('the category column outstayed its unticking');
+    }
+
+    await page.reload();
+    await page.waitForSelector('th:has-text("Average cost")', { timeout: 15000 });
+    if (await page.locator('th:has-text("Category")').count()) {
+      throw new Error('the choice was forgotten on reload');
+    }
+
+    // Put it back, so the steps after this see the ordinary table.
+    await page.getByRole('button', { name: 'Columns' }).click();
+    await page.getByRole('button', { name: /Show them all again/ }).click();
+    await page.keyboard.press('Escape');
+    await page.waitForSelector('th:has-text("Category")', { timeout: 10000 });
+  });
+
   await step('labels can be printed from a confirmed purchase invoice', async () => {
     await goTo('Documents');
     await page.click('td:has-text("PI-0001")');
@@ -2074,7 +2141,7 @@ try {
     const dialog = page.locator('[role=dialog]');
     await dialog.getByLabel('Name').fill('Car charger 30W');
     await dialog.getByLabel('SKU').fill('CHG-30W');
-    await dialog.getByLabel('Price').fill('9.00');
+    await dialog.getByLabel('Price', { exact: true }).fill('9.00');
     await dialog.getByLabel('Stock on hand').fill('6');
     await dialog.getByRole('button', { name: /Save & label/ }).click();
 
@@ -2337,6 +2404,34 @@ try {
     await page.waitForSelector('text=/SI-\\d{4}/', { timeout: 15000 });
     await page.click('button:has-text("Confirm")');
     await page.waitForSelector('text=confirmed', { timeout: 15000 });
+    await page.keyboard.press('Escape');
+  });
+
+  await step('the next invoice says what this customer paid last time', async () => {
+    /*
+     * A shop here does not have one price for a thing — it has the price it
+     * quoted this man in March, and going back on it is how a regular stops
+     * being one. Shown rather than applied: prices do go up, and quietly
+     * re-pricing a line to a figure from the spring would be worse than not
+     * knowing.
+     */
+    await goTo('Documents');
+    const dialog = await openNewDocument();
+    await dialog.getByRole('button', { name: /Sales invoice/ }).click();
+    await dialog.locator('#doc-party').selectOption({ label: 'Rami Haddad' });
+    await dialog.getByLabel('Search products to add').fill('Croissant');
+    await dialog.getByLabel('Search products to add').press('Enter');
+
+    // What he was charged on the invoice above, offered beside the price box.
+    const lastPaid = dialog.locator('button[aria-label^="Last time"]').first();
+    await lastPaid.waitFor({ timeout: 10000 });
+
+    // Knocked down, then put back to his price with one tap.
+    const price = dialog.getByLabel(/Unit price for/i).first();
+    await price.fill('99');
+    await lastPaid.click();
+    if ((await price.inputValue()) === '99') throw new Error('his old price did not go back on');
+
     await page.keyboard.press('Escape');
   });
 
@@ -2732,6 +2827,33 @@ try {
     await page.click('button:has-text("New sale")');
   });
   await shot('account-sale');
+
+  await step('a walk-in becomes a customer without leaving the sale', async () => {
+    /*
+     * Somebody is standing at the counter asking for it on the slate. Sending
+     * the cashier to the back office to create them means abandoning the sale
+     * and ringing the whole thing up again.
+     */
+    await goTo('Register');
+    await page.waitForSelector('text=Current sale', { timeout: 15000 });
+    await page.getByRole('button', { name: /^Bagel/ }).first().click();
+
+    await page.click('button:has-text("Add customer")');
+    await page.waitForSelector('text=Choose a customer', { timeout: 15000 });
+    await page.getByRole('button', { name: /New customer/ }).click();
+
+    const form = page.locator('[role=dialog]').last();
+    await form.getByLabel('Name').fill('Hussein the plumber');
+    await form.getByLabel('Phone').fill('03 777 888');
+    await form.getByRole('button', { name: /Add and use/ }).click();
+
+    // Straight onto the sale in progress — creating them was never the point.
+    await page.waitForSelector('text=Hussein the plumber', { timeout: 15000 });
+
+    // And they are a customer from now on, not just a name on this sale.
+    await goTo('Customers');
+    await page.waitForSelector('td:has-text("Hussein the plumber")', { timeout: 15000 });
+  });
 
   await step('admin can change the exchange rate', async () => {
     await goTo('Settings');

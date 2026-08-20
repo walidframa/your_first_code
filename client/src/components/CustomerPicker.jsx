@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
-import { Search, UserPlus, UserRound, X } from 'lucide-react';
+import { Plus, Search, UserPlus, UserRound, X } from 'lucide-react';
 import api from '../api';
 import { Badge, Button, EmptyState, Modal, cx, money } from './ui';
 import { useT } from '../context/LanguageContext';
+import { useAuth } from '../context/AuthContext';
+import PartyQuickCreate from './PartyQuickCreate';
 
 /**
  * Attaches a customer to the sale in progress. Optional for cash and card;
@@ -10,9 +12,17 @@ import { useT } from '../context/LanguageContext';
  */
 export default function CustomerPicker({ customer, onChange }) {
   const t = useT();
+  const { can } = useAuth();
   const [open, setOpen] = useState(false);
   const [customers, setCustomers] = useState(null);
   const [search, setSearch] = useState('');
+  const [creating, setCreating] = useState(false);
+  /*
+   * Adding a contact is its own permission — the same one the Customers screen
+   * sits behind. A button that always came back 403 would be worse than no
+   * button, so a cashier without it picks from the list as before.
+   */
+  const canAdd = can('parties');
 
   useEffect(() => {
     if (!open) return;
@@ -79,7 +89,18 @@ export default function CustomerPicker({ customer, onChange }) {
           <EmptyState
             icon={UserRound}
             title="No customers found"
-            description="Add customers from the back office to sell on account."
+            description={
+              canAdd
+                ? 'Nobody by that name yet — add them without leaving the sale.'
+                : 'Add customers from the back office to sell on account.'
+            }
+            action={
+              canAdd ? (
+                <Button onClick={() => setCreating(true)}>
+                  <Plus size={15} /> {t('New customer')}
+                </Button>
+              ) : undefined
+            }
           />
         ) : (
           <ul className="max-h-80 divide-y divide-slate-100 overflow-y-auto">
@@ -113,12 +134,39 @@ export default function CustomerPicker({ customer, onChange }) {
           </ul>
         )}
 
-        <div className="mt-3 flex justify-end">
+        <div className="mt-3 flex items-center justify-between gap-2">
+          {/*
+            * A walk-in who wants it on the slate is standing at the counter
+            * while this is open. Sending the cashier to the back office to
+            * create them means abandoning the sale and ringing it up again.
+            */}
+          {canAdd ? (
+            <Button variant="secondary" size="sm" onClick={() => setCreating(true)}>
+              <Plus size={15} /> {t('New customer')}
+            </Button>
+          ) : (
+            <span />
+          )}
           <Button variant="secondary" size="sm" onClick={() => setOpen(false)}>
             Cancel
           </Button>
         </div>
       </Modal>
+
+      {/* Straight onto the sale once they exist — creating them was never the
+          point, selling to them was. */}
+      <PartyQuickCreate
+        open={creating}
+        partyType="customer"
+        onClose={() => setCreating(false)}
+        onCreated={(party) => {
+          setCreating(false);
+          setOpen(false);
+          setSearch('');
+          setCustomers(null);
+          onChange({ ...party, balance: party.balance ?? 0 });
+        }}
+      />
     </>
   );
 }

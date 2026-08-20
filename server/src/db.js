@@ -1905,6 +1905,21 @@ addColumn('products', 'credit_wallet_id', 'INTEGER REFERENCES wallets(id)');
 addColumn('products', 'credits_included', 'REAL');
 
 /*
+ * The trade price, for the shops that buy from this one.
+ *
+ * A phone shop here sells to the public over the counter and to the repair shop
+ * down the road by the box, and the second price is not a discount somebody
+ * remembers — it is the price of the thing when the buyer is in the trade.
+ * Kept beside the retail price rather than derived from a percentage, because
+ * a fixed markup is exactly what it is not: some lines carry the shop and some
+ * go out at barely over cost to keep a customer.
+ *
+ * Null rather than zero for "there isn't one", which is most of the catalogue.
+ * Zero would mean the shop gives it away.
+ */
+addColumn('products', 'wholesale_price', 'REAL');
+
+/*
  * How much of a line has come back.
  *
  * A customer returns one thing off a sale of six far more often than they hand

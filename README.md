@@ -2242,6 +2242,75 @@ Cost changes are recorded when the cost is edited **and when a delivery arrives
 at a different price** — a purchase invoice updates the product's cost and keeps
 the old figure on the record, so the margin's movement can be explained later.
 
+## What a thing actually cost
+
+`Cost` on a product is one number: what the last person to save it typed. That
+is the right answer to "what is it worth now" and the wrong answer to the
+question a shop is really asking:
+
+> I bought ten at $10 and then twenty at $9. What did they cost me?
+
+**Average cost** answers it, and is a column you can turn on in the catalogue.
+It is read off confirmed purchase invoices — every delivery, at the price that
+delivery cost — and **weighted by quantity**, so ten at $10 and twenty at $9 is
+$9.33 rather than "an average of $9.50". Where the quantities match, the two
+agree; that is the case you can check by hand. Ten and ten at $10 and $9 is
+exactly $9.50.
+
+It stays blank for a product nothing has been received against. A figure called
+"average" that nobody averaged is worse than a gap — a shop would price off it.
+
+The **margin** column follows the average where there is one, because a margin
+worked out against a typed cost, while stock bought at two prices is still on
+the shelf, flatters or frightens for no reason. Each delivery is still on its
+own line in the item's history at what that delivery cost.
+
+**Trade price** is a third column, for the shops that buy from this one: a phone
+shop sells to the public over the counter and to the repair shop down the road
+by the box. It is a price, not a percentage — some lines carry the shop and some
+go out at barely over cost to keep a customer — and it is left empty for most of
+a catalogue, which is what "there isn't one" looks like.
+
+## When a supplier puts their price up
+
+Add a line to a **purchase invoice** at more than that product last cost, and
+the row turns red before the invoice is created:
+
+> Bagel costs more than last time. Bagel was $3.00, now $4.00. Book it in at the
+> new price if that is what the supplier charged — or tap the old figure to put
+> the line back.
+
+A flag rather than a refusal: prices do go up, and the delivery still has to be
+booked in. The point is that it is noticed while the supplier's paper is in your
+hand, rather than at the end of the month when the margin has already gone.
+Tapping *was $3.00* puts the line back, for when the new figure was a slip.
+
+## What this customer paid last time
+
+Pick a customer on a **sales invoice** and every line shows what they were last
+charged for that product — from any sale to them, whether it was an invoice or
+rung up at the register. Tap it to use that price.
+
+Shown, never applied on its own. The shop may well have put its prices up since,
+and quietly re-pricing a line to a figure from March would be worse than not
+knowing. What it removes is the part nobody can do reliably: remembering what
+you quoted one of forty customers, last spring.
+
+## Choosing the columns
+
+Any table with a **Columns** button beside its search box is the reader's to
+arrange. Tick a column on, tick it off; the choice is kept **on that device**,
+not in the database, because the tablet at the counter and the laptop in the
+back office are two different jobs. The owner pricing a delivery wants cost,
+average cost and margin side by side; the person on the counter wants the name,
+the price and what is on the shelf.
+
+What is stored is the set you turned **off**, not the set you left on — so a
+column added in a later version shows up for everybody, rather than a saved
+layout freezing a table at the columns that existed the day it was saved. The
+columns that hold a row together — the thing itself, and the buttons that act on
+it — cannot be hidden.
+
 ## Shopify
 
 Admin → **Shopify**. Sell an item on the website and it leaves the shelf here;
