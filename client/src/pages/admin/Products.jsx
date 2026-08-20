@@ -9,6 +9,7 @@ import {
   Plus,
   Search,
   Smartphone,
+  Tag,
   Tags,
   Upload,
 } from 'lucide-react';
@@ -57,6 +58,7 @@ const emptyForm = {
 };
 
 function ProductModal({ product, categories, allProducts, onClose, onSaved }) {
+  const navigate = useNavigate();
   const toast = useToast();
   const [form, setForm] = useState(
     product
@@ -111,7 +113,16 @@ function ProductModal({ product, categories, allProducts, onClose, onSaved }) {
    */
   const [bundle, setBundle] = useState([]);
 
-  async function submit(e) {
+  /**
+   * Saving, and what happens next.
+   *
+   * `andLabel` is the reason a product is usually being created at all: a box
+   * arrived, it is going on the shelf, and the things in it need labels before
+   * they get there. The count carries over — what was typed into the stock box
+   * is how many are on the bench — and is editable on the label screen, because
+   * what came in and what goes on the shelf are not always the same number.
+   */
+  async function submit(e, andLabel = false) {
     e.preventDefault();
     setError('');
     setSaving(true);
@@ -147,6 +158,7 @@ function ProductModal({ product, categories, allProducts, onClose, onSaved }) {
       }
       toast(product ? 'Product updated' : 'Product created');
       onSaved();
+      if (andLabel && id) navigate(`/admin/labels?product=${id}&qty=${Number(form.stock) || 1}`);
     } catch (err) {
       /*
        * Switching an existing product to IMEI tracking clears its stock count,
@@ -317,9 +329,20 @@ function ProductModal({ product, categories, allProducts, onClose, onSaved }) {
 
         {error && <p className="text-sm text-red-600">{error}</p>}
 
-        <ModalActions>
+        <ModalActions className="flex-wrap">
           <Button type="button" variant="secondary" onClick={onClose} className="flex-1">
             Cancel
+          </Button>
+          {/* Straight from here to the labels, with the count already on it. */}
+          <Button
+            type="button"
+            variant="secondary"
+            className="flex-1"
+            loading={saving}
+            onClick={(e) => submit(e, true)}
+            title="Save, then print labels for the quantity in stock"
+          >
+            <Tag size={15} /> Save &amp; label
           </Button>
           <Button type="submit" className="flex-1" loading={saving}>
             {product ? 'Save changes' : 'Create product'}

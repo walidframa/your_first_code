@@ -34,10 +34,21 @@ function Barcode({ value, height, width = 1.4 }) {
   return <svg ref={ref} className="block max-w-full" />;
 }
 
-/** A single label: name, price in both currencies, barcode and its number. */
-export function Label({ product, size, rate, showLbp = true }) {
+/**
+ * A single label: the shop's name if it prints, the product name, the price in
+ * both currencies, the barcode and its number.
+ *
+ * Which of those actually appear, and how big each one is, comes from the
+ * size's `style` — so a shop that wants nothing but a price and bars gets a
+ * label with nothing but a price and bars, at the size it asked for.
+ */
+export function Label({ product, size, rate, showLbp = true, shopName = '' }) {
   const code = codeFor(product);
   const priceLbp = rate ? Math.round((product.price * rate) / 1000) * 1000 : 0;
+  const style = size.style || {};
+  // The checkbox on the screen and the style both have a say; either turning it
+  // off turns it off, so the old caller keeps working unchanged.
+  const withLbp = showLbp && style.lbp !== false;
 
   return (
     <div
@@ -48,39 +59,54 @@ export function Label({ product, size, rate, showLbp = true }) {
         padding: `${size.padding}mm`,
       }}
     >
-      <span
-        className="w-full leading-tight font-semibold text-black"
-        style={{
-          fontSize: `${size.namePt}pt`,
-          lineHeight: 1.1,
-          overflow: 'hidden',
-          display: '-webkit-box',
-          WebkitLineClamp: size.nameLines,
-          WebkitBoxOrient: 'vertical',
-        }}
-      >
-        {product.name}
-      </span>
+      {style.shop && shopName && (
+        <span
+          className="label-shop w-full truncate font-semibold tracking-wide text-black uppercase"
+          style={{ fontSize: `${size.shopPt}pt`, lineHeight: 1.1 }}
+        >
+          {shopName}
+        </span>
+      )}
 
-      <span className="font-bold text-black" style={{ fontSize: `${size.pricePt}pt`, lineHeight: 1 }}>
-        {money(product.price)}
-      </span>
+      {style.name !== false && (
+        <span
+          className="w-full leading-tight font-semibold text-black"
+          style={{
+            fontSize: `${size.namePt}pt`,
+            lineHeight: 1.1,
+            overflow: 'hidden',
+            display: '-webkit-box',
+            WebkitLineClamp: size.nameLines,
+            WebkitBoxOrient: 'vertical',
+          }}
+        >
+          {product.name}
+        </span>
+      )}
 
-      {showLbp && rate > 0 && (
+      {style.price !== false && (
+        <span className="font-bold text-black" style={{ fontSize: `${size.pricePt}pt`, lineHeight: 1 }}>
+          {money(product.price)}
+        </span>
+      )}
+
+      {withLbp && rate > 0 && (
         <span className="text-black" style={{ fontSize: `${size.subPt}pt`, lineHeight: 1 }}>
           {lbp(priceLbp)}
         </span>
       )}
 
-      {code ? (
+      {style.barcode === false ? null : code ? (
         <div className="flex w-full flex-col items-center">
           <Barcode value={code} height={size.barcodeHeight} width={size.barWidth} />
-          <span
-            className="tracking-wider text-black"
-            style={{ fontSize: `${size.codePt}pt`, lineHeight: 1, marginTop: '0.3mm' }}
-          >
-            {code}
-          </span>
+          {style.code !== false && (
+            <span
+              className="tracking-wider text-black"
+              style={{ fontSize: `${size.codePt}pt`, lineHeight: 1, marginTop: '0.3mm' }}
+            >
+              {code}
+            </span>
+          )}
         </div>
       ) : (
         <span style={{ fontSize: '6pt' }} className="text-slate-400">
@@ -105,7 +131,7 @@ export function Label({ product, size, rate, showLbp = true }) {
  * The page size depends on the size chosen, so it is claimed from lib/pageSize
  * rather than written into a stylesheet ahead of the choice.
  */
-export default function LabelSheet({ labels, size, rate, showLbp, mode = 'sheet' }) {
+export default function LabelSheet({ labels, size, rate, showLbp, mode = 'sheet', shopName = '' }) {
   usePageSize(
     mode === 'roll'
       ? `@page { size: ${size.width}mm ${size.height}mm; margin: 0; }`
@@ -127,7 +153,14 @@ export default function LabelSheet({ labels, size, rate, showLbp, mode = 'sheet'
         }
       >
         {labels.map((product, i) => (
-          <Label key={`${product.id}-${i}`} product={product} size={size} rate={rate} showLbp={showLbp} />
+          <Label
+            key={`${product.id}-${i}`}
+            product={product}
+            size={size}
+            rate={rate}
+            showLbp={showLbp}
+            shopName={shopName}
+          />
         ))}
       </div>
     </>

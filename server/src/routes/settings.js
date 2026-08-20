@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
+import { serialiseLabelStyle } from '../lib/labelStyle.js';
 import {
   getSettings,
   publicSettings,
@@ -96,6 +97,18 @@ router.put('/', requireAuth, requirePermission('settings'), (req, res) => {
   if (req.body.tax_name !== undefined) {
     // Blank falls back rather than printing an unlabelled line on a receipt.
     setSetting('tax_name', String(req.body.tax_name || '').trim() || 'Tax', req.user.id);
+  }
+
+  /*
+   * The shop's own label design.
+   *
+   * Normalised rather than stored as sent: this row is served on every page
+   * load, and a size out of range prints a label with the barcode off the
+   * bottom of it. Sending null puts the shop back on the built-in design.
+   */
+  if (req.body.label_style !== undefined) {
+    const wanted = req.body.label_style;
+    setSetting('label_style', wanted === null ? '' : serialiseLabelStyle(wanted), req.user.id);
   }
 
   for (const field of COMPANY_FIELDS) {

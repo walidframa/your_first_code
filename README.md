@@ -89,8 +89,9 @@ orders and staff.
   **as many barcodes as the thing actually has** — scan them in one after another
 - Orders: every cashier's sales with full refunds that restock items
 - **Labels**: printable barcode and price labels for roll or A4 stock, in five
-  built-in sizes or any size you type in, preloaded from a purchase invoice's
-  received quantities
+  built-in sizes or any size you type in, with every line on the label switchable
+  and separately sized, preloaded from a purchase invoice's received quantities
+  or straight from a product you have just created
 - **SIM cards**: lines bought from a supplier in batches and sold by **the phone
   number on the card** — booked in one number per line, sold at the register on
   `F7`, and each sale keeping a photograph of the buyer's ID
@@ -1764,13 +1765,40 @@ unscannable.
 
 ## Printing labels
 
-Admin → **Labels**, or **Print labels** on a confirmed purchase invoice — which
-preloads its lines with the quantities just received, since that is usually why
-you are printing.
+Three ways in, and two of them come with the count already filled in:
 
-Each label carries the product name, the price in **both currencies**, a barcode
-and its human-readable number. Printing hides the whole app so only the sheet
-reaches the page.
+- Admin → **Labels**, and search for what you want.
+- **Print labels** on a confirmed purchase invoice — its lines preloaded with
+  the quantities just received, since that is usually why you are printing.
+- **Save & label** in the new-product dialog — the product is created and you
+  land on its labels with the stock you just typed in as the count.
+
+In both of those the count is a starting point, not the last word: every row has
+a quantity box, because what came in the box and what goes on the shelf are not
+always the same number.
+
+A label carries, top to bottom: the **shop's name**, the product name, the price
+in **both currencies**, a barcode and its human-readable number. Printing hides
+the whole app so only the sheet reaches the page.
+
+**Every one of those lines can be turned off, and each has its own size.** The
+panel under the size picker is the shop's own design — untick "Price in pounds"
+if the labels are for a shelf that only quotes dollars, drag "Price in dollars"
+up to 150% for a stall where the price is what people read from a metre away,
+turn on "Shop name" so a label on somebody else's shelf is still yours. The
+sizes are multiples of what the label worked out for itself rather than points
+typed in, so a design set on a 40 × 20 still reads sensibly when the same shop
+prints a 70 × 42.
+
+Ask for more than fits and the screen says so — *"the bottom of it will be cut
+off"* — rather than quietly printing half a barcode. It is still allowed: a shop
+that wants it that way knows its own labels, and the warning is there so it is a
+choice rather than a surprise at the printer.
+
+**Save as the shop's label** keeps the design, the size and the stock as the
+default for everybody, so the next person to print does not set it up again.
+That one is the owner's — it is what every label in the shop looks like. The arrow
+beside it goes back to the built-in design.
 
 Choose the stock first, because it decides the page:
 

@@ -164,3 +164,62 @@ test('the cashbox report carries the shop’s name onto the page', async () => {
   assert.match(text, /\(Rami Mobile\)/, 'a filed report with no name on it cannot be placed later');
   assert.match(text, /VAT \/ MOF: 1234567/);
 });
+
+/* ------------------------------------------------- the shop's own label */
+
+test('a label design is saved, normalised, and read back whole', async () => {
+  const res = await req(
+    'PUT',
+    '/settings',
+    {
+      label_style: { shop: true, lbp: false, priceScale: 1.6, width: 50, height: 30, mode: 'roll' },
+    },
+    adminToken,
+  );
+  assert.equal(res.status, 200);
+
+  const style = JSON.parse(res.json.settings.label_style);
+  assert.equal(style.shop, true, 'the shop wanted its name on the label');
+  assert.equal(style.lbp, false);
+  assert.equal(style.priceScale, 1.6);
+  assert.equal(style.width, 50);
+  assert.equal(style.mode, 'roll');
+  // The fields it did not mention come back at their defaults rather than
+  // undefined, or the label prints with three sizes missing.
+  assert.equal(style.name, true);
+  assert.equal(style.nameScale, 1);
+});
+
+test('a design that would print off the label is brought back into range', async () => {
+  const res = await req(
+    'PUT',
+    '/settings',
+    { label_style: { nameScale: 99, codeScale: -4, width: 9000, mode: 'telepathy', junk: 'x' } },
+    adminToken,
+  );
+
+  const style = JSON.parse(res.json.settings.label_style);
+  assert.equal(style.nameScale, 2, 'half to double, and no further');
+  assert.equal(style.codeScale, 0.5);
+  assert.equal(style.width, 210);
+  assert.equal(style.mode, 'sheet', 'a mode nobody prints on is not a mode');
+  assert.ok(!('junk' in style), 'anything sent is stored');
+});
+
+test('nonsense in the design is the built-in label rather than an error', async () => {
+  // This row is read on every page load. A settings table somebody edited by
+  // hand should give a plain label back, not a screen that will not open.
+  const res = await req('PUT', '/settings', { label_style: 'not json at all' }, adminToken);
+  assert.equal(res.status, 200);
+
+  const style = JSON.parse(res.json.settings.label_style);
+  assert.equal(style.shop, false);
+  assert.equal(style.nameScale, 1);
+});
+
+test('the design goes back to the built-in one, and only the owner may set it', async () => {
+  assert.equal((await req('PUT', '/settings', { label_style: { shop: true } }, cashierToken)).status, 403);
+
+  const res = await req('PUT', '/settings', { label_style: null }, adminToken);
+  assert.equal(res.json.settings.label_style, '', 'empty is the built-in design');
+});

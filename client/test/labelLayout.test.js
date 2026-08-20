@@ -1,26 +1,21 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { CUSTOM_LIMITS, LABEL_SIZES, customSize, deriveLayout, perSheet } from '../src/lib/labelLayout.js';
+import {
+  CUSTOM_LIMITS,
+  DEFAULT_STYLE,
+  LABEL_PARTS,
+  LABEL_SIZES,
+  SCALE_LIMITS,
+  contentHeightMm,
+  customSize,
+  deriveLayout,
+  normaliseStyle,
+  overflows,
+  perSheet,
+  styleLayout,
+} from '../src/lib/labelLayout.js';
 
 const PX_PER_MM = 96 / 25.4;
-const PT_PER_MM = 72 / 25.4;
-
-/**
- * The tallest the label's contents can be, in millimetres: the name (one or
- * two lines at 1.1 line-height), the price, the pounds price, the barcode, the
- * gap under it and the code number. Anything over the label's height minus its
- * padding is clipped on the printed label.
- */
-function contentHeightMm(size) {
-  return (
-    (size.namePt * 1.1 * size.nameLines) / PT_PER_MM +
-    size.pricePt / PT_PER_MM +
-    size.subPt / PT_PER_MM +
-    size.barcodeHeight / PX_PER_MM +
-    0.3 +
-    size.codePt / PT_PER_MM
-  );
-}
 
 test('every preset fits its own contents', () => {
   for (const size of Object.values(LABEL_SIZES)) {
@@ -93,4 +88,56 @@ test('A4 sheet capacity leaves room for the gap between labels', () => {
 test('a label wider than the page still yields one per row', () => {
   assert.equal(deriveLayout(200, 100).perRow, 1);
   assert.equal(perSheet(deriveLayout(200, 290)), 1);
+});
+
+/* ------------------------------------------------ the shop's own design */
+
+test('a style with nothing in it is the built-in design', () => {
+  assert.deepEqual(normaliseStyle(undefined), DEFAULT_STYLE);
+  assert.deepEqual(normaliseStyle(null), DEFAULT_STYLE);
+  assert.deepEqual(normaliseStyle('not an object'), DEFAULT_STYLE);
+  // Every part the screen offers has a field behind it, or a checkbox would
+  // toggle something nothing reads.
+  for (const [key] of LABEL_PARTS) assert.ok(key in DEFAULT_STYLE, `${key} has no field`);
+});
+
+test('a size out of range is brought back rather than believed', () => {
+  const wild = normaliseStyle({ nameScale: 40, priceScale: 0, width: 9000, height: -3 });
+  assert.equal(wild.nameScale, SCALE_LIMITS.max);
+  assert.equal(wild.priceScale, SCALE_LIMITS.min);
+  assert.equal(wild.width, CUSTOM_LIMITS.maxWidth);
+  assert.equal(wild.height, CUSTOM_LIMITS.minHeight);
+  // And a mode nobody prints on is not a mode.
+  assert.equal(normaliseStyle({ mode: 'carrier pigeon' }).mode, DEFAULT_STYLE.mode);
+  assert.equal(normaliseStyle({ mode: 'roll' }).mode, 'roll');
+});
+
+test('a part turned off stops taking up room on the label', () => {
+  const plain = styleLayout(LABEL_SIZES.tiny, DEFAULT_STYLE);
+  const bare = styleLayout(LABEL_SIZES.tiny, { ...DEFAULT_STYLE, name: false, lbp: false });
+  assert.ok(contentHeightMm(bare) < contentHeightMm(plain));
+
+  // And the shop's name on top costs a line rather than being free.
+  const headed = styleLayout(LABEL_SIZES.tiny, { ...DEFAULT_STYLE, shop: true });
+  assert.ok(contentHeightMm(headed) > contentHeightMm(plain));
+});
+
+test('the built-in design fits every preset, and a doubled one is called out', () => {
+  for (const size of Object.values(LABEL_SIZES)) {
+    assert.ok(!overflows(styleLayout(size, DEFAULT_STYLE)), `${size.label} clips as it comes`);
+  }
+  // Which is the point of the warning: the shop is allowed to ask for this,
+  // and is told what it costs rather than quietly printing half a barcode.
+  const doubled = { ...DEFAULT_STYLE, nameScale: 2, priceScale: 2, barcodeScale: 2 };
+  assert.ok(overflows(styleLayout(LABEL_SIZES.tiny, doubled)));
+});
+
+test('a style scales what the size worked out rather than replacing it', () => {
+  const base = LABEL_SIZES.thermal;
+  const bigger = styleLayout(base, { ...DEFAULT_STYLE, priceScale: 1.5 });
+  assert.equal(bigger.pricePt, base.pricePt * 1.5);
+  // Everything it did not touch is left exactly as derived.
+  assert.equal(bigger.namePt, base.namePt);
+  assert.equal(bigger.barWidth, base.barWidth);
+  assert.equal(bigger.width, base.width);
 });
