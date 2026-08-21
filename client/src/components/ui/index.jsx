@@ -1,5 +1,15 @@
 import { createContext, useCallback, useContext, useEffect, useId, useMemo, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Eye, EyeOff, Info, Loader2, X, XCircle } from 'lucide-react';
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Eye,
+  EyeOff,
+  Info,
+  Loader2,
+  RefreshCw,
+  X,
+  XCircle,
+} from 'lucide-react';
 
 export function cx(...parts) {
   return parts.filter(Boolean).join(' ');
@@ -389,6 +399,57 @@ export function EmptyState({ icon: Icon, title, description, action, className }
       <p className="text-sm font-medium text-slate-700">{title}</p>
       {description && <p className="mt-1 max-w-sm text-sm text-slate-500">{description}</p>}
       {action && <div className="mt-4">{action}</div>}
+    </div>
+  );
+}
+
+/**
+ * What to say when the screen could not load.
+ *
+ * Every screen here used to have exactly one story: a skeleton, and then the
+ * content. A request that failed left the skeleton on the glass for ever, with
+ * the reason in a console nobody at a shop counter is going to open. Somebody
+ * looking at that has no way to tell a slow connection from a dead route from a
+ * server that never came back up, and the app is not telling them.
+ *
+ * The 404 is called out on its own because it is the one with a specific
+ * cause. This app's screens and its routes ship together, so a screen asking
+ * for something the server has never heard of means the two halves are from
+ * different builds — nearly always new files on disk under a process that was
+ * never restarted. That is worth naming, because "not found" sends somebody
+ * looking at their data and the answer is in their deploy.
+ */
+export function LoadError({ error, onRetry, what = 'this screen', className }) {
+  const status = error?.response?.status;
+  const stale = status === 404;
+
+  const detail = stale
+    ? `The server does not have ${what} yet. This screen is newer than the server it is talking to — usually a deploy that put the new files in place without restarting the app.`
+    : error?.response?.data?.error ||
+      (status
+        ? `The server answered ${status}.`
+        : 'The server did not answer. It may be off, or this device may be offline.');
+
+  return (
+    <div
+      role="alert"
+      className={cx(
+        'flex flex-col items-center justify-center px-6 py-14 text-center',
+        className,
+      )}
+    >
+      <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-red-50 text-red-600">
+        <AlertTriangle size={20} />
+      </div>
+      <p className="text-sm font-medium text-slate-800">Could not load {what}</p>
+      <p className="mt-1 max-w-md text-sm text-slate-600">{detail}</p>
+      {onRetry && (
+        <div className="mt-4">
+          <Button variant="secondary" onClick={onRetry}>
+            <RefreshCw size={15} /> Try again
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

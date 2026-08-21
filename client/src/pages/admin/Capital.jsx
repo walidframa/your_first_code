@@ -4,7 +4,7 @@ import api from '../../api';
 import PageHeader from '../../components/PageHeader';
 import MoneyInput from '../../components/MoneyInput';
 import { useAuth } from '../../context/AuthContext';
-import { Button, Card, Input, Skeleton, cx, money, useToast } from '../../components/ui';
+import { Button, Card, Input, LoadError, Skeleton, cx, money, useToast } from '../../components/ui';
 
 /** "2026-03" as a shopkeeper would say it. */
 function monthName(ym) {
@@ -97,17 +97,41 @@ function OpeningForm({ stockAtCost, opening, openedOn, onSaved }) {
 export default function Capital() {
   const { user } = useAuth();
   const [data, setData] = useState(null);
+  const [failed, setFailed] = useState(null);
   const [editing, setEditing] = useState(false);
 
+  /*
+   * The failure is state, not a console line.
+   *
+   * This used to be an unguarded `await`: anything that went wrong rejected a
+   * promise nobody was holding, `data` stayed null, and the screen sat on its
+   * loading skeleton for ever. The person looking at it had no way of knowing
+   * whether it was slow, broken, or waiting on a server that was not coming
+   * back — which is a worse answer than any error message.
+   */
   const load = useCallback(async () => {
-    const res = await api.get('/expenses/capital');
-    setData(res.data);
-    setEditing(!res.data.capital.set);
+    setFailed(null);
+    try {
+      const res = await api.get('/expenses/capital');
+      setData(res.data);
+      setEditing(!res.data.capital.set);
+    } catch (err) {
+      setFailed(err);
+    }
   }, []);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  if (failed) {
+    return (
+      <div className="flex h-full flex-col">
+        <PageHeader title="Capital" subtitle="What the shop is worth, month by month" />
+        <LoadError error={failed} onRetry={load} what="the capital figures" />
+      </div>
+    );
+  }
 
   if (!data) {
     return (

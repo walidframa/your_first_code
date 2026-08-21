@@ -6,7 +6,7 @@ import CashReport from '../../components/CashReport';
 import HistoryFilter from '../../components/HistoryFilter';
 import { useHistoryFilter } from '../../lib/history';
 import { lbp } from '../../context/SettingsContext';
-import { Badge, Card, EmptyState, Skeleton, cx, money } from '../../components/ui';
+import { Badge, Card, EmptyState, LoadError, Skeleton, cx, money } from '../../components/ui';
 
 /** Over/short in the currency it happened in — never the two added together. */
 function Difference({ usd, lbpAmount }) {
@@ -25,6 +25,7 @@ function Difference({ usd, lbpAmount }) {
 export default function CashSessions() {
   const [sessions, setSessions] = useState(null);
   const [current, setCurrent] = useState(null);
+  const [failed, setFailed] = useState(null);
   const [viewing, setViewing] = useState(null);
   /*
    * A sitting from last month is what somebody reaches for when a count is
@@ -32,9 +33,24 @@ export default function CashSessions() {
    */
   const history = useHistoryFilter('month');
 
+  /*
+   * Both refusals are caught. Without this the list stayed on its skeleton for
+   * ever when the request failed, saying "loading" about something that had
+   * already finished going wrong.
+   *
+   * The sitting in progress is the softer of the two: not knowing it leaves one
+   * panel out, so it is allowed to fail quietly. The list is the screen.
+   */
   const load = useCallback(() => {
-    api.get('/cash/sessions').then((res) => setSessions(res.data.sessions));
-    api.get('/cash/current').then((res) => setCurrent(res.data));
+    setFailed(null);
+    api
+      .get('/cash/sessions')
+      .then((res) => setSessions(res.data.sessions))
+      .catch((err) => setFailed(err));
+    api
+      .get('/cash/current')
+      .then((res) => setCurrent(res.data))
+      .catch(() => setCurrent(null));
   }, []);
 
   useEffect(() => {
@@ -138,7 +154,9 @@ export default function CashSessions() {
         />
 
         <Card>
-          {!sessions ? (
+          {failed ? (
+            <LoadError error={failed} onRetry={load} what="the till sittings" />
+          ) : !sessions ? (
             <div className="space-y-2 p-5">
               {Array.from({ length: 5 }).map((_, i) => (
                 <Skeleton key={i} className="h-11" />

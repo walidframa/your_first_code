@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { AlertTriangle, Printer, TrendingUp } from 'lucide-react';
 import api from '../../api';
 import PageHeader from '../../components/PageHeader';
-import { Card, EmptyState, Input, Select, Skeleton, cx, money } from '../../components/ui';
+import { Card, EmptyState, Input, LoadError, Select, Skeleton, cx, money } from '../../components/ui';
 
 const PRESETS = [
   ['today', 'Today'],
@@ -77,15 +77,26 @@ export default function Profit() {
   const [to, setTo] = useState(new Date().toISOString().slice(0, 10));
   const [includeExpenses, setIncludeExpenses] = useState(true);
   const [report, setReport] = useState(null);
+  const [failed, setFailed] = useState(null);
 
+  /*
+   * The failure is held, not thrown away. Unguarded, a refused request left
+   * `report` null and the screen on its skeleton for ever — indistinguishable
+   * from a slow one, and it never resolved either way.
+   */
   const load = useCallback(async () => {
     setReport(null);
+    setFailed(null);
     const query =
       preset === 'custom'
         ? `from=${from}&to=${to}`
         : `preset=${preset}`;
-    const res = await api.get(`/expenses/profit?${query}&includeExpenses=${includeExpenses}`);
-    setReport(res.data);
+    try {
+      const res = await api.get(`/expenses/profit?${query}&includeExpenses=${includeExpenses}`);
+      setReport(res.data);
+    } catch (err) {
+      setFailed(err);
+    }
   }, [preset, from, to, includeExpenses]);
 
   useEffect(() => {
@@ -136,7 +147,9 @@ export default function Profit() {
           </div>
         )}
 
-        {!report ? (
+        {failed ? (
+          <LoadError error={failed} onRetry={load} what="the profit figures" />
+        ) : !report ? (
           <Skeleton className="h-72" />
         ) : (
           <div className="space-y-4">

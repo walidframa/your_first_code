@@ -6,7 +6,7 @@ import PageHeader from '../../components/PageHeader';
 import ColumnPicker from '../../components/ColumnPicker';
 import { useColumns } from '../../lib/tableColumns';
 import { RevenueChart, TopSellers, PaymentMix } from '../../components/charts';
-import { Badge, Card, CardHeader, Skeleton, cx, money } from '../../components/ui';
+import { Badge, Card, CardHeader, LoadError, Skeleton, cx, money } from '../../components/ui';
 
 const RANGES = [
   { key: '7d', label: 'Last 7 days', days: 7 },
@@ -158,7 +158,15 @@ export default function Dashboard() {
   const shows = (key) => panels.visible.some((p) => p.key === key);
   const [refreshing, setRefreshing] = useState(false);
   const [accounts, setAccounts] = useState(null);
+  const [failed, setFailed] = useState(null);
+  // Bumped to ask for the figures again after a failure.
+  const [attempt, setAttempt] = useState(0);
 
+  /*
+   * A `.then()` with no `.catch()` left this screen on its skeleton for ever
+   * when the request failed, which reads as "still loading" and never stops.
+   * The refusal is held instead, and shown.
+   */
   useEffect(() => {
     const selected = RANGES.find((r) => r.key === range);
     const params = {};
@@ -169,15 +177,22 @@ export default function Dashboard() {
     }
 
     setRefreshing(true);
+    setFailed(null);
     api
       .get('/reports/summary', { params })
       .then((res) => setSummary(res.data))
+      .catch((err) => setFailed(err))
       .finally(() => setRefreshing(false));
-  }, [range]);
+  }, [range, attempt]);
 
   // Balances are a running position, not scoped to the selected date range.
+  // A failure here dims one card rather than the screen, so it is swallowed on
+  // purpose — `accounts` staying null is already the "not known" rendering.
   useEffect(() => {
-    api.get('/accounts/summary').then((res) => setAccounts(res.data));
+    api
+      .get('/accounts/summary')
+      .then((res) => setAccounts(res.data))
+      .catch(() => setAccounts(null));
   }, []);
 
   return (
@@ -216,7 +231,19 @@ export default function Dashboard() {
       </PageHeader>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
-        {!summary ? (
+        {/*
+          * The failure wins even when a previous range is still in hand.
+          * Holding the old figures on screen under the new range's label would
+          * be a dashboard quietly answering a question nobody asked — the one
+          * failure mode on this screen worse than showing nothing.
+          */}
+        {failed ? (
+          <LoadError
+            error={failed}
+            onRetry={() => setAttempt((n) => n + 1)}
+            what="the dashboard figures"
+          />
+        ) : !summary ? (
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
               {Array.from({ length: 4 }).map((_, i) => (
