@@ -129,6 +129,27 @@ fi
 RUNNING="$(printf '%s\n' "$RUNNING" | grep -v '^$' || true)"
 
 #
+# Installed but not matched.
+#
+# The list above only picks up shops systemd calls *running*. A shop that is
+# installed and enabled but currently down — crashed, stopped by hand, stuck
+# behind its start limit — is not in it, and used to be skipped in silence. It
+# keeps the old code, comes back on its own, and serves it.
+#
+# Named rather than restarted: starting a shop somebody deliberately took off
+# the air is not a deploy's decision. But it must be said out loud, because
+# "nothing happened" is indistinguishable from "there was nothing to do".
+#
+INSTALLED="$(systemctl list-unit-files --no-legend --plain 'pos-tenant@*.service' 2>/dev/null | awk '{print $1}' | grep -v '@\.service$' || true)"
+SKIPPED=""
+for unit in $INSTALLED; do
+  case " $RUNNING " in
+    *" $unit "*) ;;
+    *) SKIPPED="$SKIPPED $unit" ;;
+  esac
+done
+
+#
 # Whether this machine keeps a shop of its own.
 #
 # It usually does — the vendor's own — and then `pos.service` is the thing to
@@ -216,6 +237,124 @@ fi
 
 if [ -n "$FAILED" ]; then
   printf '\n\033[1;31m!! These did not come back:%s\033[0m\n' "$FAILED"
+  printf '   Look at one with:  sudo journalctl -u <name> -n 50 --no-pager\n\n'
+  exit 1
+fi
+
+# ------------------------------------------------- what is actually running
+
+#
+# Ask each shop which commit it is serving, and refuse to call this a success
+# unless every one of them says the commit that was just deployed.
+#
+# This exists because a deploy used to report success on having *run* the
+# restarts, which is not the same claim at all. Everything above can succeed
+# while a shop is left on old code: a unit named something the pattern did not
+# match, a shop that was down and so never appeared in the list, a `systemctl
+# restart` that returned fine for a process that then died and was brought back
+# by an older copy. Nothing in the script noticed, because nothing in the script
+# ever asked.
+#
+# And the failure that follows is deeply confusing, because half of it works.
+# The client is static files served off disk, so every till picks up the new
+# screens the moment the build finishes. The routes those screens call are in
+# memory in a process that did not restart. So the shop gets the new app talking
+# to last week's server: the layout changes, and the screens that need anything
+# new hang or 404. Somebody looking at that has no reason to suspect a deploy
+# that printed "Live at" in green.
+#
+# `build` comes from server/src/lib/build.js and is read at startup, so it is
+# the process's own answer rather than a second look at the same files on disk
+# — which would agree with itself no matter what went wrong.
+#
+say "Checking what each shop is actually serving"
+
+WRONG=""
+UNSURE=""
+
+# The commit this deploy put in place, in the form /api/health reports.
+WANT="$(git rev-parse HEAD)"
+
+#
+# Ask one port, and say what came back.
+#
+# A shop that has just been restarted may still be opening its database, so it
+# is given the same grace the health check above gives: a few tries, not one.
+#
+serving() {
+  for _ in $(seq 1 15); do
+    got="$(curl -fsS "http://127.0.0.1:$1/api/health" 2>/dev/null \
+           | sed -n 's/.*"build" *: *"\([0-9a-f]*\)".*/\1/p')"
+    [ -n "$got" ] && { printf '%s' "$got"; return 0; }
+    sleep 1
+  done
+  return 1
+}
+
+check() {
+  name="$1"
+  port="$2"
+
+  if [ -z "$port" ]; then
+    UNSURE="$UNSURE $name(no port)"
+    printf '    %-28s %s\n' "$name" "port unknown — not checked"
+    return
+  fi
+
+  if ! got="$(serving "$port")"; then
+    UNSURE="$UNSURE $name(no answer)"
+    printf '    %-28s %s\n' "$name" "did not answer on $port"
+    return
+  fi
+
+  if [ "$got" = "$WANT" ]; then
+    printf '    %-28s %s\n' "$name" "$(printf '%.7s' "$got") — up to date"
+  else
+    WRONG="$WRONG $name"
+    printf '    %-28s \033[1;31m%s\033[0m\n' "$name" "$(printf '%.7s' "$got") — STILL ON OLD CODE"
+  fi
+}
+
+if [ "$OWN_SHOP" = yes ]; then
+  check "$SERVICE" "${PORT:-4000}"
+fi
+
+#
+# A tenant's port lives in its own env file, written by `pos-tenant add`, mode
+# 600 because the shop's secrets are in it — so this needs the same sudo the
+# restarts above needed.
+#
+for unit in $RUNNING; do
+  case "$unit" in
+    pos-tenant@*)
+      slug="${unit#pos-tenant@}"
+      slug="${slug%.service}"
+      tport="$(sudo sed -n 's/^PORT=//p' "/etc/pos/tenants/$slug.env" 2>/dev/null | tail -1 || true)"
+      check "$unit" "$tport"
+      ;;
+    pos-console.service)
+      # The console keeps its port in its own env file, the same way.
+      cport="$(sudo sed -n 's/^PORT=//p' /etc/pos-console.env 2>/dev/null | tail -1 || true)"
+      check "$unit" "$cport"
+      ;;
+  esac
+done
+
+if [ -n "$SKIPPED" ]; then
+  printf '\n\033[1;33m!! Installed but not running, so left on the old code:%s\033[0m\n' "$SKIPPED"
+  printf '   A shop that comes back on its own will serve it. Start one with:\n'
+  printf '     sudo systemctl start <name>\n'
+fi
+
+if [ -n "$UNSURE" ]; then
+  printf '\n\033[1;33m!! Could not confirm:%s\033[0m\n' "$UNSURE"
+  printf '   Not necessarily broken — but nothing here has checked it.\n'
+fi
+
+if [ -n "$WRONG" ]; then
+  printf '\n\033[1;31m!! Still serving old code after being restarted:%s\033[0m\n' "$WRONG"
+  printf '   The files are new and the process is not. Its screens will be newer\n'
+  printf '   than its routes, which shows up as pages that will not load.\n'
   printf '   Look at one with:  sudo journalctl -u <name> -n 50 --no-pager\n\n'
   exit 1
 fi
