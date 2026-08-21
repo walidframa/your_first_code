@@ -14,7 +14,7 @@ export function money(n) {
 
 const BUTTON_VARIANTS = {
   primary: 'bg-brand-600 text-white hover:bg-brand-700 active:bg-brand-800 shadow-sm',
-  secondary: 'bg-white text-slate-700 ring-1 ring-slate-300 hover:bg-slate-50 active:bg-slate-100',
+  secondary: 'bg-white text-slate-700 ring-1 ring-edge hover:bg-slate-50 active:bg-slate-100',
   ghost: 'text-slate-600 hover:bg-slate-100 active:bg-slate-200',
   danger: 'bg-red-600 text-white hover:bg-red-700 active:bg-red-800 shadow-sm',
   subtle: 'bg-slate-100 text-slate-700 hover:bg-slate-200 active:bg-slate-300',
@@ -81,17 +81,34 @@ export function Input({ className, label, hint, error, id, ...props }) {
       )}
       <input
         id={inputId}
+        /*
+         * The field says it is wrong, and says what is wrong with it.
+         *
+         * A red ring is invisible to a screen reader and to anybody who cannot
+         * separate red from grey — about one man in twelve. `aria-invalid`
+         * carries the state, `aria-describedby` ties the message under the box
+         * to the box, and `role="alert"` on the message means it is read out
+         * when it appears rather than sitting there unnoticed.
+         */
+        aria-invalid={error ? true : undefined}
+        aria-describedby={error || hint ? `${inputId}-note` : undefined}
         className={cx(
           'h-10 w-full rounded-lg bg-white px-3 text-sm text-slate-900 ring-1 transition placeholder:text-slate-400',
           'focus:outline-none focus:ring-2',
-          error ? 'ring-red-400 focus:ring-red-500' : 'ring-slate-300 focus:ring-brand-600',
+          error ? 'ring-red-400 focus:ring-red-500' : 'ring-edge focus:ring-brand-600',
         )}
         {...props}
       />
       {error ? (
-        <p className="mt-1 text-xs text-red-600">{error}</p>
+        <p id={`${inputId}-note`} role="alert" className="mt-1 text-xs text-red-600">
+          {error}
+        </p>
       ) : (
-        hint && <p className="mt-1 text-xs text-slate-500">{hint}</p>
+        hint && (
+          <p id={`${inputId}-note`} className="mt-1 text-xs text-slate-500">
+            {hint}
+          </p>
+        )
       )}
     </div>
   );
@@ -132,10 +149,12 @@ export function PasswordInput({ label, hint, error, className, id, ...props }) {
         <input
           id={inputId}
           type={shown ? 'text' : 'password'}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={error || hint ? `${inputId}-note` : undefined}
           className={cx(
             'h-10 w-full rounded-lg bg-white pr-10 pl-3 text-sm text-slate-900 ring-1 transition placeholder:text-slate-400',
             'focus:outline-none focus:ring-2',
-            error ? 'ring-red-400 focus:ring-red-500' : 'ring-slate-300 focus:ring-brand-600',
+            error ? 'ring-red-400 focus:ring-red-500' : 'ring-edge focus:ring-brand-600',
           )}
           {...props}
         />
@@ -153,15 +172,21 @@ export function PasswordInput({ label, hint, error, className, id, ...props }) {
         </button>
       </div>
       {error ? (
-        <p className="mt-1 text-xs text-red-600">{error}</p>
+        <p id={`${inputId}-note`} role="alert" className="mt-1 text-xs text-red-600">
+          {error}
+        </p>
       ) : (
-        hint && <p className="mt-1 text-xs text-slate-500">{hint}</p>
+        hint && (
+          <p id={`${inputId}-note`} className="mt-1 text-xs text-slate-500">
+            {hint}
+          </p>
+        )
       )}
     </div>
   );
 }
 
-export function Select({ className, label, children, id, ...props }) {
+export function Select({ className, label, hint, error, children, id, ...props }) {
   const generated = useId();
   const selectId = id || props.name || generated;
   return (
@@ -173,11 +198,28 @@ export function Select({ className, label, children, id, ...props }) {
       )}
       <select
         id={selectId}
-        className="h-10 w-full rounded-lg bg-white px-3 text-sm text-slate-900 ring-1 ring-slate-300 transition focus:outline-none focus:ring-2 focus:ring-brand-600"
+        aria-invalid={error ? true : undefined}
+        aria-describedby={error || hint ? `${selectId}-note` : undefined}
+        className={cx(
+          'h-10 w-full rounded-lg bg-white px-3 text-sm text-slate-900 ring-1 transition',
+          'focus:outline-none focus:ring-2',
+          error ? 'ring-red-400 focus:ring-red-500' : 'ring-edge focus:ring-brand-600',
+        )}
         {...props}
       >
         {children}
       </select>
+      {error ? (
+        <p id={`${selectId}-note`} role="alert" className="mt-1 text-xs text-red-600">
+          {error}
+        </p>
+      ) : (
+        hint && (
+          <p id={`${selectId}-note`} className="mt-1 text-xs text-slate-500">
+            {hint}
+          </p>
+        )
+      )}
     </div>
   );
 }

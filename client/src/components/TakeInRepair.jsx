@@ -129,7 +129,7 @@ export default function TakeInRepair({ onClose, onTaken }) {
             onChange={set('fault')}
             required
             placeholder="e.g. screen cracked, does not charge, no sound on calls"
-            className="w-full rounded-lg bg-white px-3 py-2 text-sm ring-1 ring-slate-300 transition focus:ring-2 focus:ring-brand-600 focus:outline-none"
+            className="w-full rounded-lg bg-white px-3 py-2 text-sm ring-1 ring-edge transition focus:ring-2 focus:ring-brand-600 focus:outline-none"
           />
         </div>
 

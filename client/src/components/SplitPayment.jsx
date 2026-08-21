@@ -231,7 +231,7 @@ export default function SplitPayment({ total, customer, submitting, onConfirm, o
                   'rounded-lg px-3 py-1.5 text-sm font-medium ring-1 transition',
                   changeCurrency === c
                     ? 'bg-brand-600 text-white ring-brand-600'
-                    : 'bg-white text-slate-600 ring-slate-300 hover:bg-slate-50',
+                    : 'bg-white text-slate-600 ring-edge hover:bg-slate-50',
                 )}
               >
                 {c === 'USD' ? 'Dollars' : 'Pounds'}

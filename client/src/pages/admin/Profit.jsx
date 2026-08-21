@@ -300,7 +300,7 @@ export default function Profit() {
             <div className="no-print pb-2">
               <button
                 onClick={() => window.print()}
-                className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-slate-600 ring-1 ring-slate-300 transition hover:bg-slate-50"
+                className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-slate-600 ring-1 ring-edge transition hover:bg-slate-50"
               >
                 <Printer size={15} /> Print this report
               </button>

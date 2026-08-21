@@ -194,7 +194,7 @@ export default function CategoryManager({ onClose, onChanged }) {
                       // the cursor arrives with it selected.
                       autoFocus
                       onFocus={(e) => e.target.select()}
-                      className="h-9 flex-1 rounded-lg bg-white px-3 text-sm ring-1 ring-slate-300 focus:ring-2 focus:ring-brand-600 focus:outline-none"
+                      className="h-9 flex-1 rounded-lg bg-white px-3 text-sm ring-1 ring-edge focus:ring-2 focus:ring-brand-600 focus:outline-none"
                     />
                     <Button size="sm" loading={busy} onClick={() => rename(c.id)} aria-label="Save the name">
                       <Check size={15} />

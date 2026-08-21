@@ -89,7 +89,7 @@ function ReceiveModal({ product, onClose, onSaved }) {
             rows={7}
             autoFocus
             placeholder={'351234567890123, 351234567890124\n358888777766661'}
-            className="w-full rounded-xl px-3 py-2 font-mono text-sm ring-1 ring-slate-300 focus:ring-2 focus:ring-brand-500 focus:outline-none"
+            className="w-full rounded-xl px-3 py-2 font-mono text-sm ring-1 ring-edge focus:ring-2 focus:ring-brand-500 focus:outline-none"
           />
           <p className="mt-1 text-xs text-slate-500">
             One handset per line. For a dual-SIM phone put both numbers on the line, separated by a
@@ -121,7 +121,7 @@ function ReceiveModal({ product, onClose, onSaved }) {
               min="0"
               value={cost}
               onChange={(e) => setCost(e.target.value)}
-              className="w-full rounded-xl px-3 py-2 ring-1 ring-slate-300 focus:ring-2 focus:ring-brand-500 focus:outline-none"
+              className="w-full rounded-xl px-3 py-2 ring-1 ring-edge focus:ring-2 focus:ring-brand-500 focus:outline-none"
             />
           </div>
         </div>

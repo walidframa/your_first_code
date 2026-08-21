@@ -91,7 +91,7 @@ function ReceiveSims({ products, onClose, onDone }) {
             value={numbers}
             onChange={(e) => setNumbers(e.target.value)}
             placeholder={'03 111 222\n03 111 223\n76 444 555'}
-            className="w-full rounded-lg bg-white px-3 py-2 font-mono text-sm ring-1 ring-slate-300 transition focus:ring-2 focus:ring-brand-600 focus:outline-none"
+            className="w-full rounded-lg bg-white px-3 py-2 font-mono text-sm ring-1 ring-edge transition focus:ring-2 focus:ring-brand-600 focus:outline-none"
           />
           <p className="mt-1 text-xs text-slate-500">
             {lines.length} number{lines.length === 1 ? '' : 's'}. Commas and semicolons work too — paste
@@ -238,12 +238,12 @@ export default function Sims() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search a number…"
-            className="h-10 w-64 rounded-lg bg-white px-3 text-sm ring-1 ring-slate-300 focus:ring-2 focus:ring-brand-600 focus:outline-none"
+            className="h-10 w-64 rounded-lg bg-white px-3 text-sm ring-1 ring-edge focus:ring-2 focus:ring-brand-600 focus:outline-none"
           />
           <select
             value={status}
             onChange={(e) => setStatus(e.target.value)}
-            className="h-10 rounded-lg bg-white px-3 text-sm ring-1 ring-slate-300 focus:ring-2 focus:ring-brand-600 focus:outline-none"
+            className="h-10 rounded-lg bg-white px-3 text-sm ring-1 ring-edge focus:ring-2 focus:ring-brand-600 focus:outline-none"
           >
             <option value="">All</option>
             <option value="in_stock">On the shelf</option>

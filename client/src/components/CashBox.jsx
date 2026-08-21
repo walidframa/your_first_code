@@ -65,7 +65,7 @@ function DenominationCounter({ currency, notes, counts, onChange, total }) {
               value={counts[note] ?? ''}
               onChange={(e) => onChange({ ...counts, [note]: e.target.value })}
               aria-label={`${currency} ${note} notes`}
-              className="h-8 w-full rounded-lg bg-white px-2 text-right text-sm ring-1 ring-slate-300 focus:ring-2 focus:ring-brand-600 focus:outline-none"
+              className="h-8 w-full rounded-lg bg-white px-2 text-right text-sm ring-1 ring-edge focus:ring-2 focus:ring-brand-600 focus:outline-none"
             />
           </label>
         ))}

@@ -238,7 +238,7 @@ export default function Labels() {
                   }}
                   placeholder="Search products to label…"
                   aria-label="Search products to label"
-                  className="h-10 w-full rounded-lg bg-white pr-3 pl-9 text-sm ring-1 ring-slate-300 transition focus:ring-2 focus:ring-brand-600 focus:outline-none"
+                  className="h-10 w-full rounded-lg bg-white pr-3 pl-9 text-sm ring-1 ring-edge transition focus:ring-2 focus:ring-brand-600 focus:outline-none"
                 />
               </div>
 
@@ -297,7 +297,7 @@ export default function Labels() {
                       'rounded-xl px-3 py-2.5 text-left ring-1 transition',
                       mode === m.key
                         ? 'bg-brand-600 text-white ring-brand-600'
-                        : 'bg-white text-slate-700 ring-slate-300 hover:ring-slate-400',
+                        : 'bg-white text-slate-700 ring-edge hover:ring-slate-400',
                     )}
                   >
                     <span className="block text-sm font-medium">{m.title}</span>
@@ -507,7 +507,7 @@ export default function Labels() {
                         <button
                           onClick={() => setQuantity(product.id, quantity - 1)}
                           aria-label={`One fewer ${product.name}`}
-                          className="flex h-6 w-6 items-center justify-center rounded bg-slate-100 text-slate-600 hover:bg-slate-200"
+                          className="touch-target flex h-6 w-6 items-center justify-center rounded bg-slate-100 text-slate-600 hover:bg-slate-200"
                         >
                           <Minus size={12} />
                         </button>
@@ -520,7 +520,7 @@ export default function Labels() {
                         <button
                           onClick={() => setQuantity(product.id, quantity + 1)}
                           aria-label={`One more ${product.name}`}
-                          className="flex h-6 w-6 items-center justify-center rounded bg-slate-100 text-slate-600 hover:bg-slate-200"
+                          className="touch-target flex h-6 w-6 items-center justify-center rounded bg-slate-100 text-slate-600 hover:bg-slate-200"
                         >
                           <Plus size={12} />
                         </button>

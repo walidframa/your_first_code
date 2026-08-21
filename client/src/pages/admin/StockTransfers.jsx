@@ -123,7 +123,7 @@ function SendDialog({ branches, from, onClose, onSent }) {
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search or scan what you are sending…"
               aria-label="Find a product to send"
-              className="h-10 w-full rounded-lg bg-white pr-3 pl-9 text-sm ring-1 ring-slate-300 focus:ring-2 focus:ring-brand-600 focus:outline-none"
+              className="h-10 w-full rounded-lg bg-white pr-3 pl-9 text-sm ring-1 ring-edge focus:ring-2 focus:ring-brand-600 focus:outline-none"
             />
           </div>
 
@@ -159,7 +159,7 @@ function SendDialog({ branches, from, onClose, onSent }) {
                     value={line.quantity}
                     onChange={(e) => setQuantity(line.productId, e.target.value)}
                     aria-label={`How many ${line.name}`}
-                    className="tnum h-8 w-16 rounded-lg bg-white px-2 text-right text-sm ring-1 ring-slate-300 focus:ring-2 focus:ring-brand-600 focus:outline-none"
+                    className="tnum h-8 w-16 rounded-lg bg-white px-2 text-right text-sm ring-1 ring-edge focus:ring-2 focus:ring-brand-600 focus:outline-none"
                   />
                   <button
                     type="button"
@@ -251,7 +251,7 @@ function ReceiveDialog({ transfer, onClose, onReceived }) {
                 value={counts[item.id]}
                 onChange={(e) => setCounts((c) => ({ ...c, [item.id]: e.target.value }))}
                 aria-label={`How many ${item.name} arrived`}
-                className="tnum h-8 w-16 rounded-lg bg-white px-2 text-right text-sm ring-1 ring-slate-300 focus:ring-2 focus:ring-brand-600 focus:outline-none"
+                className="tnum h-8 w-16 rounded-lg bg-white px-2 text-right text-sm ring-1 ring-edge focus:ring-2 focus:ring-brand-600 focus:outline-none"
               />
             </li>
           ))}

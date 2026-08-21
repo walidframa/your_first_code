@@ -9,7 +9,7 @@ const KINDS = [
 ];
 
 const field =
-  'h-8 w-full rounded-lg bg-white px-2 text-sm ring-1 ring-slate-300 focus:ring-2 focus:ring-brand-600 focus:outline-none';
+  'h-8 w-full rounded-lg bg-white px-2 text-sm ring-1 ring-edge focus:ring-2 focus:ring-brand-600 focus:outline-none';
 
 /**
  * The paperwork of selling a phone.

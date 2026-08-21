@@ -91,7 +91,7 @@ export default function ProductLineSearch({ products, onPick, onCreateNew, price
         }}
         placeholder="Search products by name, SKU or barcode — or type a new name…"
         aria-label="Search products to add"
-        className="h-10 w-full rounded-lg bg-white pr-9 pl-9 text-sm ring-1 ring-slate-300 transition focus:ring-2 focus:ring-brand-600 focus:outline-none"
+        className="h-10 w-full rounded-lg bg-white pr-9 pl-9 text-sm ring-1 ring-edge transition focus:ring-2 focus:ring-brand-600 focus:outline-none"
       />
       <ChevronDown
         size={16}
