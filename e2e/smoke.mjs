@@ -57,6 +57,13 @@ const ALLOWED_FAILURES = [
    * twice. The 400 is what is being checked.
    */
   /\/api\/employees\/\d+\/salary/,
+  /*
+   * A 404 this test serves itself, to stand a screen in front of a server that
+   * has never heard of it. That is the shape of a half-finished deploy — new
+   * files on disk, old process still running — and what it must not do is sit
+   * on a loading skeleton for ever.
+   */
+  /\/api\/expenses\/capital/,
 ];
 
 const consoleErrors = [];
@@ -2182,6 +2189,42 @@ try {
     // The month in hand is shown, and deliberately not counted into the total.
     await page.waitForSelector('text=/is still going/', { timeout: 10000 });
     await page.waitForSelector('text=/No month has finished yet/', { timeout: 10000 });
+  });
+
+  await step('a screen the server cannot answer says so, instead of loading for ever', async () => {
+    /*
+     * The bug this exists for: `await api.get(...)` with nothing around it. A
+     * refused request rejected a promise nobody held, the state stayed null,
+     * and the skeleton stayed on the glass — for ever, saying "loading" about
+     * something that had already finished going wrong. On a shop counter that
+     * is indistinguishable from a slow connection, and there is nothing to do
+     * about it but wait for something that is never coming.
+     *
+     * A 404 in particular, because that is the one with a nameable cause: this
+     * app's screens and its routes ship together, so a screen asking for a
+     * route the server does not have means the two halves are from different
+     * builds — a deploy that replaced the files without restarting the app.
+     */
+    await page.route('**/api/expenses/capital*', (route) =>
+      route.fulfill({ status: 404, contentType: 'application/json', body: '{}' }),
+    );
+    await page.goto(`${BASE_URL}/admin/capital`, { waitUntil: 'networkidle' });
+
+    await page.waitForSelector('text=Could not load the capital figures', { timeout: 20000 });
+    await page.waitForSelector('text=/newer than the server/', { timeout: 10000 });
+
+    // And the skeleton is gone, not sitting underneath the message.
+    if (await page.locator('.skeleton').count()) {
+      throw new Error('the loading skeleton is still on screen behind the failure');
+    }
+
+    /*
+     * Trying again is offered, and works — a server that has just been
+     * restarted should not need the page reloaded to be believed.
+     */
+    await page.unroute('**/api/expenses/capital*');
+    await page.getByRole('button', { name: 'Try again' }).click();
+    await page.waitForSelector('text=Capital now', { timeout: 20000 });
   });
 
   await step('each kind of paperwork is its own screen, already filtered', async () => {
