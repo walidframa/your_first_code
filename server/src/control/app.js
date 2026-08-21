@@ -17,6 +17,7 @@ import {
   touchOperator,
   verifyOperator,
 } from '../lib/operators.js';
+import { BUILD } from '../lib/build.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -48,7 +49,10 @@ export function createConsoleApp({ controlDb, secret, domain = 'xtechpos.com' })
   // proxy's — which matters for the lockout below.
   app.set('trust proxy', 1);
 
-  app.get('/api/health', (req, res) => res.json({ ok: true }));
+  // `build` is what this process started with, so a deploy can check the
+  // console actually took the update rather than assuming its restart did
+  // anything. See ../lib/build.js.
+  app.get('/api/health', (req, res) => res.json({ ok: true, build: BUILD }));
 
   /* ------------------------------------------------------------- signing in */
 

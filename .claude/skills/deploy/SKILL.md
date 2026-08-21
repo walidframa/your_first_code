@@ -54,21 +54,44 @@ cd /srv/pos && ./deploy/deploy.sh
 ```
 
 That backs up every database first, fast-forwards `main`, installs, builds the
-client, restarts every running `pos-tenant@*` and the console, and checks they
-came back. It refuses rather than half-finishing, and is safe to run twice.
+client, restarts every running `pos-tenant@*` and the console, checks they came
+back, and — last — **asks each one which commit it is actually serving**. It
+refuses rather than half-finishing, and is safe to run twice.
 
-Read what it prints. "Already up to date" means the pull found nothing — check
-you merged what you think you merged.
+Read what it prints. Three lines decide whether it worked:
+
+- `Already up to date` near the top means the pull found nothing. Check you
+  merged what you think you merged, and that the server is on `main`.
+- `Checking what each shop is actually serving` lists every shop with the
+  commit it answered. **Every one must say "up to date".**
+- Green `==> Live at <sha>` at the bottom. It is only printed when the check
+  above passed for every shop.
+
+If a shop says **STILL ON OLD CODE**, the script exits 1 and names it. That is
+the deploy telling you the files moved and the process did not — restart that
+unit by name and run the deploy again.
+
+If it says **Installed but not running, so left on the old code**, a shop is
+down. It was not restarted because starting a shop somebody stopped is not a
+deploy's decision, but it will serve the old build the moment it comes back.
 
 ## Then prove it
 
-A deploy that finished is not a shop that is serving. Both of these have to pass:
+The script now does this itself, so this section is for checking by hand when
+something looks wrong. `build` is what the *process* started with, so it is the
+one figure that catches a restart that never happened:
 
 ```bash
 systemctl is-active pos-tenant@protech pos-console
 curl -fsS localhost:4100/api/health && echo
 curl -fsS localhost:4090/api/health && echo
+git -C /srv/pos rev-parse HEAD
 ```
+
+The `build` in each health reply must equal that `rev-parse`. If the client is
+new and `build` is old, that is the exact failure: **new screens, old routes**.
+It shows up in the app as pages that will not load, and each of those pages now
+says so on screen rather than shimmering for ever.
 
 Then check the *browser* is getting the new build, which is a separate question
 from whether the server restarted:

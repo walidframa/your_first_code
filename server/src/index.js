@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import express from 'express';
 import cors from 'cors';
 import { db } from './db.js';
+import { BUILD } from './lib/build.js';
 import { enabledModules, enforceLicence, enforceModules, licenceStatus } from './middleware/licence.js';
 import { licenceMessage } from './lib/licence.js';
 import { getSettings } from './lib/settings.js';
@@ -148,7 +149,15 @@ if (serveClient) {
  */
 app.get('/api/health', (req, res) => {
   const demo = db.prepare('SELECT COUNT(*) AS n FROM users WHERE must_change_password = 1').get();
-  res.json({ ok: true, demoAccounts: demo.n > 0 });
+  /*
+   * `build` is what this *process* started with, not what is on disk now — see
+   * lib/build.js. It is here so a deploy can ask each shop what it is actually
+   * serving instead of assuming that having run `systemctl restart` means the
+   * code changed. Unauthenticated like the rest of this endpoint: a commit hash
+   * of a public repository is not a secret, and needing a token to ask would
+   * defeat the one job it has.
+   */
+  res.json({ ok: true, demoAccounts: demo.n > 0, build: BUILD });
 });
 /*
  * Where the licence stands, before anybody has signed in.
