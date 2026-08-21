@@ -4,6 +4,7 @@ import {
   Banknote,
   CircleDollarSign,
   CalendarClock,
+  ClipboardList,
   Boxes,
   Building2,
   Contact,
@@ -14,6 +15,7 @@ import {
   KeyRound,
   Landmark,
   Package,
+  PiggyBank,
   Receipt,
   ReceiptText,
   ScanLine,
@@ -83,7 +85,6 @@ export const ADMIN_NAV = [
     heading: 'Selling',
     icon: ShoppingCart,
     items: [
-      { to: '/admin/documents', label: 'Documents', icon: FileText, permission: 'documents' , module: 'documents' },
       { to: '/admin/orders', label: 'Sales', icon: ScrollText, permission: 'reports' },
       { to: '/admin/repairs', label: 'Repairs', icon: Wrench, permission: 'repairs' , module: 'repairs' },
       { to: '/admin/trade-ins', label: 'Trade-ins', icon: HandCoins, permission: 'repairs' , module: 'repairs' },
@@ -99,6 +100,28 @@ export const ADMIN_NAV = [
     ],
   },
   {
+    /*
+     * The paperwork, one kind at a time.
+     *
+     * It used to be a single "Documents" screen opening on four hundred rows of
+     * four different things, with tiles across the top to narrow it down — so
+     * writing a purchase invoice meant a screen, a tile and then a dialog with
+     * a type to pick, three choices deep for a job the shop does every week.
+     * Each kind is its own row now: the list arrives filtered and the New
+     * button on it already knows what it is making.
+     */
+    heading: 'Documents',
+    icon: FileText,
+    items: [
+      { to: '/admin/documents/purchase-invoices', label: 'Purchase invoices', icon: Truck, permission: 'documents', module: 'documents' },
+      { to: '/admin/documents/sales-invoices', label: 'Sales invoices', icon: Receipt, permission: 'documents', module: 'documents' },
+      { to: '/admin/documents/quotations', label: 'Quotations', icon: ClipboardList, permission: 'documents', module: 'documents' },
+      /* Made by converting a quotation rather than from scratch, but they
+         exist, and a kind with no way to reach it is a kind that is lost. */
+      { to: '/admin/documents/sales-orders', label: 'Sales orders', icon: FileText, permission: 'documents', module: 'documents' },
+    ],
+  },
+  {
     heading: 'Money',
     icon: CircleDollarSign,
     items: [
@@ -107,6 +130,9 @@ export const ADMIN_NAV = [
       { to: '/admin/cashbox', label: 'Cashbox', icon: Banknote, permission: 'cashbox' },
       { to: '/admin/expenses', label: 'Expenses', icon: Wallet, permission: 'expenses' },
       { to: '/admin/profit', label: 'Profit', icon: TrendingUp, permission: 'reports' },
+      /* What the shop is worth, which is the same arithmetic seen from further
+         back — every month's profit, added to what the owner started with. */
+      { to: '/admin/capital', label: 'Capital', icon: PiggyBank, permission: 'reports' },
     ],
   },
   {

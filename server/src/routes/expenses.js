@@ -10,6 +10,7 @@ import {
 } from '../lib/expenses.js';
 import { currentSession, drawerShort, SHORT_DRAWER_WARNING } from '../lib/cash.js';
 import { presetRange, profitForSession, profitReport } from '../lib/profit.js';
+import { capitalHistory, stockAtCost } from '../lib/capital.js';
 import { can } from '../lib/permissions.js';
 
 const router = Router();
@@ -98,6 +99,24 @@ router.get('/profit', ...reporting, (req, res) => {
 
   const range = preset ? presetRange(preset) : { from: from || null, to: to || null };
   res.json(profitReport({ ...range, includeExpenses: withExpenses, branchId }));
+});
+
+/**
+ * What the shop is worth, and how the months have moved it.
+ *
+ * On the profit router because it is the same arithmetic seen from further
+ * back: every month here is one `profitReport`, added to what came before.
+ *
+ * Behind `reports` like the profit screen it belongs to — this is what the
+ * owner has made, which is not a figure a shift is shown.
+ */
+router.get('/capital', ...reporting, (req, res) => {
+  res.json({
+    capital: capitalHistory({ branchId: req.query.all === '1' ? null : req.branchId }),
+    // Offered as a starting figure, because "what my stock cost me" is what
+    // most shops mean by the money they have in the business.
+    stockAtCost: stockAtCost(),
+  });
 });
 
 export default router;

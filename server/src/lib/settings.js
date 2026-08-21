@@ -40,6 +40,18 @@ export const SETTING_DEFAULTS = {
    * screen fills this in the first time somebody saves their own.
    */
   label_style: '',
+
+  /*
+   * What the owner put into the shop, and when.
+   *
+   * The figure every later month is measured from — usually what the stock on
+   * the shelves cost them, because for a shop that is where the money went.
+   * Empty means nobody has said, and the capital screen asks rather than
+   * inventing one: a starting figure guessed by the machine would make every
+   * number built on it a guess too.
+   */
+  capital_opening: '',
+  capital_opening_date: '',
   /*
    * The dialling code local numbers get when they are sent to WhatsApp, which
    * wants every number in international form. Lebanon by default; a shop

@@ -23,6 +23,7 @@ import AdminSims from './pages/admin/Sims';
 import AdminSettings from './pages/admin/Settings';
 import AdminParties from './pages/admin/Parties';
 import AdminDocuments from './pages/admin/Documents';
+import AdminCapital from './pages/admin/Capital';
 import AdminLabels from './pages/admin/Labels';
 import AdminShopify from './pages/admin/Shopify';
 import AdminCashSessions from './pages/admin/CashSessions';
@@ -157,6 +158,24 @@ export default function App() {
           element={
             <ProtectedRoute permission="documents">
               <AdminDocuments />
+            </ProtectedRoute>
+          }
+        />
+        {/* One kind of paperwork at a time — the rail links straight to each,
+            and the screen is the same one with its filter already set. */}
+        <Route
+          path="/admin/documents/:kind"
+          element={
+            <ProtectedRoute permission="documents">
+              <AdminDocuments />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/capital"
+          element={
+            <ProtectedRoute permission="reports">
+              <AdminCapital />
             </ProtectedRoute>
           }
         />

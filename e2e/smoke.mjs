@@ -181,6 +181,19 @@ const scanBox = 'input[aria-label="Scan barcode or search products"]';
  * on a wide screen with the rail out, and the top bar's everywhere else. A
  * plain text match finds both and clicks the hidden one.
  */
+/**
+ * The screen that lists every kind of document.
+ *
+ * The rail no longer has one "Documents" link — it has a group opening onto
+ * the four kinds, each its own filtered screen. This is the unfiltered one,
+ * still there because the Sales list sends anybody hunting a single invoice to
+ * it, and reached by address because it is no longer a row anybody can click.
+ */
+async function goToDocuments() {
+  await page.goto(`${BASE_URL}/admin/documents`, { waitUntil: 'networkidle' });
+  await page.waitForSelector('button:has-text("New document")', { timeout: 20000 });
+}
+
 async function openMenu() {
   await page.locator('a[href="/menu"]:visible').first().click();
   await page.waitForSelector('a[href="/orders"]:visible', { timeout: 15000 });
@@ -2006,7 +2019,7 @@ try {
       Number((await page.locator('p:has-text("Units on hand") + p').innerText()).replace(/,/g, ''));
     const before = await unitsOnHand();
 
-    await goTo('Documents');
+    await goToDocuments();
     await page.waitForSelector('button:has-text("New document")', { timeout: 15000 });
     const dialog = await openNewDocument();
     // Type is chosen by icon tile now.
@@ -2042,7 +2055,7 @@ try {
      * then at another — what did they cost me? `products.cost` is whatever was
      * last typed, and cannot answer it.
      */
-    await goTo('Documents');
+    await goToDocuments();
     const dialog = await openNewDocument();
     await dialog.getByRole('button', { name: /Purchase invoice/ }).click();
     await dialog.locator('#doc-party').selectOption({ label: 'Corner Bakehouse' });
@@ -2103,8 +2116,67 @@ try {
     await page.waitForSelector('th:has-text("Category")', { timeout: 10000 });
   });
 
+  await step('the shop can say what it started with, and watch it grow', async () => {
+    /*
+     * "I put this much in — am I ahead?" is a question the ledgers do not
+     * answer on their own, and it is the one a shopkeeper actually asks.
+     */
+    await page.goto(`${BASE_URL}/admin/capital`, { waitUntil: 'networkidle' });
+    await page.waitForSelector('text=What did you start with?', { timeout: 20000 });
+
+    // Offered with what the shelves cost, because adding that up by hand
+    // across nine hundred products is how the figure becomes a guess.
+    const useStock = page.getByRole('button', { name: /Use what the stock cost/ });
+    await useStock.click();
+    if (!(await page.locator('#capital_opening').inputValue())) {
+      throw new Error('the stock figure did not go into the box');
+    }
+
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+
+    /*
+     * The whole screen, and no white one behind it. Saving used to close the
+     * form before the reload came back, so the summary rendered against a shop
+     * that still had no starting date and read `null.slice(...)` — a blank
+     * page, from the one press this screen exists for.
+     */
+    await page.waitForSelector('text=Capital now', { timeout: 20000 });
+    await page.waitForSelector('text=You started with', { timeout: 10000 });
+
+    // The month in hand is shown, and deliberately not counted into the total.
+    await page.waitForSelector('text=/is still going/', { timeout: 10000 });
+    await page.waitForSelector('text=/No month has finished yet/', { timeout: 10000 });
+  });
+
+  await step('each kind of paperwork is its own screen, already filtered', async () => {
+    /*
+     * Writing a purchase invoice used to be a screen, then a tile to narrow
+     * four hundred rows, then a dialog with a type to pick — three choices deep
+     * for a job the shop does every week. Each kind is a row in the rail now.
+     */
+    await page.goto(`${BASE_URL}/admin/documents/purchase-invoices`, { waitUntil: 'networkidle' });
+    await page.waitForSelector('text=Purchase invoices', { timeout: 15000 });
+
+    // Only its own kind, and the button already knows what it is making.
+    await page.waitForSelector('td:has-text("PI-0001")', { timeout: 15000 });
+    if (await page.locator('td:has-text("SI-")').count()) {
+      throw new Error('a sales invoice is listed on the purchase invoice screen');
+    }
+    await page.waitForSelector('button:has-text("New purchase invoice")', { timeout: 10000 });
+
+    // The date range and the search are the ones every history screen carries.
+    await page.waitForSelector('input[aria-label^="Search"]', { timeout: 10000 });
+
+    // And another kind is another screen, not another tile on this one.
+    await page.goto(`${BASE_URL}/admin/documents/quotations`, { waitUntil: 'networkidle' });
+    await page.waitForSelector('button:has-text("New quotation")', { timeout: 15000 });
+    if (await page.locator('td:has-text("PI-0001")').count()) {
+      throw new Error('a purchase invoice is listed on the quotations screen');
+    }
+  });
+
   await step('labels can be printed from a confirmed purchase invoice', async () => {
-    await goTo('Documents');
+    await goToDocuments();
     await page.click('td:has-text("PI-0001")');
     await page.waitForSelector('text=Print labels', { timeout: 15000 });
     await page.click('button:has-text("Print labels")');
@@ -2248,7 +2320,7 @@ try {
   });
 
   await step('a quotation converts to a sales order', async () => {
-    await goTo('Documents');
+    await goToDocuments();
     const dialog = await openNewDocument();
     await dialog.getByRole('button', { name: /Quotation/ }).click();
     await dialog.locator('#doc-party').selectOption({ label: 'Rami Haddad' });
@@ -2265,7 +2337,7 @@ try {
   await shot('documents');
 
   await step('a customer document can be sent on WhatsApp', async () => {
-    await goTo('Documents');
+    await goToDocuments();
     await page.click('td:has-text("SO-0001")');
     const wa = page.locator('a[href^="https://wa.me/"]');
     await wa.waitFor({ timeout: 15000 });
@@ -2283,7 +2355,7 @@ try {
   });
 
   await step('a new product can be created from inside a document', async () => {
-    await goTo('Documents');
+    await goToDocuments();
     const dialog = await openNewDocument();
     await dialog.getByRole('button', { name: /Purchase invoice/ }).click();
     await dialog.locator('#doc-party').selectOption({ label: 'Corner Bakehouse' });
@@ -2307,7 +2379,7 @@ try {
   await shot('inline-product');
 
   await step('a new supplier can be created from inside a document', async () => {
-    await goTo('Documents');
+    await goToDocuments();
     const dialog = await openNewDocument();
     await dialog.getByRole('button', { name: /Purchase invoice/ }).click();
 
@@ -2340,7 +2412,7 @@ try {
   await shot('inline-party');
 
   await step('a purchase paid in cash leaves no payable behind', async () => {
-    await goTo('Documents');
+    await goToDocuments();
     const dialog = await openNewDocument();
     await dialog.getByRole('button', { name: /Purchase invoice/ }).click();
     await dialog.locator('#doc-party').selectOption({ label: 'Corner Bakehouse' });
@@ -2369,7 +2441,7 @@ try {
   await shot('paid-in-cash');
 
   await step('a part payment leaves only the remainder owing', async () => {
-    await goTo('Documents');
+    await goToDocuments();
     const dialog = await openNewDocument();
     await dialog.getByRole('button', { name: /Purchase invoice/ }).click();
     await dialog.locator('#doc-party').selectOption({ label: 'Corner Bakehouse' });
@@ -2398,7 +2470,7 @@ try {
   });
 
   await step('a confirmed document can be corrected, and the books follow', async () => {
-    await goTo('Documents');
+    await goToDocuments();
     let dialog = await openNewDocument();
     await dialog.getByRole('button', { name: /Purchase invoice/ }).click();
     await dialog.locator('#doc-party').selectOption({ label: 'Corner Bakehouse' });
@@ -2442,7 +2514,7 @@ try {
   });
 
   await step('a document can be deleted, and is reversed on the way out', async () => {
-    await goTo('Documents');
+    await goToDocuments();
     await page.click('td:has-text("PI-0002")');
     await page.waitForSelector('text=Print labels', { timeout: 15000 });
 
@@ -2481,7 +2553,7 @@ try {
    * the voucher book.
    */
   await step('a sales invoice paid in cash is confirmed', async () => {
-    await goTo('Documents');
+    await goToDocuments();
     const dialog = await openNewDocument();
     await dialog.getByRole('button', { name: /Sales invoice/ }).click();
     await dialog.locator('#doc-party').selectOption({ label: 'Rami Haddad' });
@@ -2508,7 +2580,7 @@ try {
      * re-pricing a line to a figure from the spring would be worse than not
      * knowing.
      */
-    await goTo('Documents');
+    await goToDocuments();
     const dialog = await openNewDocument();
     await dialog.getByRole('button', { name: /Sales invoice/ }).click();
     await dialog.locator('#doc-party').selectOption({ label: 'Rami Haddad' });
