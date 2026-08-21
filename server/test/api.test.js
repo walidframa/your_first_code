@@ -1646,6 +1646,39 @@ test('summary reports revenue, payment mix and reorder-based low stock', async (
   assert.ok(res.json.lowStock.every((p) => p.stock <= p.reorder_point));
 });
 
+test('the dashboard says when the shop is busy, and what is not moving', async () => {
+  const { json } = await req('GET', '/reports/summary', null, adminToken);
+
+  /*
+   * The hour a sale was rung up in. A shopkeeper decides who is on the counter
+   * on Saturday from this, and a daily total cannot answer it.
+   */
+  assert.ok(json.byHour.length >= 1, 'no hour carried any of the sales just made');
+  assert.ok(json.byHour.every((h) => h.hour >= 0 && h.hour <= 23));
+  assert.equal(
+    json.byHour.reduce((sum, h) => sum + h.orders, 0),
+    json.orderCount,
+    'the hours do not add up to the day',
+  );
+
+  /*
+   * And the opposite question to "what sells": what has sat there the whole
+   * period. Nothing that sold may appear, or the list is worthless.
+   */
+  const sold = new Set(json.topProducts.map((p) => p.id ?? p.product_id));
+  assert.ok(json.slowMovers.every((p) => !sold.has(p.id)), 'a top seller is listed as not moving');
+  assert.ok(json.slowMovers.every((p) => p.stock > 0), 'an empty shelf is not money sitting still');
+  assert.equal(
+    json.tiedUp,
+    Math.round(json.slowMovers.reduce((sum, p) => sum + p.tiedUp, 0) * 100) / 100,
+    'the headline does not match the rows under it',
+  );
+  // Sorted by what it is worth, because forty cheap cables and one dead phone
+  // are not the same problem.
+  const values = json.slowMovers.map((p) => p.tiedUp);
+  assert.deepEqual(values, [...values].sort((a, b) => b - a));
+});
+
 /* ------------------------------------------------------------------ scope */
 
 test('cashiers only see their own orders', async () => {
