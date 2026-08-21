@@ -96,17 +96,44 @@ orphaned by a failed restart — is holding port 4100. The unit cannot bind, so
 restarting it changes nothing, and systemd's status is about the unit rather
 than about the port.
 
-**Find it, then take the port back:**
+**Read the port before you touch it.** `fuser -k` on a healthy shop is a shop
+you have just taken down — and once the deploy has restarted the tenant, the
+process holding 4100 is *supposed* to be there.
 
 ```bash
-ss -lptnp 'sport = :4100'          # who actually holds it
-sudo fuser -k 4100/tcp             # kill whatever that is
-sudo systemctl start pos-tenant@protech
+ss -lptnp 'sport = :4100'
 systemctl is-active pos-tenant@protech
-curl -fsS localhost:4100/api/health && echo
 ```
 
-Do the same with `:4090` for the console.
+Three answers, and only one of them means kill something:
+
+- **Nothing listening**, unit inactive → the unit failed to start. Not the
+  stray-process case at all. Read `journalctl -u pos-tenant@protech -n 50
+  --no-pager` and fix what it says.
+- **Something listening**, unit `active` → **that is the shop, working.** Stop
+  here. If the browser still shows the old build, it is the bundle or the
+  cache, not the port — go back to "Then prove it".
+- **Something listening**, unit `inactive` or `failed` → *now* it is a stray,
+  because the port is held by a process systemd does not own:
+
+  ```bash
+  sudo fuser -k 4100/tcp
+  sudo systemctl start pos-tenant@protech
+  sleep 3                                  # node has to bind before it answers
+  curl -fsS localhost:4100/api/health && echo
+  ```
+
+The `sleep` is not decoration. `systemctl start` returns as soon as the unit is
+*started*, which is before the process has opened its database and taken the
+port; a `curl` on the next line fails against a shop that is coming up perfectly
+well.
+
+Same three questions for `:4090` and the console.
+
+**Never hand somebody the deploy block and this block as one thing to paste.**
+Deploy first, read what it printed, and come here only if the checks actually
+failed. Pasted together they kill the server the deploy has just brought up —
+which has happened, on this shop.
 
 ## Other failures, in the order they happen
 
@@ -143,3 +170,5 @@ looking busy.
   that is acceptable.
 - Do not report a deploy as done on the strength of the script's exit code
   alone. Run the checks above and quote what they said.
+- **Never** run `fuser -k` against a port whose unit is `active`. That is not a
+  stray process, that is the shop.
