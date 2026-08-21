@@ -14,6 +14,7 @@ import { applyTheme, watchSystemTheme } from './lib/theme.js';
 import { applyLanguage } from './lib/i18n.js';
 import { LanguageProvider } from './context/LanguageContext.jsx';
 import { watchForInstall } from './lib/install.js';
+import { startUpdateWatch } from './lib/appUpdate';
 import { LicenceProvider, useLicence } from './context/LicenceContext.jsx';
 import { SupportProvider } from './context/SupportContext.jsx';
 import Locked from './pages/Locked.jsx';
@@ -49,11 +50,10 @@ watchForInstall();
  * caching those assets would serve yesterday's code after every edit.
  */
 if ('serviceWorker' in navigator && import.meta.env.PROD) {
-  globalThis.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch(() => {
-      // A till without it still sells; it just cannot survive the server going.
-    });
-  });
+  // Registered, and then watched: a new version installs and waits, and the
+  // counter is offered the reload rather than having one done to it. See
+  // lib/appUpdate.js.
+  globalThis.addEventListener('load', startUpdateWatch);
 }
 
 createRoot(document.getElementById('root')).render(

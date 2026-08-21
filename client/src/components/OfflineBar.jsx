@@ -1,10 +1,12 @@
-import { CalendarClock, CloudOff, LifeBuoy, RefreshCw, TriangleAlert } from 'lucide-react';
+import { ArrowUpCircle, CalendarClock, CloudOff, LifeBuoy, RefreshCw, TriangleAlert } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { useOffline } from '../context/OfflineContext';
 import { useLicence } from '../context/LicenceContext';
 import { useSupport } from '../context/SupportContext';
 import { useAuth } from '../context/AuthContext';
 import { Button, cx, money } from './ui';
 import { useT } from '../context/LanguageContext';
+import { applyUpdate, onUpdateReady } from '../lib/appUpdate';
 
 /**
  * What the counter needs to know when the server is away.
@@ -101,6 +103,49 @@ function waiting(t, count, total) {
     : t('{count} sales waiting, and nothing is lost.', { count });
 }
 
+/**
+ * A new version of the app is waiting.
+ *
+ * Offered rather than taken: the reload is a button, because a page that
+ * reloads itself because a deploy happened can throw away a half-rung sale,
+ * and no amount of freshness is worth that. Between customers is the right
+ * moment and only the person at the counter knows when that is.
+ *
+ * Dismissible, and it comes back on the next load if it is still waiting —
+ * a shop in the middle of something should be able to make it go away without
+ * that meaning "never tell me again".
+ */
+function UpdateBar() {
+  const t = useT();
+  const [ready, setReady] = useState(false);
+  const [dismissed, setDismissed] = useState(false);
+
+  useEffect(() => onUpdateReady(setReady), []);
+
+  if (!ready || dismissed) return null;
+
+  return (
+    <div className="flex items-center gap-2 bg-brand-700 px-4 py-1.5 text-sm font-medium text-white">
+      <ArrowUpCircle size={15} className="shrink-0" />
+      <span>{t('A new version of the app is ready.')}</span>
+      <button
+        onClick={applyUpdate}
+        className="ms-auto shrink-0 rounded-md bg-white/15 px-2 py-0.5 text-xs transition hover:bg-white/25"
+      >
+        {t('Reload now')}
+      </button>
+      <button
+        onClick={() => setDismissed(true)}
+        aria-label={t('Not now')}
+        title={t('Not now')}
+        className="shrink-0 rounded-md px-1.5 py-0.5 text-xs opacity-80 transition hover:bg-white/15 hover:opacity-100"
+      >
+        {t('Later')}
+      </button>
+    </div>
+  );
+}
+
 export default function OfflineBar() {
   const { reachable, sending, pending, refused, send } = useOffline();
   const t = useT();
@@ -112,6 +157,7 @@ export default function OfflineBar() {
       <>
         <SupportBar />
         <LicenceBar />
+        <UpdateBar />
       </>
     );
   }
@@ -122,6 +168,7 @@ export default function OfflineBar() {
     <div className="no-print">
       <SupportBar />
       <LicenceBar />
+      <UpdateBar />
 
       {!reachable && (
         <div className="flex items-center gap-2 bg-amber-500 px-4 py-1.5 text-sm font-medium text-white">

@@ -111,9 +111,22 @@ if (serveClient) {
     express.static(clientDist, {
       index: false,
       setHeaders: (res, filePath) => {
+        /*
+         * Two files must never be cached, and for the same reason: they are the
+         * ones that say what the current version *is*.
+         *
+         * index.html names the hashed assets. sw.js names the cache the whole
+         * app is served from — and it cannot carry a hash in its own filename,
+         * because a service worker has to sit at the root to control the app.
+         * Served `immutable` for a year it would be the one file a browser
+         * never re-fetches, which is precisely the file that has to change for
+         * an update to reach a till at all.
+         */
+        const name = path.basename(filePath);
+        const pinned = name === 'index.html' || name === 'sw.js';
         res.setHeader(
           'Cache-Control',
-          filePath.endsWith('index.html') ? 'no-cache' : 'public, max-age=31536000, immutable',
+          pinned ? 'no-cache' : 'public, max-age=31536000, immutable',
         );
       },
     }),
