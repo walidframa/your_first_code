@@ -15,6 +15,7 @@ import {
   KeyRound,
   Landmark,
   Package,
+  PiggyBank,
   Receipt,
   ReceiptText,
   ScanLine,
@@ -129,6 +130,9 @@ export const ADMIN_NAV = [
       { to: '/admin/cashbox', label: 'Cashbox', icon: Banknote, permission: 'cashbox' },
       { to: '/admin/expenses', label: 'Expenses', icon: Wallet, permission: 'expenses' },
       { to: '/admin/profit', label: 'Profit', icon: TrendingUp, permission: 'reports' },
+      /* What the shop is worth, which is the same arithmetic seen from further
+         back — every month's profit, added to what the owner started with. */
+      { to: '/admin/capital', label: 'Capital', icon: PiggyBank, permission: 'reports' },
     ],
   },
   {

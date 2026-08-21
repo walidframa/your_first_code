@@ -2116,6 +2116,38 @@ try {
     await page.waitForSelector('th:has-text("Category")', { timeout: 10000 });
   });
 
+  await step('the shop can say what it started with, and watch it grow', async () => {
+    /*
+     * "I put this much in — am I ahead?" is a question the ledgers do not
+     * answer on their own, and it is the one a shopkeeper actually asks.
+     */
+    await page.goto(`${BASE_URL}/admin/capital`, { waitUntil: 'networkidle' });
+    await page.waitForSelector('text=What did you start with?', { timeout: 20000 });
+
+    // Offered with what the shelves cost, because adding that up by hand
+    // across nine hundred products is how the figure becomes a guess.
+    const useStock = page.getByRole('button', { name: /Use what the stock cost/ });
+    await useStock.click();
+    if (!(await page.locator('#capital_opening').inputValue())) {
+      throw new Error('the stock figure did not go into the box');
+    }
+
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+
+    /*
+     * The whole screen, and no white one behind it. Saving used to close the
+     * form before the reload came back, so the summary rendered against a shop
+     * that still had no starting date and read `null.slice(...)` — a blank
+     * page, from the one press this screen exists for.
+     */
+    await page.waitForSelector('text=Capital now', { timeout: 20000 });
+    await page.waitForSelector('text=You started with', { timeout: 10000 });
+
+    // The month in hand is shown, and deliberately not counted into the total.
+    await page.waitForSelector('text=/is still going/', { timeout: 10000 });
+    await page.waitForSelector('text=/No month has finished yet/', { timeout: 10000 });
+  });
+
   await step('each kind of paperwork is its own screen, already filtered', async () => {
     /*
      * Writing a purchase invoice used to be a screen, then a tile to narrow
