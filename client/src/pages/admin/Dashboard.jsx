@@ -3,6 +3,8 @@ import { Link } from 'react-router';
 import { AlertTriangle, XCircle } from 'lucide-react';
 import api from '../../api';
 import PageHeader from '../../components/PageHeader';
+import ColumnPicker from '../../components/ColumnPicker';
+import { useColumns } from '../../lib/tableColumns';
 import { RevenueChart, TopSellers, PaymentMix } from '../../components/charts';
 import { Badge, Card, CardHeader, Skeleton, cx, money } from '../../components/ui';
 
@@ -42,6 +44,103 @@ function fillDays(byDay, rangeDays) {
   return out;
 }
 
+/**
+ * When the shop is busy.
+ *
+ * A shopkeeper decides who is on the counter on Saturday and whether it is
+ * worth opening at nine, and neither question is answerable from a daily
+ * total. Bars rather than a line: these are separate hours, not a journey
+ * through one.
+ */
+/**
+ * Which panels this screen shows.
+ *
+ * A dashboard is one screen answering a dozen questions, and no two shops ask
+ * the same dozen. The owner pricing a delivery wants what is sitting still;
+ * whoever is looking at the counter's week wants the hours. So they are
+ * chosen, and — like the catalogue's columns — kept on the device rather than
+ * in the database, because the tablet at the counter and the laptop in the
+ * back office are different jobs.
+ *
+ * What is stored is the set turned *off*, so a panel added in a later version
+ * arrives for everybody instead of a saved layout freezing this screen at the
+ * panels that existed the day it was saved.
+ */
+const PANELS = [
+  { key: 'headline', label: 'The figures along the top', fixed: true },
+  { key: 'revenue', label: 'Daily revenue' },
+  { key: 'hours', label: 'Busiest hours' },
+  { key: 'sellers', label: 'Top sellers' },
+  { key: 'mix', label: 'Payment mix' },
+  { key: 'restock', label: 'Needs restocking' },
+  { key: 'slow', label: 'Sitting still' },
+];
+
+function BusiestHours({ hours }) {
+  if (!hours?.length) {
+    return <p className="px-5 pb-5 text-sm text-slate-500">Nothing was rung up in this period.</p>;
+  }
+  const busiest = Math.max(...hours.map((h) => h.revenue));
+  const clock = (h) => `${((h + 11) % 12) + 1}${h < 12 ? 'am' : 'pm'}`;
+
+  return (
+    <ul className="space-y-1.5 px-5 pb-5">
+      {hours.map((h) => (
+        <li key={h.hour} className="flex items-center gap-3 text-sm">
+          <span className="tnum w-12 shrink-0 text-slate-500">{clock(h.hour)}</span>
+          <span className="h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-slate-100">
+            <span
+              className="block h-full rounded-full bg-brand-500"
+              style={{ width: `${Math.max(3, (h.revenue / busiest) * 100)}%` }}
+            />
+          </span>
+          <span className="tnum w-20 shrink-0 text-right font-medium text-slate-700">
+            {money(h.revenue)}
+          </span>
+          <span className="tnum w-12 shrink-0 text-right text-xs text-slate-500">
+            {h.orders} {h.orders === 1 ? 'sale' : 'sales'}
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/**
+ * Money asleep on the shelf.
+ *
+ * The opposite question to "what sells", and the one no other screen answers:
+ * a shop can see what is running out and not what it is stuck with. Sorted by
+ * what it is worth at cost rather than by how many there are, because forty
+ * cheap cables and one dead phone are not the same problem.
+ */
+function SlowMovers({ products, tiedUp }) {
+  if (!products?.length) {
+    return <p className="px-5 pb-5 text-sm text-slate-500">Everything on the shelf sold at least once.</p>;
+  }
+  return (
+    <>
+      <p className="px-5 pb-2 text-sm text-slate-600">
+        <span className="tnum font-semibold text-slate-900">{money(tiedUp)}</span> sitting still in
+        the top {products.length}
+      </p>
+      <ul className="space-y-2 px-5 pb-5">
+        {products.map((p) => (
+          <li key={p.id} className="flex items-center justify-between gap-3 text-sm">
+            <span className="min-w-0 truncate text-slate-700" title={p.sku}>
+              {p.name}
+            </span>
+            <span className="shrink-0 text-right">
+              <span className="tnum font-medium text-slate-800">{money(p.tiedUp)}</span>
+              <span className="tnum ml-2 text-xs text-slate-500">{p.stock} left</span>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </>
+  );
+}
+
 function StatTile({ label, value, hint }) {
   return (
     <Card className="px-4 py-3.5">
@@ -55,6 +154,8 @@ function StatTile({ label, value, hint }) {
 export default function Dashboard() {
   const [summary, setSummary] = useState(null);
   const [range, setRange] = useState('30d');
+  const panels = useColumns('dashboard', PANELS);
+  const shows = (key) => panels.visible.some((p) => p.key === key);
   const [refreshing, setRefreshing] = useState(false);
   const [accounts, setAccounts] = useState(null);
 
@@ -101,7 +202,18 @@ export default function Dashboard() {
             ))}
           </div>
         }
-      />
+      >
+        {/* Beside the period, because both are choices about the screen
+            underneath and belong where it can be seen changing. */}
+        <ColumnPicker
+          table="dashboard"
+          columns={PANELS}
+          hidden={panels.hidden}
+          onChange={panels.setHidden}
+          label="Panels"
+          what="panels"
+        />
+      </PageHeader>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
         {!summary ? (
@@ -176,25 +288,60 @@ export default function Dashboard() {
               <StatTile label="Discounts given" value={money(summary.discountsGiven)} />
             </div>
 
-            <Card>
-              <CardHeader
-                title="Daily revenue"
-                subtitle={`Completed sales per day · ${RANGES.find((r) => r.key === range).label.toLowerCase()}`}
-              />
-              <RevenueChart data={fillDays(summary.byDay, RANGES.find((r) => r.key === range).days)} />
-            </Card>
+            {shows('revenue') && (
+              <Card>
+                <CardHeader
+                  title="Daily revenue"
+                  subtitle={`Completed sales per day · ${RANGES.find((r) => r.key === range).label.toLowerCase()}`}
+                />
+                <RevenueChart data={fillDays(summary.byDay, RANGES.find((r) => r.key === range).days)} />
+              </Card>
+            )}
+
+            {shows('hours') && (
+              <Card>
+                <CardHeader
+                  title="Busiest hours"
+                  subtitle="When the counter is actually working"
+                />
+                <BusiestHours hours={summary.byHour} />
+              </Card>
+            )}
 
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-              <Card>
-                <CardHeader title="Top sellers" subtitle="By units sold" />
-                <TopSellers products={summary.topProducts} />
-              </Card>
+              {shows('sellers') && (
+                <Card>
+                  <CardHeader title="Top sellers" subtitle="By units sold" />
+                  <TopSellers products={summary.topProducts} />
+                </Card>
+              )}
 
-              <Card>
-                <CardHeader title="Payment mix" subtitle="Revenue by tender" />
-                <PaymentMix mix={summary.paymentMix} />
-              </Card>
+              {shows('mix') && (
+                <Card>
+                  <CardHeader title="Payment mix" subtitle="Revenue by tender" />
+                  <PaymentMix mix={summary.paymentMix} />
+                </Card>
+              )}
 
+              {shows('slow') && (
+                <Card>
+                  <CardHeader
+                    title="Sitting still"
+                    subtitle="On the shelf, unsold all period"
+                    action={
+                      <Link
+                        to="/admin/products"
+                        className="text-xs font-medium text-brand-700 hover:underline"
+                      >
+                        Catalogue
+                      </Link>
+                    }
+                  />
+                  <SlowMovers products={summary.slowMovers} tiedUp={summary.tiedUp} />
+                </Card>
+              )}
+
+              {shows('restock') && (
               <Card>
                 <CardHeader
                   title="Needs restocking"
@@ -229,6 +376,7 @@ export default function Dashboard() {
                   </ul>
                 )}
               </Card>
+              )}
             </div>
           </div>
         )}

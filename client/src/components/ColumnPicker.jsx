@@ -13,7 +13,18 @@ import { Button, cx } from './ui';
  * The choice is kept on the device — see lib/tableColumns for why — so this
  * writes it and hands the caller the new set to render with.
  */
-export default function ColumnPicker({ table, columns, hidden, onChange, className }) {
+export default function ColumnPicker({
+  table,
+  columns,
+  hidden,
+  onChange,
+  className,
+  /* "Columns" on a table, "Panels" on the dashboard — the same choice about
+     two different shapes of thing, and calling both of them columns would be
+     a word nobody could act on. */
+  label = 'Columns',
+  what = 'columns',
+}) {
   const [open, setOpen] = useState(false);
   const box = useRef(null);
   const locked = new Set(fixed(columns));
@@ -55,10 +66,10 @@ export default function ColumnPicker({ table, columns, hidden, onChange, classNa
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
         aria-haspopup="true"
-        title="Choose which columns to show"
+        title={`Choose which ${what} to show`}
       >
         <Columns3 size={15} />
-        <span className="hidden sm:inline">Columns</span>
+        <span className="hidden sm:inline">{label}</span>
         {changed && (
           <span className="tnum rounded bg-brand-100 px-1 text-[11px] font-medium text-brand-800">
             {columns.length - hidden.length}
@@ -69,7 +80,7 @@ export default function ColumnPicker({ table, columns, hidden, onChange, classNa
       {open && (
         <div
           role="group"
-          aria-label="Columns to show"
+          aria-label={`${label} to show`}
           className="absolute right-0 z-30 mt-1 w-60 rounded-xl bg-white p-1.5 shadow-lg ring-1 ring-slate-200"
         >
           <ul className="max-h-80 overflow-y-auto">

@@ -85,6 +85,51 @@ router.get('/summary', requireAuth, requirePermission('reports'), (req, res) => 
     )
     .all(...params);
 
+  /*
+   * When the shop is busy.
+   *
+   * A shopkeeper decides who is on the counter on Saturday afternoon and
+   * whether it is worth opening at nine, and neither question is answerable
+   * from a daily total. Hours with nothing in them are left out rather than
+   * filled with zeroes — the shop was shut, which is not the same as quiet.
+   */
+  const byHour = db
+    .prepare(
+      `SELECT CAST(strftime('%H', created_at) AS INTEGER) AS hour,
+              COUNT(*) AS orders,
+              COALESCE(SUM(total), 0) AS revenue
+       FROM orders ${where}
+       GROUP BY hour ORDER BY hour`,
+    )
+    .all(...params);
+
+  /*
+   * Money asleep on the shelf.
+   *
+   * The opposite question to "what sells": what has been sitting there through
+   * the whole period without moving, and what is it worth at cost. This is the
+   * figure that decides a clearance, and no screen in the app was answering it
+   * — a shop can see what is running out and not what it is stuck with.
+   *
+   * Cards are left out: they are sold from a balance rather than a shelf and
+   * cannot sit still.
+   */
+  const slowMovers = db
+    .prepare(
+      `SELECT p.id, p.name, p.sku, p.stock, p.cost,
+              ROUND(p.stock * p.cost, 2) AS tiedUp
+       FROM products p
+       WHERE p.active = 1 AND p.stock > 0 AND p.wallet_id IS NULL
+         AND p.id NOT IN (
+           SELECT oi.product_id FROM order_items oi
+           JOIN orders o ON o.id = oi.order_id
+           ${whereJoined} AND oi.product_id IS NOT NULL
+         )
+       ORDER BY tiedUp DESC, p.name
+       LIMIT 10`,
+    )
+    .all(...joinedParams);
+
   res.json({
     revenue: totals.revenue,
     taxCollected: totals.taxCollected,
@@ -95,6 +140,11 @@ router.get('/summary', requireAuth, requirePermission('reports'), (req, res) => 
     topProducts,
     lowStock,
     paymentMix,
+    byHour,
+    slowMovers,
+    // What the shelf that is not moving is worth altogether, so the panel can
+    // lead with the figure rather than making somebody add ten rows up.
+    tiedUp: Math.round(slowMovers.reduce((sum, p) => sum + p.tiedUp, 0) * 100) / 100,
   });
 });
 

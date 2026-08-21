@@ -110,7 +110,7 @@ export default function Layout() {
      */
     document.documentElement.style.setProperty(
       '--rail-width',
-      showRail ? (expanded ? '212px' : '68px') : '0px',
+      showRail ? (expanded ? '244px' : '68px') : '0px',
     );
   }, [expanded, showRail]);
 
@@ -222,7 +222,7 @@ export default function Layout() {
       <aside
         className={cx(
           'no-print hidden shrink-0 flex-col bg-slate-900 py-3 transition-[width] duration-150 lg:flex',
-          expanded ? 'w-[212px] px-3' : 'w-[68px] px-2.5',
+          expanded ? 'w-[244px] px-3' : 'w-[68px] px-2.5',
         )}
       >
         <div className={cx('mb-3 flex items-center', expanded ? 'gap-2.5 px-1' : 'justify-center')}>

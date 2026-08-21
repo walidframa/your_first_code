@@ -2116,6 +2116,42 @@ try {
     await page.waitForSelector('th:has-text("Category")', { timeout: 10000 });
   });
 
+  await step('the dashboard shows what is asked of it, and nothing else', async () => {
+    /*
+     * A dashboard is one screen answering a dozen questions and no two shops
+     * ask the same dozen — so the panels are chosen, and the choice is kept on
+     * the device like the catalogue's columns.
+     */
+    await page.goto(`${BASE_URL}/admin`, { waitUntil: 'networkidle' });
+    await page.waitForSelector('text=Busiest hours', { timeout: 20000 });
+
+    // Money asleep on the shelf: the question no other screen answers — a shop
+    // can see what is running out and not what it is stuck with.
+    await page.waitForSelector('text=Sitting still', { timeout: 10000 });
+    await page.waitForSelector('text=/sitting still in the top/', { timeout: 10000 });
+
+    // Turned off, it goes; and stays gone over a reload.
+    await page.getByRole('button', { name: 'Panels' }).click();
+    await page.getByLabel('Busiest hours').uncheck();
+    await page.keyboard.press('Escape');
+    if (await page.locator('text=Busiest hours').count()) {
+      throw new Error('the panel outstayed its unticking');
+    }
+
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.waitForSelector('text=Sitting still', { timeout: 20000 });
+    if (await page.locator('text=Busiest hours').count()) {
+      throw new Error('the choice was forgotten on reload');
+    }
+
+    // The figures along the top are not the reader's to hide: a dashboard with
+    // no takings on it is not a dashboard.
+    await page.getByRole('button', { name: 'Panels' }).click();
+    await page.getByRole('button', { name: /Show them all again/ }).click();
+    await page.keyboard.press('Escape');
+    await page.waitForSelector('text=Busiest hours', { timeout: 10000 });
+  });
+
   await step('the shop can say what it started with, and watch it grow', async () => {
     /*
      * "I put this much in — am I ahead?" is a question the ledgers do not
