@@ -160,6 +160,16 @@ export default function App() {
             </ProtectedRoute>
           }
         />
+        {/* One kind of paperwork at a time — the rail links straight to each,
+            and the screen is the same one with its filter already set. */}
+        <Route
+          path="/admin/documents/:kind"
+          element={
+            <ProtectedRoute permission="documents">
+              <AdminDocuments />
+            </ProtectedRoute>
+          }
+        />
         <Route
           path="/admin/labels"
           element={

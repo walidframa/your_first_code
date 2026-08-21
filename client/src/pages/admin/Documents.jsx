@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router';
+import { useNavigate, useParams, useSearchParams } from 'react-router';
 import {
   AlertTriangle,
   ArrowRight,
@@ -98,7 +98,7 @@ function TypeIcon({ type, size = 16 }) {
  * would change what the document does — so the type picker only appears when
  * creating.
  */
-function DocumentForm({ existing, onClose, onSaved }) {
+function DocumentForm({ existing, startAs = null, onClose, onSaved }) {
   const toast = useToast();
   const { rate, toLbp, taxRate } = useSettings();
   /*
@@ -116,7 +116,7 @@ function DocumentForm({ existing, onClose, onSaved }) {
   const editing = !!existing;
   const doc = existing?.document;
 
-  const [docType, setDocType] = useState(doc?.doc_type || 'purchase_invoice');
+  const [docType, setDocType] = useState(doc?.doc_type || startAs || 'purchase_invoice');
   const [parties, setParties] = useState([]);
   const [partyId, setPartyId] = useState(doc?.party_id ? String(doc.party_id) : '');
   const [products, setProducts] = useState([]);
@@ -1341,7 +1341,25 @@ function imeiCount(text) {
     .filter(Boolean).length;
 }
 
+/*
+ * The four kinds, as they appear in an address.
+ *
+ * The rail links to a word rather than to `?filter=purchase_invoice`, because
+ * these are places in the app now — a screen a shop opens on purpose, not a
+ * filter it happens to have set — and a shop that bookmarks one should get the
+ * same thing back tomorrow.
+ */
+const KIND_PATHS = {
+  'purchase-invoices': 'purchase_invoice',
+  'sales-invoices': 'sales_invoice',
+  quotations: 'quotation',
+  'sales-orders': 'sales_order',
+};
+
 export default function Documents() {
+  const { kind } = useParams();
+  const only = KIND_PATHS[kind] || null;
+
   const [documents, setDocuments] = useState(null);
   const [counts, setCounts] = useState({});
   const [filter, setFilter] = useState('all');
@@ -1382,9 +1400,16 @@ export default function Documents() {
     load();
   }, [load]);
 
+  /*
+   * The address wins where there is one. `filter` stays for the unfiltered
+   * screen, which still exists — the Sales list sends anybody looking for one
+   * invoice there, and it must not be narrowed to a kind they did not pick.
+   */
+  const showing = only || filter;
+
   const visible = (documents || []).filter(
     (d) =>
-      (filter === 'all' || d.doc_type === filter) &&
+      (showing === 'all' || d.doc_type === showing) &&
       history.within(d.issue_date || d.created_at) &&
       history.matches(d.doc_number, d.party_name, d.notes),
   );
@@ -1392,18 +1417,24 @@ export default function Documents() {
   return (
     <div className="flex h-full flex-col">
       <PageHeader
-        title="Documents"
-        subtitle="Quotations, sales orders, sales invoices and purchase invoices"
+        title={only ? `${TYPE_META[only].label}s` : 'Documents'}
+        subtitle={only ? TYPE_META[only].effect : 'Quotations, sales orders, sales invoices and purchase invoices'}
         actions={
+          /* On a screen that is one kind, the button already knows which —
+             the type tiles inside the dialog were a third choice for a job
+             the shop had already made twice. */
           <Button onClick={() => setCreating(true)}>
-            <Plus size={16} /> New document
+            <Plus size={16} /> {only ? `New ${TYPE_META[only].label.toLowerCase()}` : 'New document'}
           </Button>
         }
       />
 
       <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
-        {/* Type tiles double as the filter. */}
-        <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        {/* Type tiles double as the filter — on the screen that shows all four.
+            On one kind's own screen the rail is already the switcher, and a
+            second one that disagreed with the address would be worse than
+            none. */}
+        <div className={cx('mb-4 grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5', only ? 'hidden' : 'grid')}>
           <button
             onClick={() => setFilter('all')}
             className={cx(
@@ -1514,6 +1545,9 @@ export default function Documents() {
 
       {creating && (
         <DocumentForm
+          /* Opened from a screen that is one kind, it starts on that kind —
+             the tiles inside are still there to change your mind. */
+          startAs={only}
           onClose={() => setCreating(false)}
           onSaved={(id) => {
             setCreating(false);
