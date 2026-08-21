@@ -44,6 +44,9 @@ import {
 import { useNavigate } from 'react-router';
 import BarcodeScanner, { ScanButton, canScan } from '../../components/BarcodeScanner';
 
+/* The last option in the category list, which opens a box rather than picking. */
+const NEW_CATEGORY = '__new__';
+
 const emptyForm = {
   name: '',
   sku: '',
@@ -60,7 +63,7 @@ const emptyForm = {
   is_sim: false,
 };
 
-function ProductModal({ product, categories, allProducts, onClose, onSaved }) {
+function ProductModal({ product, categories, allProducts, onClose, onSaved, onCategories }) {
   const navigate = useNavigate();
   const toast = useToast();
   const [form, setForm] = useState(
@@ -87,6 +90,38 @@ function ProductModal({ product, categories, allProducts, onClose, onSaved }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [confirmConvert, setConfirmConvert] = useState(null);
+
+  /*
+   * Naming a new shelf, from inside the product going onto it.
+   *
+   * `null` is "not asking"; a string is the name being typed, empty included —
+   * which is why it is not simply falsy-checked.
+   */
+  const [namingCategory, setNamingCategory] = useState(null);
+  const [addingCategory, setAddingCategory] = useState(false);
+
+  async function addCategory() {
+    const name = namingCategory.trim();
+    if (!name) return;
+    setAddingCategory(true);
+    try {
+      const { data } = await api.post('/products/categories', { name });
+      // Straight onto the product, because that is what it was made for.
+      setForm((f) => ({ ...f, category_id: String(data.category.id) }));
+      setNamingCategory(null);
+      onCategories?.();
+      toast(`${data.category.name} added`);
+    } catch (err) {
+      /*
+       * The commonest answer by far is that it already exists — said here
+       * rather than as a red banner over the whole form, because it is about
+       * this one box and the fix is to pick the existing one.
+       */
+      toast(err.response?.data?.error || 'Could not add that category', 'error');
+    } finally {
+      setAddingCategory(false);
+    }
+  }
 
   async function convertAndSave() {
     setConfirmConvert(null);
@@ -261,14 +296,78 @@ function ProductModal({ product, categories, allProducts, onClose, onSaved }) {
             onChange={set('reorder_point')}
             hint="Flag as low at or below this"
           />
-          <Select label="Category" value={form.category_id} onChange={set('category_id')}>
-            <option value="">No category</option>
-            {categories.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </Select>
+          {/*
+            * The shelf this goes on, and a way to name a new one without
+            * leaving the product.
+            *
+            * A shop typing in its first delivery of a thing it has never
+            * stocked meets both at once — the product and the shelf it belongs
+            * on — and sending them to another screen to make the shelf means
+            * abandoning the half-typed product and starting again. The last
+            * option in the list opens a box instead.
+            */}
+          <div>
+            <Select
+              id="category_id"
+              label="Category"
+              value={form.category_id}
+              onChange={(e) => {
+                if (e.target.value === NEW_CATEGORY) {
+                  setNamingCategory('');
+                  return;
+                }
+                setForm((f) => ({ ...f, category_id: e.target.value }));
+              }}
+            >
+              <option value="">No category</option>
+              {categories.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+              <option value={NEW_CATEGORY}>+ New category…</option>
+            </Select>
+
+            {namingCategory !== null && (
+              <div className="mt-2 flex items-end gap-2">
+                <Input
+                  label="New category"
+                  value={namingCategory}
+                  onChange={(e) => setNamingCategory(e.target.value)}
+                  autoFocus
+                  placeholder="Chargers"
+                  /* Enter makes the category, and must never submit the
+                     half-filled product behind it. */
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      addCategory();
+                    }
+                    if (e.key === 'Escape') setNamingCategory(null);
+                  }}
+                />
+                <Button
+                  type="button"
+                  size="sm"
+                  className="mb-0.5"
+                  loading={addingCategory}
+                  disabled={!namingCategory.trim()}
+                  onClick={addCategory}
+                >
+                  Add
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className="mb-0.5"
+                  onClick={() => setNamingCategory(null)}
+                >
+                  Cancel
+                </Button>
+              </div>
+            )}
+          </div>
           {/*
             * Phones are sold one identified handset at a time; screen
             * protectors are not. The choice is per product so both live in one
@@ -388,6 +487,11 @@ export default function Products() {
   const [scanning, setScanning] = useState(false);
   const navigate = useNavigate();
   const [unitsFor, setUnitsFor] = useState(null);
+
+  const loadCategories = useCallback(async () => {
+    const { data } = await api.get('/products/categories');
+    setCategories(data.categories);
+  }, []);
 
   const load = useCallback(async () => {
     const [productsRes, categoriesRes] = await Promise.all([
@@ -791,6 +895,10 @@ export default function Products() {
           categories={categories}
           allProducts={products || []}
           onClose={() => setEditing(undefined)}
+          /* Just the shelves, not the whole catalogue: a category named inside
+             the dialog must appear in its list without the products behind it
+             reloading under the form somebody is still filling in. */
+          onCategories={loadCategories}
           onSaved={() => {
             setEditing(undefined);
             load();

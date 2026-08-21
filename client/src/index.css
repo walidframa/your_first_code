@@ -381,6 +381,52 @@ input:-webkit-autofill:focus {
 }
 
 /*
+ * A group of the menu folding open.
+ *
+ * The obvious way to do this is `height: auto`, which cannot be animated, and
+ * the usual workaround is a guessed `max-height` — which either cuts a long
+ * group off or spends most of the animation travelling through empty space,
+ * and both look broken. A grid row measured in `fr` animates from nothing to
+ * exactly the height of its contents, whatever they turn out to be, so a group
+ * of four and a group of eight both open at the same speed.
+ *
+ * The contents are hidden rather than unmounted, so they can animate out as
+ * well as in — and `visibility` rather than opacity alone, because an
+ * invisible link that is still in the tab order is a keyboard trap in a menu
+ * that looks closed. Its change is held back until the fold has finished
+ * closing, so the rows do not vanish before the height has caught up.
+ */
+.fold {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.fold > * {
+  overflow: hidden;
+  visibility: hidden;
+  opacity: 0;
+  /* Room for a focus ring, which sits 2px outside the row it belongs to and
+     would otherwise be clipped by the overflow above. */
+  padding-block: 2px;
+  transition:
+    opacity 120ms ease-out,
+    visibility 0s linear 180ms;
+}
+
+.fold-open {
+  grid-template-rows: 1fr;
+}
+
+.fold-open > * {
+  visibility: visible;
+  opacity: 1;
+  transition:
+    opacity 140ms ease-out 60ms,
+    visibility 0s;
+}
+
+/*
  * Every one of them off when the machine has been asked for stillness.
  *
  * Not a nicety: motion sensitivity is real, and a till is not somewhere anybody
@@ -395,6 +441,20 @@ input:-webkit-autofill:focus {
   .animate-value-bump,
   .skeleton {
     animation: none;
+  }
+
+  /*
+   * The fold arrives at its open state without travelling to it. Visibility
+   * still has to change, or the rows would stay in the tab order — so that one
+   * keeps its delay and only the movement goes.
+   */
+  .fold,
+  .fold > * {
+    transition-duration: 0s;
+  }
+
+  .fold > * {
+    transition-delay: 0s;
   }
 
   /* Without the sweep it is a plain grey block, which still reads as a

@@ -44,11 +44,23 @@ export default function TabBar() {
           return (
             <div
               key={tab.path}
+              /*
+               * The open page is marked by a rule under it, not by a coloured
+               * outline round it.
+               *
+               * It used to be a green fill inside a green ring carrying green
+               * text — three signals for one quiet fact, and the shape of a
+               * button, so the tab you were already looking at was the loudest
+               * thing on the bar and looked like something to press. An
+               * underline says the same thing once, and says it where the eye
+               * already is: along the edge the strip shares with the page.
+               */
               className={cx(
-                'group flex shrink-0 items-center gap-1 rounded-lg py-1 pr-1 pl-3 text-sm transition',
+                'group relative flex shrink-0 items-center gap-1 rounded-t-lg py-1 pr-1 pl-3 text-sm transition',
+                'after:absolute after:inset-x-2 after:-bottom-1.5 after:h-0.5 after:rounded-full after:transition-colors',
                 current
-                  ? 'bg-brand-50 font-medium text-brand-800 ring-1 ring-brand-200'
-                  : 'text-slate-600 hover:bg-slate-100',
+                  ? 'font-medium text-slate-900 after:bg-brand-600'
+                  : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900 after:bg-transparent',
               )}
             >
               <button
@@ -64,7 +76,7 @@ export default function TabBar() {
                 onClick={() => close(tab.path)}
                 aria-label={`Close ${tab.title}`}
                 className={cx(
-                  'rounded p-0.5 text-slate-400 hover:bg-slate-200 hover:text-slate-700',
+                  'rounded p-0.5 text-slate-400 transition hover:bg-slate-200 hover:text-slate-900',
                   // Always visible on the open one, and on hover for the rest:
                   // a row of crosses is a row of things to press by accident.
                   current ? '' : 'opacity-0 group-hover:opacity-100 focus:opacity-100',

@@ -638,7 +638,7 @@ try {
     // Through the menu, because the register keeps the whole window now and the
     // rail is not on it. Two presses, both of them large.
     await openMenu();
-    await page.click('a[href="/orders"]');
+    await page.click('a[href="/orders"]:visible');
     await page.waitForSelector('text=ORD-', { timeout: 10000 });
   });
 
@@ -1311,17 +1311,20 @@ try {
      * at once the rail was twice the height of a laptop window and the last of
      * it was below the fold — which is the thing a menu must never be.
      */
+    // Folded rather than unmounted, so the rows can animate shut — hidden, not
+    // gone. `visibility` is what does it, which also keeps a closed group's
+    // links out of the tab order.
     // We are on Products, so Stock is the group holding the page and is open.
     await page.waitForSelector('aside a[title="Inventory"]', { timeout: 10000 });
 
     // Opening another closes it, rather than adding to a growing list.
     await page.click('aside button:has-text("Setup")');
     await page.waitForSelector('aside a[title="Settings"]', { timeout: 10000 });
-    await page.waitForSelector('aside a[title="Inventory"]', { state: 'detached', timeout: 10000 });
+    await page.waitForSelector('aside a[title="Inventory"]', { state: 'hidden', timeout: 10000 });
 
     // And pressing the open one closes it, leaving none open.
     await page.click('aside button:has-text("Setup")');
-    await page.waitForSelector('aside a[title="Settings"]', { state: 'detached', timeout: 10000 });
+    await page.waitForSelector('aside a[title="Settings"]', { state: 'hidden', timeout: 10000 });
 
     // The register is never folded away: it is what the app is for.
     await page.waitForSelector('aside a[title="Register"]', { timeout: 10000 });
@@ -1335,6 +1338,57 @@ try {
     await page.waitForSelector('text=Current sale', { timeout: 15000 });
     await goTo('Products');
     await page.waitForSelector('aside a[title="Inventory"]', { timeout: 10000 });
+  });
+
+  await step('a shelf can be named from inside the product going onto it', async () => {
+    /*
+     * A shop typing in its first delivery of something it has never stocked
+     * meets the product and the shelf at once. Sending it to another screen to
+     * make the shelf meant abandoning the half-typed product and starting over.
+     */
+    await page.click('button:has-text("New product")');
+    const dialog = page.locator('[role=dialog]');
+    await dialog.getByLabel('Name').first().waitFor({ timeout: 10000 });
+
+    /*
+     * By id, not by label: once the box for the new name is open there are two
+     * fields whose label contains "Category", and the ambiguity is the test's
+     * problem rather than the shop's.
+     */
+    const category = dialog.locator('#category_id');
+    await category.selectOption('__new__');
+    // A name no earlier step has taken — "Chargers" already exists by now, and
+    // a shelf that exists is refused, which is the app being right.
+    await dialog.getByLabel('New category').fill('Wall brackets');
+    await dialog.getByRole('button', { name: 'Add', exact: true }).click();
+
+    /*
+     * Waited for by what it did rather than by the toast that says so: a toast
+     * is gone in four seconds and is not the thing being tested. Polled rather
+     * than waited on as an element, because an <option> inside a closed select
+     * is never "visible" and a wait for one can only ever time out.
+     */
+    let chosen = '';
+    for (let i = 0; i < 40 && (chosen === '' || chosen === '__new__'); i += 1) {
+      await page.waitForTimeout(250);
+      chosen = await category.inputValue();
+    }
+    if (chosen === '' || chosen === '__new__') {
+      throw new Error(`the new category was not selected (value ${chosen})`);
+    }
+
+    // And it is in the list, not merely selected.
+    const names = await category.locator('option').allTextContents();
+    if (!names.some((n) => n.includes('Wall brackets'))) {
+      throw new Error(`the new shelf is not in the list: ${names.join(', ')}`);
+    }
+
+    // And it saves onto the product like any other.
+    await dialog.getByLabel('Name').first().fill('Wall charger 20W');
+    await dialog.getByLabel('SKU').fill('CHG-20W');
+    await dialog.getByLabel('Price', { exact: true }).fill('8.00');
+    await dialog.getByRole('button', { name: /^(Create product|Save changes)$/ }).click();
+    await page.waitForSelector('td:has-text("Wall charger 20W")', { timeout: 15000 });
   });
 
   /*
@@ -3155,7 +3209,15 @@ try {
    * is due — not on a general-purpose voucher form they may not even have.
    */
   await step('the operator settles the day up with the agency', async () => {
-    const row = page.locator('tr', { hasText: 'Whish' }).first();
+    /*
+     * The agency's row, not a transfer's. This screen carries two tables and
+     * both mention Whish, so the row is found by the thing only the agency's
+     * has on it — the button this step is about to press.
+     */
+    const row = page
+      .locator('tr', { hasText: 'Whish' })
+      .filter({ has: page.getByRole('button', { name: 'Settle up' }) })
+      .first();
     await row.waitFor({ timeout: 15000 });
     // $50 was paid out on their behalf and nothing held against it.
     if (!/we collect this from them/i.test(await row.innerText())) {

@@ -316,21 +316,33 @@ export default function Layout() {
                         )}
                         <ChevronRight
                           size={14}
-                          className={cx('shrink-0 transition-transform', open && 'rotate-90')}
+                          className={cx(
+                            'shrink-0 transition-transform duration-200 ease-out',
+                            open && 'rotate-90',
+                          )}
                           aria-hidden="true"
                         />
                       </button>
                     ) : (
                       <div className="mx-3 mb-1 border-t border-slate-700/70" aria-hidden="true" />
                     )}
-                    {open &&
-                      group.items.map((item) => (
-                        /* Stepped in under their heading, so the shape of the
-                           menu says which rows belong to what. */
-                        <div key={item.to} className={cx(foldable && 'ps-3')}>
-                          <NavItem {...item} expanded={expanded} dense={foldable} />
-                        </div>
-                      ))}
+                    {/*
+                      * Kept in the page rather than unmounted, so it can fold
+                      * shut as well as open — see `.fold` in index.css for how
+                      * a height nobody knows in advance is animated, and why
+                      * the rows go invisible rather than merely transparent.
+                      */}
+                    <div className={cx('fold', open && 'fold-open')}>
+                      <div className="flex flex-col gap-1">
+                        {group.items.map((item) => (
+                          /* Stepped in under their heading, so the shape of the
+                             menu says which rows belong to what. */
+                          <div key={item.to} className={cx(foldable && 'ps-3')}>
+                            <NavItem {...item} expanded={expanded} dense={foldable} />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
                   </nav>
                 );
               })}
