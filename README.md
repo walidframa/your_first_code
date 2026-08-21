@@ -743,6 +743,26 @@ sold. And a sale the server later refuses (a customer over their limit, a drawer
 that was closed) is **kept and shown in red**, not dropped: the money was taken
 at the counter, and somebody has to decide what to do about it.
 
+**How an update reaches a till that never closes.** The same cache that keeps
+the app alive is what stops a new one arriving, so the worker is stamped with a
+hash of the build it belongs to — change the app and the stamp changes, which
+is what makes a browser fetch it at all. `sw.js` and `index.html` are the only
+two files served `no-cache`, because they are the two that name the current
+version; everything else carries a hash in its filename and is pinned for a
+year.
+
+A new version **installs and then waits**. It does not take over: a till may
+have a sale half rung up, and swapping the app out from under it because a
+deploy happened three seconds ago is not a trade worth making. Instead a green
+bar appears — *"A new version of the app is ready"* — with **Reload now** and
+**Later**. The person at the counter picks the moment, which is usually between
+customers. Dismissing it is for this session only; it comes back on the next
+load while the new version is still waiting.
+
+A till left open all day also asks the server once an hour whether there is
+anything new, because otherwise the only moment it would ever look is a reload
+nobody has a reason to do.
+
 The honest limit: if the browser and the server are the same machine, a power
 cut takes both and none of this helps. It earns its keep when the till is a
 separate device, and when the server process restarts under a browser that stays

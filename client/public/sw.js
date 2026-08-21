@@ -22,7 +22,19 @@
  * where it can be counted and shown — not silently swallowed here, where
  * nobody would ever see it.
  */
-const VERSION = 'v1';
+/*
+ * Which build this is.
+ *
+ * Stamped at build time by the plugin in vite.config.js — a hash of the
+ * filenames this build emitted, so it changes exactly when the app does.
+ *
+ * It used to be the literal string 'v1', for the whole life of the app. That
+ * is the bug this file existed to cause: the shell cache is keyed on it, so a
+ * deploy left every till serving the assets it had already cached, and the only
+ * cure was somebody with developer tools clearing the site by hand. A shop was
+ * four deploys behind and had no way of knowing.
+ */
+const VERSION = '__BUILD__';
 const SHELL = `pos-shell-${VERSION}`;
 const READS = `pos-reads-${VERSION}`;
 
@@ -60,9 +72,24 @@ self.addEventListener('install', (event) => {
       // Straight from the server rather than from the browser's own cache: an
       // index.html that names last week's assets is worse than none.
       await cache.add(new Request('/index.html', { cache: 'reload' }));
-      await self.skipWaiting();
     })(),
   );
+});
+
+/*
+ * Waiting, on purpose.
+ *
+ * `skipWaiting()` used to be called here, which hands the running page a new
+ * set of assets under its feet. On a till that page may have a sale half rung
+ * up, and swapping the app out from under it is not a thing to do because a
+ * deploy happened three seconds ago.
+ *
+ * So a new worker installs and then waits. The app notices it waiting, offers
+ * a reload, and the person at the counter decides when — usually between
+ * customers, which is exactly when it should be.
+ */
+self.addEventListener('message', (event) => {
+  if (event.data?.type === 'skip-waiting') self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {

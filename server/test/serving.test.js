@@ -52,6 +52,9 @@ before(async () => {
   writeFileSync(path.join(dist, 'index.html'), PAGE);
   writeFileSync(path.join(dist, 'assets', 'index-abc123.js'), 'console.log(1)\n');
   writeFileSync(path.join(dist, 'manifest.webmanifest'), '{"name":"Front Desk POS"}');
+  // The worker, which sits at the root because that is the only place it can
+  // control the whole app from — and therefore cannot carry a hash.
+  writeFileSync(path.join(dist, 'sw.js'), "const VERSION = 'abc123def456'\n");
 
   child = spawn(process.execPath, ['src/index.js'], {
     cwd: serverRoot,
@@ -101,6 +104,23 @@ test('the page itself is never cached', async () => {
   // permanently stuck on the last deploy, asking for files that are gone.
   const res = await fetch(`${BASE}/`);
   assert.match(res.headers.get('cache-control') || '', /no-cache/);
+});
+
+test('the service worker is never cached either', async () => {
+  /*
+   * The other file that names the current version. It cannot have a hash in
+   * its filename — a worker has to sit at the root to control the app — so
+   * served `immutable` it would be the one file a browser never re-fetches.
+   * Which is exactly the file that has to change for an update to reach a
+   * till at all: a shop ran four deploys behind on that.
+   */
+  const res = await fetch(`${BASE}/sw.js`);
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get('cache-control') || '', /no-cache/);
+  assert.ok(
+    !/immutable/.test(res.headers.get('cache-control') || ''),
+    'the worker is pinned in the browser for a year',
+  );
 });
 
 test('the manifest is served, so the till can be installed', async () => {
