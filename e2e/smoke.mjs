@@ -209,8 +209,25 @@ async function confirmDialog(title, action) {
  */
 async function goTo(title) {
   const link = `a[title="${title}"]:visible`;
-  if (!(await page.locator(link).count())) await openMenu();
-  await page.locator(link).first().click();
+  /*
+   * The rail is an accordion: the group holding a screen may be folded, and
+   * arriving somewhere opens that screen's group and folds the one you were
+   * just looking at. So a link counted a moment ago can be gone by the time it
+   * is clicked — which is a race in this helper, not in the app.
+   *
+   * Try the rail, and fall back to the menu page, which lists every screen
+   * whatever the rail happens to be showing.
+   */
+  if (await page.locator(link).count()) {
+    try {
+      await page.locator(link).first().click({ timeout: 4000 });
+      return;
+    } catch {
+      // It folded away under us; go the long way round.
+    }
+  }
+  await openMenu();
+  await page.locator(link).first().click({ timeout: 15000 });
 }
 
 
@@ -1288,14 +1305,36 @@ try {
     await page.waitForSelector('button:has-text("New product")', { timeout: 15000 });
   });
 
-  await step('the back-office groups fold away', async () => {
-    // Stock holds the page we are on, so it stays open however it is set —
-    // otherwise arriving somewhere hides it from the menu.
+  await step('the rail opens one group at a time', async () => {
+    /*
+     * An accordion, so the menu always fits the screen. With every group open
+     * at once the rail was twice the height of a laptop window and the last of
+     * it was below the fold — which is the thing a menu must never be.
+     */
+    // We are on Products, so Stock is the group holding the page and is open.
+    await page.waitForSelector('aside a[title="Inventory"]', { timeout: 10000 });
+
+    // Opening another closes it, rather than adding to a growing list.
+    await page.click('aside button:has-text("Setup")');
+    await page.waitForSelector('aside a[title="Settings"]', { timeout: 10000 });
+    await page.waitForSelector('aside a[title="Inventory"]', { state: 'detached', timeout: 10000 });
+
+    // And pressing the open one closes it, leaving none open.
     await page.click('aside button:has-text("Setup")');
     await page.waitForSelector('aside a[title="Settings"]', { state: 'detached', timeout: 10000 });
 
-    await page.click('aside button:has-text("Setup")');
-    await page.waitForSelector('aside a[title="Settings"]', { timeout: 10000 });
+    // The register is never folded away: it is what the app is for.
+    await page.waitForSelector('aside a[title="Register"]', { timeout: 10000 });
+
+    /*
+     * Arriving at a screen opens the group holding it, or the page you are
+     * looking at would be missing from the menu — which with one group open is
+     * the usual case rather than the odd one.
+     */
+    await page.click('aside a[title="Register"]');
+    await page.waitForSelector('text=Current sale', { timeout: 15000 });
+    await goTo('Products');
+    await page.waitForSelector('aside a[title="Inventory"]', { timeout: 10000 });
   });
 
   /*
@@ -3870,12 +3909,18 @@ try {
   });
 
   await step('and it comes back for whoever wants it, and stays back', async () => {
+    /*
+     * Anchored on a group heading rather than on a screen inside one: the rail
+     * opens one group at a time now, so which screens are showing depends on
+     * where you have been. The headings are always there, which is the
+     * question this step is actually asking — is the rail up.
+     */
     await page.click('button[aria-label="Show the menu"]');
-    await page.waitForSelector('nav a:has-text("Dashboard")', { timeout: 10000 });
+    await page.waitForSelector('aside button:has-text("Money")', { timeout: 10000 });
 
     // Remembered, or it is a setting that has to be set once per sale.
     await page.reload({ waitUntil: 'networkidle' });
-    await page.waitForSelector('nav a:has-text("Dashboard")', { timeout: 10000 });
+    await page.waitForSelector('aside button:has-text("Money")', { timeout: 10000 });
 
     await page.click('button[aria-label="Hide the menu"]');
     await page.waitForSelector('a[href="/menu"]:visible', { timeout: 10000 });
@@ -4026,7 +4071,8 @@ try {
   await step('back to a desk, and the shop is a shop again', async () => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto(`${BASE_URL}/admin/products`, { waitUntil: 'networkidle' });
-    await page.waitForSelector('nav a:has-text("Dashboard")', { timeout: 15000 });
+    // A group heading: always in the rail, whichever group happens to be open.
+    await page.waitForSelector('aside button:has-text("Money")', { timeout: 15000 });
   });
 
   console.log('\nA visit from the vendor');

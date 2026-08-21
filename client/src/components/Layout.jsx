@@ -11,6 +11,7 @@ import {
   Menu as MenuIcon,
   PanelLeftClose,
   PanelLeftOpen,
+  Receipt,
   Store,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
@@ -27,7 +28,7 @@ import { useLicence } from '../context/LicenceContext';
  * is not a label, it is a smudge, and it was costing the rail a third of its
  * height to say nothing.
  */
-function NavItem({ to, label, icon: Icon, end, expanded }) {
+function NavItem({ to, label, icon: Icon, end, expanded, dense = false }) {
   /*
    * Translated here rather than at each of the thirty call sites: the label is
    * the English word in the nav table above, which is also the key.
@@ -45,7 +46,7 @@ function NavItem({ to, label, icon: Icon, end, expanded }) {
       className={({ isActive }) =>
         cx(
           'group relative flex items-center rounded-lg transition',
-          expanded ? 'h-10 gap-3 px-3' : 'h-11 justify-center px-0',
+          expanded ? cx(dense ? 'h-9' : 'h-10', 'gap-3 px-3') : 'h-11 justify-center px-0',
           isActive
             ? 'bg-brand-600 text-white shadow-sm'
             : 'text-slate-400 hover:bg-slate-800 hover:text-white',
@@ -121,45 +122,69 @@ export default function Layout() {
   const { hasModule } = useLicence();
   const isAdmin = user?.role === 'admin';
   const counter = allowedItems(COUNTER_NAV, can, hasModule, isAdmin);
-  const groups = allowedGroups(can, hasModule, isAdmin);
+  const admin = allowedGroups(can, hasModule, isAdmin);
 
   /*
-   * Which back-office groups are folded away.
+   * The whole rail is one accordion, counter included.
    *
-   * A shop lives on three or four screens and reaches the rest once a month, so
-   * the rail is mostly a wall of things nobody is looking for. Folded by
-   * heading rather than by item, remembered per person, and stored as a list of
-   * what is *closed* so a group added later arrives open.
+   * With the counter's six rows pinned above it, the groups underneath were
+   * left about two hundred and fifty pixels on a laptop — so opening Stock
+   * showed three of its seven screens and the rest were below the fold. The
+   * fold was the thing being complained about, and moving it down by a row was
+   * never going to fix it.
+   *
+   * Register stays out of the fold, because it is the screen this app is for
+   * and burying it behind a chevron to tidy a menu would be a poor trade. The
+   * rest of the counter's work — the agency desk, the voucher book, today's
+   * sales, a customer's logins — is reached a few times a day rather than
+   * constantly, and folds like everything else.
    */
-  const [collapsed, setCollapsed] = useState(() => {
-    try {
-      return new Set(JSON.parse(localStorage.getItem('pos_nav_collapsed') || '[]'));
-    } catch {
-      return new Set();
-    }
-  });
-
-  useEffect(() => {
-    localStorage.setItem('pos_nav_collapsed', JSON.stringify([...collapsed]));
-  }, [collapsed]);
-
-  const toggleGroup = (heading) =>
-    setCollapsed((prev) => {
-      const next = new Set(prev);
-      if (next.has(heading)) next.delete(heading);
-      else next.add(heading);
-      return next;
-    });
+  const [pinned, ...counterRest] = counter;
+  const groups =
+    counterRest.length > 0
+      ? [{ heading: 'Counter', icon: Receipt, items: counterRest }, ...admin]
+      : admin;
 
   /*
-   * The group holding the screen you are on is never folded, whatever the
-   * preference says. Otherwise arriving somewhere hides the page you are
-   * looking at from the menu, and the way back is a guess.
+   * Which back-office group is open — one of them, at most.
+   *
+   * An accordion rather than four independent folds, and the reason is the
+   * complaint that produced it: with all four open the rail is twenty-odd rows
+   * and the last of them is below the fold, so reaching Settings means
+   * scrolling a menu. One open at a time and the rail always fits the screen,
+   * whatever the shop has bought.
+   *
+   * It costs a click when you genuinely want two groups at once, which is rare:
+   * a shop lives on three or four screens and visits the rest once a month.
    */
   const holdsCurrentPage = (group) =>
     group.items.some((item) =>
       item.end ? pathname === item.to : pathname === item.to || pathname.startsWith(`${item.to}/`),
     );
+
+  const [openGroup, setOpenGroup] = useState(
+    () => localStorage.getItem('pos_nav_group') || null,
+  );
+
+  useEffect(() => {
+    if (openGroup) localStorage.setItem('pos_nav_group', openGroup);
+    else localStorage.removeItem('pos_nav_group');
+  }, [openGroup]);
+
+  /*
+   * Arriving at a screen opens the group holding it.
+   *
+   * Otherwise the page you are looking at is missing from the menu and the way
+   * back is a guess — and with only one group open, that would be the usual
+   * case rather than the odd one.
+   */
+  const current = groups.find(holdsCurrentPage)?.heading ?? null;
+  useEffect(() => {
+    if (current) setOpenGroup(current);
+  }, [current]);
+
+  const toggleGroup = (heading) =>
+    setOpenGroup((prev) => (prev === heading ? null : heading));
 
   const initials = user.name
     .split(/\s+/)
@@ -205,9 +230,35 @@ export default function Layout() {
             <Store size={19} />
           </div>
           {expanded && (
-            <span className="truncate text-sm font-semibold text-white">Front Desk</span>
+            <span className="min-w-0 flex-1 truncate text-sm font-semibold text-white">
+              Front Desk
+            </span>
+          )}
+          {/* Wide, it sits beside the name and costs no row. Narrow there is no
+              room next to the logo, so it keeps its own line below — it is the
+              only way back to the wide rail and must not be hard to find. */}
+          {expanded && (
+            <button
+              onClick={() => setExpanded(false)}
+              aria-label={t('Collapse the menu')}
+              title={t('Collapse the menu')}
+              className="shrink-0 rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-800 hover:text-white"
+            >
+              <PanelLeftClose size={17} />
+            </button>
           )}
         </div>
+
+        {!expanded && (
+          <button
+            onClick={() => setExpanded(true)}
+            aria-label={t('Expand the menu')}
+            title={t('Expand the menu')}
+            className="mb-2 flex h-9 w-full items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-800 hover:text-white"
+          >
+            <PanelLeftOpen size={17} />
+          </button>
+        )}
 
         <BranchSwitcher expanded={expanded} />
 
@@ -216,48 +267,69 @@ export default function Layout() {
               the rail rather than buried in the back office, because on a touch
               screen it is the menu somebody actually uses. */}
           <NavItem to="/menu" label="Menu" icon={LayoutGrid} expanded={expanded} />
-          {counter.map((item) => (
-            <NavItem key={item.to} {...item} expanded={expanded} />
-          ))}
+          {pinned && <NavItem {...pinned} expanded={expanded} />}
         </nav>
 
         {/* The rail scrolls rather than squashing: a shorter screen must not
             cut the last group off with no way to reach it. */}
         {groups.length > 0 && (
           <div className="relative mt-2 min-h-0 w-full flex-1">
-            <div className="h-full space-y-3 overflow-y-auto pt-2 pb-5">
+            <div className="h-full space-y-1 overflow-y-auto pb-3">
               {groups.map((group) => {
                 /*
-                 * Only foldable in the wide rail. Narrow, the heading is
-                 * already a rule rather than a word, and a toggle with no name
-                 * on it is a button nobody presses twice.
+                 * Only foldable in the wide rail. Narrow, there is no room for
+                 * a name beside the chevron, and a toggle with no name on it is
+                 * a button nobody presses twice — so the icons are simply all
+                 * shown, separated by a rule.
                  */
                 const foldable = expanded;
-                const open = !foldable || !collapsed.has(group.heading) || holdsCurrentPage(group);
+                const open = !foldable || openGroup === group.heading;
+                const GroupIcon = group.icon;
+                const holdsPage = holdsCurrentPage(group);
 
                 return (
                   <nav key={group.heading} className="flex w-full flex-col gap-1">
                     {foldable ? (
+                      /*
+                       * A row, the same shape as the rows under it, rather than
+                       * a grey caption. A heading that looks like a label is a
+                       * label; a heading that looks like the things around it,
+                       * with a chevron on the end, is a thing you press — and
+                       * this one has to be pressed to reach half the app.
+                       */
                       <button
                         onClick={() => toggleGroup(group.heading)}
                         aria-expanded={open}
-                        className="flex w-full items-center gap-1 rounded px-3 pb-1 text-[10px] font-semibold tracking-wider text-slate-500 uppercase transition hover:text-slate-300"
+                        className={cx(
+                          'group flex h-10 w-full items-center gap-3 rounded-lg px-3 text-sm font-medium transition',
+                          open
+                            ? 'bg-slate-800 text-white'
+                            : 'text-slate-400 hover:bg-slate-800 hover:text-white',
+                        )}
                       >
+                        {GroupIcon && <GroupIcon size={18} className="shrink-0" aria-hidden="true" />}
+                        <span className="min-w-0 flex-1 truncate text-left">{t(group.heading)}</span>
+                        {/* Closed over the page you are on: a dot, so a folded
+                            group still says "it is in here". */}
+                        {!open && holdsPage && (
+                          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-brand-500" aria-hidden="true" />
+                        )}
                         <ChevronRight
-                          size={11}
+                          size={14}
                           className={cx('shrink-0 transition-transform', open && 'rotate-90')}
                           aria-hidden="true"
                         />
-                        {t(group.heading)}
                       </button>
                     ) : (
-                      /* Narrow, a heading would be four unreadable letters, so the
-                         grouping is carried by a rule instead. */
                       <div className="mx-3 mb-1 border-t border-slate-700/70" aria-hidden="true" />
                     )}
                     {open &&
                       group.items.map((item) => (
-                        <NavItem key={item.to} {...item} expanded={expanded} />
+                        /* Stepped in under their heading, so the shape of the
+                           menu says which rows belong to what. */
+                        <div key={item.to} className={cx(foldable && 'ps-3')}>
+                          <NavItem {...item} expanded={expanded} dense={foldable} />
+                        </div>
                       ))}
                   </nav>
                 );
@@ -269,18 +341,6 @@ export default function Layout() {
         )}
 
         <div className="mt-auto w-full shrink-0 space-y-1 pt-3">
-          <button
-            onClick={() => setExpanded((v) => !v)}
-            aria-label={expanded ? t('Collapse the menu') : t('Expand the menu')}
-            title={expanded ? t('Collapse the menu') : t('Expand the menu')}
-            className={cx(
-              'flex h-9 w-full items-center rounded-lg text-slate-400 transition hover:bg-slate-800 hover:text-white',
-              expanded ? 'gap-3 px-3' : 'justify-center',
-            )}
-          >
-            {expanded ? <PanelLeftClose size={17} /> : <PanelLeftOpen size={17} />}
-            {expanded && <span className="text-sm font-medium">{t('Collapse')}</span>}
-          </button>
 
           {/* Only here, because this is the only screen the rail gets out of the
               way of — and the only place it needs a handle to do it from. */}

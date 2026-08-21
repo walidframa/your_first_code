@@ -2,6 +2,7 @@ import {
   ArrowLeftRight,
   BarChart3,
   Banknote,
+  CircleDollarSign,
   CalendarClock,
   Boxes,
   Building2,
@@ -19,6 +20,8 @@ import {
   ScrollText,
   Settings as SettingsIcon,
   ShoppingBag,
+  ShoppingCart,
+  SlidersHorizontal,
   Smartphone,
   Store,
   Tag,
@@ -27,6 +30,7 @@ import {
   Upload,
   Users,
   Wallet,
+  Warehouse,
   Wrench,
 } from 'lucide-react';
 
@@ -68,10 +72,16 @@ export const COUNTER_NAV = [
  * Grouped, because twenty icons in a column is a list to be searched rather
  * than a menu to be read. Selling first: it is what the shop does, and what
  * anyone opening the back office is most often here for.
+ *
+ * Each group carries an icon of its own, because in the rail a heading is a row
+ * like any other — the same height, the same shape, with a chevron on the end
+ * saying it opens. A four-letter caption in grey is not something anybody
+ * presses; a row that looks like the rows above it is.
  */
 export const ADMIN_NAV = [
   {
     heading: 'Selling',
+    icon: ShoppingCart,
     items: [
       { to: '/admin/documents', label: 'Documents', icon: FileText, permission: 'documents' , module: 'documents' },
       { to: '/admin/orders', label: 'Sales', icon: ScrollText, permission: 'reports' },
@@ -90,6 +100,7 @@ export const ADMIN_NAV = [
   },
   {
     heading: 'Money',
+    icon: CircleDollarSign,
     items: [
       { to: '/admin', label: 'Dashboard', icon: BarChart3, end: true, permission: 'reports' },
       { to: '/admin/accounts', label: 'Accounts', icon: Landmark, permission: 'cashbox' },
@@ -100,6 +111,7 @@ export const ADMIN_NAV = [
   },
   {
     heading: 'Stock',
+    icon: Warehouse,
     items: [
       { to: '/admin/products', label: 'Products', icon: Package, permission: 'catalogue' },
       { to: '/admin/inventory', label: 'Inventory', icon: Boxes, permission: 'inventory' },
@@ -112,6 +124,7 @@ export const ADMIN_NAV = [
   },
   {
     heading: 'Setup',
+    icon: SlidersHorizontal,
     items: [
       { to: '/admin/shopify', label: 'Shopify', icon: ShoppingBag, permission: 'imports' , module: 'shopify' },
       { to: '/admin/branches', label: 'Branches', icon: Store, permission: 'branches' , module: 'branches' },
