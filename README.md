@@ -2374,6 +2374,19 @@ and an undelivered webhook is simply never delivered.
 Both intervals are configurable with `SHOPIFY_PUSH_INTERVAL_MS` and
 `SHOPIFY_PULL_INTERVAL_MS`.
 
+## `/deploy` — the deploy, as a skill
+
+`.claude/skills/deploy/SKILL.md` is a project skill: type `/deploy` in Claude
+Code, in this checkout, and it knows this installation — which units to restart,
+how to prove the shop is actually serving the new build afterwards, and the one
+failure that has cost the most time here (a stray process holding port 4100, so
+the unit reports active while nothing is listening).
+
+Because it lives in the repo rather than in one person's `~/.claude`, it comes
+with the clone: it works from a laptop and from a cloud session, and it is
+reviewed like any other file. Run from anywhere but the server it prints the
+commands to paste rather than pretending it can reach the droplet.
+
 ## Project layout
 
 ```
