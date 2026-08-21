@@ -59,7 +59,7 @@ export default function UnitPicker({ product, onPick, onClose }) {
               autoFocus
               placeholder="Scan or type part of the IMEI"
               aria-label="Find a handset by IMEI"
-              className="w-full rounded-xl py-2 pr-3 pl-9 font-mono text-sm ring-1 ring-slate-300 focus:ring-2 focus:ring-brand-500 focus:outline-none"
+              className="w-full rounded-xl py-2 pr-3 pl-9 font-mono text-sm ring-1 ring-edge focus:ring-2 focus:ring-brand-500 focus:outline-none"
             />
           </div>
 

@@ -39,7 +39,7 @@ export default function HistoryFilter({
             onChange={(e) => setTerm(e.target.value)}
             placeholder={placeholder}
             aria-label={label}
-            className="h-10 w-full rounded-lg bg-white pr-3 pl-9 text-sm ring-1 ring-slate-300 transition focus:ring-2 focus:ring-brand-600 focus:outline-none"
+            className="h-10 w-full rounded-lg bg-white pr-3 pl-9 text-sm ring-1 ring-edge transition focus:ring-2 focus:ring-brand-600 focus:outline-none"
           />
         </div>
 
@@ -53,7 +53,7 @@ export default function HistoryFilter({
               className={
                 preset === id
                   ? 'rounded-lg bg-brand-600 px-3 py-2 text-sm font-medium text-white'
-                  : 'rounded-lg bg-white px-3 py-2 text-sm font-medium text-slate-600 ring-1 ring-slate-300 transition hover:bg-slate-50'
+                  : 'rounded-lg bg-white px-3 py-2 text-sm font-medium text-slate-600 ring-1 ring-edge transition hover:bg-slate-50'
               }
             >
               {name}

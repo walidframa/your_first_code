@@ -112,7 +112,7 @@ export default function CustomerField({ value, onChange, autoFocus = false, requ
           required={required}
           autoComplete="off"
           placeholder="Search the customer list, or type a name"
-          className="h-10 w-full rounded-lg bg-white px-3 pr-9 text-sm ring-1 ring-slate-300 transition focus:ring-2 focus:ring-brand-600 focus:outline-none"
+          className="h-10 w-full rounded-lg bg-white px-3 pr-9 text-sm ring-1 ring-edge transition focus:ring-2 focus:ring-brand-600 focus:outline-none"
         />
         {chosen && (
           <button

@@ -152,7 +152,7 @@ export default function CompanySettings() {
               value={form.company_address}
               onChange={set('company_address')}
               placeholder={'e.g. Main Street, Achrafieh\nBeirut, Lebanon'}
-              className="w-full rounded-lg bg-white px-3 py-2 text-sm ring-1 ring-slate-300 transition focus:ring-2 focus:ring-brand-600 focus:outline-none"
+              className="w-full rounded-lg bg-white px-3 py-2 text-sm ring-1 ring-edge transition focus:ring-2 focus:ring-brand-600 focus:outline-none"
             />
             <p className="mt-1 text-xs text-slate-500">Line breaks are kept, so it prints as you type it.</p>
           </div>
@@ -167,7 +167,7 @@ export default function CompanySettings() {
                   className="h-16 w-24 shrink-0 rounded-lg object-contain ring-1 ring-slate-200"
                 />
               ) : (
-                <div className="flex h-16 w-24 shrink-0 items-center justify-center rounded-lg text-xs text-slate-400 ring-1 ring-dashed ring-slate-300">
+                <div className="flex h-16 w-24 shrink-0 items-center justify-center rounded-lg text-xs text-slate-400 ring-1 ring-dashed ring-edge">
                   none
                 </div>
               )}
@@ -223,7 +223,7 @@ export default function CompanySettings() {
               value={form.receipt_footer}
               onChange={set('receipt_footer')}
               placeholder="e.g. Exchange within 7 days with this receipt. Thank you!"
-              className="w-full rounded-lg bg-white px-3 py-2 text-sm ring-1 ring-slate-300 transition focus:ring-2 focus:ring-brand-600 focus:outline-none"
+              className="w-full rounded-lg bg-white px-3 py-2 text-sm ring-1 ring-edge transition focus:ring-2 focus:ring-brand-600 focus:outline-none"
             />
           </div>
 

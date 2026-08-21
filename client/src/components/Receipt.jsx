@@ -115,7 +115,7 @@ export default function Receipt({ receipt, onClose, reprint = false }) {
               'rounded-lg px-2.5 py-1 text-xs font-medium ring-1 transition',
               paper === id
                 ? 'bg-brand-600 text-white ring-brand-600'
-                : 'bg-white text-slate-600 ring-slate-300 hover:bg-slate-50',
+                : 'bg-white text-slate-600 ring-edge hover:bg-slate-50',
             )}
           >
             {label}

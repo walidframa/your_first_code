@@ -443,7 +443,7 @@ function CardPicture({ value, onChange }) {
             className="h-20 w-32 rounded-lg object-cover ring-1 ring-slate-200"
           />
         ) : (
-          <div className="flex h-20 w-32 items-center justify-center rounded-lg text-xs text-slate-400 ring-1 ring-dashed ring-slate-300">
+          <div className="flex h-20 w-32 items-center justify-center rounded-lg text-xs text-slate-400 ring-1 ring-dashed ring-edge">
             No picture
           </div>
         )}

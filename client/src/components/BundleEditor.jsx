@@ -183,7 +183,7 @@ export default function BundleEditor({ productId, value, onChange, products }) {
                     value={c.quantity}
                     onChange={(e) => setQuantity(c.productId, e.target.value)}
                     aria-label={`How many ${nameOf(c.productId, c.name)} in one`}
-                    className="tnum h-8 w-14 rounded-lg bg-white px-2 text-center text-sm ring-1 ring-slate-300 transition focus:ring-2 focus:ring-brand-600 focus:outline-none"
+                    className="tnum h-8 w-14 rounded-lg bg-white px-2 text-center text-sm ring-1 ring-edge transition focus:ring-2 focus:ring-brand-600 focus:outline-none"
                   />
                   <button
                     type="button"

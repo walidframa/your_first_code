@@ -324,14 +324,14 @@ export default function PaymentSheet({
           <div className="grid grid-cols-2 gap-3">
             <button
               onClick={() => setMethod('card')}
-              className="flex flex-col items-center gap-2 rounded-xl bg-white px-4 py-8 ring-1 ring-slate-300 transition hover:bg-slate-50 hover:ring-brand-400"
+              className="flex flex-col items-center gap-2 rounded-xl bg-white px-4 py-8 ring-1 ring-edge transition hover:bg-slate-50 hover:ring-brand-400"
             >
               <CreditCard size={26} className="text-slate-700" />
               <span className="font-medium text-slate-800">{t('Card')}</span>
             </button>
             <button
               onClick={() => setMethod('cash')}
-              className="flex flex-col items-center gap-2 rounded-xl bg-white px-4 py-8 ring-1 ring-slate-300 transition hover:bg-slate-50 hover:ring-brand-400"
+              className="flex flex-col items-center gap-2 rounded-xl bg-white px-4 py-8 ring-1 ring-edge transition hover:bg-slate-50 hover:ring-brand-400"
             >
               <Banknote size={26} className="text-slate-700" />
               <span className="font-medium text-slate-800">{t('Cash')}</span>
@@ -348,7 +348,7 @@ export default function PaymentSheet({
           <button
             onClick={() => setMethod('split')}
             disabled={submitting}
-            className="flex w-full items-center justify-center gap-2 rounded-xl bg-white px-4 py-4 text-slate-800 ring-1 ring-slate-300 transition hover:bg-slate-50 hover:ring-brand-400"
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-white px-4 py-4 text-slate-800 ring-1 ring-edge transition hover:bg-slate-50 hover:ring-brand-400"
           >
             <Layers size={20} />
             <span className="font-medium">{t('Split it — cash, card or on account')}</span>
@@ -361,7 +361,7 @@ export default function PaymentSheet({
             className={cx(
               'flex w-full items-center justify-center gap-2 rounded-xl px-4 py-4 ring-1 transition',
               customer
-                ? 'bg-white text-slate-800 ring-slate-300 hover:bg-slate-50 hover:ring-brand-400'
+                ? 'bg-white text-slate-800 ring-edge hover:bg-slate-50 hover:ring-brand-400'
                 : 'cursor-not-allowed bg-slate-50 text-slate-400 ring-slate-200',
             )}
           >

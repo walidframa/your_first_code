@@ -36,6 +36,45 @@
   --color-ink-muted: #79808f;
 
   /*
+   * The two greys the whole app reads its small print in — measured, not
+   * chosen by eye.
+   *
+   * `slate-400` is this app's muted text: the SKU under a product name, the
+   * time under a sale, the credit limit under a customer, the hint under a
+   * field. Three hundred places. Tailwind's own #94a3b8 scores **2.56:1** on
+   * white — it fails the 4.5:1 minimum for body text and it fails even the
+   * 3:1 floor allowed for large text. It is not "subtle", it is unreadable,
+   * and the shop reading it is doing so on a counter tablet in daylight with
+   * the text size already turned up because the owner is fifty.
+   *
+   * #637185 is the lightest grey on the same blue-slate line that clears
+   * 4.5:1 on all three surfaces this text ever lands on: the white of a card
+   * (4.96), the slate-50 of a panel (4.74), and the slate-100 of the page
+   * itself (4.53).
+   *
+   * Redefined as a token rather than replaced across the app: every utility
+   * compiles to `var(--color-…)`, so one line here moves all three hundred
+   * places and they cannot drift out of step later.
+   */
+  --color-slate-400: #637185;
+
+  /*
+   * The edge of something you type into.
+   *
+   * Its own token rather than another use of `slate-300`, which this app also
+   * uses for light text on the dark rail — one value cannot be both the faint
+   * edge of a white field and readable text on navy, and trying made the
+   * rail's headings dimmer to fix a problem the rail did not have.
+   *
+   * WCAG 1.4.11 asks 3:1 of a control's boundary, for the ordinary reason that
+   * a field whose edge you cannot find is a field you cannot aim at — which on
+   * a counter tablet in daylight is most of them. Tailwind's slate-300 is
+   * 1.48:1 against white. This clears 3:1 on every surface a field sits on
+   * (3.29 on a card, 3.15 on a panel, 3.01 on the page).
+   */
+  --color-edge: #828f9f;
+
+  /*
    * The shop's own type.
    *
    * System fonts only, and deliberately: this runs on a counter machine in
@@ -376,6 +415,58 @@ body {
   overflow: hidden;
 }
 
+/*
+ * Where the keyboard is.
+ *
+ * `Button` draws its own focus ring, but a good half of what this app makes
+ * clickable is a bare <button> or <input> with its own classes — a product tile
+ * on the register, a row in a picker, a stepper beside a quantity. Those had
+ * whatever the browser gave them, which against a coloured tile is often
+ * nothing you can see.
+ *
+ * So the ring is declared once, here, for everything. `:focus-visible` rather
+ * than `:focus`, so a finger on a touchscreen does not leave rings all over the
+ * counter — it appears for the keyboard and stays out of the way otherwise.
+ *
+ * The rule is deliberately loose about specificity: anything that sets its own
+ * `outline` still wins, and `Button`'s brand-coloured ring is one of those.
+ */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-brand-600);
+  outline-offset: 2px;
+  border-radius: inherit;
+}
+
+/*
+ * A focused control must not end up behind the bar above it.
+ *
+ * Every scrolling region in this app sits under a sticky header, so tabbing
+ * down a long form scrolls the field you have just reached to the very top —
+ * which is exactly where the header is. WCAG 2.2 calls this Focus Not Obscured;
+ * a shopkeeper calls it "it jumped and now I cannot see what I am typing".
+ */
+* {
+  scroll-padding-top: 4.5rem;
+  scroll-padding-bottom: 1rem;
+}
+
+/*
+ * Fingers are not pointers.
+ *
+ * The steppers beside a quantity are 24px — the WCAG minimum, and well under
+ * the 44px a touchscreen wants. The tempting fix is an invisible 44px box over
+ * each one; on a till that is a bad trade, because two of those overlap and the
+ * wrong quantity gets booked. So the controls themselves grow, only where the
+ * pointer is coarse, and the layout around them has room because the growth is
+ * bounded.
+ */
+@media (pointer: coarse) {
+  .touch-target {
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+  }
+}
+
 @media print {
   .no-print {
     display: none !important;
@@ -678,6 +769,9 @@ body {
   --color-slate-50: #1a2130; /* panels, zebra rows, hover */
   --color-slate-200: #222b3b; /* chips, pressed states */
   --color-slate-300: #2c374a; /* the commonest border */
+  /* The field edge, lifted to clear 3:1 here too — which on dark means
+     lighter rather than darker (3.64 on a card, 3.46 on a panel). */
+  --color-edge: #6c7584;
 
   /*
    * Text, lightest first. Deliberately not pure white at the top — #fff on a
@@ -688,7 +782,13 @@ body {
   --color-slate-700: #c4ccd9;
   --color-slate-600: #a7b1c2;
   --color-slate-500: #8b95a8;
-  --color-slate-400: #6f7a8d;
+  /*
+   * The same measurement, on the dark surfaces. #6f7a8d was 3.91:1 on a card —
+   * large-text only, and this is the smallest text in the app. #8992a3 clears
+   * 4.5:1 on every dark surface (5.41 on a card, 5.14 on a panel, 5.94 on the
+   * page, 4.54 on a chip).
+   */
+  --color-slate-400: #8992a3;
 
   /*
    * The accent tints. On light these are pale washes carrying dark text; here

@@ -165,7 +165,7 @@ export default function BuyHandsetModal({
                   value={modelTerm}
                   onChange={(e) => setModelTerm(e.target.value)}
                   placeholder="Search the model, or type a new one…"
-                  className="h-10 w-full rounded-xl bg-white pr-3 pl-9 text-sm ring-1 ring-slate-300 focus:ring-2 focus:ring-brand-600 focus:outline-none"
+                  className="h-10 w-full rounded-xl bg-white pr-3 pl-9 text-sm ring-1 ring-edge focus:ring-2 focus:ring-brand-600 focus:outline-none"
                 />
               </div>
 

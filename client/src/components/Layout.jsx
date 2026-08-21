@@ -172,6 +172,20 @@ export default function Layout() {
     <TabsProvider>
     <div className="flex h-full bg-slate-100">
       {/*
+       * Past the menu, in one key.
+       *
+       * The rail is a dozen links, and every one of them stands between a
+       * keyboard and the till. Off-screen until it is focused, which is the
+       * first thing Tab reaches — so it costs a mouse nothing and saves a
+       * keyboard the whole rail, on every screen.
+       */}
+      <a
+        href="#main"
+        className="sr-only focus:not-sr-only focus:absolute focus:top-3 focus:left-3 focus:z-50 focus:rounded-lg focus:bg-brand-600 focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-white"
+      >
+        Skip to the page
+      </a>
+      {/*
        * The rail is a desktop thing.
        *
        * Below `lg` it is not narrowed, it is gone: two hundred pixels of menu on
@@ -318,7 +332,7 @@ export default function Layout() {
       </aside>
       )}
 
-      <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
+      <main id="main" className="flex min-w-0 flex-1 flex-col overflow-hidden">
         {/*
          * The bar that stands in for the rail.
          *

@@ -77,7 +77,7 @@ export default function HeldAccounts() {
             autoFocus
             placeholder="IMEI, account name, customer's name or phone number…"
             aria-label="Find a held account"
-            className="h-12 w-full rounded-xl bg-white pr-4 pl-11 text-sm ring-1 ring-slate-300 focus:ring-2 focus:ring-brand-500 focus:outline-none"
+            className="h-12 w-full rounded-xl bg-white pr-4 pl-11 text-sm ring-1 ring-edge focus:ring-2 focus:ring-brand-500 focus:outline-none"
           />
         </div>
 

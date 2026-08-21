@@ -297,7 +297,7 @@ export default function Import() {
                       onChange={(e) => changeMapping(field.key, e.target.value)}
                       className={cx(
                         'h-9 min-w-0 flex-1 rounded-lg bg-white px-2 text-sm ring-1 transition focus:outline-none focus:ring-2 focus:ring-brand-600',
-                        field.required && !mapping[field.key] ? 'ring-red-400' : 'ring-slate-300',
+                        field.required && !mapping[field.key] ? 'ring-red-400' : 'ring-edge',
                       )}
                     >
                       <option value="">— not mapped —</option>

@@ -477,7 +477,7 @@ function DocumentForm({ existing, onClose, onSaved }) {
               id="doc-party"
               value={partyId}
               onChange={(e) => setPartyId(e.target.value)}
-              className="h-10 w-full rounded-lg bg-white px-3 text-sm ring-1 ring-slate-300 focus:ring-2 focus:ring-brand-600 focus:outline-none"
+              className="h-10 w-full rounded-lg bg-white px-3 text-sm ring-1 ring-edge focus:ring-2 focus:ring-brand-600 focus:outline-none"
             >
               <option value="">Choose a {partyType}…</option>
               {parties.map((p) => (
@@ -574,7 +574,7 @@ function DocumentForm({ existing, onClose, onSaved }) {
                                       rows={Math.max(2, Math.min(Number(l.quantity) || 1, 6))}
                                       aria-label={`IMEIs for ${l.product.name}`}
                                       placeholder={'351234567890123, 351234567890124'}
-                                      className="w-full rounded-lg bg-white px-2 py-1.5 font-mono text-xs ring-1 ring-slate-300 focus:ring-2 focus:ring-brand-600 focus:outline-none"
+                                      className="w-full rounded-lg bg-white px-2 py-1.5 font-mono text-xs ring-1 ring-edge focus:ring-2 focus:ring-brand-600 focus:outline-none"
                                     />
                                     <p
                                       className={cx(
@@ -597,7 +597,7 @@ function DocumentForm({ existing, onClose, onSaved }) {
                               onChange={(e) => updateLine(l.key, { name: e.target.value })}
                               placeholder="Description (e.g. delivery)"
                               aria-label="Line description"
-                              className="h-8 w-full rounded-lg bg-white px-2 text-sm ring-1 ring-slate-300 focus:ring-2 focus:ring-brand-600 focus:outline-none"
+                              className="h-8 w-full rounded-lg bg-white px-2 text-sm ring-1 ring-edge focus:ring-2 focus:ring-brand-600 focus:outline-none"
                             />
                           )}
                         </td>
@@ -609,7 +609,7 @@ function DocumentForm({ existing, onClose, onSaved }) {
                             value={l.quantity}
                             onChange={(e) => updateLine(l.key, { quantity: e.target.value })}
                             aria-label={`Quantity for ${l.product?.name || l.name || 'line'}`}
-                            className="h-8 w-full rounded-lg bg-white px-2 text-right text-sm ring-1 ring-slate-300 focus:ring-2 focus:ring-brand-600 focus:outline-none"
+                            className="h-8 w-full rounded-lg bg-white px-2 text-right text-sm ring-1 ring-edge focus:ring-2 focus:ring-brand-600 focus:outline-none"
                           />
                         </td>
                         <td className="px-2 py-2">
@@ -624,7 +624,7 @@ function DocumentForm({ existing, onClose, onSaved }) {
                               'h-8 w-full rounded-lg bg-white px-2 text-right text-sm ring-1 focus:ring-2 focus:outline-none',
                               l.dearer !== null
                                 ? 'ring-red-400 focus:ring-red-500'
-                                : 'ring-slate-300 focus:ring-brand-600',
+                                : 'ring-edge focus:ring-brand-600',
                             )}
                           />
 
@@ -813,7 +813,7 @@ function DocumentForm({ existing, onClose, onSaved }) {
                         'rounded-lg px-3 py-2 text-left ring-1 transition',
                         settleAs === key
                           ? 'bg-brand-600 text-white ring-brand-600'
-                          : 'bg-white text-slate-600 ring-slate-200 hover:ring-slate-300',
+                          : 'bg-white text-slate-600 ring-slate-200 hover:ring-edge',
                       )}
                     >
                       <span className="block text-sm font-medium">{label}</span>
@@ -1410,7 +1410,7 @@ export default function Documents() {
               'flex flex-col items-start gap-1.5 rounded-xl px-4 py-3 text-left ring-1 transition',
               filter === 'all'
                 ? 'bg-slate-900 text-white ring-slate-900'
-                : 'bg-white text-slate-600 ring-slate-200 hover:ring-slate-300',
+                : 'bg-white text-slate-600 ring-slate-200 hover:ring-edge',
             )}
           >
             <LayoutGrid size={18} />
@@ -1429,7 +1429,7 @@ export default function Documents() {
                 onClick={() => setFilter(key)}
                 className={cx(
                   'flex flex-col items-start gap-1.5 rounded-xl px-4 py-3 text-left ring-1 transition',
-                  selected ? m.active : `bg-white ring-slate-200 hover:ring-slate-300 ${m.tint.split(' ')[1]}`,
+                  selected ? m.active : `bg-white ring-slate-200 hover:ring-edge ${m.tint.split(' ')[1]}`,
                 )}
               >
                 <Icon size={18} />

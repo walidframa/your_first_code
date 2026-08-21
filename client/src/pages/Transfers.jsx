@@ -662,7 +662,7 @@ export default function Transfers() {
                     onChange={(e) => setSearch(e.target.value)}
                     placeholder="Reference, name or phone…"
                     aria-label="Find a transfer"
-                    className="h-10 w-full rounded-lg bg-white pr-3 pl-9 text-sm ring-1 ring-slate-300 focus:ring-2 focus:ring-brand-600 focus:outline-none"
+                    className="h-10 w-full rounded-lg bg-white pr-3 pl-9 text-sm ring-1 ring-edge focus:ring-2 focus:ring-brand-600 focus:outline-none"
                   />
                 </div>
                 <div className="w-36 shrink-0">
@@ -680,7 +680,7 @@ export default function Transfers() {
                   </Select>
                 </div>
                 {/* Useful on a counter two people share a login-free shift on. */}
-                <label className="flex shrink-0 items-center gap-2 rounded-lg bg-white px-3 py-2 text-sm text-slate-600 ring-1 ring-slate-300">
+                <label className="flex shrink-0 items-center gap-2 rounded-lg bg-white px-3 py-2 text-sm text-slate-600 ring-1 ring-edge">
                   <input
                     type="checkbox"
                     checked={mine}

@@ -154,7 +154,7 @@ function IntakeModal({ onClose, onSaved }) {
             onChange={set('fault')}
             rows={2}
             required
-            className="w-full rounded-xl px-3 py-2 text-sm ring-1 ring-slate-300 focus:ring-2 focus:ring-brand-500 focus:outline-none"
+            className="w-full rounded-xl px-3 py-2 text-sm ring-1 ring-edge focus:ring-2 focus:ring-brand-500 focus:outline-none"
           />
         </div>
 
@@ -168,7 +168,7 @@ function IntakeModal({ onClose, onSaved }) {
             onChange={set('conditionNote')}
             rows={2}
             placeholder="Scratches, cracked back, missing SIM tray…"
-            className="w-full rounded-xl px-3 py-2 text-sm ring-1 ring-slate-300 focus:ring-2 focus:ring-brand-500 focus:outline-none"
+            className="w-full rounded-xl px-3 py-2 text-sm ring-1 ring-edge focus:ring-2 focus:ring-brand-500 focus:outline-none"
           />
           <p className="mt-1 text-xs text-slate-500">
             Written down in front of the customer, and printed on their ticket. This is the paragraph
