@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { buzzGood } from '../lib/native';
+import { isNative } from '../lib/server';
 import { ScanLine, X } from 'lucide-react';
 import { Button, Modal } from './ui';
 import { decodeImage } from '../lib/barcodeRead';
@@ -143,6 +145,14 @@ export default function BarcodeScanner({ onCancel, onScanned }) {
 
             clearInterval(timerRef.current);
             timerRef.current = null;
+            /*
+             * A scan that read, felt rather than only seen.
+             *
+             * The one moment in this app where a phone can do what a real
+             * scanner's beep does — tell somebody the code went in while they
+             * are still looking at the shelf rather than at the screen.
+             */
+            buzzGood();
             setFound(value);
             // Long enough to read the number, short enough not to be a wait.
             setTimeout(() => onScanned(value), 350);
@@ -151,9 +161,19 @@ export default function BarcodeScanner({ onCancel, onScanned }) {
           }
         }, 200);
       } catch (err) {
+        /*
+         * The same failure, told two different ways.
+         *
+         * "Allow it for this site" is advice about a browser, and inside the
+         * installed app there is no site and no address bar to find the setting
+         * on — sending somebody there is sending them nowhere. In the app the
+         * permission lives in the phone's own Settings, under the app's name.
+         */
         const reason =
           err?.name === 'NotAllowedError'
-            ? 'This browser is blocking the camera. Allow it for this site and try again.'
+            ? isNative()
+              ? 'Front Desk does not have permission to use the camera. Turn it on in the phone’s Settings, under Front Desk.'
+              : 'This browser is blocking the camera. Allow it for this site and try again.'
             : err?.name === 'NotFoundError'
               ? 'No camera on this machine — type the number instead.'
               : err?.name === 'NotReadableError'

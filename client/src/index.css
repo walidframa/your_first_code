@@ -1059,3 +1059,131 @@ body {
 :root[data-theme='dark'] .bg-red-800 {
   background-color: #9c3232;
 }
+
+/* ------------------------------------------------- the app on a phone */
+
+/*
+ * The differences between a web page in a box and something that feels like it
+ * belongs on the phone. Every rule here fixes a specific tell.
+ */
+
+/*
+ * The notch and the home indicator.
+ *
+ * A phone's screen is not a rectangle any more. Without this the app's own
+ * header slides under the camera cutout and its bottom row sits beneath the
+ * bar iOS draws for the home gesture — the two things that most immediately
+ * say "this is a website".
+ *
+ * On the top it is padding on the shell rather than on each screen, so a page
+ * added later cannot forget it.
+ */
+.app-shell {
+  padding-top: env(safe-area-inset-top);
+}
+
+/*
+ * Only in the app. In a browser the chrome already accounts for the cutout,
+ * and adding it again leaves a bar of dead space under the address bar.
+ */
+body:not(.native) .app-shell {
+  padding-top: 0;
+}
+
+/*
+ * The blue flash on every tap.
+ *
+ * WebKit and Chrome draw a translucent highlight over anything tappable. On a
+ * page it reads as a link being pressed; in an app it reads as a rendering
+ * fault, because no native control does it. The app's own `active:` states say
+ * the same thing deliberately.
+ */
+body.native {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/*
+ * Text that cannot be selected by accident.
+ *
+ * A long press on a native button does nothing; on a web page it selects the
+ * label and raises a copy/paste bubble. At a counter that happens whenever
+ * somebody rests a thumb while deciding — and the bubble covers the very
+ * control they were about to press.
+ *
+ * Inputs are exempt, obviously: a phone number somebody needs to copy out of a
+ * customer record still has to be copyable.
+ */
+body.native {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+body.native input,
+body.native textarea,
+body.native [contenteditable],
+body.native .selectable {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/*
+ * The rubber-band bounce at the end of a list.
+ *
+ * Inside the app the whole page bouncing reveals the WebView's background
+ * behind it, which is a white flash under a dark header. Scrolling regions
+ * inside the page keep their own momentum; it is only the document that is
+ * pinned.
+ */
+body.native {
+  overscroll-behavior-y: none;
+}
+
+/*
+ * Momentum where a finger expects it. Any pane the app scrolls internally
+ * should carry on moving after the finger lifts, the way every native list
+ * does.
+ */
+.native-scroll {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
+/*
+ * A sheet that comes up from the bottom.
+ *
+ * The phone equivalent of this app's centred dialog. A dialog in the middle of
+ * a phone screen is a desktop object shrunk down: it puts its buttons where a
+ * thumb cannot reach and leaves the keyboard to cover whichever half it likes.
+ * A sheet is anchored to the bottom, so its actions are always the closest
+ * thing to the hand.
+ */
+@keyframes sheet-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+.animate-sheet-up {
+  animation: sheet-up 220ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-sheet-up {
+    animation: none;
+  }
+}
+
+/*
+ * A control big enough to hit while walking.
+ *
+ * 44px is the floor Apple and Google both publish, and it is a floor rather
+ * than a target: this is a shop, and the person pressing it is often holding
+ * something else in the other hand.
+ */
+.tap {
+  min-height: 44px;
+  min-width: 44px;
+}

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ChevronUp,
   HandCoins,
   Minus,
   Receipt as ReceiptIcon,
@@ -30,6 +31,7 @@ import SendCredit from '../components/SendCredit';
 import SittingSales from '../components/SittingSales';
 import { ringUp } from '../lib/sales';
 import { useNarrow } from '../lib/screen';
+import { buzzBad, buzzGood, keepAwake, letSleep, tap } from '../lib/native';
 import { useOffline } from '../context/OfflineContext';
 import { useLicence } from '../context/LicenceContext';
 import { useT } from '../context/LanguageContext';
@@ -157,6 +159,29 @@ export default function Checkout() {
   const t = useT();
   // Keyboard advice belongs on things with keyboards.
   const narrow = useNarrow();
+  /*
+   * Below `lg` the cart is a sheet rather than a column — the same breakpoint
+   * the two-pane layout switches at, so what the classes do and what this
+   * decides cannot disagree about where the line is.
+   */
+  const compact = useNarrow('(max-width: 1023px)');
+  const [cartOpen, setCartOpen] = useState(false);
+
+  /*
+   * The screen stays on while the register is open, and only while it is.
+   *
+   * A phone locks after thirty seconds. On a counter that means the till goes
+   * black between one customer and the next and every sale begins with a
+   * passcode — which is the single thing that would stop a shop using a phone
+   * as a till at all.
+   *
+   * Released on the way out, because holding a shop's phone awake all day
+   * while somebody reads a report is their battery, not ours.
+   */
+  useEffect(() => {
+    keepAwake();
+    return () => letSleep();
+  }, []);
 
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
@@ -817,7 +842,11 @@ export default function Checkout() {
         toast('Saved on this till — it will be sent when the server is back', 'warning', 7000);
       }
       setReceipt({ order: res.order, items: res.items, tenders: res.tenders });
+      /* The sale went through. On a phone held low at a counter this is often
+         the only confirmation somebody actually notices. */
+      buzzGood();
       setSalesMade((n) => n + 1);
+      setCartOpen(false);
       setCart([]);
       setDiscountValue(0);
       setCustomer(null);
@@ -832,6 +861,9 @@ export default function Checkout() {
       if (!res.waiting) await loadData();
       else await refreshQueue();
     } catch (err) {
+      /* Distinctly different in the hand from the success above, so a refusal
+         is not mistaken for a sale by somebody who did not look up. */
+      buzzBad();
       toast(err.response?.data?.error || 'Checkout failed', 'error');
     } finally {
       setSubmitting(false);
@@ -897,9 +929,9 @@ export default function Checkout() {
      * which is the order somebody works in anyway: find the thing, then take
      * the money.
      */
-    <div className="flex h-full flex-col overflow-y-auto lg:flex-row lg:overflow-hidden">
+    <div className="flex h-full flex-col overflow-hidden lg:flex-row">
       {/* Catalog */}
-      <section className="flex min-w-0 flex-1 flex-col bg-slate-100 lg:min-h-0">
+      <section className="flex min-h-0 min-w-0 flex-1 flex-col bg-slate-100">
         <div className="border-b border-slate-200 bg-white px-5 py-3">
           {/*
             * The camera sits beside the box rather than inside it: a scan is a
@@ -1076,7 +1108,59 @@ export default function Checkout() {
         * every rule written against the window is wrong in a way that only
         * shows up on one size of monitor.
         */}
-      <aside className="@container no-print flex w-full shrink-0 flex-col border-slate-200 bg-white lg:w-1/3 lg:border-s">
+      {/*
+        * The cart, and where it lives on a phone.
+        *
+        * Wide, it is the column down the right and always in view. Narrow, it
+        * used to be the *bottom half of one long scrolling page* — which meant
+        * that taking the money required scrolling past the entire shelf. On a
+        * shop with nine hundred products, with a customer waiting, that is not
+        * a layout, it is an obstacle.
+        *
+        * So on a phone it is a sheet: out of the way while you are picking
+        * things, and one thumb-press from the bar that is always showing what
+        * the sale comes to. That press is at the bottom of the screen, which is
+        * where a thumb already is.
+        */}
+      {compact && cartOpen && (
+        <button
+          type="button"
+          aria-label={t('Close the cart')}
+          onClick={() => setCartOpen(false)}
+          className="no-print fixed inset-0 z-40 bg-slate-900/40 lg:hidden"
+        />
+      )}
+
+      <aside
+        className={cx(
+          '@container no-print flex flex-col bg-white',
+          /* The column, on anything with room for one. */
+          'lg:static lg:h-auto lg:w-1/3 lg:max-h-none lg:shrink-0 lg:translate-y-0',
+          'lg:rounded-none lg:border-s lg:border-slate-200 lg:shadow-none',
+          /*
+           * The sheet, below that. Held at 88% so the top of the shelf stays
+           * visible behind it — a sheet that covers everything is a page, and a
+           * page needs a back button to leave.
+           */
+          'fixed inset-x-0 bottom-0 z-50 max-h-[88dvh] w-full rounded-t-2xl shadow-2xl',
+          'transition-transform duration-200 ease-out',
+          cartOpen ? 'translate-y-0' : 'translate-y-full',
+        )}
+        /* The home indicator, kept out from under the pay button. */
+        style={compact ? { paddingBottom: 'env(safe-area-inset-bottom)' } : undefined}
+        aria-hidden={compact && !cartOpen ? 'true' : undefined}
+      >
+        {/* The handle, which is how a phone says "this pulls down". */}
+        {compact && (
+          <button
+            type="button"
+            onClick={() => setCartOpen(false)}
+            aria-label={t('Close the cart')}
+            className="mx-auto flex h-7 w-full shrink-0 items-center justify-center lg:hidden"
+          >
+            <span className="h-1.5 w-10 rounded-full bg-slate-300" />
+          </button>
+        )}
         <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-slate-100 px-4 py-3 @xl:px-5 @xl:py-3.5">
           <div className="flex min-w-0 flex-wrap items-baseline gap-x-2.5 gap-y-1">
             <div className="min-w-0">
@@ -1593,7 +1677,15 @@ export default function Checkout() {
               ? `${t('Pay the customer')} ${money(owedToCustomer)}`
               : `${t('Charge')} ${money(due)}`}
           </Button>
-          <p className="mt-2 text-center text-[11px] text-slate-400">
+          {/*
+            * Not on a phone.
+            *
+            * Two lines of function keys on a device that has none is advice
+            * that is wrong, and it is taking the room directly under the one
+            * button that matters — which on a sheet is the room a thumb needs
+            * to press it without covering the total.
+            */}
+          <p className="mt-2 hidden text-center text-[11px] text-slate-400 lg:block">
             <kbd className="rounded bg-slate-100 px-1 font-sans">F2</kbd> charge ·{' '}
             <kbd className="rounded bg-slate-100 px-1 font-sans">F3</kbd> hold ·{' '}
             <kbd className="rounded bg-slate-100 px-1 font-sans">F4</kbd> held sales ·{' '}
@@ -1604,6 +1696,42 @@ export default function Checkout() {
           </p>
         </div>
       </aside>
+
+      {/*
+        * What the sale comes to, always in sight, always under a thumb.
+        *
+        * The one thing a person at a counter needs to know without doing
+        * anything, and the way into the cart. It sits directly above the tab
+        * bar rather than at the very bottom, because the tab bar is fixed too
+        * and two fixed things at the same offset are one covering the other.
+        *
+        * Only when there is something to total, and only while the sheet is
+        * shut — a bar restating what is already on screen is a bar in the way.
+        */}
+      {compact && cart.length > 0 && !cartOpen && (
+        <button
+          type="button"
+          onClick={() => {
+            tap();
+            setCartOpen(true);
+          }}
+          className={cx(
+            'no-print fixed inset-x-0 z-30 flex items-center gap-3 lg:hidden',
+            'bottom-[calc(56px+env(safe-area-inset-bottom))]',
+            'border-t border-brand-700/20 bg-brand-600 px-4 py-3 text-white shadow-lg',
+            'active:bg-brand-700',
+          )}
+        >
+          <span className="flex h-8 min-w-8 items-center justify-center rounded-full bg-white/20 px-2 text-sm font-semibold">
+            {itemCount}
+          </span>
+          <span className="text-sm font-medium">
+            {itemCount === 1 ? t('item') : t('items')}
+          </span>
+          <span className="tnum ms-auto text-lg font-semibold">{money(total)}</span>
+          <ChevronUp size={20} aria-hidden="true" />
+        </button>
+      )}
 
       <PaymentSheet
         open={paymentOpen}

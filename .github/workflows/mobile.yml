@@ -1,0 +1,130 @@
+# Building the phone app.
+#
+# Separate from `ci.yml` because it answers a different question and costs more
+# to ask: CI proves the code is sound on every push, this produces something a
+# person can install on a phone. Running the Android toolchain on every commit
+# would add minutes to a check that is meant to be quick.
+#
+# The APK it produces is a **debug** build. It installs on any Android phone
+# without a Play Store account and without signing keys, which is exactly what
+# is wanted for the shop's own phones and for handing a copy to somebody to try.
+# Releasing to the Play Store is a signed `.aab`, and that needs a keystore that
+# must never be in a repository — see docs/mobile.md.
+name: Phone app
+
+on:
+  # By hand, when there is a build worth handing to somebody.
+  workflow_dispatch:
+  # And on a tag, so a released version always has an installable file next to
+  # it rather than one somebody has to remember to build.
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    name: Android APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            client/package-lock.json
+
+      # The Android SDK is already on this runner; the JDK is what has to be
+      # named, because Gradle picks whichever it finds and Capacitor 7 wants 21.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          npm ci --prefix client
+
+      - name: Build the web app
+        run: npm --prefix client run build
+        env:
+          NODE_ENV: production
+
+      # Copies the built pages into the Android project and updates the plugin
+      # list. Without it the app ships whatever `dist` was committed, which is
+      # nothing.
+      - name: Sync Capacitor
+        run: npm --prefix client exec cap sync android
+
+      - name: Build the APK
+        working-directory: client/android
+        run: |
+          chmod +x ./gradlew
+          ./gradlew --no-daemon assembleDebug
+
+      - name: Name it after the commit
+        id: name
+        run: echo "sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: front-desk-${{ steps.name.outputs.sha }}-apk
+          path: client/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30
+
+  # Not a build — a Mac runner and a paid Apple account are needed for that, and
+  # neither belongs in a workflow that runs on a push. This checks the iOS
+  # project is still coherent, so it cannot quietly rot between the times
+  # somebody opens Xcode.
+  ios-project:
+    name: iOS project is intact
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            client/package-lock.json
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          npm ci --prefix client
+
+      - name: Build the web app
+        run: npm --prefix client run build
+        env:
+          NODE_ENV: production
+
+      - name: Sync Capacitor
+        run: npm --prefix client exec cap sync ios
+
+      - name: The pieces Xcode will need are all here
+        run: |
+          set -e
+          for f in \
+            client/ios/App/App.xcodeproj/project.pbxproj \
+            client/ios/App/App/Info.plist \
+            client/ios/App/App/public/index.html \
+            client/ios/App/Podfile
+          do
+            test -f "$f" || { echo "::error::missing $f"; exit 1; }
+          done
+          grep -q NSCameraUsageDescription client/ios/App/App/Info.plist \
+            || { echo "::error::Info.plist has no camera usage string — the App Store rejects that"; exit 1; }
+          echo "iOS project is intact."

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  The splash. Deliberately almost nothing: it is on screen for about half a
+  second, and its only job is to be the same colour as the app's own header so
+  the launch does not flash white on the way in.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="2732" height="2732" viewBox="0 0 2732 2732">
+  <rect width="2732" height="2732" fill="#0f172a"/>
+  <g transform="translate(1366 1366) scale(1.6) translate(-512 -512)">
+    <g fill="none" stroke="#10b981" stroke-width="46" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M320 260 H280 A20 20 0 0 0 260 280 V320"/>
+      <path d="M704 260 H744 A20 20 0 0 1 764 280 V320"/>
+      <path d="M320 764 H280 A20 20 0 0 1 260 744 V704"/>
+      <path d="M704 764 H744 A20 20 0 0 0 764 744 V704"/>
+      <path d="M300 512 H724"/>
+    </g>
+  </g>
+</svg>

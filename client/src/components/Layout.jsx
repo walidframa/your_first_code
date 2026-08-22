@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router';
 import TabBar from './TabBar';
+import PhoneTabs from './PhoneTabs';
 import { TabsProvider } from '../context/TabsContext';
 import OfflineBar from './OfflineBar';
 import { useT } from '../context/LanguageContext';
@@ -195,7 +196,7 @@ export default function Layout() {
 
   return (
     <TabsProvider>
-    <div className="flex h-full bg-slate-100">
+    <div className="app-shell flex h-full bg-slate-100">
       {/*
        * Past the menu, in one key.
        *
@@ -533,7 +534,20 @@ export default function Layout() {
          * menu, and a row of other places to be is the last thing wanted above
          * a cart with a customer waiting on the other side of it.
          */}
-        {!onRegister && <TabBar />}
+        {/*
+         * The strip of open tabs is a desktop object.
+         *
+         * It is a row of pages each with a close cross, which on a phone is a
+         * 12-pixel target next to a 12-pixel target, above a screen that has a
+         * back gesture and a tab bar already. Hidden below `lg` rather than
+         * shrunk: a phone does not keep six pages open at once, and pretending
+         * it does costs a bar of height on every screen.
+         */}
+        {!onRegister && (
+          <div className="hidden lg:block">
+            <TabBar />
+          </div>
+        )}
         {/*
          * Keyed on the path so the arrival plays again on each navigation —
          * without the key React reuses the node and the animation runs once,
@@ -542,7 +556,23 @@ export default function Layout() {
         <div key={pathname} className="animate-page-in min-h-0 flex-1 overflow-hidden">
           <Outlet />
         </div>
+
+        {/*
+         * The room the tab bar takes, given back to the page.
+         *
+         * The bar is `fixed`, so it is outside the flow and would otherwise sit
+         * on top of whatever the page ends with — which on this app is a Save
+         * button often enough to matter. A spacer of exactly its height, plus
+         * the home indicator underneath it, means the last row of every screen
+         * can still be reached.
+         */}
+        <div
+          aria-hidden="true"
+          className="no-print h-[calc(56px+env(safe-area-inset-bottom))] shrink-0 lg:hidden"
+        />
       </main>
+
+      <PhoneTabs />
     </div>
     </TabsProvider>
   );

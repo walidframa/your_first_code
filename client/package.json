@@ -8,9 +8,24 @@
     "build": "vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "test": "node --test \"test/**/*.test.js\""
+    "test": "node --test \"test/**/*.test.js\"",
+    "app:sync": "npm run build && cap sync",
+    "app:android": "npm run app:sync && cap open android",
+    "app:ios": "npm run app:sync && cap open ios",
+    "app:apk": "npm run app:sync && cd android && ./gradlew assembleDebug",
+    "app:aab": "npm run app:sync && cd android && ./gradlew bundleRelease",
+    "app:icons": "node scripts/icons.mjs"
   },
   "dependencies": {
+    "@capacitor/app": "^7.1.2",
+    "@capacitor/core": "^7.6.8",
+    "@capacitor/haptics": "^7.0.5",
+    "@capacitor/keyboard": "^7.0.6",
+    "@capacitor/network": "^7.0.4",
+    "@capacitor/preferences": "^7.0.4",
+    "@capacitor/share": "^7.0.4",
+    "@capacitor/splash-screen": "^7.0.5",
+    "@capacitor/status-bar": "^7.0.6",
     "axios": "^1.18.1",
     "jsbarcode": "^3.12.3",
     "lucide-react": "^1.27.0",
@@ -19,6 +34,10 @@
     "react-router": "^8.3.0"
   },
   "devDependencies": {
+    "@capacitor/android": "^7.6.8",
+    "@capacitor/assets": "^3.0.5",
+    "@capacitor/cli": "^7.6.8",
+    "@capacitor/ios": "^7.6.8",
     "@tailwindcss/vite": "^4.3.3",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
