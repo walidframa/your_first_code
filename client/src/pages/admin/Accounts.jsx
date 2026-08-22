@@ -379,7 +379,15 @@ export default function Accounts() {
                 const Icon = section.icon;
                 return (
                   <Card key={section.type}>
-                    <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-5 py-3">
+                    {/*
+                      * Stacked on a phone, side by side from `sm` up.
+                      *
+                      * The blurb and the button were fighting over 390 pixels:
+                      * "Money the shop physically has — a drawer, a desk float,
+                      * the safe" broke into three lines to squeeze past an Add
+                      * button that needed none of that room to itself.
+                      */}
+                    <div className="flex flex-col gap-2 border-b border-slate-100 px-5 py-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
                       <div className="flex items-start gap-3">
                         <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-600">
                           <Icon size={17} />
@@ -395,13 +403,18 @@ export default function Accounts() {
                       {/* Every other kind is added where it is worked with; a
                           till has no screen of its own, so it is added here. */}
                       {section.manageHere ? (
-                        <Button size="sm" variant="secondary" onClick={() => setNewTill(true)}>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          className="self-start"
+                          onClick={() => setNewTill(true)}
+                        >
                           <Plus size={15} /> Add
                         </Button>
                       ) : (
                         <Link
                           to={section.to}
-                          className="shrink-0 text-xs font-medium text-brand-700 hover:underline"
+                          className="shrink-0 self-start text-xs font-medium text-brand-700 hover:underline"
                         >
                           Manage
                         </Link>

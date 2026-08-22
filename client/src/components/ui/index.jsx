@@ -15,9 +15,27 @@ export function cx(...parts) {
   return parts.filter(Boolean).join(' ');
 }
 
+/**
+ * A figure in dollars, written the way this shop writes it.
+ *
+ * Pinned to `en-US` rather than the device's own locale, and that is a fix
+ * rather than a preference. `undefined` asks the device, and a phone set to
+ * almost anything other than American English renders USD as **US$** — so the
+ * same shop showed `$12.00` on the counter monitor and `US$12.00` on the phone
+ * in somebody's pocket, for the same money.
+ *
+ * Two things wrong with that. The shop writes `$`, on its receipts, its labels
+ * and its price tags, so `US$` is not what anybody there calls it. And it is
+ * three characters wider on every figure in the app, which on a 390-pixel
+ * screen is the difference between a row that fits and one that has to be
+ * dragged sideways.
+ *
+ * The number formatting — grouping, two decimals — is the same either way.
+ * Only the symbol is being held still.
+ */
 export function money(n) {
   const value = Number(n) || 0;
-  return value.toLocaleString(undefined, { style: 'currency', currency: 'USD' });
+  return value.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 }
 
 /* ---------------------------------------------------------------- Button */
