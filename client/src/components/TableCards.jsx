@@ -34,12 +34,51 @@ function label(root) {
      * two, and the one that names the individual columns is the lower.
      */
     const headRow = table.querySelector('thead tr:last-of-type');
-    if (!headRow) continue;
+    const heads = headRow ? [...headRow.children].map((th) => th.textContent.trim()) : [];
 
-    const heads = [...headRow.children].map((th) => th.textContent.trim());
-    if (heads.length === 0) continue;
+    /*
+     * A table with no header at all still has to stop being a table.
+     *
+     * The accounts screen has three of them — the tills, the wallets, the
+     * people — four columns each and no heading row, because on a desk the
+     * columns are self-evident. On a phone they are not self-evident, they are
+     * four things fighting over 390 pixels: "Main drawer" broke across two
+     * lines, "Register drawer" broke across two lines, and the balance was
+     * pushed off the edge.
+     *
+     * There are no headings to hand out, so the cells get none — but stacking
+     * them is worth doing on its own. `cards-plain` is the same card with the
+     * values left where they were written instead of pushed to the right,
+     * because a value with no label in front of it has nothing to be pushed
+     * away from.
+     */
+    /*
+     * Two columns are already a card row.
+     *
+     * A narrow table — "Notes ×3 | $150.00" on the cashbox report, a product's
+     * movements — is a list of label-and-value pairs written sideways, which is
+     * exactly the shape a card line has. Stacking it turns one line into two
+     * and makes a short document twice as long to read, for no width that was
+     * ever a problem. It fits at 390 pixels as it stands.
+     *
+     * Measured from the widest body row rather than the header, because that is
+     * what actually has to fit.
+     */
+    const widest = Math.max(
+      0,
+      ...[...table.querySelectorAll('tbody tr')].map((r) => r.children.length),
+    );
+    if (widest <= 2) {
+      table.classList.remove('cards', 'cards-plain');
+      continue;
+    }
 
     table.classList.add('cards');
+    if (heads.length === 0) {
+      table.classList.add('cards-plain');
+      continue;
+    }
+    table.classList.remove('cards-plain');
 
     for (const row of table.querySelectorAll('tbody tr')) {
       const cells = row.children;

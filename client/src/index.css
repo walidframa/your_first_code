@@ -1317,4 +1317,25 @@ body.native {
   table.cards {
     overflow: visible;
   }
+
+  /*
+   * A table that never had a header row.
+   *
+   * Its cells get no label, so there is nothing for the value to be pushed
+   * away from — right-aligning it would strand it against the edge of the card
+   * with empty space where the label would have been. Left, in a stack, is how
+   * it reads.
+   */
+  table.cards-plain td {
+    display: block;
+    justify-content: flex-start;
+    text-align: start !important;
+  }
+
+  /* Without labels the lines need their own separation, or the card is one
+     paragraph of unrelated facts. */
+  table.cards-plain td + td {
+    margin-top: 0.125rem;
+    color: var(--color-slate-500);
+  }
 }
