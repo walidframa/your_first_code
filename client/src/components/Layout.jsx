@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router';
 import TabBar from './TabBar';
 import PhoneTabs from './PhoneTabs';
+import TableCards from './TableCards';
 import { TabsProvider } from '../context/TabsContext';
 import OfflineBar from './OfflineBar';
 import { useT } from '../context/LanguageContext';
@@ -573,6 +574,9 @@ export default function Layout() {
       </main>
 
       <PhoneTabs />
+      {/* Copies each column's heading onto the cells under it, so the
+          stylesheet can turn a row into a card on a phone. Renders nothing. */}
+      <TableCards />
     </div>
     </TabsProvider>
   );

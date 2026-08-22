@@ -1187,3 +1187,134 @@ body.native {
   min-height: 44px;
   min-width: 44px;
 }
+
+/* ------------------------------------------------ tables, on a phone */
+
+/*
+ * A row becomes a card.
+ *
+ * Thirty tables in this app, some eleven columns wide, on a screen 390 pixels
+ * across. Left as tables the only two outcomes are a row squeezed past
+ * legibility or a sideways scroll — and sideways scroll means dragging the
+ * shelf right to see what a thing costs, then dragging back to remember which
+ * thing it was, with a customer waiting.
+ *
+ * So below `sm` the table stops being a table: each row is a card, each cell a
+ * line reading "label — value", with the label copied onto the cell by
+ * TableCards.jsx because CSS cannot reach across to a header row.
+ *
+ * `screen` and not `print`: a receipt or a label sheet is printed at paper
+ * width, and it is still a table there whatever the phone's screen is doing.
+ */
+@media screen and (max-width: 639px) {
+  table.cards,
+  table.cards tbody {
+    display: block;
+    width: 100%;
+  }
+
+  /* The header row's job is done — its words are on the cells now. */
+  table.cards thead {
+    display: none;
+  }
+
+  table.cards tr {
+    display: block;
+    margin-bottom: 0.625rem;
+    padding: 0.75rem 0.875rem;
+    border: 1px solid var(--color-slate-200);
+    border-radius: 0.75rem;
+    background-color: var(--color-white);
+  }
+
+  table.cards tr:last-child {
+    margin-bottom: 0;
+  }
+
+  /* Row striping and dividers are a table's way of separating rows. The cards
+     separate themselves, and the leftovers read as damage. */
+  table.cards tbody {
+    border: 0;
+  }
+
+  /*
+   * `flex-end` with the label pushed left by its own auto margin, rather than
+   * `space-between`.
+   *
+   * A cell holding two buttons has three flex items, and `space-between`
+   * spreads all three — so the edit and the delete ended up at opposite ends of
+   * the card with the label stranded between them. Pushing only the label left
+   * groups everything else together on the right, whether that is one figure or
+   * a row of icons.
+   */
+  table.cards td {
+    display: flex;
+    align-items: baseline;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    width: auto;
+    padding: 0.25rem 0 !important;
+    border: 0;
+    /* Right-aligned figures are for lining up a column that no longer exists. */
+    text-align: start !important;
+    white-space: normal;
+  }
+
+  table.cards td::before {
+    content: attr(data-label);
+    flex: none;
+    margin-inline-end: auto;
+    color: var(--color-slate-500);
+    font-size: 0.75rem;
+    font-weight: 500;
+  }
+
+  /* A column with no heading — the one holding the buttons — gets no label. */
+  table.cards td[data-label='']::before,
+  table.cards td:not([data-label])::before {
+    content: none;
+  }
+
+  /*
+   * The first cell is the name of the thing, so it is the card's heading:
+   * across the top on its own line, no label, since "Product — Wireless Mouse"
+   * says nothing that the card being in the products list did not.
+   */
+  table.cards td:first-child {
+    display: block;
+    margin-bottom: 0.375rem;
+    padding-bottom: 0.375rem !important;
+    border-bottom: 1px solid var(--color-slate-100);
+    font-weight: 600;
+    color: var(--color-slate-900);
+  }
+
+  table.cards td:first-child::before {
+    content: none;
+  }
+
+  /* An empty cell is a line saying a label and nothing else. */
+  table.cards td:empty {
+    display: none;
+  }
+
+  /*
+   * Rows the labeller skipped on purpose — an empty state, a totals line,
+   * anything using colspan. Position does not say which column those belong
+   * to, so they run the full width instead of pretending.
+   */
+  table.cards td[colspan] {
+    display: block;
+    text-align: center !important;
+  }
+
+  table.cards td[colspan]::before {
+    content: none;
+  }
+
+  /* The wrapper that existed to allow the sideways scroll has nothing left to
+     scroll, and a stray one clips the cards' rounded corners. */
+  table.cards {
+    overflow: visible;
+  }
+}
