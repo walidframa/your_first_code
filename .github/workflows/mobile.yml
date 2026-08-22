@@ -60,8 +60,15 @@ jobs:
       # Copies the built pages into the Android project and updates the plugin
       # list. Without it the app ships whatever `dist` was committed, which is
       # nothing.
+      #
+      # `working-directory` is load-bearing, not tidiness. `cap` reads
+      # capacitor.config.json from the directory it is *run in*, and
+      # `npm --prefix client exec` changes where npm looks for the package
+      # without changing the cwd — so from the repo root it looked for `./android`
+      # at the root, found nothing, and said the platform had never been added.
       - name: Sync Capacitor
-        run: npm --prefix client exec cap sync android
+        working-directory: client
+        run: npx cap sync android
 
       - name: Build the APK
         working-directory: client/android
@@ -111,8 +118,11 @@ jobs:
         env:
           NODE_ENV: production
 
+      # From `client`, for the same reason as the Android job above: `cap` reads
+      # its config from the working directory.
       - name: Sync Capacitor
-        run: npm --prefix client exec cap sync ios
+        working-directory: client
+        run: npx cap sync ios
 
       - name: The pieces Xcode will need are all here
         run: |
