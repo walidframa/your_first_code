@@ -4516,6 +4516,73 @@ try {
     }
   });
 
+  await step('a table on a phone is cards, with nothing to drag sideways', async () => {
+    /*
+     * The complaint this exists for, in the shop's own words: having to swipe
+     * left and right to see a whole row.
+     *
+     * A table needs width, and this app has thirty of them — the catalogue is
+     * eleven columns. On a 390-pixel screen the only two outcomes are a row
+     * squeezed past reading, or a sideways scroll, which means dragging right
+     * to see what a thing costs and back again to remember which thing it was.
+     *
+     * So below `sm` each row becomes a card and each cell a "label — value"
+     * line, with the heading copied onto the cell by TableCards.jsx. What is
+     * checked here is the thing that was actually wrong: that nothing on the
+     * screen scrolls sideways.
+     */
+    await page.setViewportSize({ width: 390, height: 844 });
+    try {
+      await page.goto(`${BASE_URL}/admin/products`, { waitUntil: 'networkidle' });
+      await page.waitForSelector('table.cards', { timeout: 20000 });
+
+      const measured = await page.evaluate(() => {
+        const table = document.querySelector('table.cards');
+        const row = table?.querySelector('tbody tr');
+        const cell = row?.querySelector('td:nth-child(2)');
+        const doc = document.documentElement;
+        return {
+          tableOverflow: table ? table.scrollWidth - table.clientWidth : -1,
+          docOverflow: doc.scrollWidth - doc.clientWidth,
+          // The heading has to have travelled onto the cell — without it the
+          // card is a column of numbers with nothing saying what they are.
+          label: cell?.getAttribute('data-label') ?? null,
+          // A card is taller than it is wide once it is stacked.
+          rowStacked: row ? row.getBoundingClientRect().height > 60 : false,
+        };
+      });
+
+      if (measured.tableOverflow > 0) {
+        throw new Error(`the table still scrolls ${measured.tableOverflow}px sideways`);
+      }
+      if (measured.docOverflow > 0) {
+        throw new Error(`the page still scrolls ${measured.docOverflow}px sideways`);
+      }
+      if (!measured.label) {
+        throw new Error('a cell has no column heading on it, so the card is unlabelled');
+      }
+      if (!measured.rowStacked) {
+        throw new Error('the row is still laid out as a row, not a card');
+      }
+    } finally {
+      await page.setViewportSize({ width: 1440, height: 900 });
+    }
+  });
+
+  await step('and back at a desk it is a table again', async () => {
+    /*
+     * The counter monitor must not pay for the phone. A table is the right
+     * shape when there is width for one, and the cards are a `@media` rule
+     * rather than a different render, so this is checking the rule's ceiling.
+     */
+    await page.goto(`${BASE_URL}/admin/products`, { waitUntil: 'networkidle' });
+    const row = await page.locator('table tbody tr').first().boundingBox();
+    if (!row) throw new Error('the catalogue has no rows at desk width');
+    if (row.height > 90) {
+      throw new Error(`a desk row is ${row.height}px tall — it is still stacked as a card`);
+    }
+  });
+
   await step('the phone menu is a list, not a wall of tiles', async () => {
     /*
      * Thirty screens as 140-pixel tiles is fifteen rows of scrolling to reach

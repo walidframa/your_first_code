@@ -1,5 +1,5 @@
 import { NavLink, useLocation } from 'react-router';
-import { BarChart3, LayoutGrid, Receipt, ScanLine, Wallet } from 'lucide-react';
+import { Landmark, LayoutGrid, Package, ScanLine } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useT } from '../context/LanguageContext';
 import { useLicence } from '../context/LicenceContext';
@@ -27,18 +27,22 @@ import { cx } from './ui';
  */
 
 /*
- * The candidates, in the order a shop wants them.
+ * The four the shop asked for, in the order they asked for them.
  *
- * Each names a permission, and the bar takes the first four that this person
- * actually has. A shopkeeper gets the register, their sales, the money and the
- * books; a cashier gets the register and their sales, and the two that would
- * refuse them never appear.
+ * Not a guess at what a till wants: this is the set the owner named after
+ * using it. Menu sits second rather than last because it is the way to
+ * everything the other three are not, and a menu at the far end of a row is a
+ * menu that stops being pressed.
+ *
+ * Each names a permission and the bar drops the ones this person does not
+ * hold, so a cashier is never handed a tab to a screen that will turn them
+ * away.
  */
 const CANDIDATES = [
   { to: '/', label: 'Register', icon: ScanLine, end: true, permission: 'register' },
-  { to: '/orders', label: 'Sales', icon: Receipt },
-  { to: '/admin/cash-sessions', label: 'Cashbox', icon: Wallet, permission: 'cashbox' },
-  { to: '/admin', label: 'Reports', icon: BarChart3, permission: 'reports' },
+  { to: '/menu', label: 'Menu', icon: LayoutGrid },
+  { to: '/admin/products', label: 'Products', icon: Package, permission: 'catalogue' },
+  { to: '/admin/accounts', label: 'Accounts', icon: Landmark, permission: 'cashbox' },
 ];
 
 function Tab({ to, label, icon: Icon, end }) {
@@ -95,17 +99,20 @@ export default function PhoneTabs() {
   const location = useLocation();
 
   /*
-   * Not over the sign-in screen, and not over the tile page it links to.
+   * Everywhere but the sign-in screen.
    *
-   * A tab bar on the menu page would put a "More" tab under the very list it
-   * opened, which reads as a button that does nothing.
+   * It used to hide on the menu page too, back when the last tab was "More"
+   * and pointed there — a tab under the very list it had opened reads as a
+   * button that does nothing. Menu is one of the four now, so hiding the bar
+   * there would make the tab disappear the instant it was pressed, which is
+   * worse: the way back to the register would go with it.
    */
-  if (location.pathname === '/login' || location.pathname === '/menu') return null;
+  if (location.pathname === '/login') return null;
 
   const mine = CANDIDATES.filter(
     (item) =>
       (!item.permission || can(item.permission)) && (!item.module || hasModule(item.module)),
-  ).slice(0, 4);
+  ).slice(0, 5);
 
   return (
     <nav
@@ -121,9 +128,6 @@ export default function PhoneTabs() {
       {mine.map((item) => (
         <Tab key={item.to} {...item} />
       ))}
-      {/* Always last and always present: it is how everything not in the four
-          above is reached, and a menu that comes and goes is not a menu. */}
-      <Tab to="/menu" label="More" icon={LayoutGrid} />
     </nav>
   );
 }
