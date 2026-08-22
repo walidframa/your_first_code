@@ -17,6 +17,7 @@ import {
   useToast,
 } from '../../components/ui';
 import { useConfirm } from '../../components/ConfirmProvider';
+import { when } from '../../lib/when';
 
 const STATUS_TONES = { draft: 'neutral', sent: 'warning', received: 'good', cancelled: 'critical' };
 
@@ -373,7 +374,7 @@ export default function StockTransfers() {
                     </p>
                     <p className="text-xs text-slate-400">
                       {t.item_count} item{t.item_count === 1 ? '' : 's'} · sent{' '}
-                      {new Date(`${t.sent_at}Z`).toLocaleString()}
+                      {when(t.sent_at)}
                       {t.note ? ` · ${t.note}` : ''}
                     </p>
                   </div>
@@ -423,7 +424,7 @@ export default function StockTransfers() {
                     </td>
                     <td className="tnum px-3 py-2.5 text-right text-slate-700">{t.item_count}</td>
                     <td className="px-3 py-2.5 text-xs text-slate-400">
-                      {t.sent_at ? new Date(`${t.sent_at}Z`).toLocaleString() : '—'}
+                      {t.sent_at ? when(t.sent_at) : '—'}
                     </td>
                     <td className="px-5 py-2.5">
                       <div className="flex items-center justify-end gap-2">

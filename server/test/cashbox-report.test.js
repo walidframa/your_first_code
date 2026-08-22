@@ -14,6 +14,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { knownZone } from '../src/lib/cashReport.js';
 
 const serverRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const PORT = 4602;
@@ -250,4 +251,34 @@ test('the downloaded PDF does not leak profit past the permission', async () => 
 test('a sitting that does not exist is a 404, not an empty report', async () => {
   const res = await req('GET', '/cash/sessions/9999/report', null, adminToken);
   assert.equal(res.status, 404);
+});
+
+/**
+ * The report's clock, and whose it is.
+ *
+ * The server runs in UTC in a data centre. The shop is wherever the shop is,
+ * and the person reading this is holding it next to a till roll and looking at
+ * a wall clock. The report used to print UTC and label it UTC — honest, but
+ * once the screens started showing local time the same sitting read 19:25 on
+ * the phone and 16:25 on the paper, and a document that disagrees with the app
+ * about when something happened is one nobody trusts.
+ */
+test('the report is stamped in the timezone it was asked for', () => {
+  const zone = 'Asia/Beirut';
+  assert.equal(knownZone(zone), zone);
+
+  // 16:25 UTC is 19:25 in Beirut in August. The report has to say so.
+  const beirut = new Date('2026-08-22T16:25:00Z').toLocaleString('en-GB', { timeZone: zone });
+  assert.match(beirut, /19:25/, 'the fixture itself is UTC+3');
+});
+
+test('a timezone this machine has never heard of falls back to UTC', () => {
+  /*
+   * It arrives on a query string, so it is a stranger's text. An unknown zone
+   * makes `toLocaleString` throw, which would turn a mistyped parameter into a
+   * report that will not download at all.
+   */
+  for (const junk of ['Mars/Olympus', '', null, undefined, 'DROP TABLE', 42]) {
+    assert.equal(knownZone(junk), 'UTC', `${JSON.stringify(junk)} should fall back`);
+  }
 });

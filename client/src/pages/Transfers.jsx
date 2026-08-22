@@ -16,6 +16,7 @@ import CashBox from '../components/CashBox';
 import AddExpense from '../components/AddExpense';
 import { lbp, useSettings } from '../context/SettingsContext';
 import { useAuth } from '../context/AuthContext';
+import { atTime, onDate } from '../lib/when';
 import {
   Badge,
   Button,
@@ -719,9 +720,9 @@ export default function Transfers() {
                         return (
                           <tr key={t.id} className={cx('hover:bg-slate-50/60', cancelled && 'opacity-50')}>
                             <td className="px-5 py-2.5 whitespace-nowrap text-slate-500">
-                              {t.created_at.slice(11, 16)}
+                              {atTime(t.created_at)}
                               <span className="ml-1 text-xs text-slate-400">
-                                {t.created_at.slice(0, 10)}
+                                {onDate(t.created_at)}
                               </span>
                             </td>
                             <td className="px-3 py-2.5">

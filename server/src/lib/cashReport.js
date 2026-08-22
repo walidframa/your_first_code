@@ -59,10 +59,45 @@ export const lbp = (n) => `${Math.round(Number(n) || 0).toLocaleString('en-US')}
 
 const signed = (n, format) => (n > 0 ? `+${format(n)}` : format(n));
 
-/** UTC out of SQLite, shown as the shop's own clock. */
-const stamp = (value) => (value ? new Date(`${value}Z`).toLocaleString('en-GB', { timeZone: 'UTC' }) : '—');
-const clock = (value) =>
-  value ? new Date(`${value}Z`).toLocaleTimeString('en-GB', { timeZone: 'UTC', hour12: false }).slice(0, 5) : '';
+/**
+ * UTC out of SQLite, shown on the shop's own clock.
+ *
+ * The zone is passed in because the server has no way of knowing it. This
+ * process runs in UTC on a machine in a data centre; the shop is wherever the
+ * shop is, and the person reading the report is comparing it against a till
+ * roll and a wall clock.
+ *
+ * It used to print UTC and label it UTC, which was at least honest — but once
+ * the screens started showing local time, the same sitting read 19:25 on the
+ * phone and 16:25 on the paper, which is the kind of disagreement that makes
+ * somebody stop trusting both.
+ *
+ * UTC remains the fallback, so a report asked for by something that cannot say
+ * where it is still comes out right and still says so.
+ */
+const stamp = (value, zone) =>
+  value ? new Date(`${value}Z`).toLocaleString('en-GB', { timeZone: zone }) : '—';
+const clock = (value, zone) =>
+  value
+    ? new Date(`${value}Z`).toLocaleTimeString('en-GB', { timeZone: zone, hour12: false }).slice(0, 5)
+    : '';
+
+/**
+ * A timezone this machine actually knows, or UTC.
+ *
+ * Whatever arrives here came off a query string, so it is a stranger's text
+ * until proved otherwise — and an unknown zone makes `toLocaleString` throw,
+ * which would turn a bad parameter into a report nobody can download.
+ */
+export function knownZone(zone) {
+  if (!zone || typeof zone !== 'string') return 'UTC';
+  try {
+    new Intl.DateTimeFormat('en-GB', { timeZone: zone }).format(new Date());
+    return zone;
+  } catch {
+    return 'UTC';
+  }
+}
 
 /**
  * Everything the report shows, as plain data.
@@ -198,7 +233,8 @@ const toneFor = (value) => (value === 0 ? INK : value < 0 ? RED : AMBER);
  * is why the report was opened, then the trade behind it, then every movement
  * for anyone checking the figure rather than trusting it.
  */
-export function renderCashReportPdf(report, { generatedBy = null } = {}) {
+export function renderCashReportPdf(report, { generatedBy = null, timeZone = 'UTC' } = {}) {
+  const zone = knownZone(timeZone);
   const doc = createDocument({ title: `Cashbox report #${report.session.id}` });
   const { session, account } = report;
 
@@ -228,8 +264,8 @@ export function renderCashReportPdf(report, { generatedBy = null } = {}) {
 
   doc.rule({ below: 6 });
   const meta = [
-    ['Opened', `${stamp(session.opened_at)} · ${session.opened_by_name || '—'}`],
-    ['Closed', report.closed ? `${stamp(session.closed_at)} · ${session.closed_by_name || '—'}` : 'still open'],
+    ['Opened', `${stamp(session.opened_at, zone)} · ${session.opened_by_name || '—'}`],
+    ['Closed', report.closed ? `${stamp(session.closed_at, zone)} · ${session.closed_by_name || '—'}` : 'still open'],
     ['Opening float', `${usd(session.opening_usd)} · ${lbp(session.opening_lbp)}`],
     ['Exchange rate', report.rate > 0 ? `1 USD = ${Number(report.rate).toLocaleString('en-US')} LL` : 'not set'],
   ];
@@ -425,7 +461,7 @@ export function renderCashReportPdf(report, { generatedBy = null } = {}) {
   for (const m of report.movements) {
     doc.row(
       [
-        { text: clock(m.created_at), width: 45, color: MUTED },
+        { text: clock(m.created_at, zone), width: 45, color: MUTED },
         { text: m.reasonLabel ? `${m.label} · ${m.reasonLabel}` : m.label, width: 130, color: INK },
         { text: m.order_number || m.doc_number || m.note || '', width: 150, color: MUTED },
         {
@@ -447,7 +483,7 @@ export function renderCashReportPdf(report, { generatedBy = null } = {}) {
   doc.gap(12);
   doc.rule({ below: 4 });
   doc.text(
-    `Produced ${new Date(report.generatedAt).toLocaleString('en-GB', { timeZone: 'UTC' })} UTC` +
+    `Produced ${new Date(report.generatedAt).toLocaleString('en-GB', { timeZone: zone })} ${zone}` +
       (generatedBy ? ` by ${generatedBy}` : ''),
     { size: 7.5, color: MUTED },
   );
