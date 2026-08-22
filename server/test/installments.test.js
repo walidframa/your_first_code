@@ -84,7 +84,22 @@ before(async () => {
       adminToken,
     )
   ).json.party.id;
+
+  /*
+   * The drawer is open, because these tests take cash.
+   *
+   * It used not to be, and they passed anyway — the payment went onto the
+   * customer's account and the cash movement was silently dropped, so the
+   * customer was credited with money the drawer never showed. Nothing here
+   * asserted the drawer, so nothing noticed. It does now, below.
+   */
+  await req('POST', '/cash/open', { openingUsd: 0, openingLbp: 0 }, adminToken);
 });
+
+/** What the drawer says it holds. */
+async function drawerUsd() {
+  return (await req('GET', '/cash/current', null, adminToken)).json.expected.usd;
+}
 
 after(() => {
   child?.kill();
@@ -162,6 +177,13 @@ test('a payment settles the earliest month and comes off the account', async () 
   // And the ledger — the thing that actually says what is owed — moved with it.
   assert.equal(res.json.balance, 300);
   assert.equal(res.json.plan.outstandingUsd, 300);
+
+  /*
+   * And so did the drawer. A hundred dollars was handed over a counter; the
+   * customer being credited for it is only half of what happened, and the half
+   * that used to go missing.
+   */
+  assert.equal(await drawerUsd(), 100, 'the cash reached the drawer');
 });
 
 test('a payment bigger than one month spills into the next', async () => {

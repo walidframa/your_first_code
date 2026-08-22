@@ -140,9 +140,22 @@ export function openSession({
  * Record money moving in or out.
  *
  * Called by the register and the back office alike, so a supplier paid from the
- * till and a sale rung up land in the same place. Silently does nothing when no
- * session is open: a card sale should not fail because the drawer is shut, and
- * cash sales are stopped earlier, where the message can say why.
+ * till and a sale rung up land in the same place.
+ *
+ * **It used to return null when no sitting was open, and that lost money.**
+ *
+ * The reasoning written here was that a card sale should not fail because the
+ * drawer is shut — but a card sale moves no cash and already returns at the
+ * zero check above, so the only thing the silence ever caught was real money
+ * with nowhere to go. A shop that made an account other than the counter
+ * drawer its default found out the hard way: a purchase invoice settled in cash
+ * wrote the supplier's ledger entry, wrote the voucher, and recorded no cash
+ * movement at all, because nobody had "opened" the safe. The books said the
+ * supplier was paid and the cash records said nothing left the shop.
+ *
+ * So there is no silent path out of here any more. Either the money is
+ * recorded, or this throws and the caller's transaction takes the ledger entry
+ * back with it.
  */
 export function recordMovement({
   kind,
@@ -162,8 +175,38 @@ export function recordMovement({
   if (usd === 0 && lbp === 0) return null;
 
   const account = accountId ?? defaultAccountId(branchId);
-  const session = sessionId ? sessionById(sessionId) : currentSession(account);
-  if (!session) return null;
+  let session = sessionId ? sessionById(sessionId) : currentSession(account);
+
+  if (!session) {
+    /*
+     * No sitting on the account the money is moving through, and what to do
+     * about that depends on what kind of place the money is being kept in.
+     *
+     * **A drawer is a shift.** It is opened with a float, counted at the end,
+     * and the difference is somebody's to explain — so taking cash out of one
+     * that nobody opened is a refusal, and every caller already makes it
+     * earlier with a message naming what to open. Reaching here means one of
+     * them forgot, so it throws rather than shrugs: the alternative is what
+     * used to happen, a ledger saying paid and a drawer saying nothing moved.
+     *
+     * **A safe is not.** Nor is a bank account or an office float. Nobody
+     * counts the safe at the end of a shift and nobody hands it over; it is a
+     * standing balance, and there is nothing to "open" about it except a row in
+     * this table. Requiring a sitting for one is a till ritual applied to
+     * something that is not a till — which is exactly how a shop that made its
+     * safe the default came to have purchase invoices that moved no money at
+     * all. So a sitting is opened for it, empty, and the money goes in.
+     */
+    const kind = db.prepare('SELECT kind, name FROM cash_accounts WHERE id = ?').get(account);
+
+    if (kind?.kind === 'drawer' && requiresSession()) {
+      throw new Error(
+        `${kind.name || 'That cashbox'} is closed — open it before money moves through it`,
+      );
+    }
+
+    session = openSession({ userId, accountId: account, note: 'Opened by a payment' });
+  }
 
   const info = db
     .prepare(

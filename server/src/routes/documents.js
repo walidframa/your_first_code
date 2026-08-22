@@ -18,6 +18,7 @@ import {
   settlement,
   totalsFor,
 } from '../lib/documents.js';
+import { currentSession, defaultAccountId, requiresSession } from '../lib/cash.js';
 import { round2 } from '../lib/currency.js';
 import { documentMessage, sendable } from '../lib/whatsapp.js';
 
@@ -307,14 +308,45 @@ router.post('/:id/confirm', requireAuth, requirePermission('documents'), (req, r
     return res.status(400).json({ error: `This document is already ${doc.status}` });
   }
 
+  /*
+   * `accountId` says which drawer the money went into. Left out it falls to
+   * the shop's default till, which is right for a shop that has one and
+   * wrong for a shop whose office keeps its own float.
+   */
+  const accountId = req.body?.accountId ?? null;
+
+  /*
+   * The cashbox the money is coming out of has to be open, and this is the
+   * check every other way of moving cash in this app already makes — the
+   * register, a transfer, a voucher, a repair. Documents did not, and that was
+   * the bug: a shop whose default account was its safe rather than its counter
+   * drawer confirmed a purchase invoice in cash, and because nobody had opened
+   * the safe the money was recorded nowhere. The supplier's statement said
+   * paid; the cash never moved.
+   *
+   * Named, rather than "the cashbox": with more than one account the whole
+   * question is *which*, and being told to open something without being told
+   * what is not an answer.
+   */
+  if (doc.payment_method === 'cash' && paidUsdEquivalent(doc) > 0 && requiresSession()) {
+    const account = accountId ?? defaultAccountId(req.branchId);
+    const till = db.prepare('SELECT kind, name FROM cash_accounts WHERE id = ?').get(account);
+    /*
+     * Only a drawer. A safe or an office float is a standing balance rather
+     * than a shift — see recordMovement — so it does not have to be opened
+     * before money can come out of it, and asking the shop to would be a till
+     * ritual applied to something that is not a till.
+     */
+    if (till?.kind === 'drawer' && !currentSession(account)) {
+      return res.status(400).json({
+        error: `${till.name || 'The cashbox'} is closed — open it before settling this in cash`,
+      });
+    }
+  }
+
   try {
     transaction(() => {
-      /*
-       * `accountId` says which drawer the money went into. Left out it falls to
-       * the shop's default till, which is right for a shop that has one and
-       * wrong for a shop whose office keeps its own float.
-       */
-      applyEffects(doc, itemsOf(doc.id), req.user.id, doc.doc_number, req.body?.accountId ?? null);
+      applyEffects(doc, itemsOf(doc.id), req.user.id, doc.doc_number, accountId);
       db.prepare("UPDATE documents SET status = 'confirmed', confirmed_at = datetime('now') WHERE id = ?").run(
         doc.id,
       );
