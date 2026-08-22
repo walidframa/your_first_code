@@ -26,26 +26,72 @@ Check with `hostname` and `test -d /srv/pos`:
 
 ## The installation
 
-| | |
-|---|---|
-| Server | `159.203.185.221`, checkout at `/srv/pos` |
-| The shop | tenant slug **`protech`**, `pos-tenant@protech`, port **4100**, `protech.xtechpos.com` |
-| Its database | `/var/lib/pos/tenants/protech.sqlite` |
-| Its settings | `/etc/pos/tenants/protech.env` |
-| Vendor console | `pos-console`, port **4090**, `admin.xtechpos.com` |
+**Three shops run on this machine, and the one the owner uses is not the one
+whose name suggests it.** Get this wrong and you will spend an evening proving
+that a perfectly healthy process is perfectly healthy. That is not hypothetical:
+it is where this section came from.
 
-`protech` is a tenant like any other, not the machine's own shop. Whether this
-machine also keeps one of its own — a `pos.service` on port 4000 — decides what
-the script restarts, so check rather than assume:
+| Address | nginx sends it to | Unit | What it is |
+|---|---|---|---|
+| **`xtechpos.com`**, `www.xtechpos.com` | `127.0.0.1:4000` | **`pos.service`** | **The shop the owner actually opens.** Their live data. |
+| `protech.xtechpos.com` | `127.0.0.1:4100` | `pos-tenant@protech` | A tenant. Not what the owner browses. |
+| `admin.xtechpos.com` | `127.0.0.1:4090` | `pos-console` | Vendor console |
+
+Server is `159.203.185.221`, checkout at `/srv/pos`. A tenant keeps its database
+at `/var/lib/pos/tenants/<slug>.sqlite` and its settings at
+`/etc/pos/tenants/<slug>.env`; `pos.service` reads `/etc/pos/pos.env`.
+
+### Never assume which shop is being talked about
+
+When somebody says "the shop", "my shop", or reports a screen that will not
+load, **find out which address they have in the browser before touching
+anything**. The table above is a starting point, not an answer — nginx is what
+decides, and it can be changed without anybody updating this file:
 
 ```bash
-systemctl list-unit-files | grep -E '^pos(\.|-tenant@|-console)'
+sudo nginx -T 2>/dev/null | grep -E "server_name|proxy_pass"
 ```
 
-If there is no `pos.service`, that is normal here: it is a landlord machine. An
-older deploy script stopped at that point without restarting anything, so if you
-see it say so and then finish quietly, nothing was restarted — check the units
-by hand.
+Read the `server_name` immediately above each `proxy_pass` — that pairing is the
+truth. Then work on the port that pairing names, and no other.
+
+### Which shop is serving a given page
+
+`/api/health` reports the commit the process started with, so it identifies a
+process rather than a directory. Ask the public address and the port you believe
+is behind it, and compare:
+
+```bash
+curl -sk https://<the address they use>/api/health; echo
+curl -s localhost:<the port you think it is>/api/health; echo
+git -C /srv/pos rev-parse HEAD
+```
+
+- **Same `build`, matching `rev-parse`** — that is the right process and it is
+  current.
+- **Different `build` values** — they are two different processes. You are
+  looking at the wrong one.
+- **No `build` field at all** — that process predates the field, so it is
+  running code older than the deploy that added it. It needs restarting
+  whatever else is true.
+
+### All three, every time
+
+`pos.service` is easy to forget because the units with obvious names are the
+tenants. It has been left behind by a deploy while the tenants restarted
+correctly — same checkout, same commit on disk, a process from hours earlier
+still serving it. Check every unit, not the ones you expect:
+
+```bash
+systemctl list-units --all --type=service --no-pager | grep -i pos
+sudo ss -ltnp | grep -E ':(4000|4090|4100)'
+```
+
+Compare the PIDs. Ones restarted together sit close in number; a much lower PID
+is a process that did not come with the others.
+
+Note that a node process shows up in `ss` as **`MainThread`**, not `node` —
+`grep node` finds nothing and looks like an answer.
 
 ## Deploying
 
@@ -81,17 +127,29 @@ The script now does this itself, so this section is for checking by hand when
 something looks wrong. `build` is what the *process* started with, so it is the
 one figure that catches a restart that never happened:
 
+**All three, including `pos.service`** — it is the one that gets forgotten,
+and it is the one the owner is actually looking at:
+
 ```bash
-systemctl is-active pos-tenant@protech pos-console
-curl -fsS localhost:4100/api/health && echo
-curl -fsS localhost:4090/api/health && echo
+systemctl is-active pos pos-tenant@protech pos-console
+curl -fsS localhost:4000/api/health && echo   # pos.service — xtechpos.com
+curl -fsS localhost:4100/api/health && echo   # the protech tenant
+curl -fsS localhost:4090/api/health && echo   # the console
 git -C /srv/pos rev-parse HEAD
 ```
 
-The `build` in each health reply must equal that `rev-parse`. If the client is
-new and `build` is old, that is the exact failure: **new screens, old routes**.
-It shows up in the app as pages that will not load, and each of those pages now
-says so on screen rather than shimmering for ever.
+The `build` in **every** reply must equal that `rev-parse`. Two failures to read
+for:
+
+- **`build` older than `rev-parse`** — that process did not restart. New screens,
+  old routes: the client is static files read off disk, so it updates the moment
+  the build finishes, while the routes stay in memory in a process from before.
+  It shows up in the app as pages that will not load, and those pages now say so
+  on screen rather than shimmering for ever.
+- **No `build` field at all** — same thing, older still: that process predates
+  the field itself.
+
+Either way the cure is restarting that unit by name, then asking again.
 
 Then check the *browser* is getting the new build, which is a separate question
 from whether the server restarted:
@@ -109,41 +167,57 @@ If the shop still looks unchanged after that, it is the browser: hard-reload
 This is the one that has cost this installation the most time, so check it
 before anything else.
 
-**Symptom:** `systemctl show pos-tenant@protech` reports `MainPID=0` and
+**First, make sure you are looking at the right shop.** Far more often than a
+stray process, the answer is that the port being examined is not the one serving
+the person complaining — see "Never assume which shop is being talked about"
+above. A process that is healthy on a port nobody is using looks exactly like a
+mystery. Confirm the address → port pairing in nginx, then read on.
+
+Everything below is written for one unit and one port. Substitute the pair you
+confirmed — `pos.service` and `:4000`, `pos-tenant@<slug>` and its port, or
+`pos-console` and `:4090` — and do not carry a port over from an earlier
+example.
+
+**Symptom:** `systemctl show <UNIT>` reports `MainPID=0` and
 `ActiveEnterTimestamp` from days ago, the new code is definitely on disk
 (`git log -1` in `/srv/pos` shows the merge), and the shop serves the old build
 anyway.
 
 **Cause:** a stray `node` process — left from an old run, started by hand, or
-orphaned by a failed restart — is holding port 4100. The unit cannot bind, so
+orphaned by a failed restart — is holding the port. The unit cannot bind, so
 restarting it changes nothing, and systemd's status is about the unit rather
 than about the port.
 
 **Read the port before you touch it.** `fuser -k` on a healthy shop is a shop
-you have just taken down — and once the deploy has restarted the tenant, the
-process holding 4100 is *supposed* to be there.
+you have just taken down — and once the deploy has restarted a shop, the process
+holding its port is *supposed* to be there.
 
 ```bash
-ss -lptnp 'sport = :4100'
-systemctl is-active pos-tenant@protech
+sudo ss -lptnp 'sport = :<PORT>'
+systemctl is-active <UNIT>
 ```
+
+Compare the PID `ss` reports against the unit's own `MainPID`. **The same number
+means there is no stray** — the unit owns the port, and the problem is
+elsewhere.
 
 Three answers, and only one of them means kill something:
 
 - **Nothing listening**, unit inactive → the unit failed to start. Not the
-  stray-process case at all. Read `journalctl -u pos-tenant@protech -n 50
-  --no-pager` and fix what it says.
-- **Something listening**, unit `active` → **that is the shop, working.** Stop
-  here. If the browser still shows the old build, it is the bundle or the
-  cache, not the port — go back to "Then prove it".
-- **Something listening**, unit `inactive` or `failed` → *now* it is a stray,
-  because the port is held by a process systemd does not own:
+  stray-process case at all. Read `journalctl -u <UNIT> -n 50 --no-pager` and
+  fix what it says.
+- **Something listening**, unit `active`, **PID matches `MainPID`** → **that is
+  the shop, working.** Stop here. If the app still misbehaves, it is the wrong
+  port, the bundle, or the cache — go back to "Then prove it" and check `build`.
+- **Something listening**, unit `inactive` or `failed`, or a PID that is *not*
+  `MainPID` → *now* it is a stray, because the port is held by a process systemd
+  does not own:
 
   ```bash
-  sudo fuser -k 4100/tcp
-  sudo systemctl start pos-tenant@protech
+  sudo fuser -k <PORT>/tcp
+  sudo systemctl start <UNIT>
   sleep 3                                  # node has to bind before it answers
-  curl -fsS localhost:4100/api/health && echo
+  curl -fsS localhost:<PORT>/api/health && echo
   ```
 
 The `sleep` is not decoration. `systemctl start` returns as soon as the unit is
@@ -151,7 +225,7 @@ The `sleep` is not decoration. `systemctl start` returns as soon as the unit is
 port; a `curl` on the next line fails against a shop that is coming up perfectly
 well.
 
-Same three questions for `:4090` and the console.
+Ask the same three questions of every unit, not only the one you suspect.
 
 **Never hand somebody the deploy block and this block as one thing to paste.**
 Deploy first, read what it printed, and come here only if the checks actually
@@ -172,7 +246,7 @@ not force anything on a machine holding a live shop's books.
 **A unit did not come back.** The script names it. Read its log:
 
 ```bash
-sudo journalctl -u pos-tenant@protech -n 50 --no-pager
+sudo journalctl -u <UNIT> -n 50 --no-pager
 ```
 
 A shop whose database it cannot write will restart five times in a minute and
@@ -185,12 +259,16 @@ looking busy.
 
 - **Never** `git checkout`, `reset --hard` or `stash` in `/srv/pos` without
   showing the user what would be lost first.
-- **Never** delete or move `/etc/pos/tenants/protech.env`. It holds
-  `ACCOUNT_SECRET`, and without that exact value every customer password and
-  repair passcode in the database is permanently unreadable.
+- **Never** delete or move a shop's env file — `/etc/pos/pos.env` for
+  `pos.service`, `/etc/pos/tenants/<slug>.env` for a tenant. Each holds that
+  shop's `ACCOUNT_SECRET`, and without that exact value every customer password
+  and repair passcode in its database is permanently unreadable.
 - **Never** restart during trading hours without asking. A restart drops whoever
   is mid-sale back to a loading screen; the person at the counter decides when
   that is acceptable.
+- **Never** conclude a shop is fine from a port you did not confirm serves it.
+  A healthy process on a port nobody is using proves nothing, and reads exactly
+  like a mystery. Confirm address → port in nginx first, every time.
 - Do not report a deploy as done on the strength of the script's exit code
   alone. Run the checks above and quote what they said.
 - **Never** run `fuser -k` against a port whose unit is `active`. That is not a
