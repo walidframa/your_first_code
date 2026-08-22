@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Front Desk</string>
+    <string name="title_activity_main">Front Desk</string>
+    <string name="package_name">com.xtechpos.frontdesk</string>
+    <string name="custom_url_scheme">com.xtechpos.frontdesk</string>
+</resources>

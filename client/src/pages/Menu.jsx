@@ -1,4 +1,6 @@
 import { Link } from 'react-router';
+import { ChevronRight } from 'lucide-react';
+import { useNarrow } from '../lib/screen';
 import { useAuth } from '../context/AuthContext';
 import { useT } from '../context/LanguageContext';
 import { COUNTER_NAV, allowedGroups, allowedItems } from '../lib/nav';
@@ -43,8 +45,43 @@ function Tile({ to, label, icon: Icon }) {
   );
 }
 
+/**
+ * The same destination as a row, for a phone.
+ *
+ * A 140-pixel tile is right for a counter monitor somebody prods between
+ * customers — it can be hit without aiming, and read across a shop. On a
+ * handset it is the wrong unit entirely: two per row means this app's thirty
+ * screens are fifteen rows of scrolling to reach Settings, and the icon is
+ * doing none of the work that the extra height cost.
+ *
+ * A row is 56 pixels, still comfortably over the 44 a thumb needs, and shows
+ * six at a time in the space one tile used. Which is what every phone app does
+ * with a long list of places, for this reason.
+ */
+function Row({ to, label, icon: Icon }) {
+  const t = useT();
+  return (
+    <Link
+      to={to}
+      title={t(label)}
+      className="flex min-h-[56px] items-center gap-3.5 bg-white px-4 py-3 transition active:bg-slate-100"
+    >
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-700">
+        <Icon size={19} aria-hidden="true" />
+      </span>
+      <span className="min-w-0 flex-1 truncate text-[15px] font-medium text-slate-800">
+        {t(label)}
+      </span>
+      <ChevronRight size={18} className="shrink-0 text-slate-300" aria-hidden="true" />
+    </Link>
+  );
+}
+
 function Section({ heading, items }) {
   const t = useT();
+  /* The same 640px `sm` the classes use, so what this decides and what the
+     rest of the page does cannot disagree about where a phone stops. */
+  const narrow = useNarrow();
   if (items.length === 0) return null;
 
   return (
@@ -57,11 +94,27 @@ function Section({ heading, items }) {
        * rather than by a fixed count, so a square counter monitor and a wide
        * desk one both fill their row.
        */}
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-3">
-        {items.map((item) => (
-          <Tile key={item.to} {...item} />
-        ))}
-      </div>
+      {/*
+        * One list or the other, chosen here rather than with `hidden sm:grid`.
+        *
+        * Two copies in the DOM with one hidden would mean every screen in this
+        * app appears twice: twice to a screen reader, twice to anything looking
+        * for a link by name, and sixty nodes where thirty would do. The hidden
+        * half is not free just because it is not painted.
+        */}
+      {narrow ? (
+        <div className="divide-y divide-slate-100 overflow-hidden rounded-2xl ring-1 ring-slate-900/[0.06]">
+          {items.map((item) => (
+            <Row key={item.to} {...item} />
+          ))}
+        </div>
+      ) : (
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-3">
+          {items.map((item) => (
+            <Tile key={item.to} {...item} />
+          ))}
+        </div>
+      )}
     </section>
   );
 }

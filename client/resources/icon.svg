@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  The app icon: the scan frame that is already the register's own mark.
+
+  Drawn at 1024 with the glyph inside the middle 60%, because both stores crop
+  an icon to their own shape — a superellipse on iOS, whatever the launcher
+  fancies on Android — and anything near the corner is the thing that gets cut.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#10b981"/>
+      <stop offset="1" stop-color="#047857"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#g)"/>
+  <g fill="none" stroke="#ffffff" stroke-width="46" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M320 260 H280 A20 20 0 0 0 260 280 V320"/>
+    <path d="M704 260 H744 A20 20 0 0 1 764 280 V320"/>
+    <path d="M320 764 H280 A20 20 0 0 1 260 744 V704"/>
+    <path d="M704 764 H744 A20 20 0 0 0 764 744 V704"/>
+    <path d="M300 512 H724"/>
+  </g>
+</svg>

@@ -1,6 +1,26 @@
 import axios from 'axios';
+import { apiBase, isNative } from './lib/server.js';
 
-const api = axios.create({ baseURL: '/api' });
+/*
+ * Where the shop is.
+ *
+ * On the web this is `/api` and always was: the app is served by the server it
+ * is talking to, so a relative path is correct by construction and survives the
+ * shop changing domain.
+ *
+ * In the phone app the pages are bundled into the app and the WebView serves
+ * them from its own origin, so `/api` is the bundle — a place with no server in
+ * it. There the address is whatever the owner typed on the connect screen, and
+ * it is read here at every request rather than captured once, because a person
+ * can change it without restarting the app and the next call has to go to the
+ * new shop rather than the old one.
+ */
+const api = axios.create({ baseURL: apiBase() });
+
+api.interceptors.request.use((config) => {
+  if (isNative()) config.baseURL = apiBase();
+  return config;
+});
 
 export function setAuthToken(token) {
   if (token) {

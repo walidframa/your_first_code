@@ -4442,6 +4442,105 @@ try {
    * cannot read the English screen asking them to choose — so that is where
    * this starts, before any credentials are typed.
    */
+  await step('on a phone the shop is a tab bar, and the cart is one press away', async () => {
+    /*
+     * The register at handset width, which is a different screen from the same
+     * page at 1440 and has to be checked as one.
+     *
+     * The bug this exists for is not cosmetic. On a narrow screen the cart used
+     * to be the *bottom half of one long scrolling page*, under the whole
+     * product grid — so taking the money meant scrolling past nine hundred
+     * products with a customer waiting. It is a sheet now, reached from a bar
+     * that always shows the total, and both of those have to still be there.
+     */
+    await page.setViewportSize({ width: 390, height: 844 });
+    try {
+      await page.goto(`${BASE_URL}/`, { waitUntil: 'networkidle' });
+
+      // The rail is a desktop object and must be gone; the tab bar is what
+      // replaces it, and it is the only way off this screen.
+      const tabs = page.locator('nav[aria-label="Main"]');
+      await tabs.waitFor({ timeout: 15000 });
+
+      const box = await tabs.boundingBox();
+      if (!box || box.height < 44) {
+        throw new Error(`the tab bar is ${box?.height ?? 0}px tall — a thumb needs 44`);
+      }
+      if (Math.round(box.y + box.height) < 800) {
+        throw new Error('the tab bar is not at the bottom of the screen');
+      }
+
+      /*
+       * Five at most. Not an aesthetic rule: past five, the targets are
+       * narrower than the pad of a finger and the shop starts opening the
+       * wrong screen.
+       */
+      const count = await tabs.locator('a').count();
+      if (count > 5) throw new Error(`${count} tabs — a thumb cannot aim that finely`);
+
+      /*
+       * Whatever is first on the shelf, rather than a product by name: this
+       * step runs after others have created, renamed and sold things, and a
+       * name pinned here is a step that breaks when the catalogue changes.
+       */
+      await page.locator('button:has-text("Croissant")').first().click();
+      const saleBar = page.locator('button:has-text("item")').last();
+      await saleBar.waitFor({ timeout: 10000 });
+
+      // It sits above the tab bar rather than under it — two fixed things at
+      // the same offset is one covering the other.
+      const barBox = await saleBar.boundingBox();
+      if (barBox && box && barBox.y + barBox.height > box.y + 2) {
+        throw new Error('the sale bar is underneath the tab bar');
+      }
+
+      // And it opens the cart, with the way to take the money in it.
+      await saleBar.click();
+      await page.waitForSelector('button:has-text("Charge")', { timeout: 10000 });
+
+      /*
+       * The whole point of the sheet: the charge button has to be *on screen*,
+       * not somewhere below the fold at the end of a page of products.
+       */
+      const charge = await page.locator('button:has-text("Charge")').first().boundingBox();
+      if (!charge || charge.y > 844) {
+        throw new Error('the charge button is off the bottom of a phone screen');
+      }
+
+      // Leave the cart as it was found, so later steps are not surprised. The
+      // sheet is already open, so Clear is on screen.
+      await page.click('aside button:has-text("Clear")');
+      await page.waitForSelector('text=No items yet', { timeout: 10000 });
+    } finally {
+      await page.setViewportSize({ width: 1440, height: 900 });
+    }
+  });
+
+  await step('the phone menu is a list, not a wall of tiles', async () => {
+    /*
+     * Thirty screens as 140-pixel tiles is fifteen rows of scrolling to reach
+     * Settings. The same list as rows is six at a time in the space one tile
+     * used, which is what every phone app does with a long list of places.
+     */
+    await page.setViewportSize({ width: 390, height: 844 });
+    try {
+      await page.goto(`${BASE_URL}/menu`, { waitUntil: 'networkidle' });
+      const register = page.locator('a[href="/"]:visible').first();
+      await register.waitFor({ timeout: 15000 });
+
+      const row = await register.boundingBox();
+      if (!row) throw new Error('the menu has no rows on a phone');
+      if (row.height < 44) {
+        throw new Error(`a menu row is ${row.height}px — a thumb needs 44`);
+      }
+      if (row.height > 96) {
+        throw new Error(`a menu row is ${row.height}px — that is still a tile`);
+      }
+    } finally {
+      await page.setViewportSize({ width: 1440, height: 900 });
+    }
+  });
+
   await step('the language is chosen before signing in, and turns the page round', async () => {
     await signOut();
 

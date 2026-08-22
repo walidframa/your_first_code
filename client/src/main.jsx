@@ -18,6 +18,8 @@ import { startUpdateWatch } from './lib/appUpdate';
 import { LicenceProvider, useLicence } from './context/LicenceContext.jsx';
 import { SupportProvider } from './context/SupportContext.jsx';
 import Locked from './pages/Locked.jsx';
+import ServerGate from './components/ServerGate.jsx';
+import { startNativeChrome } from './lib/nativeBoot.js';
 
 /** The whole app, or the one screen that explains why there isn't one. */
 function LicenceGate({ children }) {
@@ -44,6 +46,16 @@ watchSystemTheme();
 watchForInstall();
 
 /*
+ * Mark the document as the app rather than a page, before the first paint.
+ *
+ * A dozen CSS rules hang off `body.native` — the tap highlight, the selection
+ * bubble, the rubber-band bounce, the safe areas. Doing this in an effect would
+ * mean the first frame is drawn as a web page and then corrected, which is
+ * exactly the flicker those rules exist to remove.
+ */
+startNativeChrome();
+
+/*
  * The worker that keeps the till on screen when the server is not there.
  *
  * Only in a built app: in development the page comes from Vite, and a worker
@@ -62,6 +74,10 @@ createRoot(document.getElementById('root')).render(
       <LanguageProvider>
         <ToastProvider>
           <ConfirmProvider>
+        {/* Above everything that fetches. In the phone app the shop's address
+            is a thing somebody has to type before any of this can work; on the
+            web it is known already and this renders straight through. */}
+        <ServerGate>
         <AuthProvider>
           {/* Above the providers that fetch the shop's own data, and below the
               one that knows who is signed in: a stopped till answers 402 to all
@@ -85,6 +101,7 @@ createRoot(document.getElementById('root')).render(
             </LicenceGate>
           </LicenceProvider>
         </AuthProvider>
+        </ServerGate>
           </ConfirmProvider>
         </ToastProvider>
       </LanguageProvider>
