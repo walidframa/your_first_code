@@ -6,6 +6,7 @@ import { useAuth } from '../context/AuthContext';
 import MoneyInput, { PoundsInput } from './MoneyInput';
 import VoucherSlip from './VoucherSlip';
 import { Badge, Button, Card, EmptyState, Input, Modal, ModalActions, Skeleton, cx, money, useToast } from './ui';
+import { when } from '../lib/when';
 
 /**
  * What the shop stands at with each agency it runs a counter for.
@@ -107,7 +108,7 @@ function OpeningDialog({ company, onClose, onSaved }) {
           balance by the difference and every transfer since stays where it is.
         </p>
         {company.opening_set_at && (
-          <p className="mt-1 text-xs text-slate-400">Last set {company.opening_set_at}</p>
+          <p className="mt-1 text-xs text-slate-400">Last set {when(company.opening_set_at)}</p>
         )}
         {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
 

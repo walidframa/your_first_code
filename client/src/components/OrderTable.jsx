@@ -3,6 +3,7 @@ import { Printer, Receipt as ReceiptIcon, RotateCcw } from 'lucide-react';
 import api from '../api';
 import Receipt from './Receipt';
 import { useConfirm } from './ConfirmProvider';
+import { when } from '../lib/when';
 import {
   Badge,
   Button,
@@ -136,7 +137,7 @@ export default function OrderTable({
                         {o.kind === 'order' ? o.cashier_name : o.user_name}
                       </td>
                     )}
-                    <td className="px-3 py-2.5 text-slate-500">{o.at}</td>
+                    <td className="px-3 py-2.5 text-slate-500">{when(o.at)}</td>
                     <td className="hidden px-3 py-2.5 text-slate-500 capitalize sm:table-cell">
                       {o.kind === 'order'
                         ? o.payment_method
@@ -172,7 +173,7 @@ export default function OrderTable({
           onClose={() => setSelected(null)}
           size="sm"
           title={selected.order.order_number}
-          subtitle={`${selected.order.created_at}${selected.order.cashier_name ? ` · ${selected.order.cashier_name}` : ''}`}
+          subtitle={`${when(selected.order.created_at)}${selected.order.cashier_name ? ` · ${selected.order.cashier_name}` : ''}`}
         >
           {/*
             * A line at a time, because that is how things actually come back —

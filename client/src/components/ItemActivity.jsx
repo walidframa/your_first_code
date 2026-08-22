@@ -3,6 +3,7 @@ import { ArrowDown, ArrowUp, History, Tag, TrendingDown, TrendingUp } from 'luci
 import api from '../api';
 import { Badge, Modal, Skeleton, cx, money } from './ui';
 import Receipt from './Receipt';
+import { onDate } from '../lib/when';
 
 /** What each kind of thing that can happen to a product looks like. */
 const KINDS = {
@@ -129,7 +130,7 @@ export default function ItemActivity({ productId, onClose, onOpenDocument, onOpe
                   return (
                     <tr key={c.id}>
                       <td className="px-3 py-1.5 text-xs text-slate-400">
-                        {new Date(`${c.created_at}Z`).toLocaleDateString()}
+                        {onDate(c.created_at)}
                       </td>
                       <td className="px-2 py-1.5">
                         <span className="flex items-center gap-1.5 text-slate-700">
@@ -201,7 +202,7 @@ export default function ItemActivity({ productId, onClose, onOpenDocument, onOpe
                     className={cx(opens && 'cursor-pointer transition hover:bg-slate-50')}
                   >
                     <td className="w-24 px-3 py-1.5 text-xs whitespace-nowrap text-slate-400">
-                      {new Date(`${a.at}Z`).toLocaleDateString()}
+                      {onDate(a.at)}
                     </td>
                     <td className="w-24 px-2 py-1.5">
                       <span className={cx('flex items-center gap-1.5 text-xs font-medium', meta.tone)}>

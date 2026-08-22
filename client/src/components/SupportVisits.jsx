@@ -3,6 +3,7 @@ import { ChevronDown, ChevronRight, LifeBuoy } from 'lucide-react';
 import api from '../api';
 import { Card, Skeleton } from './ui';
 import { useT } from '../context/LanguageContext';
+import { when } from '../lib/when';
 
 /** `POST /api/products/12` reads better to a shopkeeper as "Changed products". */
 function readable(change) {
@@ -33,7 +34,7 @@ function Visit({ visit }) {
         <Chevron size={16} className="mt-0.5 shrink-0 text-slate-400" />
         <span className="min-w-0 flex-1">
           <span className="font-medium text-slate-900">{visit.operator}</span>
-          <span className="text-slate-500"> — {visit.started_at}</span>
+          <span className="text-slate-500"> — {when(visit.started_at)}</span>
           {visit.reason && <span className="block text-sm text-slate-600">{visit.reason}</span>}
         </span>
         <span className="shrink-0 text-sm text-slate-500">
@@ -49,7 +50,7 @@ function Visit({ visit }) {
           {visit.changes.map((change, at) => (
             <li key={at} className="flex justify-between gap-3">
               <span>{readable(change)}</span>
-              <span className="shrink-0 text-slate-400">{change.at}</span>
+              <span className="shrink-0 text-slate-400">{when(change.at)}</span>
             </li>
           ))}
         </ul>

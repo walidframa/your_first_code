@@ -231,7 +231,16 @@ router.get('/sessions/:id/report.pdf', requireAuth, allowReport, (req, res) => {
   const report = buildCashReport(Number(req.params.id), { includeProfit: can(req.user, 'reports') });
   if (!report) return res.status(404).json({ error: 'Session not found' });
 
-  const pdf = renderCashReportPdf(report, { generatedBy: req.user.name || req.user.username || null });
+  /*
+   * `tz` is the reader's own timezone, sent by the app because this process
+   * cannot know it — it runs in UTC in a data centre and the shop is wherever
+   * the shop is. Anything unrecognised falls back to UTC rather than throwing,
+   * so a bad parameter cannot turn into a report that will not download.
+   */
+  const pdf = renderCashReportPdf(report, {
+    generatedBy: req.user.name || req.user.username || null,
+    timeZone: req.query.tz,
+  });
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename="${reportFilename(report)}"`);
   res.setHeader('Content-Length', pdf.length);

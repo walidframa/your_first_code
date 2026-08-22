@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { ArrowDownRight, ArrowUpRight, History, Search, SlidersHorizontal } from 'lucide-react';
 import api from '../../api';
 import PageHeader from '../../components/PageHeader';
+import { when } from '../../lib/when';
 import {
   Button,
   Card,
@@ -177,7 +178,7 @@ function HistoryModal({ product, onClose }) {
                   </span>
                 </p>
                 <p className="text-xs text-slate-400">
-                  {m.created_at} · {m.user_name || 'System'}
+                  {when(m.created_at)} · {m.user_name || 'System'}
                   {m.note ? ` · ${m.note}` : ''}
                 </p>
               </div>

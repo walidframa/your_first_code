@@ -12,6 +12,7 @@ import { THEMES, applyTheme, getTheme } from '../../lib/theme';
 import { useLanguage } from '../../context/LanguageContext';
 import { install, isInstalled, onInstallable } from '../../lib/install';
 import ChangePassword from '../ChangePassword';
+import { when } from '../../lib/when';
 import {
   Button,
   Card,
@@ -399,7 +400,7 @@ export default function Settings() {
                         {Number(h.rate).toLocaleString('en-US')}
                       </span>
                       <span className="truncate text-xs text-slate-400">
-                        {h.created_at} · {h.user_name || 'System'}
+                        {when(h.created_at)} · {h.user_name || 'System'}
                       </span>
                     </li>
                   ))}
