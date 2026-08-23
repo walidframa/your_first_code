@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useId, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   AlertTriangle,
   CheckCircle2,
@@ -338,11 +339,37 @@ export function Modal({ open, onClose, title, subtitle, children, footer, size =
 
   const sizes = { sm: 'max-w-sm', md: 'max-w-lg', lg: 'max-w-2xl', xl: 'max-w-4xl' };
 
-  return (
+  /*
+   * Out to the end of the document, rather than wherever it was written.
+   *
+   * A dialog is opened from the middle of whatever screen needs it, and several
+   * of those screens are forms — the repair intake, a document, the product
+   * editor. Rendered in place, the dialog's own `<form>` ends up *inside* that
+   * form, and nested forms are not a thing HTML has.
+   *
+   * What that did, at the counter: "New customer" on a repair ticket, filled
+   * in, "Add and use" — and the browser ran a **native** submit on the outer
+   * form rather than React's handler on the inner one. No request was made at
+   * all. The customer was not created, the half-typed ticket was thrown away,
+   * both dialogs vanished, and nothing said why.
+   *
+   * A modal is visually at the top of the page, so it belongs at the top of the
+   * document too. This also ends the old business of a dialog being clipped by
+   * an ancestor's `overflow: hidden`.
+   */
+  return createPortal(
     <div
       className="animate-backdrop-in fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-[2px]"
       onClick={onClose}
       role="presentation"
+      /*
+       * The DOM nesting is gone, but React's is not: an event inside a portal
+       * still bubbles up the *React* tree, so a form in here would still reach
+       * the onSubmit of the form it was written inside. This runs after the
+       * dialog's own handler — bubbling goes upward — so the dialog still
+       * submits itself, and the screen behind it is left alone.
+       */
+      onSubmit={(e) => e.stopPropagation()}
     >
       <div
         role="dialog"
@@ -375,7 +402,8 @@ export function Modal({ open, onClose, title, subtitle, children, footer, size =
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">{children}</div>
         {footer && <div className="border-t border-slate-100 px-5 py-3">{footer}</div>}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
