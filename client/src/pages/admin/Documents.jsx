@@ -154,10 +154,33 @@ function DocumentForm({ existing, startAs = null, onClose, onSaved }) {
    */
   const [lastPrices, setLastPrices] = useState({});
 
+  /*
+   * Whether this document is priced for the trade.
+   *
+   * The same fact as the switch on the register: a shop here has a price for
+   * the public and a price for the man who runs the repair place two streets
+   * over, and which one applies is a fact about the customer rather than about
+   * any one line. A quotation to another shop is priced trade all the way
+   * down, and retyping every line by hand is how a figure gets missed.
+   *
+   * Only for what the shop sells. A purchase invoice is already priced at what
+   * the shop *pays*, and a trade price on it would be two answers to the same
+   * question.
+   */
+  const [trade, setTrade] = useState(false);
+
   const meta = TYPE_META[docType];
   const partyType = meta.party;
   const isInvoice = docType.endsWith('invoice');
-  const priceField = docType === 'purchase_invoice' ? 'cost' : 'price';
+  const sells = docType !== 'purchase_invoice';
+  /*
+   * Which figure off the product a new line starts at.
+   *
+   * `wholesale_price` is null for most of a catalogue, and the reads below all
+   * fall back to `price` — which is the behaviour that matters: switching a
+   * document to trade must not price everything without a trade price at zero.
+   */
+  const priceField = !sells ? 'cost' : trade ? 'wholesale_price' : 'price';
 
   const loadProducts = useCallback(
     () => api.get('/products').then((res) => setProducts(res.data.products.filter((p) => p.active))),
@@ -227,7 +250,10 @@ function DocumentForm({ existing, startAs = null, onClose, onSaved }) {
   }, [partyType, partyId]);
 
   /*
-   * Switching between a cost-based and a price-based type re-prices the lines.
+   * Changing which figure the lines are priced from re-prices them — switching
+   * between a cost-based and a price-based type, and switching a selling
+   * document between retail and trade.
+   *
    * The first run is skipped so opening an edit form does not overwrite the
    * prices the document was actually agreed at.
    */
@@ -489,7 +515,43 @@ function DocumentForm({ existing, startAs = null, onClose, onSaved }) {
           </div>
 
           <div>
-            <p className="mb-1.5 text-sm font-medium text-slate-700">Add items</p>
+            <div className="mb-1.5 flex items-center justify-between gap-3">
+              <p className="text-sm font-medium text-slate-700">Add items</p>
+              {/*
+                * Retail or trade for the whole document.
+                *
+                * Beside the search rather than at the top of the form, because
+                * this is the decision that changes what the next line comes in
+                * at — and the lines already written move with it, since the
+                * price is a fact about who is being sold to rather than about
+                * any one of them.
+                *
+                * Not offered on a purchase invoice: those are already priced at
+                * what the shop pays.
+                */}
+              {sells && (
+                <div className="flex shrink-0 rounded-lg bg-slate-100 p-0.5 text-xs font-medium">
+                  {[
+                    ['Retail', false],
+                    ['Wholesale', true],
+                  ].map(([label, on]) => (
+                    <button
+                      key={label}
+                      type="button"
+                      onClick={() => setTrade(on)}
+                      aria-pressed={trade === on}
+                      className={
+                        trade === on
+                          ? 'rounded-md bg-white px-2.5 py-1 text-slate-900 shadow-sm'
+                          : 'rounded-md px-2.5 py-1 text-slate-500 transition hover:text-slate-800'
+                      }
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
             <ProductLineSearch
               products={products}
               priceField={priceField}
@@ -531,7 +593,7 @@ function DocumentForm({ existing, startAs = null, onClose, onSaved }) {
                       <th className="px-3 py-2 font-medium">Item</th>
                       <th className="w-20 px-2 py-2 text-right font-medium">Qty</th>
                       <th className="w-28 px-2 py-2 text-right font-medium">
-                        {priceField === 'cost' ? 'Cost' : 'Price'}
+                        {priceField === 'cost' ? 'Cost' : trade ? 'Wholesale' : 'Price'}
                       </th>
                       <th className="w-24 px-2 py-2 text-right font-medium">Total</th>
                       <th className="w-10 px-2 py-2" />
