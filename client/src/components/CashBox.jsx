@@ -19,6 +19,7 @@ import { combinedUsd } from '../lib/change.js';
 import { countDifference } from '../lib/cashCount.js';
 import { Button, Input, Modal, ModalActions, Select, cx, money, useToast } from './ui';
 import { useT } from '../context/LanguageContext';
+import { atTime } from '../lib/when';
 
 const IN_REASONS = [
   ['petty_cash', 'Petty cash'],
@@ -1049,7 +1050,7 @@ export default function CashBox({
             <p className="flex items-center justify-between text-[11px] text-slate-400">
               <span>
                 Open since{' '}
-                {new Date(`${session.opened_at}Z`).toLocaleTimeString([], { timeStyle: 'short' })} ·{' '}
+                {atTime(session.opened_at)} ·{' '}
                 {session.opened_by_name}
               </span>
               <button

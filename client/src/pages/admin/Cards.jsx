@@ -31,6 +31,7 @@ import {
   useToast,
 } from '../../components/ui';
 import { useConfirm } from '../../components/ConfirmProvider';
+import { when } from '../../lib/when';
 
 const KINDS = [
   ['recharge', 'Mobile recharge'],
@@ -374,7 +375,7 @@ function StatementDialog({ wallet, onClose }) {
           <tbody className="divide-y divide-slate-50">
             {data.movements.map((m) => (
               <tr key={m.id}>
-                <td className="py-2 text-slate-500">{m.created_at.slice(0, 16).replace('T', ' ')}</td>
+                <td className="py-2 text-slate-500">{when(m.created_at)}</td>
                 <td className="py-2 text-slate-700">
                   {m.product_name || m.note || m.kind.replace('_', ' ')}
                   {(m.order_number || m.doc_number) && (

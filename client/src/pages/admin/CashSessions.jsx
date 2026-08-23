@@ -7,6 +7,7 @@ import HistoryFilter from '../../components/HistoryFilter';
 import { useHistoryFilter } from '../../lib/history';
 import { lbp } from '../../context/SettingsContext';
 import { Badge, Card, EmptyState, LoadError, Skeleton, cx, money } from '../../components/ui';
+import { when, atTime } from '../../lib/when';
 
 /** Over/short in the currency it happened in — never the two added together. */
 function Difference({ usd, lbpAmount }) {
@@ -88,7 +89,7 @@ export default function CashSessions() {
                 <div className="text-right">
                   <Badge tone="good">cashbox open</Badge>
                   <p className="mt-1 text-xs text-slate-400">
-                    since {new Date(`${current.session.opened_at}Z`).toLocaleString()} ·{' '}
+                    since {when(current.session.opened_at)} ·{' '}
                     {current.session.opened_by_name}
                   </p>
                 </div>
@@ -187,12 +188,12 @@ export default function CashSessions() {
                     className="cursor-pointer hover:bg-slate-50/60"
                   >
                     <td className="px-5 py-2.5 font-medium text-slate-800">
-                      {new Date(`${s.opened_at}Z`).toLocaleString()}
+                      {when(s.opened_at)}
                     </td>
                     <td className="px-3 py-2.5 text-slate-500">{s.opened_by_name}</td>
                     <td className="px-3 py-2.5 text-slate-500">
                       {s.closed_at ? (
-                        new Date(`${s.closed_at}Z`).toLocaleTimeString([], { timeStyle: 'short' })
+                        atTime(s.closed_at)
                       ) : (
                         <Badge tone="good">open now</Badge>
                       )}

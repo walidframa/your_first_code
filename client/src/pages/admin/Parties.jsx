@@ -18,6 +18,7 @@ import PageHeader from '../../components/PageHeader';
 import AccountStatement from '../../components/AccountStatement';
 import VoucherSlip from '../../components/VoucherSlip';
 import { useSettings, lbp } from '../../context/SettingsContext';
+import { when } from '../../lib/when';
 import {
   Badge,
   Button,
@@ -560,7 +561,7 @@ function PartyDetail({ partyId, config, onClose, onChanged }) {
                         </span>
                       </p>
                       <p className="text-xs text-slate-400">
-                        {e.created_at}
+                        {when(e.created_at)}
                         {e.order_number ? ` · ${e.order_number}` : ''}
                         {e.paid_lbp > 0 ? ` · ${lbp(e.paid_lbp)}` : ''}
                         {e.note && !e.order_number ? ` · ${e.note}` : ''}

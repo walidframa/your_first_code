@@ -3,6 +3,7 @@ import { Download } from 'lucide-react';
 import api from '../api';
 import { lbp } from '../context/SettingsContext';
 import { Button, Badge, Modal, Skeleton, cx, money, useToast } from './ui';
+import { when, atTime } from '../lib/when';
 
 /*
  * Money missing is a different problem from money over: one is a loss, the
@@ -10,9 +11,9 @@ import { Button, Badge, Modal, Skeleton, cx, money, useToast } from './ui';
  */
 const tone = (value) => (value === 0 ? 'text-brand-700' : value < 0 ? 'text-red-600' : 'text-amber-600');
 
-const stamp = (value) => (value ? new Date(`${value}Z`).toLocaleString() : '—');
+const stamp = (value) => when(value);
 const clock = (value) =>
-  value ? new Date(`${value}Z`).toLocaleTimeString([], { timeStyle: 'short' }) : '';
+  atTime(value, '');
 
 function Section({ title, children, className }) {
   return (
@@ -73,7 +74,16 @@ export default function CashReport({ sessionId, onClose }) {
   async function download() {
     setDownloading(true);
     try {
-      const res = await api.get(`/cash/sessions/${sessionId}/report.pdf`, { responseType: 'blob' });
+      /*
+       * The phone's own timezone, told to the server, because the server has
+       * no way of working it out — and a PDF that disagrees with the screen
+       * about when a sitting opened is worse than one that says UTC.
+       */
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const res = await api.get(`/cash/sessions/${sessionId}/report.pdf`, {
+        responseType: 'blob',
+        params: tz ? { tz } : undefined,
+      });
       const name =
         /filename="([^"]+)"/.exec(res.headers['content-disposition'] || '')?.[1] ||
         `cashbox-${sessionId}.pdf`;

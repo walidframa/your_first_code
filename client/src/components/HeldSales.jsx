@@ -13,6 +13,7 @@ import {
   useToast,
 } from './ui';
 import { useConfirm } from './ConfirmProvider';
+import { atTime } from '../lib/when';
 
 /**
  * Put the sale down.
@@ -182,7 +183,7 @@ export function HeldSalesDialog({ onClose, onResume, onCountChange }) {
                 </p>
                 <p className="text-xs text-slate-400">
                   {sale.itemCount} item{sale.itemCount === 1 ? '' : 's'} · {sale.reference} ·{' '}
-                  {new Date(`${sale.heldAt}Z`).toLocaleTimeString([], { timeStyle: 'short' })}
+                  {atTime(sale.heldAt)}
                   {sale.heldByName ? ` · ${sale.heldByName}` : ''}
                 </p>
                 {sale.note && <p className="truncate text-xs text-slate-500 italic">{sale.note}</p>}

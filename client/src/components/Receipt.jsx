@@ -6,6 +6,7 @@ import Letterhead, { ReceiptFooter } from './Letterhead';
 import WhatsAppButton from './WhatsAppButton';
 import { lbp } from '../context/SettingsContext';
 import { A4, ROLL, usePageSize } from '../lib/pageSize';
+import { when } from '../lib/when';
 
 /**
  * Which paper this shop puts a receipt on.
@@ -170,7 +171,7 @@ function Roll({ order, items, tenders, rate, totalLbp, changeText, reprint, t })
         )}
         <p className="mt-2 text-xs text-slate-400">{order.order_number}</p>
         {/* A reprint is dated, so nobody mistakes it for today's sale. */}
-        {reprint && <p className="text-xs text-slate-400">{order.created_at}</p>}
+        {reprint && <p className="text-xs text-slate-400">{when(order.created_at)}</p>}
         {/*
           * Who it was for, on the roll as well as the sheet.
           *
