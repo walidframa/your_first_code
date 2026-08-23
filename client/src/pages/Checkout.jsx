@@ -1449,7 +1449,39 @@ export default function Checkout() {
                       >
                         <Minus size={13} />
                       </button>
-                      <span className="tnum w-6 text-center text-sm font-medium">{item.quantity}</span>
+                      {/*
+                        * Typed, not only stepped.
+                        *
+                        * Twelve of something is twelve presses of a 28-pixel
+                        * button with a customer waiting, and one press too many
+                        * is silent — the number goes up and nobody is counting
+                        * it out loud. A box takes "12" in one go.
+                        *
+                        * The + and − stay: one or two more of a thing is still
+                        * quicker with a thumb than with a keyboard, and on a
+                        * phone a number field opens the keypad over the cart.
+                        */}
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        aria-label={`Quantity of ${item.name}`}
+                        value={item.quantity}
+                        onChange={(e) => {
+                          /*
+                           * Digits only, and an empty box is allowed to stay
+                           * empty while somebody is retyping. Committing zero
+                           * on the way through would delete the line under
+                           * their hands — `updateQuantity` removes a line at
+                           * zero, which is right for the − button and wrong
+                           * halfway through typing "10".
+                           */
+                          const typed = e.target.value.replace(/\D/g, '');
+                          if (typed === '') return;
+                          updateQuantity(item.lineKey, Number(typed));
+                        }}
+                        onFocus={(e) => e.target.select()}
+                        className="tnum h-7 w-9 rounded-lg bg-slate-100 text-center text-sm font-medium text-slate-800 ring-1 ring-transparent transition focus:bg-white focus:ring-brand-600 focus:outline-none"
+                      />
                       <button
                         onClick={() => updateQuantity(item.lineKey, item.quantity + 1)}
                         disabled={!item.unlimited && item.quantity >= item.stock}
