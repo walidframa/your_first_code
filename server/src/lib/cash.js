@@ -63,6 +63,86 @@ export function defaultAccountId(branchId = null) {
   return db.prepare('SELECT id FROM cash_accounts WHERE is_default = 1').get()?.id ?? null;
 }
 
+/**
+ * The drawer the register rings into.
+ *
+ * Separate from the account above, and the separation is the point. A shop that
+ * keeps its money in a safe and makes the safe its default account was, until
+ * now, also ringing every sale at the counter straight into that safe: the
+ * cashier counted a drawer at the end of the shift against a figure that
+ * included every invoice the office had settled, and the count never agreed
+ * with anything.
+ *
+ * So the register is tied to a **drawer** — the physical box in front of the
+ * person taking the notes — and nothing else falls back to it. Sales, refunds,
+ * repairs and the money handed over for a trade-in all move through it and
+ * nothing else does.
+ *
+ * A shop with only the one account it started with has a drawer that is also
+ * the default, so this returns the same thing it always did and nothing about
+ * that shop changes.
+ */
+export function registerAccountId(branchId = null) {
+  /*
+   * This branch's own drawer first, for the same reason as above: two shops
+   * sharing a till means the second one's takings landing in the first one's
+   * count, and neither can be closed against what is physically in it.
+   */
+  if (branchId) {
+    const theirs = db
+      .prepare(
+        `SELECT id FROM cash_accounts
+         WHERE branch_id = ? AND active = 1 AND kind = 'drawer'
+         ORDER BY is_default DESC, id LIMIT 1`,
+      )
+      .get(branchId);
+    if (theirs) return theirs.id;
+    // No drawer at this branch: whatever it does keep its money in, rather
+    // than another branch's till.
+    return defaultAccountId(branchId);
+  }
+
+  const drawer = db
+    .prepare(
+      "SELECT id FROM cash_accounts WHERE active = 1 AND kind = 'drawer' ORDER BY is_default DESC, id LIMIT 1",
+    )
+    .get();
+  return drawer?.id ?? defaultAccountId(null);
+}
+
+/**
+ * Where a drawer's takings go when it is closed, or null if they stay put.
+ *
+ * A shift ends with the notes counted, a float left for tomorrow and the rest
+ * lifted out. That money does not stop existing — it goes into the safe, and
+ * the shop's cash on hand is the same before and after. Recording only the
+ * half where it left the drawer is how a day's takings could disappear between
+ * one screen and the next.
+ *
+ * Null in the two cases where there is nowhere to move it to: the drawer *is*
+ * the shop's standing account (the one-till shop, where lifting the money out
+ * really is a bank drop), or the default is another drawer — and a drawer is a
+ * shift somebody has to open and count, not a place to leave money overnight.
+ */
+export function sweepTargetFor(accountId) {
+  const target = db.prepare('SELECT id, name, kind, active FROM cash_accounts WHERE is_default = 1').get();
+  if (!target || !target.active) return null;
+  if (target.id === accountId) return null;
+  if (target.kind === 'drawer') return null;
+  return target;
+}
+
+/** What a till holds right now: every movement it has ever had, added up. */
+function balanceOfAccount(accountId) {
+  const row = db
+    .prepare(
+      `SELECT COALESCE(SUM(amount_usd), 0) AS usd, COALESCE(SUM(amount_lbp), 0) AS lbp
+       FROM cash_movements WHERE account_id = ?`,
+    )
+    .get(accountId);
+  return { usd: round2(row.usd), lbp: Math.round(row.lbp) };
+}
+
 export function currentSession(accountId = null, branchId = null) {
   const id = accountId ?? defaultAccountId(branchId);
   return db
@@ -74,6 +154,17 @@ export function currentSession(accountId = null, branchId = null) {
        WHERE s.status = 'open' AND s.account_id = ? ORDER BY s.id DESC LIMIT 1`,
     )
     .get(id);
+}
+
+/**
+ * The sitting on the register's drawer, if it is open.
+ *
+ * Said once here rather than as `currentSession(registerAccountId(branchId))`
+ * at every counter, so that "is the register open" cannot come to mean two
+ * different accounts on two different screens.
+ */
+export function registerSession(branchId = null) {
+  return currentSession(registerAccountId(branchId));
 }
 
 export function sessionById(id) {
@@ -117,13 +208,23 @@ export function openSession({
 
   const { exchange_rate: rate } = getSettings();
 
+  /*
+   * What is in the till before anybody adds anything — last night's carried
+   * float, most often. It is money the sitting has to account for even though
+   * nobody is declaring it now, so it is written down at the start rather than
+   * discovered as a mysterious surplus at the count.
+   */
+  const held = balanceOfAccount(account);
+
   return transaction(() => {
     const info = db
       .prepare(
-        `INSERT INTO cash_sessions (account_id, opened_by, opening_usd, opening_lbp, opening_note, exchange_rate)
-         VALUES (?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO cash_sessions
+           (account_id, opened_by, opening_usd, opening_lbp, opening_note, exchange_rate,
+            opening_balance_usd, opening_balance_lbp)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(account, userId, usd, lbp, note || null, rate);
+      .run(account, userId, usd, lbp, note || null, rate, held.usd, held.lbp);
 
     if (usd > 0 || lbp > 0) {
       db.prepare(
@@ -232,15 +333,29 @@ export function movementsFor(sessionId) {
     .all(sessionId);
 }
 
-/** What should be in the drawer: every movement, added up per currency. */
+/**
+ * What should be in the drawer: what it already held when the sitting opened,
+ * plus everything that has moved through it since.
+ *
+ * The first half used to be missing, and it was not zero. A drawer closed with
+ * a float left in it for tomorrow's change opens holding that float, and a
+ * sitting that counted only its own movements declared the float a surplus at
+ * the count — every morning, for ever, and the same money again the next day.
+ */
 export function expectedIn(sessionId) {
+  const session = db
+    .prepare('SELECT opening_balance_usd, opening_balance_lbp FROM cash_sessions WHERE id = ?')
+    .get(sessionId);
   const row = db
     .prepare(
       `SELECT COALESCE(SUM(amount_usd), 0) AS usd, COALESCE(SUM(amount_lbp), 0) AS lbp
        FROM cash_movements WHERE session_id = ?`,
     )
     .get(sessionId);
-  return { usd: round2(row.usd), lbp: Math.round(row.lbp) };
+  return {
+    usd: round2((session?.opening_balance_usd || 0) + row.usd),
+    lbp: Math.round((session?.opening_balance_lbp || 0) + row.lbp),
+  };
 }
 
 /**
@@ -370,17 +485,52 @@ export function closeSession({
       });
     }
 
+    /*
+     * What is lifted out of the drawer, and where it lands.
+     *
+     * Both halves, or neither. The drawer emptying and the safe filling are one
+     * event — the shop's cash on hand does not change when the notes are
+     * carried ten feet — and recording only the first half is how a day's
+     * takings vanished between the register screen and the accounts screen.
+     *
+     * With nowhere to move it to (see `sweepTargetFor`) it is what it always
+     * was: money out of the drawer and out of the shop's records, which for a
+     * one-till shop taking its takings to the bank is the truth.
+     */
     const banked = { usd: round2(counted.usd - carried.usd), lbp: counted.lbp - carried.lbp };
     if (banked.usd > 0 || banked.lbp > 0) {
-      recordMovement({
-        sessionId,
-        kind: 'bank_drop',
-        amountUsd: -banked.usd,
-        amountLbp: -banked.lbp,
-        reason: 'bank_drop',
-        note: 'Taken out of the drawer at close',
-        userId,
-      });
+      const target = sweepTargetFor(session.account_id);
+
+      if (target) {
+        recordMovement({
+          sessionId,
+          kind: 'sweep',
+          amountUsd: -banked.usd,
+          amountLbp: -banked.lbp,
+          reason: 'sweep',
+          note: `Moved to ${target.name} at close`,
+          userId,
+        });
+        recordMovement({
+          accountId: target.id,
+          kind: 'sweep',
+          amountUsd: banked.usd,
+          amountLbp: banked.lbp,
+          reason: 'sweep',
+          note: `From ${session.account_name || 'the drawer'} at close`,
+          userId,
+        });
+      } else {
+        recordMovement({
+          sessionId,
+          kind: 'bank_drop',
+          amountUsd: -banked.usd,
+          amountLbp: -banked.lbp,
+          reason: 'bank_drop',
+          note: 'Taken out of the drawer at close',
+          userId,
+        });
+      }
     }
 
     db.prepare(

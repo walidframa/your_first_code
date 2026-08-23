@@ -4,7 +4,6 @@ import { can } from '../lib/permissions.js';
 import {
   CASH_IN_REASONS,
   CASH_OUT_REASONS,
-  defaultAccountId,
   DENOMINATIONS,
   closeSession,
   currentSession,
@@ -14,12 +13,15 @@ import {
   movementsFor,
   openSession,
   recordMovement,
+  registerAccountId,
   requiresSession,
+  sweepTargetFor,
   sessionById,
   sessionSummary,
   SHORT_DRAWER_WARNING,
 } from '../lib/cash.js';
 import { buildCashReport, renderCashReportPdf, reportFilename, sessionProfit } from '../lib/cashReport.js';
+import { balanceOf as balanceOfCashAccount } from '../lib/cashAccounts.js';
 
 const router = Router();
 
@@ -50,17 +52,36 @@ function allowReport(req, res, next) {
  * it, and the close would tell nobody anything.
  */
 router.get('/current', requireAuth, (req, res) => {
-  // Which till is being asked about; every screen names its own, and anything
-  // that does not care gets the default one.
-  const accountId = Number(req.query.accountId) || null;
-  // No till named means this branch's own drawer, not the company's first one.
-  const session = currentSession(accountId, req.branchId);
+  /*
+   * Which till is being asked about. The accounts screen and the transfer desk
+   * name their own; the register does not, and what it means by "the cashbox"
+   * is the drawer in front of the cashier.
+   *
+   * It used to mean the shop's *default* account, and for a shop whose default
+   * is the safe in the back that made the register's panel a window onto the
+   * wrong pile of money — opening "the cashbox" opened the safe, and the count
+   * at close was against every invoice the office had settled.
+   */
+  const accountId = Number(req.query.accountId) || registerAccountId(req.branchId);
+  const session = currentSession(accountId);
   if (!session) {
     return res.json({
       session: null,
       required: requiresSession(),
       denominations: DENOMINATIONS,
-      accountId: accountId ?? defaultAccountId(req.branchId),
+      accountId,
+      /*
+       * What is already in it — last night's float, most often. Sent so that
+       * the open dialog can say so: asked flatly for "the float", a cashier
+       * types the change they can see in the drawer, and that money would then
+       * be counted twice.
+       *
+       * Not a blind-count problem. That rule is about the close, where being
+       * told the answer makes the count meaningless; at open there is nothing
+       * to be blind about, and hiding what the drawer holds only makes it
+       * likelier to be entered wrong.
+       */
+      held: balanceOfCashAccount(accountId),
     });
   }
 
@@ -88,6 +109,13 @@ router.get('/current', requireAuth, (req, res) => {
      * only appeared once is a warning nobody acted on.
      */
     short: drawerShort(session.id),
+    /*
+     * Where the takings go when this drawer is closed, so the count dialog can
+     * name it instead of saying "the bank" about money that is going into the
+     * safe in the back. Null for a shop whose drawer is also its standing
+     * account: there, the bank really is where it goes.
+     */
+    sweepTo: sweepTargetFor(session.account_id)?.name ?? null,
     movements: seesTheTill ? movements : movements.filter((m) => m.kind !== 'opening_float'),
     /*
      * What the shop has actually made while this till has been open — takings
@@ -108,8 +136,8 @@ router.post('/open', requireAuth, (req, res) => {
   try {
     const session = openSession({
       userId: req.user.id,
-      accountId,
-      branchId: req.branchId,
+      // Unnamed means the register's drawer — see the note on /current.
+      accountId: accountId ?? registerAccountId(req.branchId),
       openingUsd,
       openingLbp,
       note,
@@ -126,7 +154,7 @@ router.post('/open', requireAuth, (req, res) => {
  */
 router.post('/movements', requireAuth, (req, res) => {
   const { direction, amountUsd = 0, amountLbp = 0, reason, note, accountId = null } = req.body || {};
-  const session = currentSession(accountId, req.branchId);
+  const session = currentSession(accountId ?? registerAccountId(req.branchId));
   if (!session) return res.status(400).json({ error: 'Open the cashbox first' });
 
   if (!['in', 'out'].includes(direction)) {
@@ -180,7 +208,7 @@ router.post('/movements', requireAuth, (req, res) => {
 router.post('/close', requireAuth, (req, res) => {
   const { countedUsd = 0, countedLbp = 0, carriedUsd = null, carriedLbp = null, note, accountId = null } =
     req.body || {};
-  const session = currentSession(accountId, req.branchId);
+  const session = currentSession(accountId ?? registerAccountId(req.branchId));
   if (!session) return res.status(400).json({ error: 'The cashbox is not open' });
   try {
     const summary = closeSession({
@@ -202,7 +230,7 @@ router.get('/sessions', requireAuth, requirePermission('cashbox'), (req, res) =>
   res.json({
     sessions: listSessions(
       req.query.limit,
-      Number(req.query.accountId) || defaultAccountId(req.branchId),
+      Number(req.query.accountId) || registerAccountId(req.branchId),
     ),
   });
 });

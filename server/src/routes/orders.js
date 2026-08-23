@@ -5,7 +5,7 @@ import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { getSettings, taxRate } from '../lib/settings.js';
 import { addEntry, balanceOf, creditCheck } from '../lib/accounts.js';
 import { dominantMethod, readTenders, recordTenders, tenderSplit, tendersFor } from '../lib/tenders.js';
-import { currentSession, recordMovement, requiresSession } from '../lib/cash.js';
+import { recordMovement, registerAccountId, registerSession, requiresSession } from '../lib/cash.js';
 import {
   isAvailable,
   returnOneUnit,
@@ -497,7 +497,7 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
        * is the one path that pays out without going through the cash branch
        * below — where that check already lives.
        */
-      if (owedToCustomer > 0 && requiresSession() && !currentSession(null, branchId)) {
+      if (owedToCustomer > 0 && requiresSession() && !registerSession(branchId)) {
         throw new Error('The cashbox is closed — open it before paying the difference');
       }
 
@@ -541,7 +541,7 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
           const check = creditCheck(customerId, split.account);
           if (!check.ok) throw new Error(check.error);
         }
-        if (split.cash > 0 && requiresSession() && !currentSession(null, branchId)) {
+        if (split.cash > 0 && requiresSession() && !registerSession(branchId)) {
           throw new Error('The cashbox is closed — open it before taking cash');
         }
 
@@ -584,7 +584,7 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
          */
         // This branch's drawer: a sale at one counter cannot be taken against
         // the other shop's till.
-        if (requiresSession() && !currentSession(null, branchId)) {
+        if (requiresSession() && !registerSession(branchId)) {
           throw new Error('The cashbox is closed — open it before taking cash');
         }
 
@@ -683,7 +683,7 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
          * can be answered exactly rather than by comparing timestamps that are
          * only kept to the second.
          */
-        currentSession(null, branchId)?.id ?? null,
+        registerSession(branchId)?.id ?? null,
         clientRef ? String(clientRef) : null,
         tradeInValue,
         tradeInRecord?.tradeInId ?? null,
@@ -943,7 +943,10 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
       // card or an account remainder never touched it.
       if (split ? split.cash > 0 : paymentMethod === 'cash') {
         recordMovement({
-          branchId,
+          // The drawer in front of the cashier, named rather than left to the
+          // shop's default account — which for a shop that keeps its money in
+          // a safe is not the drawer at all.
+          accountId: registerAccountId(branchId),
           kind: 'sale',
           amountUsd: round2(paidUsd - changeUsd),
           amountLbp: paidLbp - changeLbp,
@@ -965,7 +968,7 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
        */
       if (owedToCustomer > 0) {
         recordMovement({
-          branchId,
+          accountId: registerAccountId(branchId),
           kind: 'cash_out',
           amountUsd: -owedToCustomer,
           reason: 'supplier',
@@ -1066,7 +1069,7 @@ router.get('/', requireAuth, (req, res) => {
    * list rather than by quietly falling back to every sale ever rung up.
    */
   if (req.query.scope === 'sitting') {
-    const session = currentSession(null, req.branchId);
+    const session = registerSession(req.branchId);
     if (!session) return res.json({ orders: [], session: null });
     sql += ' AND o.cash_session_id = ?';
     params.push(session.id);
@@ -1199,6 +1202,8 @@ router.post('/:id/refund', requireAuth, requirePermission('refunds'), (req, res)
     // Refunding a cash sale hands money back across the counter.
     if (order.payment_method === 'cash') {
       recordMovement({
+        // Handed back over the counter it was taken at.
+        accountId: registerAccountId(order.branch_id),
         kind: 'refund',
         amountUsd: -round2(order.paid_usd - order.change_usd),
         amountLbp: -(order.paid_lbp - order.change_lbp),
@@ -1335,6 +1340,7 @@ router.post('/:id/return-line', requireAuth, requirePermission('refunds'), (req,
     if (order.payment_method === 'cash' && order.total > 0) {
       const share = refund / order.total;
       recordMovement({
+        accountId: registerAccountId(order.branch_id),
         kind: 'refund',
         amountUsd: -round2((order.paid_usd - order.change_usd) * share),
         amountLbp: -Math.round((order.paid_lbp - order.change_lbp) * share),

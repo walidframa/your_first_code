@@ -76,16 +76,28 @@ export function listAccounts({ activeOnly = false } = {}) {
   }));
 }
 
-export function createAccount({ name, kind = 'drawer', note = null }) {
+export function createAccount({ name, kind = 'drawer', note = null, branchId = null }) {
   const trimmed = String(name || '').trim();
   if (!trimmed) throw new Error('A till needs a name');
   if (!CASH_ACCOUNT_KINDS.includes(kind)) {
     throw new Error(`kind must be one of: ${CASH_ACCOUNT_KINDS.join(', ')}`);
   }
 
+  /*
+   * Which shop it belongs to, written now rather than on the next restart.
+   *
+   * The branch backfill runs at boot and fills in anything left null, so a till
+   * made this afternoon did get a branch — tomorrow. In between, every screen
+   * that asks for "this branch's account" skipped it, which meant a shop that
+   * had just made a safe its default account went on paying its suppliers out
+   * of the counter drawer until somebody happened to restart the server.
+   */
+  const branch =
+    branchId ?? db.prepare('SELECT id FROM branches WHERE is_main = 1').get()?.id ?? null;
+
   const info = db
-    .prepare('INSERT INTO cash_accounts (name, kind, note) VALUES (?, ?, ?)')
-    .run(trimmed, kind, note || null);
+    .prepare('INSERT INTO cash_accounts (name, kind, note, branch_id) VALUES (?, ?, ?, ?)')
+    .run(trimmed, kind, note || null, branch);
   return accountById(info.lastInsertRowid);
 }
 

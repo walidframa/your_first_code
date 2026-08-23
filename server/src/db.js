@@ -920,7 +920,7 @@ db.exec(`
     session_id INTEGER NOT NULL REFERENCES cash_sessions(id),
     kind TEXT NOT NULL CHECK (kind IN (
       'opening_float', 'sale', 'refund', 'customer_payment', 'supplier_payment',
-      'document', 'transfer', 'voucher', 'cash_in', 'cash_out', 'bank_drop', 'correction'
+      'document', 'transfer', 'voucher', 'cash_in', 'cash_out', 'bank_drop', 'sweep', 'correction'
     )),
     /* Signed: positive is money in, negative is money out. */
     amount_usd REAL NOT NULL DEFAULT 0,
@@ -1002,13 +1002,18 @@ db.exec(`
  * the cash ledger — lumped in with petty cash they would make the end-of-day
  * report unreadable, which is the one thing it exists to be.
  *
+ * `sweep` is the same argument for the money that leaves a drawer when it is
+ * closed and lands in the shop's standing cash account. It used to be recorded
+ * as a `bank_drop`, which said the money had gone to the bank when in fact it
+ * had gone to the safe in the back — and the safe never heard about it.
+ *
  * SQLite cannot alter a CHECK constraint, so the table is rebuilt. Detected
  * from the stored DDL so it runs exactly once, and copied by column name so
  * anything added since comes across intact.
  */
 const CASH_MOVEMENT_KINDS = [
   'opening_float', 'sale', 'refund', 'customer_payment', 'supplier_payment',
-  'document', 'transfer', 'voucher', 'cash_in', 'cash_out', 'bank_drop', 'correction',
+  'document', 'transfer', 'voucher', 'cash_in', 'cash_out', 'bank_drop', 'sweep', 'correction',
 ];
 
 function migrateCashMovementKinds() {
@@ -1019,11 +1024,27 @@ function migrateCashMovementKinds() {
   // kind later is one edit here and the rebuild happens once.
   if (!row?.sql || CASH_MOVEMENT_KINDS.every((k) => row.sql.includes(`'${k}'`))) return;
 
-  const columns = db
-    .prepare('PRAGMA table_info(cash_movements)')
-    .all()
-    .map((c) => c.name)
-    .join(', ');
+  const present = db.prepare('PRAGMA table_info(cash_movements)').all();
+  const columns = present.map((c) => c.name).join(', ');
+
+  /*
+   * The columns this table has grown since the shape below was written.
+   *
+   * `account_id` is one of them, and it is added further down this file — after
+   * this migration runs. So the copy, which is by column name deliberately, was
+   * naming a column the rebuilt table did not have, and the whole thing failed
+   * on the first shop that had ever recorded a movement. The next kind added
+   * would have taken the server down on boot with the database half rebuilt.
+   *
+   * Re-added rather than hard-coded, so the same thing does not happen again
+   * the next time a column is added: whatever the live table carries, the
+   * rebuilt one carries too.
+   */
+  const base = new Set([
+    'id', 'session_id', 'kind', 'amount_usd', 'amount_lbp',
+    'reason', 'note', 'order_id', 'document_id', 'user_id', 'created_at',
+  ]);
+  const grown = present.filter((c) => !base.has(c.name));
 
   db.exec('PRAGMA foreign_keys = OFF');
   db.exec('BEGIN');
@@ -1043,6 +1064,11 @@ function migrateCashMovementKinds() {
         created_at TEXT NOT NULL DEFAULT (datetime('now'))
       )
     `);
+    // Nullable and without their foreign key: every column added by `addColumn`
+    // is nullable anyway, and the reference is not what the copy needs.
+    for (const column of grown) {
+      db.exec(`ALTER TABLE cash_movements_migrated ADD COLUMN ${column.name} ${column.type || 'TEXT'}`);
+    }
     db.exec(`INSERT INTO cash_movements_migrated (${columns}) SELECT ${columns} FROM cash_movements`);
     db.exec('DROP TABLE cash_movements');
     db.exec('ALTER TABLE cash_movements_migrated RENAME TO cash_movements');
@@ -1093,6 +1119,26 @@ db.exec(`
  * were several tills happened at the one there was.
  */
 addColumn('cash_sessions', 'account_id', 'INTEGER REFERENCES cash_accounts(id)');
+
+/*
+ * What the till already held when the sitting started.
+ *
+ * Not the same as the opening float, which is money *put in* now. A drawer
+ * that was closed last night with $20 left in it for change starts today
+ * holding $20 that nobody is adding and nobody declared — and until this
+ * column existed, the sitting did not know about it. Its expected contents was
+ * its own movements alone, so the count at close came out $20 over, and the
+ * $20 stayed behind when the takings were carried to the safe.
+ *
+ * Stored rather than worked out later: a sitting closed six months ago has to
+ * go on reporting the figure it was actually closed against, and the account
+ * has moved on since.
+ *
+ * Defaults to zero, which is exactly how every sitting recorded before this
+ * behaved, so nothing already in the books reads differently.
+ */
+addColumn('cash_sessions', 'opening_balance_usd', 'REAL NOT NULL DEFAULT 0');
+addColumn('cash_sessions', 'opening_balance_lbp', 'REAL NOT NULL DEFAULT 0');
 addColumn('cash_movements', 'account_id', 'INTEGER REFERENCES cash_accounts(id)');
 
 function seedDefaultCashAccount() {

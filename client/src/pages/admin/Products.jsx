@@ -272,11 +272,11 @@ function ProductModal({ product, categories, allProducts, onClose, onSaved, onCa
             * and some go out at barely over cost to keep a customer.
             */}
           <MoneyInput
-            label="Trade price"
+            label="Wholesale price"
             name="wholesale_price"
             value={form.wholesale_price}
             onChange={(v) => setForm((f) => ({ ...f, wholesale_price: v }))}
-            hint="What another shop pays. Leave empty if there is no trade price."
+            hint="What another shop pays. Leave empty if there is no wholesale price."
           />
           <Input
             label="Stock on hand"
@@ -565,10 +565,10 @@ export default function Products() {
     },
     {
       key: 'wholesale',
-      label: 'Trade price',
+      label: 'Wholesale',
       align: 'right',
-      // Blank rather than a dash-and-a-zero: most of a catalogue has no trade
-      // price, and a column of dashes reads as a column of missing data.
+      // Blank rather than a dash-and-a-zero: most of a catalogue has no
+      // wholesale price, and a column of dashes reads as a column of missing data.
       cell: (p) =>
         p.wholesale_price === null || p.wholesale_price === undefined ? (
           <span className="text-slate-300">—</span>

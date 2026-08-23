@@ -11,6 +11,7 @@ import {
   Plus,
   Search,
   ShoppingCart,
+  Tags,
   Trash2,
   UserRound,
   X,
@@ -166,6 +167,25 @@ export default function Checkout() {
    */
   const compact = useNarrow('(max-width: 1023px)');
   const [cartOpen, setCartOpen] = useState(false);
+
+  /*
+   * Who is buying: the public, or the trade.
+   *
+   * A shop here does not have one price for a thing. The man who runs the
+   * repair place two streets over buys chargers by the box and pays what a
+   * shop pays; the customer who walks in for one pays what the sticker says.
+   * Until now the cashier retyped every line by hand for the first man, which
+   * is slow at the counter and wrong about as often as it is right.
+   *
+   * A whole-sale switch rather than a per-line one, because that is the shape
+   * of the fact: it is not this charger that is being sold at trade, it is
+   * this customer who is in the trade.
+   *
+   * It resets to retail on every sale, deliberately — a till left in trade
+   * mode after the wholesaler has gone is a day of sales at cost that nobody
+   * notices until the month is counted.
+   */
+  const [trade, setTrade] = useState(false);
 
   /*
    * The screen stays on while the register is open, and only while it is.
@@ -324,6 +344,21 @@ export default function Checkout() {
     loadData();
   }, [loadData]);
 
+  /*
+   * What one of these costs the person standing in front of the till.
+   *
+   * The fallback is the retail price, and it is not a rounding: most of a
+   * catalogue has no trade price at all, and a shop switched into wholesale
+   * must not start selling the rest of its stock at zero.
+   */
+  const priceOf = useCallback(
+    (product) =>
+      trade && product.wholesale_price !== null && product.wholesale_price !== undefined
+        ? product.wholesale_price
+        : product.price,
+    [trade],
+  );
+
   const addToCart = useCallback(
     (product, quantity = 1, unit = null) => {
       let outcome = 'added';
@@ -346,7 +381,7 @@ export default function Checkout() {
               imei: unit.imei,
               name: product.name,
               sku: product.sku,
-              price: product.price,
+              price: priceOf(product),
               stock: 1,
               image_url: product.image_url,
               image_emoji: product.image_emoji,
@@ -397,7 +432,7 @@ export default function Checkout() {
             unitId: null,
             name: product.name,
             sku: product.sku,
-            price: product.price,
+            price: priceOf(product),
             stock: product.stock,
             unlimited,
             noCreditSetUp,
@@ -425,7 +460,7 @@ export default function Checkout() {
       }
       return outcome;
     },
-    [toast],
+    [toast, priceOf],
   );
 
   /** Scan or type an exact barcode/SKU and press Enter to add it. */
@@ -637,6 +672,44 @@ export default function Checkout() {
       ),
     );
   }
+
+  /**
+   * Switch the whole sale between retail and trade prices.
+   *
+   * Everything already on the cart is re-priced, because the switch is about
+   * the customer rather than about one line — realising halfway through that
+   * this is the man from the repair shop should not mean starting the sale
+   * again.
+   *
+   * With one exception: a line whose price was typed by hand is left as it was
+   * typed. Somebody stood at the counter and agreed that figure out loud, and
+   * quietly replacing it with a catalogue price is the one thing this must not
+   * do. `listPrice` is set only by `setLinePrice`, so it is exactly the mark of
+   * a line that was argued over.
+   */
+  function setTradePrices(on) {
+    setTrade(on);
+    setCart((prev) =>
+      prev.map((i) => {
+        if (i.listPrice !== undefined && i.listPrice !== null) return i;
+        const product = products.find((p) => p.id === i.productId);
+        if (!product) return i;
+        const price =
+          on && product.wholesale_price !== null && product.wholesale_price !== undefined
+            ? product.wholesale_price
+            : product.price;
+        return price === i.price ? i : { ...i, price };
+      }),
+    );
+  }
+
+  /** How many lines the switch above will actually move, for the tally beside it. */
+  const tradeLines = trade
+    ? cart.filter((i) => {
+        const product = products.find((p) => p.id === i.productId);
+        return product?.wholesale_price !== null && product?.wholesale_price !== undefined;
+      }).length
+    : 0;
 
   function updateQuantity(lineKey, quantity) {
     setCart((prev) =>
@@ -853,6 +926,12 @@ export default function Checkout() {
       setBuyer({ name: '', phone: '' });
       setAccounts([]);
       setTradeIn(null);
+      /*
+       * Back to retail for the next customer. The wholesaler is a visitor, not
+       * a setting: a till left in trade mode sells the rest of the day at cost
+       * and nobody notices until the month is counted.
+       */
+      setTrade(false);
       setPaymentOpen(false);
       /*
        * Only worth re-reading the catalogue when there is something to read it
@@ -1220,6 +1299,39 @@ export default function Checkout() {
           </div>
           <div className="flex shrink-0 items-center gap-1">
             {/*
+             * Retail or trade, and which one it is on right now.
+             *
+             * A switch rather than a menu: there are two answers, the cashier
+             * needs to see which is live without opening anything, and when it
+             * is on it has to be impossible to miss — a till left in trade
+             * mode after the wholesaler has left sells a day's stock at cost
+             * and nobody finds out until the month is counted. So retail is
+             * quiet and trade is loud.
+             */}
+            <button
+              onClick={() => setTradePrices(!trade)}
+              title={
+                trade
+                  ? 'Selling at wholesale prices — press to go back to retail'
+                  : 'Selling at retail prices — press to switch to wholesale'
+              }
+              aria-pressed={trade}
+              className={cx(
+                'flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-semibold transition',
+                trade
+                  ? 'bg-violet-600 text-white hover:bg-violet-700'
+                  : 'text-slate-500 hover:bg-slate-100 hover:text-slate-800',
+              )}
+            >
+              <Tags size={13} />
+              {trade ? t('Wholesale') : t('Retail')}
+              {/* How many lines are actually on a trade price, so a cart of
+                  things that have none does not look like a discount that
+                  never happened. */}
+              {trade && tradeLines > 0 && <span className="font-normal">· {tradeLines}</span>}
+            </button>
+
+            {/*
              * What this till has already sold, and the way to put something
              * back. The sale somebody wants to correct is almost always the
              * last one, so the way to it belongs here rather than three screens
@@ -1258,6 +1370,7 @@ export default function Checkout() {
                     // The trade-in goes with it: a phone left attached to an
                     // emptied cart would be taken in against the next customer.
                     setTradeIn(null);
+                    setTrade(false);
                   }}
                   className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-slate-500 transition hover:bg-red-50 hover:text-red-600"
                 >
@@ -1899,6 +2012,7 @@ export default function Checkout() {
             setCart([]);
             setDiscountValue(0);
             setDiscountMode('percent');
+            setTrade(false);
             setCustomer(null);
             // The old phone goes with it: a trade-in left attached to a cleared
             // counter would be taken in against the next customer.

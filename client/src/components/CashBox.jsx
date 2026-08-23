@@ -90,7 +90,7 @@ const round2 = (n) => Math.round(n * 100) / 100;
 
 /* ------------------------------------------------------------------- open */
 
-function OpenDrawer({ denominations, accountId, onClose, onOpened }) {
+function OpenDrawer({ denominations, accountId, held, onClose, onOpened }) {
   const toast = useToast();
   const [usd, setUsd] = useState('');
   const [lbpAmount, setLbpAmount] = useState('');
@@ -121,6 +121,27 @@ function OpenDrawer({ denominations, accountId, onClose, onOpened }) {
   return (
     <Modal open onClose={onClose} title="Open the cashbox" subtitle="What is in the drawer to start with?">
       <form onSubmit={submit} className="space-y-4">
+        {/*
+          * What is already in there, before anything is typed.
+          *
+          * A drawer closed last night with change left in it opens holding
+          * that change, and the sitting counts it. Asked flatly for "the
+          * float", a cashier looks in the drawer and types what they see —
+          * which would count the same notes twice and leave the shift showing
+          * a surplus every morning.
+          */}
+        {(held?.usd > 0 || held?.lbp > 0) && (
+          <p className="rounded-xl bg-brand-50 px-3 py-2.5 text-sm text-brand-900">
+            The drawer already holds{' '}
+            <span className="tnum font-semibold">
+              {held.usd > 0 && money(held.usd)}
+              {held.usd > 0 && held.lbp > 0 && ' + '}
+              {held.lbp > 0 && lbp(held.lbp)}
+            </span>{' '}
+            from last time. It is counted already — enter only what you are adding now.
+          </p>
+        )}
+
         <p className="rounded-xl bg-slate-50 px-3 py-2.5 text-sm text-slate-600">
           Put in the float — the change you are starting the day with. Leave it empty if the drawer is bare.
         </p>
@@ -188,7 +209,7 @@ function OpenDrawer({ denominations, accountId, onClose, onOpened }) {
  * behind this dialog, so for them the difference is shown as they type — which
  * is the question they opened the dialog to answer.
  */
-function CloseDrawer({ denominations, accountId, expected, onClose, onClosed, onReport }) {
+function CloseDrawer({ denominations, accountId, expected, sweepTo, onClose, onClosed, onReport }) {
   const t = useT();
   const toast = useToast();
   const { rate } = useSettings();
@@ -507,7 +528,13 @@ function CloseDrawer({ denominations, accountId, expected, onClose, onClosed, on
               onChange={(e) => setCarryLbp(e.target.value)}
             />
           </div>
-          <p className="mt-1.5 text-xs text-slate-500">The rest is recorded as going to the bank.</p>
+          {/* Named, because it is a different fact. The rest of the drawer used
+              to be recorded as going to the bank whatever actually happened to
+              it; where the shop keeps a standing cash account, it goes there
+              and that account is credited with it. */}
+          <p className="mt-1.5 text-xs text-slate-500">
+            {sweepTo ? `The rest is moved to ${sweepTo}.` : 'The rest is recorded as going to the bank.'}
+          </p>
         </div>
 
         <Input
@@ -794,6 +821,7 @@ export default function CashBox({
             <OpenDrawer
               denominations={denominations}
               accountId={accountId}
+              held={state.held}
               onClose={() => setDialog(null)}
               onOpened={done}
             />
@@ -826,6 +854,7 @@ export default function CashBox({
           <OpenDrawer
             denominations={denominations}
             accountId={accountId}
+            held={state.held}
             onClose={() => setDialog(null)}
             onOpened={done}
           />
@@ -1099,6 +1128,7 @@ export default function CashBox({
         <CloseDrawer
           denominations={denominations}
           accountId={accountId}
+          sweepTo={state.sweepTo}
           expected={state?.expected ?? null}
           onClose={() => setDialog(null)}
           onClosed={done}

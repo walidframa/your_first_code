@@ -248,11 +248,24 @@ export function recordVoucher({
   }
 
   /*
-   * Cash needs a drawer to come out of or go into. Told afterwards, the money
-   * has already been counted across the counter.
+   * A drawer needs to be open for money to cross it. Told afterwards, the cash
+   * has already been counted across the counter and the shift cannot account
+   * for it.
+   *
+   * Only a drawer, though. A safe, a bank account or an office float is a
+   * standing balance rather than a shift — nobody counts the safe at the end of
+   * the day and hands it over — so there is nothing to "open" about one, and
+   * `recordMovement` opens the empty sitting it needs by itself.
+   *
+   * Blanket, this was the last place the old rule still bit. A shop that made
+   * its safe the account every screen falls back to could not pay a supplier
+   * at all: the money was to come out of the safe, the safe had no sitting
+   * because a safe never does, and the payment was refused with an instruction
+   * — open the safe's cashbox — that describes nothing the shop does.
    */
   for (const side of [from, to]) {
-    if (side.type === 'cash' && requiresSession() && !currentSession(side.id)) {
+    if (side.type !== 'cash' || side.till?.kind !== 'drawer') continue;
+    if (requiresSession() && !currentSession(side.id)) {
       throw new Error(`${side.name} is closed — open its cashbox first`);
     }
   }
