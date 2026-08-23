@@ -30,6 +30,7 @@ const KIND_LABELS = {
   cash_in: 'Cash in',
   cash_out: 'Cash out',
   bank_drop: 'To the bank',
+  sweep: 'Moved to the cash account',
   correction: 'Over / short',
 };
 
@@ -38,6 +39,7 @@ const REASON_LABELS = {
   owner_funds: 'owner’s money',
   owner_draw: 'owner took out',
   bank_drop: 'to the bank',
+  sweep: 'moved to the cash account',
   customer_payment: 'customer payment',
   supplier: 'supplier',
   expense: 'expense',

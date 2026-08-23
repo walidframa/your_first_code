@@ -30,7 +30,7 @@ router.get('/registry', requireAuth, (req, res) => {
  */
 router.post('/cash', requireAuth, requirePermission('cashbox'), (req, res) => {
   try {
-    res.status(201).json({ account: createAccount(req.body || {}) });
+    res.status(201).json({ account: createAccount({ branchId: req.branchId, ...(req.body || {}) }) });
   } catch (err) {
     const conflict = String(err.message).includes('UNIQUE');
     res.status(conflict ? 409 : 400).json({

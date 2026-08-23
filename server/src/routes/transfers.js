@@ -85,7 +85,7 @@ router.put('/till', ...owner, (req, res) => {
     const { accountId = undefined, name = undefined } = req.body || {};
 
     if (name !== undefined && String(name).trim()) {
-      const account = createAccount({ name, kind: 'drawer' });
+      const account = createAccount({ name, kind: 'drawer', branchId: req.branchId });
       setSetting('transfer_account_id', String(account.id), req.user.id);
     } else if (accountId === null || accountId === '') {
       // Back to sharing the register's drawer.

@@ -4,7 +4,7 @@ import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { decryptSecret } from '../lib/secrets.js';
 import { normaliseImei } from '../lib/units.js';
 import { getSettings } from '../lib/settings.js';
-import { recordMovement, currentSession, requiresSession } from '../lib/cash.js';
+import { recordMovement, registerAccountId, registerSession, requiresSession } from '../lib/cash.js';
 import {
   REPAIR_STATUSES,
   addPart,
@@ -205,7 +205,7 @@ router.post('/:id/payment', requireAuth, (req, res) => {
       if (!ticket) throw new Error('Ticket not found');
 
       const { paidUsd, paidLbp } = tally(payments);
-      if (requiresSession() && !currentSession(null, ticket.branch_id)) {
+      if (requiresSession() && !registerSession(ticket.branch_id)) {
         throw new Error('The cashbox is closed — open it before taking cash');
       }
       recordMovement({
@@ -214,7 +214,9 @@ router.post('/:id/payment', requireAuth, (req, res) => {
         amountLbp: paidLbp,
         note: `Repair ${ticket.ticket_number}`,
         userId: req.user.id,
-        branchId: ticket.branch_id,
+        // The counter drawer, not the shop's default account: a repair is paid
+        // for at the same till the sales are rung up on.
+        accountId: registerAccountId(ticket.branch_id),
       });
 
       return takePayment(ticket.id, { charged, paidUsd, paidLbp, note }, req.user.id);
@@ -262,7 +264,7 @@ router.post('/:id/collect', requireAuth, (req, res) => {
       const { paidUsd, paidLbp } = tally(payments);
 
       if (paidUsd > 0 || paidLbp > 0) {
-        if (requiresSession() && !currentSession(null, ticket.branch_id)) {
+        if (requiresSession() && !registerSession(ticket.branch_id)) {
           throw new Error('The cashbox is closed — open it before taking cash');
         }
         recordMovement({
@@ -271,7 +273,7 @@ router.post('/:id/collect', requireAuth, (req, res) => {
           amountLbp: paidLbp,
           note: `Repair ${ticket.ticket_number}`,
           userId: req.user.id,
-          branchId: ticket.branch_id,
+          accountId: registerAccountId(ticket.branch_id),
         });
       }
 
@@ -315,7 +317,7 @@ router.post('/trade-ins', requireAuth, (req, res) => {
       if (paidUsd > 0 || paidLbp > 0) {
         // This branch's till, not the company's first one — the money comes out
         // of the drawer standing in front of whoever is paying for the phone.
-        if (requiresSession() && !currentSession(null, req.branchId)) {
+        if (requiresSession() && !registerSession(req.branchId)) {
           throw new Error('The cashbox is closed — open it before paying for a trade-in');
         }
         recordMovement({
@@ -325,7 +327,7 @@ router.post('/trade-ins', requireAuth, (req, res) => {
           reason: 'supplier',
           note: `Traded in ${taken.unit.imei}`,
           userId: req.user.id,
-          branchId: req.branchId,
+          accountId: registerAccountId(req.branchId),
         });
       }
 
