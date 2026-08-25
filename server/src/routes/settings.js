@@ -8,6 +8,7 @@ import {
   recordRateChange,
   getRateHistory,
 } from '../lib/settings.js';
+import { NOTIFY_EVENTS, enabledEvents, isConfigured, lastSend, sendMessage } from '../lib/telegram.js';
 
 const router = Router();
 
@@ -29,6 +30,14 @@ const COMPANY_FIELDS = [
   'company_logo_url',
   'receipt_footer',
   'phone_country_code',
+];
+
+const TELEGRAM_FIELDS = [
+  'telegram_enabled',
+  'telegram_bot_token',
+  'telegram_chat_id',
+  'telegram_events',
+  'telegram_base_url',
 ];
 
 const MAX_LOGO_BYTES = 400 * 1024;
@@ -162,7 +171,92 @@ router.put('/', requireAuth, requirePermission('settings'), (req, res) => {
     setSetting(field, value, req.user.id);
   }
 
+  /*
+   * Telling the owner what happened.
+   *
+   * Its own block rather than another name in COMPANY_FIELDS, because each of
+   * these fails in the same nasty way when it is wrong: silence. A mistyped bot
+   * token and a shop that simply has not sold anything yet look identical from
+   * the settings screen, so what can be checked is checked here.
+   */
+  for (const field of TELEGRAM_FIELDS) {
+    if (req.body[field] === undefined) continue;
+    const value = String(req.body[field] ?? '').trim();
+
+    /*
+     * Telegram issues these as `<digits>:<letters and dashes>`. A token pasted
+     * with the surrounding quotes, or half of one, produces "unauthorized" —
+     * which the shop never sees, because nothing awaits the send.
+     */
+    if (field === 'telegram_bot_token' && value && !/^\d{5,}:[\w-]{20,}$/.test(value)) {
+      return res.status(400).json({
+        error: 'That does not look like a bot token. BotFather gives you one like 123456789:AA…',
+      });
+    }
+    /* A group's id is negative, a person's is positive; both are digits. */
+    if (field === 'telegram_chat_id' && value && !/^-?\d+$/.test(value)) {
+      return res.status(400).json({ error: 'A chat id is a number, like 123456789 or -1001234567890' });
+    }
+    if (field === 'telegram_events' && value) {
+      const unknown = value.split(',').map((v) => v.trim()).filter((v) => v && !(v in NOTIFY_EVENTS));
+      if (unknown.length) {
+        return res.status(400).json({ error: `Not an event this app sends: ${unknown.join(', ')}` });
+      }
+    }
+    /*
+     * Only ever pointed somewhere else by the tests. In a running shop this
+     * would be a way to send every sale to somebody else's server, and no shop
+     * has a reason to change it.
+     */
+    if (field === 'telegram_base_url' && process.env.NODE_ENV !== 'test') continue;
+
+    setSetting(field, value, req.user.id);
+  }
+
   res.json({ settings: publicSettings() });
+});
+
+/**
+ * Send one message now, and say plainly whether it arrived.
+ *
+ * The whole setup is two strings copied from two different places in Telegram,
+ * and getting either of them wrong produces silence rather than an error. So
+ * this is not a nicety: it is the only way a shop can tell the difference
+ * between "configured correctly and nothing has happened yet" and "typed the
+ * chat id wrong a week ago".
+ *
+ * Awaited, unlike every other send in the app, because this is the one caller
+ * that exists specifically to find out.
+ */
+router.post('/telegram/test', requireAuth, requirePermission('settings'), async (req, res) => {
+  try {
+    await sendMessage(
+      `✅ <b>Front Desk is connected</b>\nThis is a test message from ${
+        getSettings().company_name || 'your shop'
+      }. Sales, voids and cash movements will arrive here.`,
+    );
+    // A message that got through clears the tally: whatever was wrong is not
+    // wrong any more, and a stale count would keep saying it was.
+    setSetting('telegram_failures', '0', req.user.id);
+    setSetting('telegram_last_error', '', req.user.id);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+/** Whether the last message got through, for the settings screen. */
+router.get('/telegram/status', requireAuth, requirePermission('settings'), (req, res) => {
+  const settings = getSettings();
+  res.json({
+    configured: isConfigured(settings),
+    enabled: String(settings.telegram_enabled) === 'true',
+    events: NOTIFY_EVENTS,
+    chosen: [...enabledEvents(settings)],
+    failures: Number(settings.telegram_failures || 0),
+    lastError: settings.telegram_last_error || null,
+    lastSend: lastSend(),
+  });
 });
 
 export default router;

@@ -6,12 +6,15 @@ import {
   addExpense,
   deleteExpense,
   expenseSummary,
+  getExpense,
   listExpenses,
 } from '../lib/expenses.js';
 import { currentSession, drawerShort, SHORT_DRAWER_WARNING } from '../lib/cash.js';
 import { presetRange, profitForSession, profitReport } from '../lib/profit.js';
 import { capitalHistory, stockAtCost } from '../lib/capital.js';
 import { can } from '../lib/permissions.js';
+import { notify } from '../lib/telegram.js';
+import { deletedText } from '../lib/notifyText.js';
 
 const router = Router();
 /*
@@ -68,7 +71,21 @@ router.post('/', ...spending, (req, res) => {
 
 router.delete('/:id', ...spending, (req, res) => {
   try {
+    // Read before it goes, because afterwards there is nothing left to say.
+    const going = getExpense(Number(req.params.id));
     res.json(deleteExpense(Number(req.params.id), req.user.id));
+
+    if (going) {
+      notify(
+        'delete',
+        deletedText({
+          what: 'expense',
+          detail: `${going.category} · ${Number(going.amount_usd || 0).toFixed(2)} USD`,
+          user: req.user.name,
+          branchId: going.branch_id,
+        }),
+      );
+    }
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
