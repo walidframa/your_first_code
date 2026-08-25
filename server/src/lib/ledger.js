@@ -192,6 +192,16 @@ export function checkLines(lines) {
     if (debit > 0 && credit > 0) return `${where}: put the amount in one column, not both`;
     if (debit === 0 && credit === 0) return `${where}: there is no amount on it`;
 
+    for (const [key, table, what] of [
+      ['costCentreId', 'cost_centres', 'cost centre'],
+      ['areaId', 'areas', 'area'],
+    ]) {
+      if (!line[key]) continue;
+      const found = db.prepare(`SELECT active FROM ${table} WHERE id = ?`).get(line[key]);
+      if (!found) return `${where}: that ${what} does not exist`;
+      if (!found.active) return `${where}: that ${what} has been put away`;
+    }
+
     debits = round2(debits + debit);
     credits = round2(credits + credit);
   }
@@ -237,8 +247,9 @@ export function postEntry({
       .run(number, entryDate || null, memo || null, source, getExchangeRate(), branchId, reversesId, userId);
 
     const insert = db.prepare(
-      `INSERT INTO journal_lines (entry_id, account_id, debit_usd, credit_usd, memo, position)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO journal_lines
+         (entry_id, account_id, debit_usd, credit_usd, memo, position, cost_centre_id, area_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     for (const [i, line] of lines.entries()) {
       insert.run(
@@ -248,6 +259,13 @@ export function postEntry({
         round2(Number(line.credit) || 0),
         line.memo || null,
         i,
+        /*
+         * On the line rather than the entry, deliberately: one invoice can
+         * carry rent for two shops, and a sale can earn for the counter while
+         * the part fitted to it costs the repair bench.
+         */
+        line.costCentreId || null,
+        line.areaId || null,
       );
     }
     return entryById(info.lastInsertRowid);
@@ -269,9 +287,12 @@ export function entryById(id) {
 
   const lines = db
     .prepare(
-      `SELECT l.*, a.code AS account_code, a.name AS account_name, a.type AS account_type
+      `SELECT l.*, a.code AS account_code, a.name AS account_name, a.type AS account_type,
+              c.name AS cost_centre_name, r.name AS area_name
        FROM journal_lines l
        JOIN gl_accounts a ON a.id = l.account_id
+       LEFT JOIN cost_centres c ON c.id = l.cost_centre_id
+       LEFT JOIN areas r ON r.id = l.area_id
        WHERE l.entry_id = ? ORDER BY l.position, l.id`,
     )
     .all(id);
@@ -325,6 +346,10 @@ export function reverseEntry(id, { userId = null, memo = null } = {}) {
         debit: l.credit_usd,
         credit: l.debit_usd,
         memo: l.memo,
+        // Carried across, or the correction lands on nobody and the centre it
+        // was charged to keeps a cost that has been taken back.
+        costCentreId: l.cost_centre_id,
+        areaId: l.area_id,
       })),
       source: entry.source,
       branchId: entry.branch_id,

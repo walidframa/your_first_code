@@ -2465,6 +2465,62 @@ function seedSuspense() {
 
 seedSuspense();
 
+/*
+ * Cost centres and areas: the two questions a chart of accounts cannot answer.
+ *
+ * An account says *what* the money was — rent, sales, wages. It cannot say
+ * *which part of the shop* it belonged to, and that is the question an owner
+ * actually asks: is the repair bench making money, or is it being carried by
+ * the phone counter? Which of the two shops is paying for itself?
+ *
+ * The chart cannot answer it, and the usual attempt to make it — "Rent, Saida"
+ * and "Rent, Beirut" and "Wages, Saida" — doubles the chart every time a
+ * branch opens and still cannot report on a centre across accounts.
+ *
+ * So they are a second axis, hung on the *line* rather than on the entry: one
+ * invoice can carry rent for two shops, and a sale can earn for the counter
+ * while the part fitted to it costs the repair bench.
+ *
+ * Two of them rather than one, because they answer different questions and a
+ * shop wants to cross them. A **cost centre** is a part of the business — the
+ * counter, the repair bench, deliveries. An **area** is where — a town, a
+ * district, a round. "Repairs in Saida" is a question neither can answer
+ * alone.
+ */
+db.exec(`
+  CREATE TABLE IF NOT EXISTS cost_centres (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    code TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL,
+    note TEXT,
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS areas (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    code TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL,
+    note TEXT,
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+`);
+
+/*
+ * On the line, not the entry — see above. Nullable, and most lines will never
+ * carry one: a shop that does not want this axis must not be made to answer a
+ * question it is not asking on every entry it writes.
+ */
+addColumn('journal_lines', 'cost_centre_id', 'INTEGER REFERENCES cost_centres(id)');
+addColumn('journal_lines', 'area_id', 'INTEGER REFERENCES areas(id)');
+addColumn('branches', 'area_id', 'INTEGER REFERENCES areas(id)');
+
+db.exec(`
+  CREATE INDEX IF NOT EXISTS idx_journal_lines_centre ON journal_lines(cost_centre_id);
+  CREATE INDEX IF NOT EXISTS idx_journal_lines_area ON journal_lines(area_id);
+`);
+
 export const ADJUSTMENT_REASONS = [
   'received',
   'damaged',

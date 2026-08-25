@@ -15,9 +15,54 @@ import {
   trialBalance,
   updateAccount,
 } from '../lib/ledger.js';
+import { DIMENSIONS, archive, create, list, performance, update } from '../lib/dimensions.js';
 
 const router = Router();
 const books = [requireAuth, requirePermission('ledger')];
+
+/* --------------------------------------------- cost centres and areas */
+
+/**
+ * The two axes share one set of routes because they are one idea pointed at
+ * two questions — see lib/dimensions.js. Writing them twice would be two sets
+ * of rules to keep in step for no gain.
+ */
+for (const kind of Object.keys(DIMENSIONS)) {
+  const path = kind === 'centre' ? 'cost-centres' : 'areas';
+
+  router.get(`/${path}`, ...books, (req, res) => {
+    res.json({ items: list(kind, { activeOnly: req.query.activeOnly === 'true' }) });
+  });
+
+  router.post(`/${path}`, ...books, (req, res) => {
+    try {
+      res.status(201).json({ item: create(kind, req.body || {}) });
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  router.put(`/${path}/:id`, ...books, (req, res) => {
+    try {
+      res.json({ item: update(kind, Number(req.params.id), req.body || {}) });
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  router.delete(`/${path}/:id`, ...books, (req, res) => {
+    try {
+      res.json({ item: archive(kind, Number(req.params.id)) });
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  /** What each one earned and spent — the question the chart cannot answer. */
+  router.get(`/${path}/performance`, ...books, (req, res) => {
+    res.json(performance(kind, { from: req.query.from || null, to: req.query.to || null }));
+  });
+}
 
 /* ------------------------------------------------------ chart of accounts */
 
