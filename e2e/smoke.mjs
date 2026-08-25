@@ -1889,7 +1889,13 @@ try {
 
   await step('recording a payment moves the balance', async () => {
     await page.click('td:has-text("Rami Haddad")');
-    await page.waitForSelector('text=Balance', { timeout: 15000 });
+    /*
+     * Exact, and inside the page rather than the rail. A loose "Balance" also
+     * matches "Trial balance" in the navigation, so this waited on a link that
+     * was already there and then clicked Charge before the customer's panel had
+     * opened — a wait that passes without waiting for anything.
+     */
+    await page.waitForSelector('main >> text="Balance"', { timeout: 15000 });
     await page.click('button:has-text("Charge")');
     await page.waitForSelector('text=Add a charge');
     await page.fill('[role=dialog] input[type=number] >> nth=0', '50');

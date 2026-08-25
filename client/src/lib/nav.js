@@ -12,13 +12,16 @@ import {
   FileText,
   HandCoins,
   IdCard,
+  BookOpen,
   KeyRound,
   Landmark,
+  ListTree,
   Package,
   PiggyBank,
   Receipt,
   ReceiptText,
   ScanLine,
+  Scale,
   ScrollText,
   Settings as SettingsIcon,
   ShoppingBag,
@@ -133,6 +136,23 @@ export const ADMIN_NAV = [
       /* What the shop is worth, which is the same arithmetic seen from further
          back — every month's profit, added to what the owner started with. */
       { to: '/admin/capital', label: 'Capital', icon: PiggyBank, permission: 'reports' },
+    ],
+  },
+  {
+    /*
+     * The books, kept apart from Money on purpose.
+     *
+     * Money is what a shopkeeper looks at — takings, the drawer, what was
+     * spent. This is the same shop written the way an accountant reads it, and
+     * the two audiences want different screens. Putting the trial balance next
+     * to the cashbox would bury one and frighten whoever came for the other.
+     */
+    heading: 'Books',
+    icon: BookOpen,
+    items: [
+      { to: '/admin/chart-of-accounts', label: 'Chart of accounts', icon: ListTree, permission: 'ledger' },
+      { to: '/admin/journal', label: 'Journal', icon: BookOpen, permission: 'ledger' },
+      { to: '/admin/trial-balance', label: 'Trial balance', icon: Scale, permission: 'ledger' },
     ],
   },
   {

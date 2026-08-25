@@ -36,6 +36,14 @@ export const TRADING_TABLES = [
   'order_item_components',
   'held_sales',
   'account_entries',
+  /*
+   * The books go with the trading, and only the entries in them. What a shop
+   * posted last year is as much a record of last year's trading as its orders
+   * are, so a reset that clears one and leaves the other would produce a
+   * trial balance for a shop with no sales in it.
+   */
+  'journal_entries',
+  'journal_lines',
   'vouchers',
   'cash_sessions',
   'cash_movements',
@@ -93,6 +101,13 @@ export const KEPT_TABLES = [
   'settings',
   'branches',
   'cash_accounts',
+  /*
+   * The chart of accounts is setup, not trading. A shop that has spent an
+   * afternoon naming its accounts and filing them under the right headings
+   * must not lose that by clearing last year's entries — the chart is the
+   * shape of its books, and the entries are what happened inside it.
+   */
+  'gl_accounts',
   /*
    * And the record of every visit the vendor has paid this shop.
    *

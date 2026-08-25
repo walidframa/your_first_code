@@ -2267,6 +2267,176 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_employee_salaries_period ON employee_salaries(period);
 `);
 
+/*
+ * The general ledger.
+ *
+ * Everything above this line is a *subsidiary* record: what one customer owes,
+ * what is in one drawer, what one supplier was paid. Each is right about its
+ * own corner and none of them can be added up into a statement, because there
+ * is no shared language for "where did this money come from and where did it
+ * go" — only a dozen tables each with their own idea of it.
+ *
+ * That is the gap this closes, and it is the thing every accounting feature
+ * worth having stands on: a VAT return, a period close, a revaluation of
+ * foreign currency, a cost centre report. None of them can be built on
+ * `account_entries`, which knows only about people, or on `cash_movements`,
+ * which knows only about tills.
+ *
+ * **Added beside what is there, not instead of it.** The register, the
+ * documents and the drawers go on working exactly as they do — this is a
+ * second, complete account of the same shop, in the form an accountant reads.
+ * Replacing the working money paths with a ledger in one step would put every
+ * sale in the shop at risk to gain a report.
+ */
+db.exec(`
+  /*
+   * The chart of accounts: the shop's own list of what it can post to.
+   *
+   * A tree, because that is how anybody reads one — "Cash and bank" with the
+   * drawer and the safe under it — and because a report is a subtotal per
+   * branch of the tree. "is_group" marks the headings: they hold the shape and
+   * nothing may be posted to them, or a total would count its own children.
+   *
+   * "code" is text rather than a number so it sorts the way a chart is read:
+   * 1000 before 1100 before 2000, and "1100-1" for a shop that wants a
+   * sub-code. Sorting it as a number would put 1100 and 11000 next to each
+   * other for a shop that grew one.
+   */
+  CREATE TABLE IF NOT EXISTS gl_accounts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    code TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL,
+    /*
+     * Which side of the books it belongs to. This decides the sign of every
+     * report the account appears in, so it is a constraint rather than a
+     * label: an expense filed as income makes a profit figure that is wrong by
+     * twice the amount and looks plausible.
+     */
+    type TEXT NOT NULL CHECK (type IN ('asset', 'liability', 'equity', 'income', 'expense')),
+    parent_id INTEGER REFERENCES gl_accounts(id),
+    is_group INTEGER NOT NULL DEFAULT 0,
+    note TEXT,
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  /*
+   * One event, as the books see it.
+   *
+   * The number is the shop's own reference — what somebody quotes on the phone
+   * — and is unique because a journal with two entry 14s cannot be discussed.
+   *
+   * Cancelled rather than deleted, always. An entry that is wrong is reversed
+   * by another entry; taking the row out would leave every report that has
+   * already been printed disagreeing with the one printed tomorrow, and the
+   * numbering with a hole in it that nobody can account for.
+   */
+  CREATE TABLE IF NOT EXISTS journal_entries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    entry_number TEXT NOT NULL UNIQUE,
+    entry_date TEXT NOT NULL,
+    memo TEXT,
+    /* Typed by hand, or written by the app for something that happened. */
+    source TEXT NOT NULL DEFAULT 'manual',
+    status TEXT NOT NULL DEFAULT 'posted' CHECK (status IN ('posted', 'cancelled')),
+    /* The rate the day's foreign amounts were converted at, kept so a figure
+       can be shown again in the currency it was actually entered in. */
+    exchange_rate REAL,
+    branch_id INTEGER REFERENCES branches(id),
+    /* The entry this one reverses, so a correction can be read as a pair. */
+    reverses_id INTEGER REFERENCES journal_entries(id),
+    user_id INTEGER REFERENCES users(id),
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  /*
+   * The lines. Debits and credits in the shop's base currency.
+   *
+   * Two columns rather than one signed amount, deliberately. A ledger is read
+   * as two columns on paper and entered as two columns by anybody who has kept
+   * one, and a single signed figure means every screen and every report has to
+   * decide again which way round the sign goes for this account type — which
+   * is exactly the mistake that makes a trial balance that balances and is
+   * still wrong.
+   */
+  CREATE TABLE IF NOT EXISTS journal_lines (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    entry_id INTEGER NOT NULL REFERENCES journal_entries(id) ON DELETE CASCADE,
+    account_id INTEGER NOT NULL REFERENCES gl_accounts(id),
+    debit_usd REAL NOT NULL DEFAULT 0,
+    credit_usd REAL NOT NULL DEFAULT 0,
+    memo TEXT,
+    /* The order they were typed, so an entry reads back the way it was written
+       rather than in whatever order the database returns rows. */
+    position INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_gl_accounts_parent ON gl_accounts(parent_id);
+  CREATE INDEX IF NOT EXISTS idx_journal_lines_entry ON journal_lines(entry_id, position);
+  CREATE INDEX IF NOT EXISTS idx_journal_lines_account ON journal_lines(account_id);
+  CREATE INDEX IF NOT EXISTS idx_journal_entries_date ON journal_entries(entry_date, id);
+`);
+
+/**
+ * The chart a shop starts with.
+ *
+ * Not an empty list. A shopkeeper opening this screen for the first time has
+ * no reason to know that a chart of accounts wants a 1000 range for what the
+ * shop owns and a 4000 range for what it sells, and an empty tree is a screen
+ * nobody can begin with. This is the smallest chart that can actually keep a
+ * phone shop's books, and every line of it can be renamed or put away.
+ *
+ * Seeded once. A shop that deletes an account it does not want must not find
+ * it back the next morning, so this only runs when the table is empty.
+ */
+function seedChartOfAccounts() {
+  if (db.prepare('SELECT 1 FROM gl_accounts LIMIT 1').get()) return;
+
+  const insert = db.prepare(
+    'INSERT INTO gl_accounts (code, name, type, parent_id, is_group) VALUES (?, ?, ?, ?, ?)',
+  );
+  const add = (code, name, type, parent, group = 0) =>
+    insert.run(code, name, type, parent, group).lastInsertRowid;
+
+  const assets = add('1000', 'Assets', 'asset', null, 1);
+  const cash = add('1100', 'Cash and bank', 'asset', assets, 1);
+  add('1110', 'Cash in hand', 'asset', cash);
+  add('1120', 'Bank', 'asset', cash);
+  add('1200', 'Customers owing', 'asset', assets);
+  add('1300', 'Stock on hand', 'asset', assets);
+  add('1400', 'Prepaid credit and wallets', 'asset', assets);
+
+  const liabilities = add('2000', 'Liabilities', 'liability', null, 1);
+  add('2100', 'Suppliers owed', 'liability', liabilities);
+  add('2200', 'VAT payable', 'liability', liabilities);
+  add('2300', 'Wages payable', 'liability', liabilities);
+
+  const equity = add('3000', 'Equity', 'equity', null, 1);
+  add('3100', 'Owner’s capital', 'equity', equity);
+  add('3200', 'Owner’s drawings', 'equity', equity);
+  add('3900', 'Retained earnings', 'equity', equity);
+
+  const income = add('4000', 'Income', 'income', null, 1);
+  add('4100', 'Sales', 'income', income);
+  add('4200', 'Repairs', 'income', income);
+  add('4300', 'Transfer and credit fees', 'income', income);
+
+  const expense = add('5000', 'Expenses', 'expense', null, 1);
+  add('5100', 'Cost of goods sold', 'expense', expense);
+  add('5200', 'Wages', 'expense', expense);
+  add('5300', 'Rent', 'expense', expense);
+  add('5400', 'Electricity and generator', 'expense', expense);
+  add('5500', 'Telephone and internet', 'expense', expense);
+  /* Where a revaluation lands. Put in from the start because an exchange gain
+     with nowhere to go is what makes somebody invent an account for it in the
+     middle of a close. */
+  add('5800', 'Exchange differences', 'expense', expense);
+  add('5900', 'Other expenses', 'expense', expense);
+}
+
+seedChartOfAccounts();
+
 export const ADJUSTMENT_REASONS = [
   'received',
   'damaged',
