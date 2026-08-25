@@ -73,6 +73,9 @@ async function configure(extra = {}) {
     telegram_chat_id: '-100999',
     telegram_base_url: telegramUrl,
     telegram_events: '',
+    // Reset too, or a template left by an earlier test renders this one's
+    // message and the failure points at the wrong thing entirely.
+    telegram_templates: '',
     ...extra,
   });
   // Asserted, or a rejected setting looks exactly like a message that did not
@@ -267,4 +270,92 @@ test('a message that gets through clears the tally', async () => {
 
   await req('POST', '/settings/telegram/test');
   assert.equal((await req('GET', '/settings/telegram/status')).json.failures, 0);
+});
+
+/* --------------------------------------------------------- the wording */
+
+test('a shop can rewrite what a message says', async () => {
+  await configure({
+    telegram_templates: JSON.stringify({
+      sale: 'بيع {total} — {reference} · {user}',
+    }),
+  });
+
+  await sell();
+  const messages = await telegram.waitForMessage();
+  assert.ok(messages, 'no message arrived');
+  assert.match(messages[0].text, /^بيع \$3\.50 — ORD-/, 'the shop’s own wording, in its own language');
+  assert.ok(!messages[0].text.includes('🧾'), 'and none of the built-in wording is left');
+});
+
+test('rewriting one event leaves the other six alone', async () => {
+  await configure({ telegram_templates: JSON.stringify({ sale: 'SOLD {total}' }) });
+
+  const sale = await sell();
+  await telegram.waitForMessage();
+  assert.match(telegram.state.messages[0].text, /^SOLD \$3\.50$/);
+
+  telegram.state.messages.length = 0;
+  await req('POST', `/orders/${sale.json.order.id}/refund`, {});
+  await telegram.waitForMessage();
+  assert.match(telegram.state.messages[0].text, /sale voided/, 'the void keeps the built-in wording');
+});
+
+test('a placeholder nobody recognises is left standing, not swallowed', async () => {
+  /*
+   * A typo has to be visible. Rendering `{totl}` as nothing would look like the
+   * app losing the figure, and the shop would go hunting in the wrong place.
+   */
+  await configure({ telegram_templates: JSON.stringify({ sale: 'Sold for {totl}' }) });
+  await sell();
+  const messages = await telegram.waitForMessage();
+  assert.equal(messages[0].text, 'Sold for {totl}');
+});
+
+test('a customer’s name cannot smuggle markup into the message', async () => {
+  /*
+   * The template is the shop's own and may carry HTML — Telegram renders it.
+   * The *values* are not, and a customer called `<b>` must not be able to
+   * write the formatting, or worse, produce markup Telegram rejects and drops
+   * the whole message over.
+   */
+  await configure();
+  const customer = (await req('POST', '/customers', { name: 'Ahmad <b>Phones</b>' })).json.party;
+
+  await req('POST', '/orders', {
+    items: [{ productId: 1, quantity: 1 }],
+    paymentMethod: 'cash',
+    payments: [{ currency: 'USD', amount: 4 }],
+    customerId: customer.id,
+  });
+
+  const messages = await telegram.waitForMessage();
+  assert.match(messages[0].text, /Ahmad &lt;b&gt;Phones&lt;\/b&gt;/, 'escaped, so it reads as the name it is');
+});
+
+test('the preview is the same wording the message will use', async () => {
+  await configure({ telegram_templates: JSON.stringify({ sale: 'X {total} Y {user}' }) });
+
+  const shown = await req('POST', '/settings/telegram/preview', { event: 'sale' });
+  assert.equal(shown.status, 200, JSON.stringify(shown.json));
+  assert.match(shown.json.text, /^X \$27\.50 Y Store Owner$/);
+
+  // An unsaved draft can be previewed too, which is the point of the box.
+  const draft = await req('POST', '/settings/telegram/preview', {
+    event: 'sale',
+    template: 'draft {reference}',
+  });
+  assert.equal(draft.json.text, 'draft ORD-2416');
+});
+
+test('a template that could not be read is refused rather than stored', async () => {
+  const bad = await req('PUT', '/settings', { telegram_templates: 'not json at all' });
+  assert.equal(bad.status, 400);
+  assert.match(bad.json.error, /could not be read/);
+
+  const unknown = await req('PUT', '/settings', {
+    telegram_templates: JSON.stringify({ nonsense: 'hello' }),
+  });
+  assert.equal(unknown.status, 400, 'an event name that does not exist is almost always a typo');
+  assert.match(unknown.json.error, /nonsense/);
 });
