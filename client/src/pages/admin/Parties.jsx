@@ -19,6 +19,9 @@ import AccountStatement from '../../components/AccountStatement';
 import VoucherSlip from '../../components/VoucherSlip';
 import { useSettings, lbp } from '../../context/SettingsContext';
 import { when } from '../../lib/when';
+
+/** Mirrors DEFAULT_CREDIT_LIMIT on the server — see server/src/lib/accounts.js. */
+const DEFAULT_CREDIT_LIMIT = 100000;
 import {
   Badge,
   Button,
@@ -96,7 +99,10 @@ function PartyForm({ party, config, onClose, onSaved }) {
     email: party?.email || '',
     address: party?.address || '',
     notes: party?.notes || '',
-    credit_limit: party?.credit_limit ?? 0,
+    /* A new customer starts at the standing default rather than zero: zero is
+       a real answer meaning cash only, and it is not the one a shop that has
+       not thought about it wants applied to everybody. */
+    credit_limit: party?.credit_limit ?? DEFAULT_CREDIT_LIMIT,
     opening_balance: 0,
   });
   const [saving, setSaving] = useState(false);
