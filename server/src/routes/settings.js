@@ -9,6 +9,7 @@ import {
   getRateHistory,
 } from '../lib/settings.js';
 import { NOTIFY_EVENTS, enabledEvents, isConfigured, lastSend, sendMessage } from '../lib/telegram.js';
+import { DEFAULT_TEMPLATES, PLACEHOLDERS, previewText } from '../lib/notifyText.js';
 
 const router = Router();
 
@@ -37,6 +38,7 @@ const TELEGRAM_FIELDS = [
   'telegram_bot_token',
   'telegram_chat_id',
   'telegram_events',
+  'telegram_templates',
   'telegram_base_url',
 ];
 
@@ -197,6 +199,31 @@ router.put('/', requireAuth, requirePermission('settings'), (req, res) => {
     if (field === 'telegram_chat_id' && value && !/^-?\d+$/.test(value)) {
       return res.status(400).json({ error: 'A chat id is a number, like 123456789 or -1001234567890' });
     }
+    /*
+     * Refused rather than stored, because a broken template is a message that
+     * either never arrives or arrives wrong, and neither says why. Checked as
+     * JSON and then event by event: an unknown event name is almost always a
+     * typo, and stored quietly it would sit there doing nothing for ever.
+     */
+    if (field === 'telegram_templates' && value) {
+      let parsed;
+      try {
+        parsed = JSON.parse(value);
+      } catch {
+        return res.status(400).json({ error: 'The message templates could not be read' });
+      }
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return res.status(400).json({ error: 'The message templates could not be read' });
+      }
+      for (const [event, text] of Object.entries(parsed)) {
+        if (!(event in NOTIFY_EVENTS)) {
+          return res.status(400).json({ error: `Not an event this app sends: ${event}` });
+        }
+        if (String(text).length > 2000) {
+          return res.status(400).json({ error: 'A message template is too long — keep it under 2000 characters' });
+        }
+      }
+    }
     if (field === 'telegram_events' && value) {
       const unknown = value.split(',').map((v) => v.trim()).filter((v) => v && !(v in NOTIFY_EVENTS));
       if (unknown.length) {
@@ -245,6 +272,32 @@ router.post('/telegram/test', requireAuth, requirePermission('settings'), async 
   }
 });
 
+/**
+ * What a template would actually say, with a worked example in it.
+ *
+ * A template is edited blind otherwise: the shop types `{paid_bracket}` and has
+ * to ring up a real sale to find out what it does. This renders the same
+ * builders the real messages go through, so the preview cannot drift from the
+ * thing it is previewing.
+ */
+router.post('/telegram/preview', requireAuth, requirePermission('settings'), (req, res) => {
+  const event = String(req.body?.event || '');
+  if (!(event in NOTIFY_EVENTS)) return res.status(400).json({ error: 'Not an event this app sends' });
+
+  // The shop's unsaved draft, or what is stored if they are only looking.
+  const draft = req.body?.template;
+  const settings =
+    draft === undefined
+      ? getSettings()
+      : { ...getSettings(), telegram_templates: JSON.stringify({ [event]: String(draft) }) };
+
+  try {
+    res.json({ text: previewText(event, settings) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 /** Whether the last message got through, for the settings screen. */
 router.get('/telegram/status', requireAuth, requirePermission('settings'), (req, res) => {
   const settings = getSettings();
@@ -253,6 +306,17 @@ router.get('/telegram/status', requireAuth, requirePermission('settings'), (req,
     enabled: String(settings.telegram_enabled) === 'true',
     events: NOTIFY_EVENTS,
     chosen: [...enabledEvents(settings)],
+    defaults: DEFAULT_TEMPLATES,
+    placeholders: PLACEHOLDERS,
+    templates: (() => {
+      try {
+        return JSON.parse(settings.telegram_templates || '{}');
+      } catch {
+        // Unreadable is the same as unset for the screen's purposes; the
+        // boxes fill with the defaults and saving fixes it.
+        return {};
+      }
+    })(),
     failures: Number(settings.telegram_failures || 0),
     lastError: settings.telegram_last_error || null,
     lastSend: lastSend(),

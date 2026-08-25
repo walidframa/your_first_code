@@ -124,6 +124,15 @@ export const SETTING_DEFAULTS = {
      just switched this on wants to see that it works, not to discover it also
      had to tick seven boxes. */
   telegram_events: '',
+  /*
+   * The shop's own wording, as JSON keyed by event.
+   *
+   * One row rather than seven, because it is one screen and one save. Empty —
+   * or an event missing from it — means the built-in wording, so a shop that
+   * rewrites only its sale message keeps the sensible default for the other
+   * six. See lib/notifyText.js for what each may contain.
+   */
+  telegram_templates: '',
   /* So a shop finds out its notifications stopped from the settings screen
      rather than by noticing silence. Reset when a test message gets through. */
   telegram_failures: '0',
