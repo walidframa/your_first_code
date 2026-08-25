@@ -11,6 +11,7 @@ import { db, transaction } from '../db.js';
 import { round2 } from './currency.js';
 import { getSettings } from './settings.js';
 import { currentSession, recordMovement } from './cash.js';
+import { postExpense } from './postings.js';
 
 /**
  * Categories are a fixed list rather than free text: a month's spending that
@@ -150,7 +151,10 @@ export function addExpense({
         branchId ?? null,
       );
 
-    return getExpense(info.lastInsertRowid);
+    const saved = getExpense(info.lastInsertRowid);
+    // The books, in the same transaction — see lib/postings.js.
+    postExpense({ expense: saved, tillAccountId: session?.account_id ?? null, userId });
+    return saved;
   })();
 }
 

@@ -2437,6 +2437,34 @@ function seedChartOfAccounts() {
 
 seedChartOfAccounts();
 
+/*
+ * Which ledger account a till's money belongs to.
+ *
+ * Nullable, and the fallback is cash in hand. A shop with one drawer never
+ * touches this; a shop whose "till" is a bank account says so once and its
+ * takings stop being counted as notes in a box.
+ */
+addColumn('cash_accounts', 'gl_account_id', 'INTEGER REFERENCES gl_accounts(id)');
+
+/*
+ * Where the books could not place something.
+ *
+ * Made here as well as on demand, so a shop that has had this app since before
+ * the ledger existed gets one without waiting for the first sale that needs it
+ * — and so it is visible on the chart from the start, which is the point of a
+ * suspense account. Anything sitting in it means a mapping wants fixing.
+ */
+function seedSuspense() {
+  if (db.prepare("SELECT 1 FROM gl_accounts WHERE code = '9999'").get()) return;
+  db.prepare(
+    `INSERT INTO gl_accounts (code, name, type, is_group, note)
+     VALUES ('9999', 'Suspense', 'asset', 0,
+             'Money the books could not place. Anything here means a mapping needs fixing.')`,
+  ).run();
+}
+
+seedSuspense();
+
 export const ADJUSTMENT_REASONS = [
   'received',
   'damaged',

@@ -8,6 +8,7 @@ import { dominantMethod, readTenders, recordTenders, tenderSplit, tendersFor } f
 import { recordMovement, registerAccountId, registerSession, requiresSession } from '../lib/cash.js';
 import { notify } from '../lib/telegram.js';
 import { refundText, returnText, saleText } from '../lib/notifyText.js';
+import { postRefund, postSale } from '../lib/postings.js';
 import {
   isAvailable,
   returnOneUnit,
@@ -980,6 +981,23 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
         });
       }
 
+      /*
+       * And the books, inside this same transaction.
+       *
+       * Together or neither. A sale that moved stock and took money but posted
+       * nothing leaves the ledger permanently wrong by that sale and nothing
+       * will ever find it again — so this is not fired off afterwards the way a
+       * notification is. It cannot refuse the sale either: see lib/postings.js,
+       * where every unmapped account falls back to Suspense rather than
+       * throwing.
+       */
+      postSale({
+        order: db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId),
+        items: itemsOfOrder(orderId),
+        tillAccountId: registerAccountId(branchId),
+        userId: req.user.id,
+      });
+
       return {
         orderId,
         orderNumber,
@@ -1222,6 +1240,13 @@ router.post('/:id/refund', requireAuth, requirePermission('refunds'), (req, res)
       });
     }
 
+    postRefund({
+      order,
+      items: itemsOfOrder(order.id),
+      tillAccountId: registerAccountId(order.branch_id),
+      userId: req.user.id,
+    });
+
     // Refunding a cash sale hands money back across the counter.
     if (order.payment_method === 'cash') {
       recordMovement({
@@ -1366,6 +1391,14 @@ router.post('/:id/return-line', requireAuth, requirePermission('refunds'), (req,
         userId: req.user.id,
       });
     }
+
+    postRefund({
+      order,
+      items: itemsOfOrder(order.id),
+      amount: refund,
+      tillAccountId: registerAccountId(order.branch_id),
+      userId: req.user.id,
+    });
 
     /*
      * Money handed back across the counter comes out of the drawer — in the

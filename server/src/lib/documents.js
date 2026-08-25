@@ -2,6 +2,7 @@ import { db } from '../db.js';
 import { round2, tenderTotals, validatePayments } from './currency.js';
 import { addEntry, creditCheck } from './accounts.js';
 import { recordMovement } from './cash.js';
+import { postDocument } from './postings.js';
 import { cancelDocumentVouchers, recordDocumentVoucher } from './vouchers.js';
 import { recordCostChange } from './costHistory.js';
 import { isAvailable, receiveUnits, syncStockFromUnits } from './units.js';
@@ -534,6 +535,13 @@ export function applyEffects(doc, items, userId, note = doc.doc_number, accountI
       recordDocumentVoucher({ doc, movementId, entryId, userId });
     }
   }
+
+  /*
+   * And the books, in this same transaction — see lib/postings.js. A confirmed
+   * invoice that moved stock and a balance but posted nothing would leave the
+   * ledger wrong by that invoice for ever.
+   */
+  postDocument({ doc, tillAccountId: accountId, userId });
 }
 
 /**

@@ -132,6 +132,16 @@ export const SETTING_DEFAULTS = {
    * rewrites only its sale message keeps the sensible default for the other
    * six. See lib/notifyText.js for what each may contain.
    */
+  /*
+   * Which ledger account each kind of money goes to, as JSON keyed by role.
+   *
+   * Empty means the defaults in lib/postings.js, which suit the chart the shop
+   * starts with. A shop that files its card takings somewhere else overrides
+   * that one role and keeps the rest.
+   */
+  gl_map: '',
+  /* The last time an automatic posting failed, if one ever has. */
+  gl_posting_error: '',
   telegram_templates: '',
   /* So a shop finds out its notifications stopped from the settings screen
      rather than by noticing silence. Reset when a test message gets through. */

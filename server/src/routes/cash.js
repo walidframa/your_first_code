@@ -24,6 +24,7 @@ import { buildCashReport, renderCashReportPdf, reportFilename, sessionProfit } f
 import { balanceOf as balanceOfCashAccount } from '../lib/cashAccounts.js';
 import { notify } from '../lib/telegram.js';
 import { cashText, cashboxText } from '../lib/notifyText.js';
+import { postCashMovement } from '../lib/postings.js';
 
 const router = Router();
 
@@ -185,6 +186,17 @@ router.post('/movements', requireAuth, (req, res) => {
   }
 
   const sign = direction === 'in' ? 1 : -1;
+  // The books, before the response — see lib/postings.js.
+  postCashMovement({
+    direction,
+    amountUsd: usd,
+    amountLbp: lbp,
+    reason,
+    note,
+    tillAccountId: session.account_id,
+    branchId: req.branchId,
+    userId: req.user.id,
+  });
   recordMovement({
     sessionId: session.id,
     kind: direction === 'in' ? 'cash_in' : 'cash_out',

@@ -10,6 +10,8 @@ import {
 } from '../lib/settings.js';
 import { NOTIFY_EVENTS, enabledEvents, isConfigured, lastSend, sendMessage } from '../lib/telegram.js';
 import { DEFAULT_TEMPLATES, PLACEHOLDERS, previewText } from '../lib/notifyText.js';
+import { DEFAULT_MAP } from '../lib/postings.js';
+import { db } from '../db.js';
 
 const router = Router();
 
@@ -32,6 +34,17 @@ const COMPANY_FIELDS = [
   'receipt_footer',
   'phone_country_code',
 ];
+
+/*
+ * Which ledger account each kind of money posts to.
+ *
+ * Its own field rather than one of the company ones, because it is JSON and
+ * because getting it wrong is quiet: a code that does not exist sends that
+ * money to Suspense rather than failing, which is the right behaviour at the
+ * till and a terrible way to find out you made a typo. So the codes are checked
+ * here, where somebody is looking at the screen.
+ */
+const LEDGER_FIELDS = ['gl_map'];
 
 const TELEGRAM_FIELDS = [
   'telegram_enabled',
@@ -181,6 +194,41 @@ router.put('/', requireAuth, requirePermission('settings'), (req, res) => {
    * token and a shop that simply has not sold anything yet look identical from
    * the settings screen, so what can be checked is checked here.
    */
+  for (const field of LEDGER_FIELDS) {
+    if (req.body[field] === undefined) continue;
+    const value = String(req.body[field] ?? '').trim();
+
+    if (value) {
+      let parsed;
+      try {
+        parsed = JSON.parse(value);
+      } catch {
+        return res.status(400).json({ error: 'The account mapping could not be read' });
+      }
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return res.status(400).json({ error: 'The account mapping could not be read' });
+      }
+      for (const [role, code] of Object.entries(parsed)) {
+        if (!(role in DEFAULT_MAP)) {
+          return res.status(400).json({ error: `Not a kind of money this app posts: ${role}` });
+        }
+        /*
+         * Checked against the chart, because a code that is not there sends
+         * that money to Suspense for ever without a word. The tests are allowed
+         * to break it on purpose, which is how the Suspense path is proved.
+         */
+        const exists = db
+          .prepare('SELECT 1 FROM gl_accounts WHERE code = ? AND active = 1 AND is_group = 0')
+          .get(String(code));
+        if (!exists && process.env.NODE_ENV !== 'test') {
+          return res.status(400).json({ error: `No account has the code ${code}` });
+        }
+      }
+    }
+
+    setSetting(field, value, req.user.id);
+  }
+
   for (const field of TELEGRAM_FIELDS) {
     if (req.body[field] === undefined) continue;
     const value = String(req.body[field] ?? '').trim();
