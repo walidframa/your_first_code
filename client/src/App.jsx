@@ -24,6 +24,9 @@ import AdminSettings from './pages/admin/Settings';
 import AdminParties from './pages/admin/Parties';
 import AdminDocuments from './pages/admin/Documents';
 import AdminCapital from './pages/admin/Capital';
+import AdminChartOfAccounts from './pages/admin/ChartOfAccounts';
+import AdminJournal from './pages/admin/Journal';
+import AdminTrialBalance from './pages/admin/TrialBalance';
 import AdminLabels from './pages/admin/Labels';
 import AdminShopify from './pages/admin/Shopify';
 import AdminCashSessions from './pages/admin/CashSessions';
@@ -176,6 +179,32 @@ export default function App() {
           element={
             <ProtectedRoute permission="reports">
               <AdminCapital />
+            </ProtectedRoute>
+          }
+        />
+        {/* The books. Behind their own permission: a bookkeeper needs them and
+            a cashier who can see the day's takings has no business in them. */}
+        <Route
+          path="/admin/chart-of-accounts"
+          element={
+            <ProtectedRoute permission="ledger">
+              <AdminChartOfAccounts />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/journal"
+          element={
+            <ProtectedRoute permission="ledger">
+              <AdminJournal />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/trial-balance"
+          element={
+            <ProtectedRoute permission="ledger">
+              <AdminTrialBalance />
             </ProtectedRoute>
           }
         />

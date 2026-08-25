@@ -41,6 +41,13 @@ export const PERMISSION_GROUPS = [
       ['cashbox', 'Cashbox history', 'Past sittings, counts and what was over or short'],
       ['expenses', 'Record expenses', 'Money spent running the shop'],
       ['reports', 'Takings and profit', 'The dashboard, profit and what the shop is owed'],
+      /*
+       * Its own permission rather than folded into reports. The ledger is
+       * where the shop's whole position can be read and rewritten by hand — a
+       * bookkeeper needs it and a cashier who can see the day's takings has no
+       * business in it.
+       */
+      ['ledger', 'The books', 'The chart of accounts, journal entries and the trial balance'],
     ],
   },
   {
