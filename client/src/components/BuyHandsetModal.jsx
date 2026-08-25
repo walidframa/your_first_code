@@ -342,6 +342,7 @@ export default function BuyHandsetModal({
           open
           initialName={creating}
           trackUnits
+          lockTrackUnits
           onClose={() => setCreating(null)}
           onCreated={async (product) => {
             setCreating(null);

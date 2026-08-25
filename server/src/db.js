@@ -199,7 +199,10 @@ db.exec(`
     phone TEXT,
     email TEXT,
     address TEXT,
-    credit_limit REAL NOT NULL DEFAULT 0,
+    /* Effectively "no limit". A shop that wants a real ceiling on somebody
+       types one; a shop that has never thought about it should not have every
+       on-account sale refused, which is what a default of zero did. */
+    credit_limit REAL NOT NULL DEFAULT 100000,
     notes TEXT,
     active INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))

@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
-import { Barcode, Star, X } from 'lucide-react';
+import { Barcode, Sparkles, Star, X } from 'lucide-react';
+import api from '../api';
 import { cx } from './ui';
 
 /**
@@ -22,6 +23,7 @@ import { cx } from './ui';
 export default function BarcodeField({ value = [], onChange, label = 'Barcodes', hint, autoFocus }) {
   const [typing, setTyping] = useState('');
   const [problem, setProblem] = useState('');
+  const [making, setMaking] = useState(false);
   const inputRef = useRef(null);
 
   function add(raw) {
@@ -41,13 +43,54 @@ export default function BarcodeField({ value = [], onChange, label = 'Barcodes',
     setTyping('');
   }
 
+  /**
+   * Invent one, for the things that arrive without a number.
+   *
+   * Loose stock, a used handset, a part out of a drawer — plenty of what a shop
+   * sells has nothing printed on it, and until now the shop typed a number it
+   * made up. That goes wrong twice: a number another product already answers
+   * to, and a number that is not a valid EAN-13, which prints as a label this
+   * app's own scanner then refuses to believe.
+   *
+   * Asked of the server rather than rolled here, because the one thing that
+   * makes a generated code worth having is that nothing else carries it, and
+   * only the server can know that.
+   */
+  async function generate() {
+    setMaking(true);
+    setProblem('');
+    try {
+      const res = await api.get('/products/next-barcode');
+      add(res.data.barcode);
+      inputRef.current?.focus();
+    } catch (err) {
+      setProblem(err.response?.data?.error || 'Could not make a barcode');
+    } finally {
+      setMaking(false);
+    }
+  }
+
   const remove = (code) => onChange(value.filter((c) => c !== code));
   /** Promote to primary: the one that gets printed and pushed to Shopify. */
   const makePrimary = (code) => onChange([code, ...value.filter((c) => c !== code)]);
 
   return (
     <div>
-      <span className="mb-1.5 block text-sm font-medium text-slate-700">{label}</span>
+      <div className="mb-1.5 flex items-center justify-between gap-3">
+        <span className="block text-sm font-medium text-slate-700">{label}</span>
+        {/* Beside the label rather than under the box: it is an alternative to
+            scanning, so it belongs where the eye is before the scanning
+            starts, not after the box has already been used. */}
+        <button
+          type="button"
+          onClick={generate}
+          disabled={making}
+          title="Make one up — a valid EAN-13 no other product uses"
+          className="-my-1 flex items-center gap-1 rounded-lg px-1.5 py-1 text-sm font-medium text-brand-700 transition hover:bg-brand-50 disabled:opacity-50"
+        >
+          <Sparkles size={14} /> {making ? 'Making…' : 'Generate'}
+        </button>
+      </div>
 
       {value.length > 0 && (
         <ul className="mb-2 flex flex-wrap gap-1.5">

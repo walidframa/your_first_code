@@ -5,6 +5,7 @@ import PageHeader from '../../components/PageHeader';
 import CompanySettings from '../../components/CompanySettings';
 import Backups from '../../components/Backups';
 import TaxSettings from '../../components/TaxSettings';
+import TelegramSettings from '../../components/TelegramSettings';
 import SupportVisits from '../../components/SupportVisits';
 import { useSettings, lbp } from '../../context/SettingsContext';
 import { TEXT_SIZES, applyTextSize, getTextSize } from '../../lib/textSize';
@@ -293,6 +294,13 @@ export default function Settings() {
           <LanguageChoice />
           <Theme />
           <TextSize />
+        </div>
+
+        {/* Where the owner finds out what the till is doing while they are
+            somewhere else. Above the machine-shaped settings below it, because
+            it is the one on this page somebody comes here on purpose to set. */}
+        <div className="mb-4 max-w-4xl">
+          <TelegramSettings />
         </div>
 
         <div className="mb-4 grid max-w-4xl grid-cols-2 gap-4">

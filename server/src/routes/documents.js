@@ -21,6 +21,8 @@ import {
 import { currentSession, defaultAccountId, requiresSession } from '../lib/cash.js';
 import { round2 } from '../lib/currency.js';
 import { documentMessage, sendable } from '../lib/whatsapp.js';
+import { notify } from '../lib/telegram.js';
+import { deletedText, documentText } from '../lib/notifyText.js';
 
 const router = Router();
 
@@ -352,7 +354,20 @@ router.post('/:id/confirm', requireAuth, requirePermission('documents'), (req, r
       );
     })();
 
-    res.json(getDocument(doc.id));
+    const saved = getDocument(doc.id);
+    res.json(saved);
+
+    notify(
+      'document',
+      documentText({
+        docNumber: doc.doc_number,
+        docType: doc.doc_type,
+        total: doc.total,
+        partyName: saved?.document?.party_name,
+        user: req.user.name,
+        branchId: doc.branch_id,
+      }),
+    );
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -505,6 +520,21 @@ router.delete('/:id', requireAuth, requirePermission('documents'), (req, res) =>
     })();
 
     res.json({ ok: true, deleted: doc.doc_number });
+
+    /*
+     * A deletion is the one thing nobody can reconstruct from the books
+     * afterwards, because the row it would be reconstructed from is gone. So it
+     * is worth a message even more than a sale is.
+     */
+    notify(
+      'delete',
+      deletedText({
+        what: String(doc.doc_type).replace(/_/g, ' '),
+        detail: `${doc.doc_number} · ${Number(doc.total || 0).toFixed(2)} USD`,
+        user: req.user.name,
+        branchId: doc.branch_id,
+      }),
+    );
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

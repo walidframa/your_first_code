@@ -5,6 +5,7 @@ import { defaultAccount } from '../lib/cashAccounts.js';
 import { recordVoucher } from '../lib/vouchers.js';
 import { round2 } from '../lib/currency.js';
 import {
+  DEFAULT_CREDIT_LIMIT,
   PARTY_TABLES,
   addEntry,
   balanceMap,
@@ -101,7 +102,18 @@ export function partyRouter(partyType) {
       return res.status(400).json({ error: 'Name is required' });
     }
 
-    const limit = isCustomer ? Number(creditLimit) || 0 : 0;
+    /*
+     * Not given is not the same as zero.
+     *
+     * `Number(x) || 0` collapsed the two, so a customer created from the quick
+     * dialog on an invoice — which asks for a name and a phone and nothing else
+     * — came out with a limit of zero, meaning the very next thing the shop
+     * tried to put on their account was refused. Left out now means the
+     * standing default; a typed zero still means zero, which is how a shop says
+     * "cash only" about somebody.
+     */
+    const said = creditLimit !== undefined && creditLimit !== null && creditLimit !== '';
+    const limit = isCustomer ? (said ? Number(creditLimit) || 0 : DEFAULT_CREDIT_LIMIT) : 0;
     if (limit < 0) return res.status(400).json({ error: 'Credit limit cannot be negative' });
 
     const openingBalance = Number(opening) || 0;

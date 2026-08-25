@@ -104,10 +104,36 @@ export const SETTING_DEFAULTS = {
   shopify_last_sync: '',
   // Only ever set by the tests, which point the client at a stand-in server.
   shopify_base_url: '',
+
+  /*
+   * Telling the owner what just happened, on their phone.
+   *
+   * A shop owner is not standing at the till, and the one thing they want from
+   * a POS while they are anywhere else is to know it is still ringing up sales
+   * — and to hear within seconds when somebody voids one. Telegram because the
+   * messages cost nothing, the bot is set up in two minutes, and the app that
+   * buzzes is one somebody else maintains.
+   *
+   * The token is a credential: like the Shopify one it is stored here and never
+   * sent back to the browser. See SECRET_SETTINGS.
+   */
+  telegram_enabled: 'false',
+  telegram_bot_token: '',
+  telegram_chat_id: '',
+  /* Which events, comma separated. Empty means all of them — a shop that has
+     just switched this on wants to see that it works, not to discover it also
+     had to tick seven boxes. */
+  telegram_events: '',
+  /* So a shop finds out its notifications stopped from the settings screen
+     rather than by noticing silence. Reset when a test message gets through. */
+  telegram_failures: '0',
+  telegram_last_error: '',
+  // Only ever set by the tests, which point this at a stand-in server.
+  telegram_base_url: '',
 };
 
 /** Never leaves the server. Redacted to a boolean for the UI. */
-export const SECRET_SETTINGS = new Set(['shopify_token']);
+export const SECRET_SETTINGS = new Set(['shopify_token', 'telegram_bot_token']);
 
 const NUMERIC = new Set(['exchange_rate', 'lbp_rounding', 'tax_percent']);
 

@@ -152,6 +152,19 @@ export function recordPayment({ partyType, partyId, payments, note, userId }) {
  * Whether a credit sale of `amountUsd` fits inside the customer's limit.
  * A limit of 0 means no credit is allowed at all; there is no "unlimited".
  */
+/**
+ * What a customer may owe before the till starts refusing them.
+ *
+ * High enough to mean "nobody has thought about this one yet", which is the
+ * truth for most of a customer list. It used to be zero, and zero is a real
+ * answer — it means cash only — so a shop that had never opened the field found
+ * every on-account sale refused by a rule it had not set.
+ *
+ * A shop that wants a real ceiling on somebody still types one, and a typed
+ * zero still means what it says.
+ */
+export const DEFAULT_CREDIT_LIMIT = 100000;
+
 export function creditCheck(customerId, amountUsd) {
   const customer = db.prepare('SELECT * FROM customers WHERE id = ? AND active = 1').get(customerId);
   if (!customer) return { ok: false, error: 'Customer not found' };

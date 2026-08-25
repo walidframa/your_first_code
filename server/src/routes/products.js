@@ -3,7 +3,7 @@ import { db, transaction } from '../db.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { activityFor, costHistoryFor, recordCostChange, salesSummaryFor } from '../lib/costHistory.js';
 import { averageCostMap, costingFor, lastCostMap } from '../lib/costing.js';
-import { barcodeMap, barcodesFor, barcodesFromBody, setBarcodes } from '../lib/barcodes.js';
+import { barcodeMap, barcodesFor, barcodesFromBody, generateBarcode, setBarcodes } from '../lib/barcodes.js';
 import { clearStockEverywhere, setStock, stockAt, stockByBranch, stockMap } from '../lib/stock.js';
 import { addStarterCategories } from '../lib/starterCategories.js';
 import {
@@ -275,6 +275,24 @@ router.put('/:id/bundle', requireAuth, requirePermission('catalogue'), (req, res
     return res.status(400).json({ error: err.message });
   }
   res.json({ components: componentsOf(id), canMake: availableBundles(req.branchId, id) });
+});
+
+/**
+ * A free barcode for stock that arrived without one.
+ *
+ * Generated here rather than in the browser because the one thing that makes a
+ * generated code worth having is that no other product already carries it, and
+ * only the server can know that.
+ *
+ * Behind the products permission: it writes nothing, but handing out numbers
+ * for the shop's own labels is part of running the catalogue.
+ */
+router.get('/next-barcode', requireAuth, requirePermission('products'), (req, res) => {
+  try {
+    res.json({ barcode: generateBarcode() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 /**

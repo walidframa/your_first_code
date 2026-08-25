@@ -129,3 +129,45 @@ export function barcodesFromBody(body, { existing = undefined } = {}) {
   }
   return undefined;
 }
+
+/**
+ * A barcode the shop can print, for stock that arrived without one.
+ *
+ * Loose stock, a used handset, a repair part out of a drawer: plenty of what a
+ * shop sells has no number on it, and the shop has to invent one. Typed by
+ * hand that goes wrong in two ways — a number another product already answers
+ * to, and a number that is not a valid EAN-13 at all, which prints as a label
+ * the shop's own scanner then refuses to believe.
+ *
+ * **EAN-13 in the in-store range.** GS1 reserves prefix `2` for exactly this:
+ * codes that circulate inside one shop and are guaranteed never to collide
+ * with a manufacturer's. Starting anywhere else invents a number that some real
+ * product in the world already carries.
+ *
+ * The last digit is the modulo-10 check digit, computed rather than made up.
+ * This app's own scanner verifies it before believing a read, so a code without
+ * one would scan as nothing at all.
+ */
+export function generateBarcode() {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    let body = '2';
+    for (let i = 0; i < 11; i += 1) body += Math.floor(Math.random() * 10);
+
+    const code = body + eanCheckDigit(body);
+    // Unique across every product, not merely unused as a primary: the whole
+    // point of a generated number is that scanning it can only mean one thing.
+    if (!db.prepare('SELECT 1 FROM product_barcodes WHERE barcode = ?').get(code)) return code;
+  }
+  // A trillion codes in the range and fifty draws all taken is not bad luck,
+  // it is a broken assumption — say so rather than returning a duplicate.
+  throw new Error('Could not find a free barcode');
+}
+
+/** The modulo-10 check digit for the first twelve digits of an EAN-13. */
+export function eanCheckDigit(twelve) {
+  let sum = 0;
+  for (let i = 0; i < twelve.length; i += 1) {
+    sum += Number(twelve[i]) * (i % 2 === 0 ? 1 : 3);
+  }
+  return String((10 - (sum % 10)) % 10);
+}

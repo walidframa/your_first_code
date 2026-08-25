@@ -22,6 +22,8 @@ import {
 } from '../lib/cash.js';
 import { buildCashReport, renderCashReportPdf, reportFilename, sessionProfit } from '../lib/cashReport.js';
 import { balanceOf as balanceOfCashAccount } from '../lib/cashAccounts.js';
+import { notify } from '../lib/telegram.js';
+import { cashText, cashboxText } from '../lib/notifyText.js';
 
 const router = Router();
 
@@ -143,6 +145,16 @@ router.post('/open', requireAuth, (req, res) => {
       note,
     });
     res.status(201).json({ session });
+
+    notify(
+      'cashbox',
+      cashboxText({
+        opened: true,
+        accountName: session.account_name,
+        user: req.user.name,
+        branchId: req.branchId,
+      }),
+    );
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -202,6 +214,21 @@ router.post('/movements', requireAuth, (req, res) => {
     expected: can(req.user, 'cashbox') ? expectedIn(session.id) : null,
     warning: drawerShort(session.id) ? SHORT_DRAWER_WARNING : null,
   });
+
+  // Money leaving a drawer by hand is exactly the thing an owner wants to hear
+  // about while it is happening rather than at the end of the month.
+  notify(
+    'cash',
+    cashText({
+      direction,
+      amountUsd: sign * usd,
+      amountLbp: sign * lbp,
+      reason,
+      note,
+      user: req.user.name,
+      branchId: req.branchId,
+    }),
+  );
 });
 
 /** Closing is a count, so the drawer's expected contents comes back with it. */
@@ -221,6 +248,18 @@ router.post('/close', requireAuth, (req, res) => {
       note,
     });
     res.json(summary);
+
+    notify(
+      'cashbox',
+      cashboxText({
+        opened: false,
+        accountName: summary.session.account_name,
+        countedUsd: summary.session.counted_usd,
+        overShortUsd: summary.session.over_short_usd,
+        user: req.user.name,
+        branchId: req.branchId,
+      }),
+    );
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

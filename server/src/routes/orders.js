@@ -6,6 +6,8 @@ import { getSettings, taxRate } from '../lib/settings.js';
 import { addEntry, balanceOf, creditCheck } from '../lib/accounts.js';
 import { dominantMethod, readTenders, recordTenders, tenderSplit, tendersFor } from '../lib/tenders.js';
 import { recordMovement, registerAccountId, registerSession, requiresSession } from '../lib/cash.js';
+import { notify } from '../lib/telegram.js';
+import { refundText, returnText, saleText } from '../lib/notifyText.js';
 import {
   isAvailable,
   returnOneUnit,
@@ -1024,6 +1026,27 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
       ? { ...order, customer_balance: balanceOf('customer', order.customer_id) }
       : order;
     res.status(201).json({ order: withBalance, items: orderItems, tenders: tendersFor(order.id) });
+
+    /*
+     * And the owner's phone, after the till already has its answer.
+     *
+     * Below the response deliberately: a notification is a courtesy and the
+     * sale is the shop's money, so nothing about telling somebody may delay or
+     * fail a sale that has already happened. `notify` never throws and never
+     * blocks — see lib/telegram.js.
+     */
+    notify(
+      'sale',
+      saleText({
+        orderNumber: order.order_number,
+        total: order.total,
+        paymentMethod: order.payment_method,
+        itemCount: orderItems.length,
+        user: order.cashier_name,
+        branchId: order.branch_id,
+        customer: order.customer_name,
+      }),
+    );
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -1217,6 +1240,19 @@ router.post('/:id/refund', requireAuth, requirePermission('refunds'), (req, res)
 
   const updated = db.prepare('SELECT * FROM orders WHERE id = ?').get(order.id);
   res.json({ order: updated });
+
+  // The one an owner most wants to hear about within seconds rather than in
+  // tomorrow's report. Below the response, and never able to fail it.
+  notify(
+    'refund',
+    refundText({
+      orderNumber: order.order_number,
+      total: order.total,
+      user: req.user.name,
+      branchId: order.branch_id,
+      reason: req.body?.reason || null,
+    }),
+  );
 });
 
 /**
@@ -1356,6 +1392,18 @@ router.post('/:id/return-line', requireAuth, requirePermission('refunds'), (req,
     refunded: refund,
     order: db.prepare('SELECT * FROM orders WHERE id = ?').get(order.id),
   });
+
+  notify(
+    'return',
+    returnText({
+      orderNumber: order.order_number,
+      amount: refund,
+      quantity: returning,
+      itemName: item.name,
+      user: req.user.name,
+      branchId: order.branch_id,
+    }),
+  );
 });
 
 export default router;
