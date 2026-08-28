@@ -6,6 +6,7 @@ import TableCards from './TableCards';
 import { TabsProvider } from '../context/TabsContext';
 import OfflineBar from './OfflineBar';
 import { useT } from '../context/LanguageContext';
+import { useBranch } from '../context/BranchContext';
 import {
   ChevronRight,
   LayoutGrid,
@@ -69,6 +70,7 @@ function NavItem({ to, label, icon: Icon, end, expanded, dense = false }) {
 export default function Layout() {
   const { user, logout, can } = useAuth();
   const { pathname } = useLocation();
+  const { branchId } = useBranch();
   const t = useT();
 
   /*
@@ -553,8 +555,23 @@ export default function Layout() {
          * Keyed on the path so the arrival plays again on each navigation —
          * without the key React reuses the node and the animation runs once,
          * on the first screen of the session, and never after.
+         *
+         * And keyed on the branch, which is a correctness fix rather than an
+         * animation one. Switching branches changed the header every request
+         * carries and nothing else: the server dutifully answered for the new
+         * shop, but no screen asked it anything, so the page went on showing
+         * the branch you had left. A shopkeeper switching to the second shop
+         * saw the first shop's stock, its takings and its debts, with the
+         * switcher in the rail insisting they were somewhere else — right up
+         * until they happened to navigate away and back.
+         *
+         * Fixed here, once, rather than in each screen's load effect. Nearly
+         * every screen fetches on mount with no dependencies, which is the
+         * right way to write them; remounting on a branch change makes that
+         * correct by construction, and means a screen added next year cannot
+         * reintroduce this by forgetting branches exist.
          */}
-        <div key={pathname} className="animate-page-in min-h-0 flex-1 overflow-hidden">
+        <div key={`${branchId ?? 'one'}:${pathname}`} className="animate-page-in min-h-0 flex-1 overflow-hidden">
           <Outlet />
         </div>
 

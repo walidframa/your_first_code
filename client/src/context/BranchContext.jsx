@@ -76,7 +76,20 @@ export function BranchProvider({ children }) {
      * rather than lying about a list we could not fetch.
      */
     refresh().catch(() => setState({ branches: [], current: null, canSwitch: false }));
-  }, [user, refresh]);
+    /*
+     * Re-asked when the branch changes, not only when somebody signs in.
+     *
+     * Most of the app is remounted on a switch and refetches by itself, but
+     * this sits above that and would not: the "on the way here" count in the
+     * switcher is the *current* branch's incoming transfers, and left alone it
+     * went on reporting the branch you had just left — a badge on the very
+     * control you used to leave it.
+     *
+     * Settles in one round rather than looping: the server answers with the
+     * branch it allowed, and setting `current` to the value it already holds
+     * is a no-op.
+     */
+  }, [user, refresh, current]);
 
   const value = useMemo(() => {
     const branches = state?.branches ?? [];

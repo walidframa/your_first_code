@@ -3703,6 +3703,69 @@ try {
   });
   await shot('branches');
 
+  /*
+   * Switching branches has to move the screen you are already looking at.
+   *
+   * The steps above all switch and then *navigate*, which remounts the page
+   * anyway — so they went on passing while the app was broken. What was
+   * actually happening: the switch changed the branch header on every request
+   * and nothing else, so the page in front of you kept the figures it had
+   * loaded for the shop you just left, and only told the truth once you
+   * happened to go somewhere else and come back. A shopkeeper reading the
+   * first shop's stock while the rail says they are in the second is the whole
+   * failure branches exist to prevent.
+   *
+   * So this one stays put on a single screen and watches the number change.
+   */
+  await step('switching branch moves the page you are already on', async () => {
+    /** What the Products table says is on this branch's shelf. */
+    const onTheShelf = async () => {
+      const row = page.locator('tr:has-text("Braided cable")').first();
+      await row.waitFor({ timeout: 15000 });
+      const found = (await row.innerText()).match(/(?:In stock|Low)\s*·\s*(\d+)/);
+      if (!found) throw new Error(`no stock figure in the row: ${(await row.innerText()).trim()}`);
+      return Number(found[1]);
+    };
+
+    /*
+     * `name` omitted means the first in the list, which is the main branch —
+     * the list is ordered with it first. Picked by position rather than by
+     * name because the main branch is named after the shop once the shop has
+     * a name, and by then this run has given it one.
+     */
+    const switchTo = async (name) => {
+      await page.locator('button[aria-label*="Branch:"]:visible').first().click();
+      await page.waitForTimeout(300);
+      const option = name
+        ? page.locator(`div.absolute button:has-text("${name}")`)
+        : page.locator('div.absolute button');
+      await option.first().click();
+      // No navigation on purpose. If the page does not follow by itself, it
+      // does not follow at all.
+      await page.waitForTimeout(1500);
+    };
+
+    await goTo('Products');
+    await page.waitForSelector('tr:has-text("Braided cable")', { timeout: 20000 });
+
+    // Ten were booked in, four were sent to Saida.
+    const main = await onTheShelf();
+    if (main !== 6) throw new Error(`expected 6 left on the main shelf, got ${main}`);
+
+    await switchTo('Saida');
+    const saida = await onTheShelf();
+    if (saida !== 4) {
+      throw new Error(
+        `the page did not follow the branch: still showing ${saida} where Saida holds 4`,
+      );
+    }
+
+    // And back, so it follows in both directions rather than only away.
+    await switchTo();
+    const back = await onTheShelf();
+    if (back !== 6) throw new Error(`coming back showed ${back} rather than 6`);
+  });
+
   await step('a cashier cannot reach an admin route by URL', async () => {
     await signOut();
     await signIn('cashier');
