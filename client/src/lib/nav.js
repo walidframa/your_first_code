@@ -24,6 +24,7 @@ import {
   ScanLine,
   Scale,
   CandlestickChart,
+  Lock,
   Split,
   ScrollText,
   Settings as SettingsIcon,
@@ -162,6 +163,9 @@ export const ADMIN_NAV = [
       /* What the rate did to the money already in the drawer, which no sale
          records and no report above would otherwise show. */
       { to: '/admin/revaluation', label: 'Exchange differences', icon: CandlestickChart, permission: 'ledger' },
+      /* The line under a year: the earnings swept into retained earnings, and
+         the period shut so nothing can be posted back into it. */
+      { to: '/admin/closing', label: 'Financial closing', icon: Lock, permission: 'ledger' },
       /* The second axis: what an account cannot say — which part of the shop
          the money belonged to, and where it was. */
       { to: '/admin/cost-centres', label: 'Cost centres', icon: Split, permission: 'ledger' },
