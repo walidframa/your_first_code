@@ -22,6 +22,30 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+/*
+ * Looking at the whole company rather than one counter.
+ *
+ * Set from the branch switcher. It widens **reading only**, and that is the
+ * point rather than an omission: a sale, an invoice or a cashbox has to belong
+ * to one shop, and a register in "all branches" mode would be a till with
+ * nowhere to ring money into. So writes go on carrying the branch header and
+ * behave exactly as they did; only GETs are widened, and only for somebody the
+ * server agrees may see the whole company — it checks the permission itself and
+ * answers with one branch if not.
+ */
+let viewingAll = false;
+
+export function setViewingAll(on) {
+  viewingAll = Boolean(on);
+}
+
+api.interceptors.request.use((config) => {
+  if (viewingAll && String(config.method || 'get').toLowerCase() === 'get') {
+    config.params = { ...(config.params || {}), branch: 'all' };
+  }
+  return config;
+});
+
 export function setAuthToken(token) {
   if (token) {
     api.defaults.headers.common.Authorization = `Bearer ${token}`;

@@ -448,6 +448,16 @@ export function postCashMovement({ direction, amountUsd = 0, amountLbp = 0, reas
       petty_cash: 'capital',
       customer_payment: 'customers',
       bank_drop: 'bank',
+      /*
+       * A drawer counted short, or over.
+       *
+       * Both go to the same account and it is allowed to swing either way —
+       * that is what "cash over and short" is. A shop that treated a shortfall
+       * as an expense and a surplus as income would show two unrelated figures
+       * for one recurring fact about its till.
+       */
+      short: 'expense',
+      over: 'expense',
     }[reason] || 'expense';
 
     const till = accountForTill(tillAccountId);
@@ -457,5 +467,46 @@ export function postCashMovement({ direction, amountUsd = 0, amountLbp = 0, reas
         : [{ accountId: accountFor(other), debit: amount }, { accountId: till, credit: amount }];
 
     return write({ lines, memo: `Cash ${direction} — ${reason || 'other'}${note ? ` · ${note}` : ''}`, branchId, userId });
+  });
+}
+
+/**
+ * Money carried from one of the shop's tills to another.
+ *
+ * The drawer emptying and the safe filling are one event, so it is one entry.
+ *
+ * Nothing is written when both tills map to the same ledger account, which by
+ * default they do — the counter drawer and the back safe are both "cash in
+ * hand" until a shop says otherwise, and carrying notes ten feet does not
+ * change what the shop holds. An entry debiting and crediting the same account
+ * is noise in a journal somebody has to read.
+ */
+export function postTillTransfer({
+  fromTillId,
+  toTillId,
+  amountUsd = 0,
+  amountLbp = 0,
+  note = null,
+  branchId = null,
+  userId = null,
+}) {
+  return guarded('till transfer', () => {
+    const rate = Number(getSettings().exchange_rate) || 0;
+    const amount = round2(Math.abs(amountUsd) + (rate > 0 ? Math.abs(amountLbp) / rate : 0));
+    if (amount <= 0) return null;
+
+    const from = accountForTill(fromTillId);
+    const to = accountForTill(toTillId);
+    if (from === to) return null;
+
+    return write({
+      lines: [
+        { accountId: to, debit: amount },
+        { accountId: from, credit: amount },
+      ],
+      memo: note || 'Cash moved between tills',
+      branchId,
+      userId,
+    });
   });
 }

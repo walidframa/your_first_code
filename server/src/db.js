@@ -1303,6 +1303,31 @@ function migrateEntriesToThreeParties() {
     .get();
   if (!row?.sql || row.sql.includes('transfer_company')) return;
 
+  /*
+   * The columns this table has grown since the shape below was written.
+   *
+   * `native_usd` and `native_lbp` are two of them, added further up this file —
+   * before this migration runs. So the rebuild recreated the table without
+   * them and copied only the columns it names, dropping the currency split of
+   * every entry that had one and leaving `addEntry`, whose INSERT always names
+   * both, failing outright against the rebuilt table.
+   *
+   * It stayed hidden because seeding and serving are separate processes: the
+   * rebuild ran during the seed and the next boot's `addColumn` put the columns
+   * back, empty. One process doing both — which is any shop booting against a
+   * database it has just created — got a table it could not write an entry to.
+   *
+   * Re-added rather than hard-coded, the same way `migrateCashMovementKinds`
+   * does it, so the next column added here cannot bring this back.
+   */
+  const present = db.prepare('PRAGMA table_info(account_entries)').all();
+  const columns = present.map((c) => c.name).join(', ');
+  const base = new Set([
+    'id', 'party_type', 'party_id', 'kind', 'amount_usd', 'paid_usd', 'paid_lbp',
+    'exchange_rate', 'order_id', 'note', 'user_id', 'created_at',
+  ]);
+  const grown = present.filter((c) => !base.has(c.name));
+
   db.exec('PRAGMA foreign_keys = OFF');
   db.exec('BEGIN');
   try {
@@ -1325,14 +1350,15 @@ function migrateEntriesToThreeParties() {
         created_at TEXT NOT NULL DEFAULT (datetime('now'))
       );
     `);
-    db.exec(`
-      INSERT INTO account_entries
-        (id, party_type, party_id, kind, amount_usd, paid_usd, paid_lbp,
-         exchange_rate, order_id, note, user_id, created_at)
-      SELECT id, party_type, party_id, kind, amount_usd, paid_usd, paid_lbp,
-             exchange_rate, order_id, note, user_id, created_at
-      FROM account_entries_old
-    `);
+    // Nullable and without their foreign key: every column added by `addColumn`
+    // is nullable anyway, and the reference is not what the copy needs.
+    for (const column of grown) {
+      db.exec(`ALTER TABLE account_entries ADD COLUMN ${column.name} ${column.type || 'TEXT'}`);
+    }
+    /* By name, and by the *live* table's names rather than a list written here
+       — which is the whole point: a column this file does not know about is
+       still carried across. */
+    db.exec(`INSERT INTO account_entries (${columns}) SELECT ${columns} FROM account_entries_old`);
     db.exec('DROP TABLE account_entries_old');
     db.exec(`
       CREATE INDEX IF NOT EXISTS idx_account_entries_party

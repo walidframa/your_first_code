@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Check, ChevronDown, Store, Truck } from 'lucide-react';
+import { Check, ChevronDown, Globe, Store, Truck } from 'lucide-react';
 import { useBranch } from '../context/BranchContext';
 import { cx } from './ui';
 
@@ -17,7 +17,8 @@ import { cx } from './ui';
  * plain text.
  */
 export default function BranchSwitcher({ expanded }) {
-  const { branch, branches, canSwitch, switchTo, incoming, loaded } = useBranch();
+  const { branch, branches, canSwitch, switchTo, incoming, loaded, viewingAll, setViewingAll } =
+    useBranch();
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
 
@@ -40,7 +41,7 @@ export default function BranchSwitcher({ expanded }) {
   if (!loaded || !branch) return null;
   if (!canSwitch && branches.length <= 1) return null;
 
-  const label = branch.name;
+  const label = viewingAll ? 'All branches' : branch.name;
 
   if (!canSwitch) {
     return (
@@ -103,12 +104,13 @@ export default function BranchSwitcher({ expanded }) {
             <button
               key={b.id}
               onClick={() => {
+                setViewingAll(false);
                 switchTo(b.id);
                 setOpen(false);
               }}
               className={cx(
                 'flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition hover:bg-slate-50',
-                b.id === branch.id ? 'font-medium text-slate-900' : 'text-slate-600',
+                b.id === branch.id && !viewingAll ? 'font-medium text-slate-900' : 'text-slate-600',
               )}
             >
               <span className="min-w-0 flex-1 truncate">
@@ -116,9 +118,42 @@ export default function BranchSwitcher({ expanded }) {
                 {b.is_main && <span className="ml-1.5 text-[10px] text-slate-400">main</span>}
                 {!b.active && <span className="ml-1.5 text-[10px] text-red-500">closed</span>}
               </span>
-              {b.id === branch.id && <Check size={14} className="shrink-0 text-brand-600" />}
+              {b.id === branch.id && !viewingAll && (
+                <Check size={14} className="shrink-0 text-brand-600" />
+              )}
             </button>
           ))}
+          {/*
+            * The whole company, for whoever is allowed to see it.
+            *
+            * Below the branches rather than above, because it is the unusual
+            * choice: the ordinary answer to "which shop am I in" is one of the
+            * shops. It reads rather than writes — a sale still belongs to the
+            * counter it was rung up on — so the note underneath says so, since
+            * a mode that silently changed where a sale landed would be worse
+            * than no mode at all.
+            */}
+          {branches.length > 1 && (
+            <button
+              onClick={() => {
+                setViewingAll(!viewingAll);
+                setOpen(false);
+              }}
+              className={cx(
+                'mt-1 flex w-full items-center gap-2 border-t border-slate-100 px-3 py-2 text-left text-sm transition hover:bg-slate-50',
+                viewingAll ? 'font-medium text-slate-900' : 'text-slate-600',
+              )}
+            >
+              <Globe size={14} className="shrink-0 text-slate-400" />
+              <span className="min-w-0 flex-1 truncate">All branches</span>
+              {viewingAll && <Check size={14} className="shrink-0 text-brand-600" />}
+            </button>
+          )}
+          {viewingAll && (
+            <p className="px-3 pb-2 text-[11px] leading-snug text-slate-500">
+              Reading only. Anything you ring up or write still belongs to {branch.name}.
+            </p>
+          )}
           {incoming > 0 && (
             <p className="mt-1 flex items-center gap-1.5 border-t border-slate-100 px-3 py-2 text-xs text-amber-700">
               <Truck size={13} /> {incoming} on the way to {branch.name}
