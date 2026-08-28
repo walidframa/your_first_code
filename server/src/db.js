@@ -2547,6 +2547,35 @@ addColumn('branches', 'area_id', 'INTEGER REFERENCES areas(id)');
 db.exec(`
   CREATE INDEX IF NOT EXISTS idx_journal_lines_centre ON journal_lines(cost_centre_id);
   CREATE INDEX IF NOT EXISTS idx_journal_lines_area ON journal_lines(area_id);
+
+  /*
+   * Drawing a line under a year.
+   *
+   * Two things at once, and they have to be one act. The earnings and the
+   * spending are emptied into retained earnings, so the new year starts from
+   * nothing and last year's profit is where a balance sheet expects to find
+   * it. And the period is shut, so nobody can post into a year that has
+   * already been reported on.
+   *
+   * A reopening is recorded rather than deleted. "This year was closed in
+   * January and opened again in March" is exactly the fact an accountant needs
+   * to see, and a row quietly removed is the fact nobody can see.
+   */
+  CREATE TABLE IF NOT EXISTS book_closings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    /* Everything on or before this date is shut. */
+    period_end TEXT NOT NULL,
+    entry_id INTEGER REFERENCES journal_entries(id),
+    profit_usd REAL NOT NULL DEFAULT 0,
+    note TEXT,
+    user_id INTEGER REFERENCES users(id),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    /* Set means it no longer locks anything. */
+    reopened_at TEXT,
+    reopened_by INTEGER REFERENCES users(id)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_book_closings_end ON book_closings(period_end);
 `);
 
 export const ADJUSTMENT_REASONS = [

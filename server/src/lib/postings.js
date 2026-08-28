@@ -32,6 +32,7 @@ import { db } from '../db.js';
 import { round2 } from './currency.js';
 import { getSettings } from './settings.js';
 import { postEntry } from './ledger.js';
+import { afterClose } from './periodLock.js';
 
 /**
  * Where each kind of money goes, by account code.
@@ -175,7 +176,24 @@ function write({ lines, memo, entryDate = null, branchId = null, userId = null }
   }
   if (real.length < 2) return null;
 
-  return postEntry({ entryDate, memo, lines: real, source: 'auto', branchId, userId });
+  /*
+   * Moved forward out of a closed year rather than refused.
+   *
+   * The automatic postings date themselves to when the thing happened — a sale
+   * to the day it was rung up, an invoice to the day it was confirmed. Once a
+   * year is shut, an invoice confirmed in January for goods received in a
+   * closed December would be dated into that December and thrown out, and
+   * `guarded` above would swallow it into a settings key nobody reads. The
+   * entry belongs in the books; it just does not belong in December any more.
+   */
+  return postEntry({
+    entryDate: afterClose(entryDate),
+    memo,
+    lines: real,
+    source: 'auto',
+    branchId,
+    userId,
+  });
 }
 
 /**

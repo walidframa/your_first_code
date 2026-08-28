@@ -18,6 +18,7 @@ import {
 import { DIMENSIONS, archive, create, list, performance, update } from '../lib/dimensions.js';
 import { settlementLines, vatReturn } from '../lib/vat.js';
 import { revaluation, revaluationLines } from '../lib/revaluation.js';
+import { closePeriod, closingPreview, listClosings, reopen } from '../lib/closing.js';
 import { getSettings } from '../lib/settings.js';
 import { db } from '../db.js';
 
@@ -260,6 +261,48 @@ router.post('/revaluation', ...books, (req, res) => {
       userId: req.user.id,
     });
     res.status(201).json({ entry, restatement });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+/* ------------------------------------------------------- financial closing */
+
+router.get('/closings', ...books, (req, res) => {
+  res.json({
+    closings: listClosings(),
+    preview: closingPreview({ to: req.query.to || null }),
+  });
+});
+
+/**
+ * Draw a line under a period.
+ *
+ * Empties the earnings and the spending into retained earnings and shuts the
+ * period in one act, because either without the other is worse than neither: a
+ * closing that can be posted into is a suggestion, and a lock with the figures
+ * still sitting in this year's income accounts makes next year's profit the
+ * profit since the shop opened.
+ */
+router.post('/closings', ...books, (req, res) => {
+  try {
+    res.status(201).json(
+      closePeriod({
+        to: req.body?.to,
+        note: req.body?.note || null,
+        branchId: req.branchId,
+        userId: req.user.id,
+      }),
+    );
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+/** Open it again — by reversing the closing entry, never by deleting it. */
+router.post('/closings/:id/reopen', ...books, (req, res) => {
+  try {
+    res.json({ closing: reopen(Number(req.params.id), { userId: req.user.id }) });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

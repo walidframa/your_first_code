@@ -44,6 +44,10 @@ export const TRADING_TABLES = [
    */
   'journal_entries',
   'journal_lines',
+  /* A closing is a statement about a year's trading. Wiping the trading and
+     keeping the line drawn under it would leave a shop locked out of a period
+     that no longer has anything in it. */
+  'book_closings',
   'vouchers',
   'cash_sessions',
   'cash_movements',

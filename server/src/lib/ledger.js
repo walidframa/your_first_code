@@ -18,6 +18,7 @@
  * looked at when somebody finally notices.
  */
 import { db, transaction } from '../db.js';
+import { closedThrough, isClosed } from './periodLock.js';
 import { round2 } from './currency.js';
 import { getExchangeRate } from './settings.js';
 
@@ -232,9 +233,28 @@ export function postEntry({
   branchId = null,
   userId = null,
   reversesId = null,
+  allowClosed = false,
 }) {
   const problem = checkLines(lines);
   if (problem) throw new Error(problem);
+
+  /*
+   * Nothing goes into a year that has been reported on.
+   *
+   * Checked here rather than at each caller, because "here" is the only door:
+   * every entry in this app, hand-written or automatic, is written by this
+   * function. A closing that could be walked around by one code path that
+   * forgot to ask is not a closing.
+   *
+   * `allowClosed` is for the two entries that have to reach inside a closed
+   * period by their nature — the one that shuts it, and the reversal that
+   * opens it again.
+   */
+  if (!allowClosed && isClosed(entryDate)) {
+    throw new Error(
+      `The books are closed through ${closedThrough()} — this entry would land inside a period that has already been reported on`,
+    );
+  }
 
   return transaction(() => {
     const number = nextEntryNumber();
@@ -331,7 +351,7 @@ export function listEntries({ from = null, to = null, accountId = null, limit = 
  * said, and an entry that vanishes takes its own explanation with it — the one
  * thing a ledger is for is that somebody can ask, later, what happened.
  */
-export function reverseEntry(id, { userId = null, memo = null } = {}) {
+export function reverseEntry(id, { userId = null, memo = null, allowClosed = false } = {}) {
   const entry = entryById(id);
   if (!entry) throw new Error('That entry does not exist');
   if (reversalOf(id)) throw new Error('That entry has already been reversed');
@@ -355,6 +375,13 @@ export function reverseEntry(id, { userId = null, memo = null } = {}) {
       branchId: entry.branch_id,
       userId,
       reversesId: entry.id,
+      /*
+       * Dated today, not on the original's date, so a correction to something
+       * inside a closed year lands after the line rather than being refused —
+       * except when the reopening itself is doing the reversing, which has to
+       * reach inside.
+       */
+      allowClosed,
     });
     /*
      * The original stays **posted**, and that is the whole point.
