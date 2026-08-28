@@ -2406,6 +2406,16 @@ function seedChartOfAccounts() {
   add('1200', 'Customers owing', 'asset', assets);
   add('1300', 'Stock on hand', 'asset', assets);
   add('1400', 'Prepaid credit and wallets', 'asset', assets);
+  /*
+   * Tax the shop has *paid* on what it bought, and can take off what it owes.
+   *
+   * Its own account rather than a negative on the payable, because they are two
+   * different facts that arrive from two different directions and the return
+   * has to show both. Netting them as they go would leave a shop unable to
+   * answer the only question the tax office asks: what did you charge, and
+   * what did you pay?
+   */
+  add('1250', 'VAT reclaimable', 'asset', assets);
 
   const liabilities = add('2000', 'Liabilities', 'liability', null, 1);
   add('2100', 'Suppliers owed', 'liability', liabilities);
@@ -2464,6 +2474,24 @@ function seedSuspense() {
 }
 
 seedSuspense();
+
+/*
+ * VAT reclaimable, for a shop whose chart was seeded before there was one.
+ *
+ * The same reasoning as Suspense: the shop that needs this account is exactly
+ * the shop that has been running long enough not to have it.
+ */
+function seedVatReclaimable() {
+  if (db.prepare("SELECT 1 FROM gl_accounts WHERE code = '1250'").get()) return;
+  const assets = db.prepare("SELECT id FROM gl_accounts WHERE code = '1000'").get();
+  db.prepare(
+    `INSERT INTO gl_accounts (code, name, type, parent_id, is_group, note)
+     VALUES ('1250', 'VAT reclaimable', 'asset', ?, 0,
+             'Tax paid on what the shop bought, which comes off what it owes.')`,
+  ).run(assets?.id ?? null);
+}
+
+seedVatReclaimable();
 
 /*
  * Cost centres and areas: the two questions a chart of accounts cannot answer.

@@ -155,6 +155,9 @@ export const ADMIN_NAV = [
       { to: '/admin/chart-of-accounts', label: 'Chart of accounts', icon: ListTree, permission: 'ledger' },
       { to: '/admin/journal', label: 'Journal', icon: BookOpen, permission: 'ledger' },
       { to: '/admin/trial-balance', label: 'Trial balance', icon: Scale, permission: 'ledger' },
+      /* Read off the same ledger as the trial balance, so the return and the
+         books can never disagree. */
+      { to: '/admin/vat', label: 'Tax return', icon: Receipt, permission: 'ledger' },
       /* The second axis: what an account cannot say — which part of the shop
          the money belonged to, and where it was. */
       { to: '/admin/cost-centres', label: 'Cost centres', icon: Split, permission: 'ledger' },

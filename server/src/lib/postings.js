@@ -48,6 +48,7 @@ export const DEFAULT_MAP = {
   stock: '1300',
   suppliers: '2100',
   vat: '2200',
+  vatIn: '1250',
   sales: '4100',
   repairs: '4200',
   fees: '4300',
@@ -374,14 +375,31 @@ export function postDocument({ doc, tillAccountId = null, userId = null }) {
     const buying = doc.doc_type === 'purchase_invoice';
     const till = doc.payment_method === 'cash' ? accountForTill(tillAccountId) : accountFor('bank');
 
+    /*
+     * Tax kept apart from the goods, both ways round.
+     *
+     * On a purchase it is money the shop can take off what it owes the tax
+     * office — so it is an asset of its own, not part of what the stock cost.
+     * Booking the gross to stock, which is what this did, quietly overstates
+     * every margin by the tax rate and leaves the shop unable to reclaim a
+     * penny of it.
+     *
+     * On a sale it is money being held for somebody else and was never the
+     * shop's income.
+     */
+    const tax = round2(doc.tax || 0);
+    const net = round2(total - tax);
+
     const lines = buying
       ? [
-          { accountId: accountFor('stock'), debit: total, memo: doc.doc_number },
+          { accountId: accountFor('stock'), debit: net, memo: doc.doc_number },
+          ...(tax > 0 ? [{ accountId: accountFor('vatIn'), debit: tax, memo: 'Tax paid on this' }] : []),
           ...(paid > 0 ? [{ accountId: till, credit: Math.min(paid, total) }] : []),
           ...(total > paid ? [{ accountId: accountFor('suppliers'), credit: round2(total - paid) }] : []),
         ]
       : [
-          { accountId: accountFor('sales'), credit: total, memo: doc.doc_number },
+          { accountId: accountFor('sales'), credit: net, memo: doc.doc_number },
+          ...(tax > 0 ? [{ accountId: accountFor('vat'), credit: tax, memo: 'Tax charged on this' }] : []),
           ...(paid > 0 ? [{ accountId: till, debit: Math.min(paid, total) }] : []),
           ...(total > paid ? [{ accountId: accountFor('customers'), debit: round2(total - paid) }] : []),
         ];
