@@ -16,6 +16,9 @@ import {
   updateAccount,
 } from '../lib/ledger.js';
 import { DIMENSIONS, archive, create, list, performance, update } from '../lib/dimensions.js';
+import { settlementLines, vatReturn } from '../lib/vat.js';
+import { getSettings } from '../lib/settings.js';
+import { db } from '../db.js';
 
 const router = Router();
 const books = [requireAuth, requirePermission('ledger')];
@@ -164,6 +167,67 @@ router.post('/entries/:id/reverse', ...books, (req, res) => {
 });
 
 /* ---------------------------------------------------------------- reports */
+
+/* -------------------------------------------------------------------- VAT */
+
+router.get('/vat', ...books, (req, res) => {
+  res.json(vatReturn({ from: req.query.from || null, to: req.query.to || null }));
+});
+
+/**
+ * Settle a period: clear both tax accounts and pay or reclaim the difference.
+ *
+ * A real entry rather than a note on a screen, because that is what settling
+ * *is*. A shop that pays its tax and leaves the payable standing will be shown
+ * the same money owed again next quarter, and will pay it twice.
+ */
+router.post('/vat/settle', ...books, (req, res) => {
+  const from = req.body?.from || null;
+  const to = req.body?.to || null;
+
+  const settlement = settlementLines({ from, to });
+  if (!settlement) return res.status(400).json({ error: 'There is nothing to settle for those dates' });
+
+  /* Which account the money moves through. Named by the caller, because paying
+     the tax office from the drawer and paying it from the bank are different
+     facts and only the shop knows which happened. */
+  const throughCode = String(req.body?.through || '1120');
+  const through = db
+    .prepare('SELECT id, name FROM gl_accounts WHERE code = ? AND active = 1 AND is_group = 0')
+    .get(throughCode);
+  if (!through) return res.status(400).json({ error: `No account has the code ${throughCode}` });
+
+  try {
+    const lines = settlement.lines.map((l) => ({
+      accountId: db.prepare('SELECT id FROM gl_accounts WHERE code = ?').get(l.code).id,
+      debit: l.debit,
+      credit: l.credit,
+      memo: l.memo,
+    }));
+
+    // The difference: paid out if the shop owes it, taken in if it is owed.
+    if (settlement.due !== 0) {
+      lines.push({
+        accountId: through.id,
+        debit: settlement.due < 0 ? Math.abs(settlement.due) : 0,
+        credit: settlement.due > 0 ? settlement.due : 0,
+        memo: settlement.due > 0 ? `Paid through ${through.name}` : `Reclaimed into ${through.name}`,
+      });
+    }
+
+    const entry = postEntry({
+      entryDate: to,
+      memo: `${getSettings().tax_name || 'Tax'} settled${from || to ? ` for ${from || 'the start'} to ${to || 'today'}` : ''}`,
+      lines,
+      source: 'vat',
+      branchId: req.branchId,
+      userId: req.user.id,
+    });
+    res.status(201).json({ entry, settlement });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
 
 router.get('/trial-balance', ...books, (req, res) => {
   res.json(trialBalance({ from: req.query.from || null, to: req.query.to || null }));
