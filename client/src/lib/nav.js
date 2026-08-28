@@ -23,6 +23,7 @@ import {
   ReceiptText,
   ScanLine,
   Scale,
+  CandlestickChart,
   Split,
   ScrollText,
   Settings as SettingsIcon,
@@ -158,6 +159,9 @@ export const ADMIN_NAV = [
       /* Read off the same ledger as the trial balance, so the return and the
          books can never disagree. */
       { to: '/admin/vat', label: 'Tax return', icon: Receipt, permission: 'ledger' },
+      /* What the rate did to the money already in the drawer, which no sale
+         records and no report above would otherwise show. */
+      { to: '/admin/revaluation', label: 'Exchange differences', icon: CandlestickChart, permission: 'ledger' },
       /* The second axis: what an account cannot say — which part of the shop
          the money belonged to, and where it was. */
       { to: '/admin/cost-centres', label: 'Cost centres', icon: Split, permission: 'ledger' },
