@@ -18,6 +18,7 @@
 import { db, transaction } from '../db.js';
 import { round2, roundLbp } from './currency.js';
 import { getSettings } from './settings.js';
+import { postCashMovement, postTillTransfer } from './postings.js';
 
 /**
  * Why cash left the drawer, beyond the sale itself. Free text alone would make
@@ -231,6 +232,30 @@ export function openSession({
         `INSERT INTO cash_movements (session_id, account_id, kind, amount_usd, amount_lbp, reason, note, user_id)
          VALUES (?, ?, 'opening_float', ?, ?, 'petty_cash', ?, ?)`,
       ).run(info.lastInsertRowid, account, usd, lbp, note || 'Opening float', userId);
+
+      /*
+       * And into the books, which it never was.
+       *
+       * A float is money that was not in the drawer and now is — the owner's,
+       * put in to make change. Recording it in `cash_movements` and nowhere
+       * else left the ledger short by the float from the moment a till was
+       * first opened, and the Exchange differences screen correctly reported
+       * the gap as unexplained because it could not have come from the rate.
+       *
+       * Carried-over cash is deliberately not posted: it is already in the
+       * drawer and already in the books, and `opening_balance_*` above records
+       * it without a movement precisely so it is not counted twice.
+       */
+      postCashMovement({
+        direction: 'in',
+        amountUsd: usd,
+        amountLbp: lbp,
+        reason: 'petty_cash',
+        note: note || 'Opening float',
+        tillAccountId: account,
+        branchId,
+        userId,
+      });
     }
 
     return sessionById(info.lastInsertRowid);
@@ -483,6 +508,19 @@ export function closeSession({
         note: 'Counted at close',
         userId,
       });
+
+      // A drawer that came up short is money the shop no longer has, and the
+      // books have to say so rather than carrying a figure the till never held.
+      postCashMovement({
+        direction: overShort.usd < 0 || overShort.lbp < 0 ? 'out' : 'in',
+        amountUsd: overShort.usd,
+        amountLbp: overShort.lbp,
+        reason: overShort.usd < 0 || overShort.lbp < 0 ? 'short' : 'over',
+        note: `Counted at close — ${session.account_name || 'the drawer'}`,
+        tillAccountId: session.account_id,
+        branchId: session.branch_id ?? null,
+        userId,
+      });
     }
 
     /*
@@ -520,6 +558,18 @@ export function closeSession({
           note: `From ${session.account_name || 'the drawer'} at close`,
           userId,
         });
+
+        // One entry for one event. Nothing is written when both tills sit on
+        // the same ledger account, which by default they do.
+        postTillTransfer({
+          fromTillId: session.account_id,
+          toTillId: target.id,
+          amountUsd: banked.usd,
+          amountLbp: banked.lbp,
+          note: `Drawer swept to ${target.name} at close`,
+          branchId: session.branch_id ?? null,
+          userId,
+        });
       } else {
         recordMovement({
           sessionId,
@@ -528,6 +578,24 @@ export function closeSession({
           amountLbp: -banked.lbp,
           reason: 'bank_drop',
           note: 'Taken out of the drawer at close',
+          userId,
+        });
+
+        /*
+         * Money out of the drawer with nowhere in the shop to put it — the
+         * one-till shop carrying its takings to the bank. That is a real
+         * movement between two things the shop owns, and leaving it unposted
+         * meant the books went on holding cash the drawer had not had since
+         * closing time.
+         */
+        postCashMovement({
+          direction: 'out',
+          amountUsd: banked.usd,
+          amountLbp: banked.lbp,
+          reason: 'bank_drop',
+          note: 'Taken out of the drawer at close',
+          tillAccountId: session.account_id,
+          branchId: session.branch_id ?? null,
           userId,
         });
       }

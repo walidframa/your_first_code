@@ -70,7 +70,7 @@ function NavItem({ to, label, icon: Icon, end, expanded, dense = false }) {
 export default function Layout() {
   const { user, logout, can } = useAuth();
   const { pathname } = useLocation();
-  const { branchId } = useBranch();
+  const { branchId, viewingAll } = useBranch();
   const t = useT();
 
   /*
@@ -571,7 +571,7 @@ export default function Layout() {
          * correct by construction, and means a screen added next year cannot
          * reintroduce this by forgetting branches exist.
          */}
-        <div key={`${branchId ?? 'one'}:${pathname}`} className="animate-page-in min-h-0 flex-1 overflow-hidden">
+        <div key={`${branchId ?? 'one'}${viewingAll ? ':all' : ''}:${pathname}`} className="animate-page-in min-h-0 flex-1 overflow-hidden">
           <Outlet />
         </div>
 

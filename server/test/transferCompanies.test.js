@@ -189,6 +189,117 @@ test('the ledger is rebuilt without losing or renumbering a single entry', async
   }
 });
 
+test('and it carries across the columns the table has grown since', async () => {
+  /*
+   * The bug this closes. The rebuild above listed the columns it copied, and
+   * that list was written before `native_usd`, `native_lbp` and `branch_id`
+   * existed — so a rebuild threw away every entry's currency split and left
+   * `addEntry`, whose INSERT always names those columns, unable to write at all.
+   *
+   * It hid because seeding and serving are separate processes: the rebuild ran
+   * during the seed and the next boot put the columns back, empty. One process
+   * doing both — any shop booting against a database it has just made — got a
+   * table it could not write an entry to.
+   */
+  const dir = mkdtempSync(path.join(tmpdir(), 'pos-grown-'));
+  const file = path.join(dir, 'old.sqlite');
+
+  try {
+    const old = new DatabaseSync(file);
+    old.exec(`
+      CREATE TABLE account_entries (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        party_type TEXT NOT NULL CHECK (party_type IN ('customer', 'supplier')),
+        party_id INTEGER NOT NULL,
+        kind TEXT NOT NULL CHECK (kind IN ('sale', 'payment', 'refund', 'bill', 'adjustment', 'opening')),
+        amount_usd REAL NOT NULL,
+        paid_usd REAL NOT NULL DEFAULT 0,
+        paid_lbp REAL NOT NULL DEFAULT 0,
+        exchange_rate REAL,
+        order_id INTEGER,
+        note TEXT,
+        user_id INTEGER,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+    `);
+    // A shop that has already been through one upgrade: the split columns are
+    // there, and carrying real figures.
+    old.exec('ALTER TABLE account_entries ADD COLUMN native_usd REAL');
+    old.exec('ALTER TABLE account_entries ADD COLUMN native_lbp REAL');
+    old
+      .prepare(
+        `INSERT INTO account_entries
+           (id, party_type, party_id, kind, amount_usd, note, native_usd, native_lbp)
+         VALUES (1, 'customer', 7, 'payment', -411.24, 'dollars and pounds', -400, -1000000)`,
+      )
+      .run();
+    old.close();
+
+    const env = {
+      ...process.env,
+      DB_PATH: file,
+      JWT_SECRET: 'grown-test-secret-long-enough-for-guard',
+      ACCOUNT_SECRET: 'grown-account-secret-long-enough-32chr',
+      NODE_ENV: 'test',
+    };
+    const opened = spawnSync(
+      process.execPath,
+      ['-e', "import('./src/db.js').then(() => process.exit(0))"],
+      { cwd: serverRoot, env, encoding: 'utf8' },
+    );
+    assert.equal(opened.status, 0, `opening the old database failed: ${opened.stderr}`);
+
+    const migrated = new DatabaseSync(file);
+    const names = migrated.prepare('PRAGMA table_info(account_entries)').all().map((c) => c.name);
+    assert.ok(names.includes('native_usd'), 'the split survived the rebuild');
+    assert.ok(names.includes('native_lbp'));
+
+    const row = migrated.prepare('SELECT * FROM account_entries WHERE id = 1').get();
+    assert.equal(row.native_usd, -400, 'and so did what was in it');
+    assert.equal(row.native_lbp, -1000000);
+    migrated.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a database made and written to by one process can record an entry', async () => {
+  /*
+   * The shape of the failure as a shop would meet it: one boot, no restart in
+   * between. Everything above tests the migration; this tests that the thing
+   * the migration exists to serve still works afterwards.
+   */
+  const dir = mkdtempSync(path.join(tmpdir(), 'pos-oneboot-'));
+  try {
+    const written = spawnSync(
+      process.execPath,
+      [
+        '-e',
+        `Promise.all([import('./src/db.js'), import('./src/lib/accounts.js')]).then(([{ db }, acc]) => {
+           db.prepare("INSERT INTO customers (name, active) VALUES ('One boot', 1)").run();
+           acc.addEntry({ partyType: 'customer', partyId: 1, kind: 'sale',
+                          amountUsd: 100, nativeUsd: 60, nativeLbp: 4000000 });
+           process.exit(0);
+         }).catch((e) => { console.error(e.message); process.exit(1); })`,
+      ],
+      {
+        cwd: serverRoot,
+        env: {
+          ...process.env,
+          DB_PATH: path.join(dir, 'fresh.sqlite'),
+          JWT_SECRET: 'oneboot-secret-long-enough-for-the-guard',
+          ACCOUNT_SECRET: 'oneboot-account-secret-long-enough-32c',
+          NODE_ENV: 'test',
+        },
+        encoding: 'utf8',
+      },
+    );
+    assert.equal(written.status, 0, `a fresh database could not take an entry: ${written.stderr}`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 /* ---------------------------------------------------------------- balance */
 
 test('an agency is opened the first time its name is used', async () => {

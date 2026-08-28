@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import api from '../api';
+import api, { setViewingAll } from '../api';
 import { useAuth } from './AuthContext';
 
 const BranchContext = createContext(null);
@@ -17,6 +17,15 @@ const STORAGE_KEY = 'pos_branch_id';
 export function BranchProvider({ children }) {
   const { user } = useAuth();
   const [state, setState] = useState(null);
+  /*
+   * The owner looking at the whole company rather than one counter.
+   *
+   * Not remembered between sessions, unlike the branch itself. The branch is
+   * where somebody works and should still be there tomorrow; this is a thing
+   * you do for a minute to answer a question, and a shop that opened to it
+   * every morning would be a shop reading two branches' figures as one.
+   */
+  const [viewingAll, setAll] = useState(false);
   const [current, setCurrent] = useState(() => {
     const stored = Number(localStorage.getItem(STORAGE_KEY));
     return Number.isFinite(stored) && stored > 0 ? stored : null;
@@ -59,6 +68,8 @@ export function BranchProvider({ children }) {
   useEffect(() => {
     if (!user) {
       setState(null);
+      setViewingAll(false);
+      setAll(false);
       return;
     }
     /*
@@ -95,6 +106,19 @@ export function BranchProvider({ children }) {
     const branches = state?.branches ?? [];
     return {
       branches,
+      viewingAll,
+      /**
+       * Widen to the company, or come back to one counter.
+       *
+       * The flag goes to the api module before the state changes, for the same
+       * reason the branch header does: a screen watching this reloads when it
+       * changes, and child effects run before the parent's, so setting it
+       * afterwards would let that reload go out without it.
+       */
+      setViewingAll: (on) => {
+        setViewingAll(on);
+        setAll(Boolean(on));
+      },
       branch: branches.find((b) => b.id === current) ?? null,
       branchId: current,
       canSwitch: Boolean(state?.canSwitch),
@@ -113,7 +137,7 @@ export function BranchProvider({ children }) {
         setCurrent(next);
       },
     };
-  }, [state, current, refresh, applyHeader]);
+  }, [state, current, viewingAll, refresh, applyHeader]);
 
   return <BranchContext.Provider value={value}>{children}</BranchContext.Provider>;
 }
