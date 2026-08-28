@@ -55,10 +55,26 @@ export function accountById(id) {
   };
 }
 
-export function listAccounts({ activeOnly = false } = {}) {
+/**
+ * The tills, of one branch or of all of them.
+ *
+ * A drawer is a physical thing standing in one shop. Offering the other
+ * branch's safe in a picker at this counter is how money gets recorded as
+ * moving somewhere it cannot have moved — so `branchId` is the normal case and
+ * null, meaning every branch, is the owner asking about the whole company.
+ */
+export function listAccounts({ activeOnly = false, branchId = null } = {}) {
+  const where = [];
+  if (activeOnly) where.push('active = 1');
+  if (branchId !== null) where.push('branch_id = ?');
+
   const rows = db
-    .prepare(`SELECT * FROM cash_accounts ${activeOnly ? 'WHERE active = 1' : ''} ORDER BY is_default DESC, name`)
-    .all();
+    .prepare(
+      `SELECT * FROM cash_accounts
+       ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+       ORDER BY is_default DESC, name`,
+    )
+    .all(...(branchId !== null ? [branchId] : []));
   const balances = balanceMap();
   const open = new Map(
     db

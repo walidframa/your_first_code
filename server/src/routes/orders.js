@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { branchParams } from '../lib/branchScope.js';
 import crypto from 'crypto';
 import { db, transaction } from '../db.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
@@ -910,6 +911,8 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
           orderId,
           note: orderNumber,
           userId: req.user.id,
+          // Where it happened, so the cash-flow feed can be a branch's own.
+          branchId: req.branchId,
         });
       }
 
@@ -1077,6 +1080,13 @@ router.get('/', requireAuth, (req, res) => {
     LEFT JOIN customers c ON c.id = o.customer_id WHERE 1=1`;
   const params = [];
 
+  /*
+   * The counter these sales were rung up at. Alongside the cashier filter
+   * below, not instead of it: one says whose sales, the other says whose shop.
+   */
+  sql += ' AND (? IS NULL OR o.branch_id = ?)';
+  params.push(...branchParams(req));
+
   if (req.user.role !== 'admin') {
     sql += ' AND o.cashier_id = ?';
     params.push(req.user.id);
@@ -1237,6 +1247,8 @@ router.post('/:id/refund', requireAuth, requirePermission('refunds'), (req, res)
         orderId: order.id,
         note: `Refund of ${order.order_number}`,
         userId: req.user.id,
+        // Where it happened, so the cash-flow feed can be a branch's own.
+        branchId: req.branchId,
       });
     }
 
@@ -1389,6 +1401,8 @@ router.post('/:id/return-line', requireAuth, requirePermission('refunds'), (req,
         orderId: order.id,
         note: `Returned ${returning} × ${item.name} from ${order.order_number}`,
         userId: req.user.id,
+        // Where it happened, so the cash-flow feed can be a branch's own.
+        branchId: req.branchId,
       });
     }
 

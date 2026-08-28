@@ -1704,6 +1704,16 @@ addColumn('documents', 'branch_id', 'INTEGER REFERENCES branches(id)');
 addColumn('expenses', 'branch_id', 'INTEGER REFERENCES branches(id)');
 addColumn('held_sales', 'branch_id', 'INTEGER REFERENCES branches(id)');
 addColumn('repair_tickets', 'branch_id', 'INTEGER REFERENCES branches(id)');
+/*
+ * Where a movement on somebody's account happened.
+ *
+ * The balance itself is not a branch's business — a customer owes the shop, not
+ * the counter they happened to stand at, and splitting one debt across two
+ * branches would give a shop two wrong figures instead of one right one. But
+ * *where the money moved* is exactly what the cash-flow feed is for, and
+ * without this column that feed could not be separated at all.
+ */
+addColumn('account_entries', 'branch_id', 'INTEGER REFERENCES branches(id)');
 /* Where somebody works. Null means the main branch. */
 addColumn('users', 'branch_id', 'INTEGER REFERENCES branches(id)');
 
@@ -1735,6 +1745,7 @@ function seedMainBranch() {
     'expenses',
     'held_sales',
     'repair_tickets',
+    'account_entries',
   ]) {
     db.prepare(`UPDATE ${table} SET branch_id = ? WHERE branch_id IS NULL`).run(main.id);
   }

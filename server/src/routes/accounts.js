@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { branchParams, branchScope } from '../lib/branchScope.js';
 import { db } from '../db.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { accountsSummary } from '../lib/accounts.js';
@@ -20,7 +21,10 @@ const router = Router();
  * private business, and the ledger behind each one still takes `parties`.
  */
 router.get('/registry', requireAuth, (req, res) => {
-  const registry = accountRegistry({ activeOnly: req.query.activeOnly === 'true' });
+  const registry = accountRegistry({
+    activeOnly: req.query.activeOnly === 'true',
+    branchId: branchScope(req),
+  });
   res.json({ registry, summary: registrySummary(registry), cashKinds: CASH_ACCOUNT_KINDS });
 });
 
@@ -75,10 +79,11 @@ router.get('/entries', requireAuth, requirePermission('parties'), (req, res) => 
        LEFT JOIN orders o ON o.id = e.order_id
        LEFT JOIN customers c ON c.id = e.party_id AND e.party_type = 'customer'
        LEFT JOIN suppliers s ON s.id = e.party_id AND e.party_type = 'supplier'
+       WHERE (? IS NULL OR e.branch_id = ?)
        ORDER BY e.created_at DESC, e.id DESC
        LIMIT ?`,
     )
-    .all(limit);
+    .all(...branchParams(req), limit);
 
   res.json({ entries });
 });

@@ -67,8 +67,14 @@ function parties(type, { activeOnly }) {
 }
 
 /** The whole registry, grouped by type. */
-export function accountRegistry({ activeOnly = false } = {}) {
-  const cash = listTills({ activeOnly }).map((a) => ({
+/*
+ * `branchId` reaches only the tills. Customers and suppliers are the shop's,
+ * not a counter's: a debt run up at one branch and paid at another belongs to
+ * one account, and splitting it would show a shop two wrong balances instead of
+ * one right one.
+ */
+export function accountRegistry({ activeOnly = false, branchId = null } = {}) {
+  const cash = listTills({ activeOnly, branchId }).map((a) => ({
     type: 'cash',
     id: a.id,
     name: a.name,
