@@ -17,6 +17,7 @@ import {
 } from '../lib/ledger.js';
 import { DIMENSIONS, archive, create, list, performance, update } from '../lib/dimensions.js';
 import { settlementLines, vatReturn } from '../lib/vat.js';
+import { revaluation, revaluationLines } from '../lib/revaluation.js';
 import { getSettings } from '../lib/settings.js';
 import { db } from '../db.js';
 
@@ -224,6 +225,41 @@ router.post('/vat/settle', ...books, (req, res) => {
       userId: req.user.id,
     });
     res.status(201).json({ entry, settlement });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+/* --------------------------------------------------- exchange differences */
+
+router.get('/revaluation', ...books, (req, res) => {
+  res.json(revaluation());
+});
+
+/**
+ * Restate the pounds at today's rate.
+ *
+ * One entry dated today. The entries already written are left exactly as they
+ * are — a sale records what it was worth when it was rung up, and rewriting
+ * that every time the rate moves would make last month's accounts disagree
+ * with themselves.
+ */
+router.post('/revaluation', ...books, (req, res) => {
+  const restatement = revaluationLines();
+  if (!restatement) {
+    return res.status(400).json({ error: 'There is nothing to restate at the current rate' });
+  }
+
+  try {
+    const entry = postEntry({
+      entryDate: req.body?.date || null,
+      memo: `Pounds restated at ${restatement.rate.toLocaleString('en-US')}`,
+      lines: restatement.lines,
+      source: 'revaluation',
+      branchId: req.branchId,
+      userId: req.user.id,
+    });
+    res.status(201).json({ entry, restatement });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
