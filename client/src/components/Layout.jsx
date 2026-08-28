@@ -352,7 +352,14 @@ export default function Layout() {
               })}
             </div>
             {/* A hint that the list continues past the fold. */}
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-gradient-to-t from-slate-900 to-transparent" />
+            <div
+              /* The fade at the foot of the scrolling nav. It has to end in
+                 the rail's own colour, which is not the same colour in every
+                 theme — named so a theme can say what its rail is instead of
+                 this hard-coding navy and smudging a white one. */
+              data-rail-fade=""
+              className="pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-gradient-to-t from-slate-900 to-transparent"
+            />
           </div>
         )}
 

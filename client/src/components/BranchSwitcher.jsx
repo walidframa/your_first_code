@@ -46,6 +46,7 @@ export default function BranchSwitcher({ expanded }) {
   if (!canSwitch) {
     return (
       <div
+        data-branch-chip=""
         title={label}
         className={cx(
           'mb-2 flex items-center rounded-lg bg-slate-800/60 py-1.5 text-slate-300',
@@ -62,6 +63,7 @@ export default function BranchSwitcher({ expanded }) {
     <div ref={ref} className="relative mb-2">
       <button
         onClick={() => setOpen((v) => !v)}
+        data-branch-chip=""
         title={`Branch: ${label}`}
         aria-label={`Branch: ${label}. Change branch`}
         aria-expanded={open}
