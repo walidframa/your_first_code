@@ -16,12 +16,14 @@ import {
   KeyRound,
   Landmark,
   ListTree,
+  MapPin,
   Package,
   PiggyBank,
   Receipt,
   ReceiptText,
   ScanLine,
   Scale,
+  Split,
   ScrollText,
   Settings as SettingsIcon,
   ShoppingBag,
@@ -153,6 +155,10 @@ export const ADMIN_NAV = [
       { to: '/admin/chart-of-accounts', label: 'Chart of accounts', icon: ListTree, permission: 'ledger' },
       { to: '/admin/journal', label: 'Journal', icon: BookOpen, permission: 'ledger' },
       { to: '/admin/trial-balance', label: 'Trial balance', icon: Scale, permission: 'ledger' },
+      /* The second axis: what an account cannot say — which part of the shop
+         the money belonged to, and where it was. */
+      { to: '/admin/cost-centres', label: 'Cost centres', icon: Split, permission: 'ledger' },
+      { to: '/admin/areas', label: 'Areas', icon: MapPin, permission: 'ledger' },
     ],
   },
   {

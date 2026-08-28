@@ -20,23 +20,32 @@ import {
  * So the two totals and the difference sit under the lines and move as the
  * figures do. Save is offered only when they agree.
  */
-const BLANK = () => ({ key: `l${Math.random().toString(36).slice(2)}`, accountId: '', debit: '', credit: '' });
+const BLANK = () => ({
+  key: `l${Math.random().toString(36).slice(2)}`,
+  accountId: '', debit: '', credit: '', costCentreId: '', areaId: '',
+});
 
 export default function Journal() {
   const [entries, setEntries] = useState(null);
   const [accounts, setAccounts] = useState([]);
+  const [centres, setCentres] = useState([]);
+  const [areas, setAreas] = useState([]);
   const [failed, setFailed] = useState(null);
   const [writing, setWriting] = useState(false);
   const [looking, setLooking] = useState(null);
 
   const load = useCallback(async () => {
     try {
-      const [list, chart] = await Promise.all([
+      const [list, chart, centre, area] = await Promise.all([
         api.get('/ledger/entries'),
         api.get('/ledger/accounts', { params: { activeOnly: 'true' } }),
+        api.get('/ledger/cost-centres', { params: { activeOnly: 'true' } }),
+        api.get('/ledger/areas', { params: { activeOnly: 'true' } }),
       ]);
       setEntries(list.data.entries);
       setAccounts(chart.data.accounts.filter((a) => !a.is_group));
+      setCentres(centre.data.items);
+      setAreas(area.data.items);
       setFailed(null);
     } catch (err) {
       setFailed(err);
@@ -114,14 +123,20 @@ export default function Journal() {
       </div>
 
       {writing && (
-        <EntryDialog accounts={accounts} onClose={() => setWriting(false)} onSaved={() => { setWriting(false); load(); }} />
+        <EntryDialog
+          accounts={accounts}
+          centres={centres}
+          areas={areas}
+          onClose={() => setWriting(false)}
+          onSaved={() => { setWriting(false); load(); }}
+        />
       )}
       {looking && <EntryView id={looking} onClose={() => setLooking(null)} onChanged={load} />}
     </div>
   );
 }
 
-function EntryDialog({ accounts, onClose, onSaved }) {
+function EntryDialog({ accounts, centres, areas, onClose, onSaved }) {
   const toast = useToast();
   const [entryDate, setEntryDate] = useState(isoDay());
   const [memo, setMemo] = useState('');
@@ -157,6 +172,8 @@ function EntryDialog({ accounts, onClose, onSaved }) {
             accountId: Number(l.accountId),
             debit: Number(l.debit) || 0,
             credit: Number(l.credit) || 0,
+            costCentreId: l.costCentreId ? Number(l.costCentreId) : null,
+            areaId: l.areaId ? Number(l.areaId) : null,
           })),
       });
       toast('Entry posted');
@@ -184,6 +201,10 @@ function EntryDialog({ accounts, onClose, onSaved }) {
                 <th className="px-3 py-2 font-medium">Account</th>
                 <th className="w-32 px-2 py-2 text-right font-medium">Debit</th>
                 <th className="w-32 px-2 py-2 text-right font-medium">Credit</th>
+                {/* Only when the shop keeps them. A pair of empty columns on
+                    every entry is a pair of questions nobody asked. */}
+                {centres.length > 0 && <th className="w-40 px-2 py-2 font-medium">Cost centre</th>}
+                {areas.length > 0 && <th className="w-40 px-2 py-2 font-medium">Area</th>}
                 <th className="w-10 px-2 py-2" />
               </tr>
             </thead>
@@ -224,6 +245,36 @@ function EntryDialog({ accounts, onClose, onSaved }) {
                       className="tnum h-9 w-full rounded-lg bg-white px-2 text-right text-sm ring-1 ring-edge focus:ring-2 focus:ring-brand-600 focus:outline-none"
                     />
                   </td>
+                  {centres.length > 0 && (
+                    <td className="px-2 py-1.5">
+                      <select
+                        value={l.costCentreId}
+                        onChange={(e) => setLine(l.key, { costCentreId: e.target.value })}
+                        aria-label="Cost centre"
+                        className="h-9 w-full rounded-lg bg-white px-2 text-sm ring-1 ring-edge focus:ring-2 focus:ring-brand-600 focus:outline-none"
+                      >
+                        <option value="">—</option>
+                        {centres.map((c) => (
+                          <option key={c.id} value={c.id}>{c.code} · {c.name}</option>
+                        ))}
+                      </select>
+                    </td>
+                  )}
+                  {areas.length > 0 && (
+                    <td className="px-2 py-1.5">
+                      <select
+                        value={l.areaId}
+                        onChange={(e) => setLine(l.key, { areaId: e.target.value })}
+                        aria-label="Area"
+                        className="h-9 w-full rounded-lg bg-white px-2 text-sm ring-1 ring-edge focus:ring-2 focus:ring-brand-600 focus:outline-none"
+                      >
+                        <option value="">—</option>
+                        {areas.map((a) => (
+                          <option key={a.id} value={a.id}>{a.code} · {a.name}</option>
+                        ))}
+                      </select>
+                    </td>
+                  )}
                   <td className="px-2 py-1.5 text-right">
                     {lines.length > 2 && (
                       <button
@@ -252,11 +303,14 @@ function EntryDialog({ accounts, onClose, onSaved }) {
                 <td className="px-3 py-2 text-xs font-medium text-slate-500">Totals</td>
                 <td className="tnum px-2 py-2 text-right font-medium text-slate-800">{money(totals.debit)}</td>
                 <td className="tnum px-2 py-2 text-right font-medium text-slate-800">{money(totals.credit)}</td>
-                <td />
+                <td colSpan={1 + (centres.length > 0 ? 1 : 0) + (areas.length > 0 ? 1 : 0)} />
               </tr>
               {totals.gap !== 0 && (
                 <tr>
-                  <td colSpan={4} className="px-3 pb-2 text-right text-xs font-medium text-amber-700">
+                  <td
+                    colSpan={4 + (centres.length > 0 ? 1 : 0) + (areas.length > 0 ? 1 : 0)}
+                    className="px-3 pb-2 text-right text-xs font-medium text-amber-700"
+                  >
                     Out by {money(Math.abs(totals.gap))} — {totals.gap > 0 ? 'credits' : 'debits'} are short
                   </td>
                 </tr>
@@ -335,6 +389,11 @@ function EntryView({ id, onClose, onChanged }) {
                     <td className="px-3 py-2">
                       <span className="font-mono text-xs text-slate-400">{l.account_code}</span>{' '}
                       <span className="text-slate-800">{l.account_name}</span>
+                      {(l.cost_centre_name || l.area_name) && (
+                        <span className="block text-[11px] text-slate-400">
+                          {[l.cost_centre_name, l.area_name].filter(Boolean).join(' · ')}
+                        </span>
+                      )}
                     </td>
                     <td className="tnum px-2 py-2 text-right">{l.debit_usd ? money(l.debit_usd) : ''}</td>
                     <td className="tnum px-2 py-2 text-right">{l.credit_usd ? money(l.credit_usd) : ''}</td>

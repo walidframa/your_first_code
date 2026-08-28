@@ -107,6 +107,18 @@ export function suspenseId() {
     .run(SUSPENSE_CODE).lastInsertRowid;
 }
 
+/** The area a branch sits in, if the shop has said. */
+function areaOfBranch(branchId) {
+  if (!branchId) return null;
+  const found = db
+    .prepare(
+      `SELECT a.id FROM branches b JOIN areas a ON a.id = b.area_id
+       WHERE b.id = ? AND a.active = 1`,
+    )
+    .get(branchId);
+  return found?.id ?? null;
+}
+
 /** Which ledger account one of the shop's tills belongs to. */
 export function accountForTill(cashAccountId) {
   const till = cashAccountId
@@ -137,6 +149,17 @@ export function accountForTill(cashAccountId) {
 function write({ lines, memo, entryDate = null, branchId = null, userId = null }) {
   const real = lines.filter((l) => round2(l.debit || 0) !== 0 || round2(l.credit || 0) !== 0);
   if (real.length === 0) return null;
+
+  /*
+   * Which area the shop it happened at belongs to.
+   *
+   * Stamped here rather than asked for, because an axis that only fills in when
+   * somebody remembers to tick a box is an axis whose report is wrong and looks
+   * right. A branch knows its own area; every line the till writes can carry it
+   * for free, and a shop that has not set one up loses nothing.
+   */
+  const area = areaOfBranch(branchId);
+  if (area) for (const line of real) if (!line.areaId) line.areaId = area;
 
   const debit = real.reduce((s, l) => round2(s + (l.debit || 0)), 0);
   const credit = real.reduce((s, l) => round2(s + (l.credit || 0)), 0);

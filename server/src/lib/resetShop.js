@@ -109,6 +109,14 @@ export const KEPT_TABLES = [
    */
   'gl_accounts',
   /*
+   * The two axes on the books, kept for the same reason the chart is: they are
+   * the shape a shop gave its own reporting, not a record of what it traded.
+   * Clearing last year's entries must not take away the fact that there is a
+   * repair bench and a phone counter.
+   */
+  'cost_centres',
+  'areas',
+  /*
    * And the record of every visit the vendor has paid this shop.
    *
    * Kept deliberately, and kept even by the total reset: it is the shop's

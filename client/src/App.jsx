@@ -27,6 +27,7 @@ import AdminCapital from './pages/admin/Capital';
 import AdminChartOfAccounts from './pages/admin/ChartOfAccounts';
 import AdminJournal from './pages/admin/Journal';
 import AdminTrialBalance from './pages/admin/TrialBalance';
+import { Areas as AdminAreas, CostCentres as AdminCostCentres } from './pages/admin/Dimensions';
 import AdminLabels from './pages/admin/Labels';
 import AdminShopify from './pages/admin/Shopify';
 import AdminCashSessions from './pages/admin/CashSessions';
@@ -205,6 +206,22 @@ export default function App() {
           element={
             <ProtectedRoute permission="ledger">
               <AdminTrialBalance />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/cost-centres"
+          element={
+            <ProtectedRoute permission="ledger">
+              <AdminCostCentres />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/areas"
+          element={
+            <ProtectedRoute permission="ledger">
+              <AdminAreas />
             </ProtectedRoute>
           }
         />

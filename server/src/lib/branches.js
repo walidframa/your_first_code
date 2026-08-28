@@ -56,11 +56,19 @@ export function updateBranch(id, changes) {
   if (!name) throw new Error('A branch needs a name');
 
   try {
-    db.prepare('UPDATE branches SET name = ?, code = ?, phone = ?, address = ? WHERE id = ?').run(
+    db.prepare(
+      'UPDATE branches SET name = ?, code = ?, phone = ?, address = ?, area_id = ? WHERE id = ?',
+    ).run(
       name,
       merged.code?.trim() || null,
       merged.phone?.trim() || null,
       merged.address?.trim() || null,
+      /*
+       * Which area this shop is in, so that everything the till writes here can
+       * carry it without anybody ticking a box. An axis that only fills in when
+       * somebody remembers is an axis whose report is wrong and looks right.
+       */
+      merged.area_id ? Number(merged.area_id) : null,
       id,
     );
   } catch {
