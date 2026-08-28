@@ -482,7 +482,9 @@ export function applyEffects(doc, items, userId, note = doc.doc_number, accountI
     exchangeRate: doc.exchange_rate,
     note,
     userId,
-  });
+  
+    // The branch that raised the paperwork, not whoever opened it later.
+    branchId: doc.branch_id ?? null,});
 
   const paid = paidUsdEquivalent(doc);
   if (paid > 0) {
@@ -496,7 +498,9 @@ export function applyEffects(doc, items, userId, note = doc.doc_number, accountI
       exchangeRate: doc.exchange_rate,
       note: `${note} — paid ${doc.payment_method}`,
       userId,
-    });
+    
+      // The branch that raised the paperwork, not whoever opened it later.
+      branchId: doc.branch_id ?? null,});
 
     /*
      * Paid from the till, so the till has to know. A purchase settled in cash
@@ -561,7 +565,9 @@ export function reverseEffects(doc, items, userId, note = `Cancelled ${doc.doc_n
     exchangeRate: doc.exchange_rate,
     note,
     userId,
-  });
+  
+    // The branch that raised the paperwork, not whoever opened it later.
+    branchId: doc.branch_id ?? null,});
 
   // Money paid at the counter comes back with it.
   const paid = paidUsdEquivalent(doc);
@@ -574,7 +580,9 @@ export function reverseEffects(doc, items, userId, note = `Cancelled ${doc.doc_n
       exchangeRate: doc.exchange_rate,
       note: `${note} — ${doc.payment_method} payment returned`,
       userId,
-    });
+    
+      // The branch that raised the paperwork, not whoever opened it later.
+      branchId: doc.branch_id ?? null,});
 
     if (doc.payment_method === 'cash') {
       const sign = doc.doc_type === 'purchase_invoice' ? 1 : -1;

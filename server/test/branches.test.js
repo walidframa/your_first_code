@@ -122,8 +122,24 @@ test('the shop starts with one branch, and everything already there belongs to i
 });
 
 test('a second branch gets a till of its own, or it cannot take a cash sale', async () => {
-  const tills = (await req('GET', '/accounts/registry', null, adminToken)).json.registry.cash;
+  const tills = (await req('GET', '/accounts/registry', null, adminToken, saida.id)).json.registry.cash;
   assert.ok(tills.some((t) => t.name.includes('Saida')), 'opening a branch that cannot take money is not opening');
+});
+
+test('and that till is not offered at the other branch’s counter', async () => {
+  /*
+   * A drawer is a physical thing standing in one shop. Offering Saida's safe in
+   * a picker on the main counter is how money comes to be recorded as moving
+   * somewhere it cannot have moved.
+   */
+  const here = (await req('GET', '/accounts/registry', null, adminToken, mainBranch.id)).json.registry.cash;
+  assert.ok(!here.some((t) => t.name.includes('Saida')), 'the other shop’s drawer is not on this counter');
+  assert.ok(here.length > 0, 'but this one’s own till still is');
+
+  // The owner can still see the whole company when they ask for it.
+  const all = (await req('GET', '/accounts/registry?branch=all', null, adminToken, mainBranch.id))
+    .json.registry.cash;
+  assert.ok(all.some((t) => t.name.includes('Saida')), 'branch=all is the owner looking at everything');
 });
 
 test('two branches cannot share a name', async () => {
@@ -446,4 +462,153 @@ test('the main branch can never be closed', async () => {
   const refused = await req('DELETE', `/branches/${mainBranch.id}`, null, adminToken);
   assert.equal(refused.status, 400);
   assert.match(refused.json.error, /main branch cannot be closed/i);
+});
+
+/* ------------------------------------------------ what must not be shared */
+
+/*
+ * The paperwork, the takings and the money.
+ *
+ * Stock was separated from the beginning; these were not, and every one of them
+ * showed a branch manager the other shop's trade as though it were their own.
+ * Each test below asks the same three questions: is it mine here, is it absent
+ * there, and can the owner still see the whole company when they ask.
+ */
+
+/** A document raised at one counter. */
+async function raise(branch, docType, party) {
+  const made = await req(
+    'POST',
+    '/documents',
+    { docType, partyId: party, items: [{ productId: sharedProduct.id, quantity: 1, price: 5 }] },
+    adminToken,
+    branch,
+  );
+  assert.equal(made.status, 201, JSON.stringify(made.json));
+  return made.json.document;
+}
+
+const docsAt = async (branch, type, query = '') =>
+  (await req('GET', `/documents?type=${type}${query}`, null, adminToken, branch)).json.documents;
+
+let sharedProduct;
+let customerId;
+let supplierId;
+
+test('setting up a customer, a supplier and something to sell', async () => {
+  sharedProduct = await makeProduct(50, mainBranch.id);
+  customerId = (await req('POST', '/customers', { name: 'Branch buyer' }, adminToken)).json.party.id;
+  supplierId = (await req('POST', '/suppliers', { name: 'Branch seller' }, adminToken)).json.party.id;
+  assert.ok(sharedProduct && customerId && supplierId);
+});
+
+for (const [docType, label] of [
+  ['sales_invoice', 'a sales invoice'],
+  ['quotation', 'a quotation'],
+  ['purchase_invoice', 'a purchase invoice'],
+]) {
+  test(`${label} raised at one branch is not the other branch's`, async () => {
+    const party = docType === 'purchase_invoice' ? supplierId : customerId;
+    const here = await raise(mainBranch.id, docType, party);
+    const there = await raise(saida.id, docType, party);
+
+    const mine = await docsAt(mainBranch.id, docType);
+    assert.ok(mine.some((d) => d.id === here.id), 'the one raised here is here');
+    assert.ok(
+      !mine.some((d) => d.id === there.id),
+      `${label} raised at Saida is showing on the main counter`,
+    );
+
+    const theirs = await docsAt(saida.id, docType);
+    assert.ok(theirs.some((d) => d.id === there.id), 'and theirs is theirs');
+    assert.ok(!theirs.some((d) => d.id === here.id), 'and not ours');
+
+    // The owner, asking about the company rather than a counter.
+    const all = await docsAt(mainBranch.id, docType, '&branch=all');
+    assert.ok(
+      all.some((d) => d.id === here.id) && all.some((d) => d.id === there.id),
+      'branch=all is the whole company',
+    );
+  });
+}
+
+test('a sale rung up at one register is not on the other register’s list', async () => {
+  const sell = async (branch) => {
+    await req('POST', '/cash/open', { openingUsd: 50 }, adminToken, branch);
+    const sale = await req(
+      'POST',
+      '/orders',
+      {
+        items: [{ productId: sharedProduct.id, quantity: 1 }],
+        paymentMethod: 'cash',
+        payments: [{ currency: 'USD', amount: 20 }],
+      },
+      adminToken,
+      branch,
+    );
+    return sale.json.order;
+  };
+
+  // Stock has to be on the shelf it is sold from.
+  await req(
+    'POST',
+    '/stock-transfers',
+    { toBranchId: saida.id, items: [{ productId: sharedProduct.id, quantity: 5 }] },
+    adminToken,
+    mainBranch.id,
+  );
+  const sent = (await req('GET', '/stock-transfers', null, adminToken, saida.id)).json.transfers[0];
+  await req('POST', `/stock-transfers/${sent.id}/receive`, { items: [] }, adminToken, saida.id);
+
+  const hereSale = await sell(mainBranch.id);
+  const thereSale = await sell(saida.id);
+  assert.ok(hereSale && thereSale, 'both counters took a sale');
+
+  const mine = (await req('GET', '/orders', null, adminToken, mainBranch.id)).json.orders;
+  assert.ok(mine.some((o) => o.id === hereSale.id), 'ours is ours');
+  assert.ok(!mine.some((o) => o.id === thereSale.id), 'the other register’s sale is not on this list');
+
+  const all = (await req('GET', '/orders?branch=all', null, adminToken, mainBranch.id)).json.orders;
+  assert.ok(all.some((o) => o.id === thereSale.id), 'and the owner can still see both');
+});
+
+test('the cash-flow feed is the branch’s own movements', async () => {
+  /*
+   * The balance is deliberately *not* split — a customer owes the shop, not the
+   * counter they stood at — but what moved, and where, is exactly what this
+   * feed is for.
+   */
+  const charged = await req(
+    'POST',
+    `/customers/${customerId}/charges`,
+    { amount: 25, note: 'Paid at Saida' },
+    adminToken,
+    saida.id,
+  );
+  assert.equal(charged.status, 201, JSON.stringify(charged.json));
+
+  const here = (await req('GET', '/accounts/entries', null, adminToken, mainBranch.id)).json.entries;
+  assert.ok(
+    !here.some((e) => e.note === 'Paid at Saida'),
+    'money moving at Saida is not on the main counter’s feed',
+  );
+
+  const there = (await req('GET', '/accounts/entries', null, adminToken, saida.id)).json.entries;
+  assert.ok(there.some((e) => e.note === 'Paid at Saida'), 'it is on Saida’s');
+
+  const all = (await req('GET', '/accounts/entries?branch=all', null, adminToken, mainBranch.id))
+    .json.entries;
+  assert.ok(all.some((e) => e.note === 'Paid at Saida'), 'and the owner sees the company');
+});
+
+test('nothing written lands in no branch at all', async () => {
+  /*
+   * The failure worth guarding: an entry with no branch is invisible in every
+   * feed and present in none, which is worse than not separating them. Seventeen
+   * places write these, so the default lives in addEntry rather than in each
+   * caller remembering.
+   */
+  const orphans = (await req('GET', '/accounts/entries?branch=all&limit=500', null, adminToken))
+    .json.entries.filter((e) => e.branch_id === null);
+  assert.equal(orphans.length, 0, `${orphans.length} entries belong to no branch`);
 });

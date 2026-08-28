@@ -145,6 +145,8 @@ export function partyRouter(partyType) {
             amountUsd: openingBalance,
             note: 'Opening balance',
             userId: req.user.id,
+            // Where it happened, so the cash-flow feed can be a branch's own.
+            branchId: req.branchId,
           });
         }
         return info.lastInsertRowid;
@@ -325,6 +327,8 @@ export function partyRouter(partyType) {
       amountUsd: round2(amount),
       note: req.body?.note || null,
       userId: req.user.id,
+      // Where it happened, so the cash-flow feed can be a branch's own.
+      branchId: req.branchId,
     });
 
     res.status(201).json({ balance: balanceOf(partyType, party.id) });

@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { branchParams } from '../lib/branchScope.js';
 import { db, transaction } from '../db.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { getSettings } from '../lib/settings.js';
@@ -51,6 +52,17 @@ router.get('/', requireAuth, requirePermission('documents'), (req, res) => {
     LEFT JOIN users u ON u.id = d.user_id
     WHERE 1=1`;
   const params = [];
+
+  /*
+   * The branch this document belongs to.
+   *
+   * Invoices and quotations are a branch's own paperwork — its customers, its
+   * prices, its numbers — and a manager reading the other shop's sales as their
+   * own is the failure branches exist to prevent. `branch=all` is the owner
+   * looking at the whole company.
+   */
+  sql += ' AND (? IS NULL OR d.branch_id = ?)';
+  params.push(...branchParams(req));
 
   if (type && DOC_TYPES[type]) {
     sql += ' AND d.doc_type = ?';

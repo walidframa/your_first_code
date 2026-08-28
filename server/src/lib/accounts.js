@@ -74,13 +74,22 @@ export function addEntry({
   orderId = null,
   note = null,
   userId = null,
+  /*
+   * Where this movement happened.
+   *
+   * Not where the *balance* lives — a customer owes the shop, not the counter
+   * they happened to stand at, and splitting one debt across two branches would
+   * give a shop two wrong figures instead of one right one. This is only so the
+   * cash-flow feed can answer "what moved here today".
+   */
+  branchId = null,
 }) {
   const info = db
     .prepare(
       `INSERT INTO account_entries
          (party_type, party_id, kind, amount_usd, paid_usd, paid_lbp, native_usd, native_lbp,
-          exchange_rate, order_id, note, user_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          exchange_rate, order_id, note, user_id, branch_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       partyType,
@@ -95,8 +104,23 @@ export function addEntry({
       orderId,
       note,
       userId,
+      /*
+       * Defaulted here rather than left null, and that is the load-bearing part.
+       *
+       * Seventeen places write entries. A caller that forgets to say where it
+       * was would write a row belonging to no branch — invisible in every
+       * branch's feed and present in none, which is a worse failure than not
+       * separating them at all. Falling back to the main branch means a row can
+       * be in the wrong place but never in no place.
+       */
+      branchId ?? mainBranchId(),
     );
   return info.lastInsertRowid;
+}
+
+/** The branch everything belonged to before there was more than one. */
+function mainBranchId() {
+  return db.prepare('SELECT id FROM branches WHERE is_main = 1').get()?.id ?? null;
 }
 
 /**
