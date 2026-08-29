@@ -11,7 +11,13 @@
  */
 export default function PageHeader({ title, subtitle, actions, children }) {
   return (
-    <header className="flex flex-wrap items-end justify-between gap-x-4 gap-y-3 border-b border-slate-200 bg-white px-4 py-3 sm:px-6 sm:py-4">
+    <header
+      /* Named so a theme can give the title more room without reaching for a
+         selector that would also catch the register's top bar, which has to
+         stay tight — it is the strip above a touchscreen, not a page title. */
+      data-page-header=""
+      className="flex flex-wrap items-end justify-between gap-x-4 gap-y-3 border-b border-slate-200 bg-white px-4 py-3 sm:px-6 sm:py-4"
+    >
       <div className="min-w-0">
         <h1 className="text-lg font-semibold text-slate-900">{title}</h1>
         {subtitle && <p className="mt-0.5 text-sm text-slate-500">{subtitle}</p>}

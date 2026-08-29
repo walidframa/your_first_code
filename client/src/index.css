@@ -1550,3 +1550,107 @@ body.native {
   --tw-gradient-from: #ffffff;
   background-image: linear-gradient(to top, #ffffff, transparent);
 }
+
+/* -------------------------------------------------------------------------
+ * Ledger: density
+ *
+ * The part that actually separates a desk application from a counter one. The
+ * default theme is tuned for a fingertip on a tablet — short rows, tight
+ * padding, as much on screen at once as will fit. This is tuned for a mouse
+ * and a long afternoon of reading figures.
+ *
+ * Deliberately *not* done by moving Tailwind's `--spacing`, which is the one
+ * change that would do it in a line. That token drives widths and heights as
+ * well as padding, so scaling it grows every icon box, button and avatar too
+ * — and the register, which is laid out to fit a shelf of products on a small
+ * square screen, is exactly where that breaks first.
+ *
+ * So: tables and page headings, which is what "airy" means in an accounting
+ * screen, and which the register has neither of. The counter is untouched by
+ * construction rather than by remembering to exclude it.
+ * ---------------------------------------------------------------------- */
+
+:root[data-theme='ledger'] main table th,
+:root[data-theme='ledger'] main table td {
+  /*
+   * 14px against the default theme's 8–10px. The first attempt at this was
+   * 11px, which measured as a one-pixel change and was not worth having — the
+   * point of a roomier row is that you can tell without measuring it.
+   */
+  padding-top: 0.875rem;
+  padding-bottom: 0.875rem;
+}
+
+/* A little more air at the ends of a row, so the first column is not against
+   the card's own edge. */
+:root[data-theme='ledger'] main table th:first-child,
+:root[data-theme='ledger'] main table td:first-child {
+  padding-left: 1rem;
+}
+
+:root[data-theme='ledger'] main table th:last-child,
+:root[data-theme='ledger'] main table td:last-child {
+  padding-right: 1rem;
+}
+
+:root[data-theme='ledger'] [data-page-header] {
+  padding-top: 1.125rem;
+  padding-bottom: 1.125rem;
+}
+
+@media (min-width: 640px) {
+  :root[data-theme='ledger'] [data-page-header] {
+    padding-top: 1.375rem;
+    padding-bottom: 1.375rem;
+  }
+}
+
+/* -------------------------------------------------------------------------
+ * Ledger: type
+ *
+ * Still the system font, and that is not laziness. This runs on a counter
+ * machine in Beirut that may have no internet the morning the power comes
+ * back, and a webfont that fails to load is a screen of Times New Roman during
+ * a sale. What changes is the scale and the weight, which is most of what the
+ * eye reads as a different typeface anyway.
+ * ---------------------------------------------------------------------- */
+
+/* A screen title with the confidence of a page rather than a panel. */
+:root[data-theme='ledger'] [data-page-header] h1 {
+  font-size: 1.375rem;
+  line-height: 1.75rem;
+  letter-spacing: -0.018em;
+}
+
+:root[data-theme='ledger'] [data-page-header] p {
+  font-size: 0.875rem;
+  margin-top: 0.1875rem;
+}
+
+/*
+ * Column headings, quieter and further from the figures under them.
+ *
+ * Not uppercased: an accounting screen's columns are words a person reads —
+ * "Average cost", "Wholesale" — and shouting them costs legibility for
+ * decoration. The tracking does the separating instead.
+ */
+:root[data-theme='ledger'] main table thead th {
+  padding-top: 0.625rem;
+  padding-bottom: 0.625rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--color-slate-500);
+}
+
+/*
+ * Body copy, one notch looser.
+ *
+ * A table of figures read down a column is easier at 1.55 than at 1.5, and it
+ * is the single change that most makes a dense screen feel unhurried. Held to
+ * the content area — the register's cart lines are sized to fit a fixed panel
+ * and gain nothing from being taller.
+ */
+:root[data-theme='ledger'] main {
+  line-height: 1.55;
+}
