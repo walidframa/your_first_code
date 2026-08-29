@@ -117,7 +117,17 @@ export default function Import() {
       const res = await api.post('/imports/commit', { ...source, format, mapping });
       setResult(res.data);
       setStep(3);
-      toast(`Imported ${res.data.created + res.data.updated} products`);
+      /*
+       * Phones are said as phones. "Imported 97 products" after a file of five
+       * hundred handsets is true and reads as a failure — the four hundred and
+       * three that are missing from it are the other phones of the same
+       * ninety-seven models, and nothing on the screen said so.
+       */
+      toast(
+        res.data.handsets > 0
+          ? `Imported ${res.data.created + res.data.updated} products and ${res.data.handsets} phones`
+          : `Imported ${res.data.created + res.data.updated} products`,
+      );
     } catch (err) {
       setError(err.response?.data?.error || 'Import failed');
     } finally {
@@ -389,9 +399,59 @@ export default function Import() {
                   </span>
                 )}
                 {preview.truncated && (
-                  <span className="text-xs text-slate-400">Showing the first 100 rows</span>
+                  <span className="text-xs text-slate-400">
+                    The table below shows the first 100 rows; the counts above are the whole file.
+                  </span>
                 )}
               </div>
+
+              {/*
+                * The arithmetic of the file, spelled out.
+                *
+                * A shop that imports a five-hundred-line spreadsheet and finds
+                * ninety-seven products has no way, from the badges alone, to
+                * tell a correct grouping from four hundred lost rows. Both are
+                * possible and they look identical. So the sentence is written
+                * out: this many lines, this many products, and here is where
+                * the difference went.
+                */}
+              {preview.summary.total !== preview.summary.products && (
+                <div className="border-b border-slate-100 px-5 py-3">
+                  <p className="text-sm text-slate-700">
+                    <span className="font-medium">{preview.summary.total} rows</span> in the file
+                    come to{' '}
+                    <span className="font-medium">
+                      {preview.summary.products} product
+                      {preview.summary.products === 1 ? '' : 's'}
+                    </span>
+                    .
+                    {preview.serialised && preview.summary.handsets > preview.summary.models && (
+                      <>
+                        {' '}
+                        Handsets of the same model are one product with its phones inside it, so{' '}
+                        {preview.summary.handsets} phones become {preview.summary.models} model
+                        {preview.summary.models === 1 ? '' : 's'}.
+                      </>
+                    )}
+                  </p>
+
+                  {preview.summary.reasons?.length > 0 && (
+                    <ul className="mt-2 space-y-1 text-xs text-red-700">
+                      {preview.summary.reasons.map((r) => (
+                        <li key={r.message}>
+                          {r.message} — <span className="font-medium tnum">{r.count}</span> row
+                          {r.count === 1 ? '' : 's'}
+                          <span className="text-red-400">
+                            {' '}
+                            ({r.lines.join(', ')}
+                            {r.count > r.lines.length ? ' and more' : ''})
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
 
               {/*
                 * The models the handsets fall into, before any of it is
@@ -521,8 +581,17 @@ export default function Import() {
                   {result.created} created · {result.updated} updated
                   {result.handsets > 0 &&
                     ` · ${result.handsets} handset${result.handsets === 1 ? '' : 's'} booked in`}
-                  {result.categoriesCreated > 0 && ` · ${result.categoriesCreated} new categories`}
+                  {result.categoriesCreated > 0 &&
+                    ` · ${result.categoriesCreated} new categor${result.categoriesCreated === 1 ? 'y' : 'ies'}`}
                 </p>
+                {/* The number the shop started with, next to the number it got.
+                    Without it a 250-row file that correctly becomes 12 products
+                    looks like 238 rows that went missing. */}
+                {result.total > 0 && (
+                  <p className="mt-1 text-xs text-slate-400">
+                    from {result.total} row{result.total === 1 ? '' : 's'} in the file
+                  </p>
+                )}
               </div>
 
               {result.errors.length > 0 && (

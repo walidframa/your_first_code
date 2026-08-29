@@ -296,6 +296,79 @@ test('a file with no serial column still imports as plain products', async () =>
   assert.equal(plain.stock, 40);
 });
 
+test('a big file says what it comes to, and where the rest of it went', async () => {
+  /*
+   * The complaint this answers, said in the shop's own words: "I imported a
+   * 500 product excel sheet and the app reads 97 only."
+   *
+   * Both readings of that are possible from the same screen. Five hundred
+   * handsets of ninety-seven models really are ninety-seven products, and that
+   * is right. Five hundred rows of which four hundred were refused is also
+   * ninety-seven products, and that is a broken import. The preview used to
+   * show one number for both, with a table capped at a hundred rows — so if
+   * the trouble started at line 300 there was nothing on screen that even
+   * hinted at it.
+   *
+   * So the file is made to do both at once, past the cap, and the preview has
+   * to account for every line of it.
+   */
+  const lines = [];
+  // 12 models, 20 handsets each: 240 rows that legitimately become 12 products.
+  for (let model = 0; model < 12; model += 1) {
+    for (let n = 0; n < 20; n += 1) {
+      const serial = `3612${String(model).padStart(2, '0')}${String(n).padStart(2, '0')}00000`;
+      lines.push(`BULK PHONE ${model},99.${model}.${n},${serial},500,USD,400,USD,1,CELLPHONES,`);
+    }
+  }
+  // And 10 accessories with the price column empty, all of them past row 100.
+  for (let n = 0; n < 10; n += 1) {
+    lines.push(`BULK CABLE ${n},98.${n},,,USD,1,USD,5,ACCESSORIES,`);
+  }
+
+  const p = await preview(csv(...lines));
+
+  assert.equal(p.summary.total, 250, 'every line of the file was read');
+  assert.equal(p.rows.length, 100, 'the table is still capped');
+  assert.equal(p.truncated, true);
+
+  assert.equal(p.summary.products, 12, 'and it comes to twelve products');
+  assert.equal(p.summary.handsets, 240, 'holding two hundred and forty phones');
+  assert.equal(p.summary.models, 12);
+
+  /*
+   * The part the cap used to hide. The refused rows are lines 242 to 251 —
+   * nowhere near the hundred rows the table can show — so the count and the
+   * line numbers have to come back in the summary or they do not come back
+   * at all.
+   */
+  const missingPrice = p.summary.reasons.find((r) => /price/i.test(r.message));
+  assert.ok(missingPrice, `no reason given: ${JSON.stringify(p.summary.reasons)}`);
+  assert.equal(missingPrice.count, 10, 'all ten, not just the ones in the table');
+  assert.ok(
+    missingPrice.lines.every((line) => line > 100),
+    `the lines are past the cap: ${missingPrice.lines.join(', ')}`,
+  );
+  assert.equal(p.summary.error, 10);
+});
+
+test('a plain catalogue counts its products the same way', async () => {
+  /*
+   * `products` has to mean the same thing on both paths, or the sentence the
+   * review screen writes with it is only true half the time.
+   */
+  const text = [
+    'name,sku,price,stock',
+    'Counted A,CNT-1,5,10',
+    'Counted B,CNT-2,6,10',
+    'Counted C,CNT-3,,10',
+  ].join('\n');
+
+  const p = await preview(text);
+  assert.equal(p.summary.total, 3);
+  assert.equal(p.summary.products, 2, 'the one with no price is not a product');
+  assert.equal(p.summary.reasons[0].count, 1);
+});
+
 test('importing is not open to a cashier', async () => {
   const cashier = (await req('POST', '/auth/login', { username: 'cashier', password: 'cashier123' }))
     .json.token;

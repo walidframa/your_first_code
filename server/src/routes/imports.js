@@ -288,6 +288,26 @@ function analyze(source, requestedFormat, requestedMapping) {
     plainRows.push(row);
   }
 
+  /*
+   * Why rows did not become products, counted over the whole file.
+   *
+   * The preview's table is capped — a five-hundred-line file cannot be sent
+   * back row by row — and the cap is what makes a bad import baffling: the
+   * trouble is on line 300, the table stops at 100, and all the shop is left
+   * with is a number smaller than the one it started with. Counted here over
+   * every row, so the reason survives the cap and arrives with lines to look
+   * at.
+   */
+  const reasons = [...rows.reduce((acc, row) => {
+    for (const message of row.errors) {
+      const seen = acc.get(message) ?? { message, count: 0, lines: [] };
+      seen.count += 1;
+      if (seen.lines.length < 5) seen.lines.push(row.line);
+      acc.set(message, seen);
+    }
+    return acc;
+  }, new Map()).values()].sort((a, b) => b.count - a.count);
+
   return {
     headers,
     // Null for a CSV, which has exactly one grid and nothing to choose between.
@@ -307,6 +327,17 @@ function analyze(source, requestedFormat, requestedMapping) {
     rows,
     summary: {
       total: rows.length,
+      /*
+       * What the file comes to, which is not the same as how many lines it
+       * has and is the number the shop will count on the products screen
+       * afterwards. Five hundred handsets of ninety-seven models are
+       * ninety-seven products; saying only the ninety-seven, next to a file
+       * the shop knows has five hundred lines in it, reads as four hundred
+       * lines lost. Both figures are given so the screen can say the sentence
+       * rather than leave it to be inferred.
+       */
+      products: groups ? groups.length + plainRows.length : rows.filter((r) => r.action !== 'error').length,
+      reasons,
       create: rows.filter((r) => r.action === 'create').length,
       update: rows.filter((r) => r.action === 'update').length,
       error: rows.filter((r) => r.action === 'error').length,
@@ -375,6 +406,9 @@ router.post('/commit', requireAuth, requirePermission('imports'), (req, res) => 
   );
 
   const outcome = {
+    /* What was in the file, so the last screen can close the loop between the
+       number the shop uploaded and the number it ends up with. */
+    total: result.rows.length,
     created: 0,
     updated: 0,
     skipped: 0,
