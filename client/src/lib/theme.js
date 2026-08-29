@@ -16,7 +16,20 @@ export const THEMES = [
   ['system', 'Match device'],
   ['light', 'Light'],
   ['dark', 'Dark'],
+  /*
+   * A second *look*, not a third brightness.
+   *
+   * "Match device" answers light or dark on this screen; this answers which
+   * design the shop wants, and it is a light one. It sits in the same list
+   * because that is where somebody looks for it — a separate "style" setting
+   * elsewhere would be a second place to check when the app comes up the
+   * wrong colour.
+   */
+  ['ledger', 'Ledger'],
 ];
+
+/** The looks that are their own design rather than a brightness of the first. */
+const LOOKS = new Set(['ledger']);
 
 const KEY = 'pos_theme';
 
@@ -33,6 +46,17 @@ export function systemPrefersDark() {
 /** Which of the two is actually on screen, whatever the setting is called. */
 export const resolveTheme = (choice = getTheme()) =>
   choice === 'system' ? (systemPrefersDark() ? 'dark' : 'light') : choice;
+
+/**
+ * Which brightness the browser should paint its own furniture in.
+ *
+ * The scrollbars, the date pickers and the select dropdowns are drawn by the
+ * browser and cannot be reached by any of this app's CSS — so it is told
+ * plainly. A look that is a light design has to say `light` here rather than
+ * its own name, which the browser has never heard of and would ignore, leaving
+ * a dark shop's scrollbars behind on the next switch.
+ */
+const schemeOf = (resolved) => (LOOKS.has(resolved) ? 'light' : resolved);
 
 /**
  * Apply a choice, and remember it.
@@ -52,7 +76,7 @@ export function applyTheme(choice = getTheme()) {
   const root = globalThis.document?.documentElement;
   if (root) {
     root.dataset.theme = resolved;
-    root.style.colorScheme = resolved;
+    root.style.colorScheme = schemeOf(resolved);
   }
   globalThis.localStorage?.setItem(KEY, choice);
   return choice;

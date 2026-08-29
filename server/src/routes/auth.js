@@ -102,7 +102,10 @@ router.put('/text-size', requireAuth, (req, res) => {
  */
 router.put('/theme', requireAuth, (req, res) => {
   const wanted = String(req.body?.theme || '');
-  const theme = ['system', 'light', 'dark'].includes(wanted) ? wanted : null;
+  /* Kept in step with THEMES in client/src/lib/theme.js. A look missing from
+     here is not rejected loudly — it is stored as null, so the choice appears
+     to work on the machine that made it and is gone on the next one. */
+  const theme = ['system', 'light', 'dark', 'ledger'].includes(wanted) ? wanted : null;
   db.prepare('UPDATE users SET theme = ? WHERE id = ?').run(theme, req.user.id);
   res.json({ theme });
 });

@@ -1068,6 +1068,11 @@ export default function Checkout() {
               <button
                 key={c.id}
                 onClick={() => setActiveCategory(c.id)}
+                /* Named so a theme can re-colour the chosen one without having
+                   to guess at `bg-slate-900`, which four other things use for
+                   reasons of their own — a camera preview, a chart tooltip,
+                   the remove mark on a photo. */
+                data-filter-chip=""
                 className={cx(
                   'rounded-full px-3 py-1.5 text-sm font-medium transition',
                   activeCategory === c.id

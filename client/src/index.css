@@ -1339,3 +1339,214 @@ body.native {
     color: var(--color-slate-500);
   }
 }
+
+/* =========================================================================
+ * Ledger — the second look
+ *
+ * Asked for as "a Xero-like theme". What that means in practice, and what
+ * this is: the visual conventions of modern accounting software rather than a
+ * copy of anyone's product. Bright blue instead of the counter's green, near
+ * white instead of grey, borders doing the work shadows do on the default
+ * theme, and a light rail instead of a dark one. It carries no other
+ * company's name, mark or asset, and it is a theme of this app rather than an
+ * imitation of a different one.
+ *
+ * Built the same way the dark theme is, and for the same reason: every colour
+ * utility compiles to `var(--color-…)`, so a whole second look is a block of
+ * token definitions rather than a second set of class names on fourteen
+ * hundred elements. Nothing below changes a single component.
+ *
+ * Every value here was measured rather than chosen by eye, against the three
+ * surfaces text actually lands on — the white of a card, the page, and the
+ * panel behind a table header. The ratios are noted where they are the reason
+ * for the value.
+ * ========================================================================= */
+
+:root[data-theme='ledger'] {
+  /*
+   * Blue, and a specific one: #0b6fb5 clears 4.5:1 white-on-it as a button
+   * (5.31) and 4.5:1 as text on a card (5.31) and on the page (4.94). Most of
+   * the brighter blues this style is known for do neither — they look right in
+   * a screenshot and fail the moment a button has a word on it.
+   */
+  --color-brand-50: #eff8ff;
+  --color-brand-100: #dbeefe;
+  --color-brand-200: #bfe1fd;
+  --color-brand-300: #91cdfb;
+  --color-brand-400: #5cb1f7;
+  --color-brand-500: #2b92ea;
+  --color-brand-600: #0b6fb5;
+  --color-brand-700: #0a5f9c;
+  --color-brand-800: #0d5082;
+  --color-brand-900: #10426b;
+
+  /*
+   * Surfaces, front to back. Much closer together than the default theme's:
+   * this look separates things with a line rather than a step in tone, which
+   * is why the borders below matter more here than they do there.
+   */
+  --color-slate-100: #f5f8fb; /* the page */
+  --color-slate-50: #edf2f7; /* panels, zebra rows, hover */
+  --color-slate-200: #dfe7ef; /* chips, rules, pressed states */
+
+  /*
+   * The edge of something you type into. Darker than the default theme's,
+   * because the panel here is darker than its slate-50 and the 3:1 floor of
+   * WCAG 1.4.11 has to hold on the worst of the three surfaces, not the best:
+   * card 3.52, page 3.30, panel 3.12.
+   */
+  --color-edge: #7d8a9a;
+
+  /*
+   * Small print. 5.45 on a card, 5.11 on the page, 4.84 on a panel — the
+   * three hundred places this app uses `slate-400` for a SKU, a timestamp or
+   * a hint stay above 4.5:1 on all of them.
+   */
+  --color-slate-400: #5b6b7f;
+  --color-slate-500: #4a5768;
+  --color-slate-600: #3b4655;
+
+  --color-ink: #16212e;
+  --color-ink-secondary: #44505f;
+  --color-ink-muted: #5b6b7f;
+
+  /* The chart's leading mark follows the accent, or a graph reads as a
+     leftover from the other theme. */
+  --color-viz-primary: #0b6fb5;
+
+  /*
+   * Squarer. The default theme's corners are deliberately soft for a counter
+   * screen; this look is a desk one, and a tighter radius is most of what
+   * separates the two at a glance.
+   */
+  --radius-lg: 0.5rem;
+  --radius-xl: 0.625rem;
+  --radius-2xl: 0.875rem;
+
+  /*
+   * Nearly flat. Depth here comes from the border, not the shadow — a card
+   * lifted off the page the way the default theme lifts it looks wrong beside
+   * a rule, and the two together look like two designs.
+   */
+  --shadow-sm: 0 1px 2px oklch(0.35 0.04 245 / 0.06);
+  --shadow-md: 0 1px 3px oklch(0.35 0.04 245 / 0.08);
+  --shadow-lg: 0 4px 12px -4px oklch(0.35 0.04 245 / 0.10);
+  --shadow-xl: 0 8px 24px -8px oklch(0.35 0.04 245 / 0.12);
+  --shadow-2xl: 0 16px 40px -12px oklch(0.35 0.04 245 / 0.14);
+
+  /* No wash. The page is already near white; lighting it further would only
+     make the top of the window look smudged. */
+  --page-wash-top: transparent;
+  --page-wash-mid: transparent;
+}
+
+/*
+ * A card is a card because of its edge.
+ *
+ * On the default theme white-on-grey and a soft shadow are enough. Here the
+ * page is within seven per cent of the card, so without this every card, table
+ * and dialog would dissolve into the background. This is the one rule in the
+ * theme that adds something rather than redefining it.
+ */
+:root[data-theme='ledger'] .bg-white {
+  border-color: var(--color-slate-200);
+}
+
+/* =========================================================================
+ * The rail, lit
+ *
+ * The single clearest difference between the two looks, and the only part
+ * that cannot be done with tokens alone: `bg-slate-900` is the rail here and
+ * `text-slate-900` is body text everywhere else, so the token has to keep its
+ * meaning and the rail is re-lit by selector instead. Scoped to the aside so
+ * nothing outside it can be caught.
+ * ========================================================================= */
+
+:root[data-theme='ledger'] aside.bg-slate-900 {
+  background-color: #ffffff;
+  box-shadow: inset -1px 0 0 var(--color-slate-200);
+}
+
+/* Hover, the open group, the branch switcher's own button. */
+:root[data-theme='ledger'] aside.bg-slate-900 .bg-slate-800,
+:root[data-theme='ledger'] aside.bg-slate-900 .bg-slate-700 {
+  background-color: #e6eef6;
+}
+
+:root[data-theme='ledger'] aside.bg-slate-900 .hover\:bg-slate-800:hover,
+:root[data-theme='ledger'] aside.bg-slate-900 .hover\:bg-slate-700:hover {
+  background-color: #dfe9f3;
+}
+
+:root[data-theme='ledger'] aside.bg-slate-900 .border-slate-800,
+:root[data-theme='ledger'] aside.bg-slate-900 .border-slate-700 {
+  border-color: var(--color-slate-200);
+}
+
+/* What was white text on navy is ink on white. */
+:root[data-theme='ledger'] aside.bg-slate-900 .text-white,
+:root[data-theme='ledger'] aside.bg-slate-900 .text-slate-200,
+:root[data-theme='ledger'] aside.bg-slate-900 .text-slate-300 {
+  color: var(--color-ink);
+}
+
+/*
+ * Except where it is a badge.
+ *
+ * The "on the way here" count is white on amber and the sign-out and support
+ * marks are white on a colour of their own — none of them were white *because
+ * the rail was dark*, and flipping them would put dark text on a saturated
+ * chip. Named rather than left to the rule above, which is exactly the kind of
+ * thing that gets missed and ships.
+ */
+:root[data-theme='ledger'] aside.bg-slate-900 [class*='bg-amber-'] .text-white,
+:root[data-theme='ledger'] aside.bg-slate-900 [class*='bg-amber-'],
+:root[data-theme='ledger'] aside.bg-slate-900 [class*='bg-red-'],
+:root[data-theme='ledger'] aside.bg-slate-900 [class*='bg-brand-'] {
+  color: #ffffff;
+}
+
+/*
+ * Two dark chips that are not the rail.
+ *
+ * Both are deliberately dark on the default theme, where they sit against
+ * white and the contrast is the point. Here everything around them is already
+ * light and blue, and a navy pill reads as a piece of the other design left
+ * behind.
+ *
+ * Selected by their own attribute rather than by `bg-slate-900`, which a
+ * camera preview, a chart tooltip and the remove mark on a photo also use —
+ * those are dark because they are meant to be, and they stay that way.
+ */
+:root[data-theme='ledger'] [data-filter-chip].bg-slate-900 {
+  background-color: var(--color-brand-600);
+}
+
+:root[data-theme='ledger'] [data-branch-chip] {
+  background-color: var(--color-slate-50);
+  color: var(--color-ink);
+  box-shadow: inset 0 0 0 1px var(--color-slate-200);
+}
+
+:root[data-theme='ledger'] [data-branch-chip] .text-slate-400,
+:root[data-theme='ledger'] [data-branch-chip] .text-slate-300 {
+  color: var(--color-slate-500);
+}
+
+/* Its "on the way here" count stays white on amber. */
+:root[data-theme='ledger'] [data-branch-chip] [class*='bg-amber-'] {
+  color: #ffffff;
+}
+
+/*
+ * The fade at the foot of the rail's nav, in the rail's own colour.
+ *
+ * It exists to tell you the list keeps going, by dissolving the last row into
+ * the rail behind it. Written as a fade to navy, which on a white rail is a
+ * dark smear across the bottom of the menu rather than a hint that there is
+ * more.
+ */
+:root[data-theme='ledger'] [data-rail-fade] {
+  --tw-gradient-from: #ffffff;
+  background-image: linear-gradient(to top, #ffffff, transparent);
+}
