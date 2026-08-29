@@ -187,10 +187,20 @@ function parseSheet(xml, shared) {
   const rows = [];
   let width = 0;
 
-  for (const rowMatch of xml.matchAll(/<row(?:\s[^>]*)?>([\s\S]*?)<\/row>/g)) {
+  /*
+   * The self-closing form is matched explicitly. A blank line in the middle of
+   * a sheet is written `<row r="7"/>`, and a pattern that only knows
+   * `<row ...>...</row>` matches its opening tag and then runs on to the next
+   * row's closing one, merging the two. Nothing is lost when that happens — a
+   * self-closing row has no cells to lose and the ones it swallows are still
+   * placed by their own references — so this is tidiness rather than a fix.
+   * It is here because a reader that quietly merges rows is one bad assumption
+   * away from a reader that quietly drops them.
+   */
+  for (const rowMatch of xml.matchAll(/<row(?:\s[^>]*?)?(?:\/>|>([\s\S]*?)<\/row>)/g)) {
     const cells = [];
 
-    for (const cellMatch of rowMatch[1].matchAll(
+    for (const cellMatch of (rowMatch[1] ?? '').matchAll(
       /<c\s([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g,
     )) {
       const open = ` ${cellMatch[1]}`;

@@ -47,6 +47,10 @@ def sheet_xml(rows, shared_index):
         "<sheetData>",
     ]
     for r, row in enumerate(rows, start=1):
+        if not any(cell is not None for cell in row):
+            # A blank line is written self-closing, the way Excel writes it.
+            out.append(f'<row r="{r}"/>')
+            continue
         out.append(f'<row r="{r}">')
         for c, cell in enumerate(row):
             if cell is None:
