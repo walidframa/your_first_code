@@ -7,6 +7,8 @@ import { CANONICAL_FIELDS, PRESETS, detectFormat, buildMapping, parseNumber } fr
 import { barcodesFor, barcodesFromBody, setBarcodes } from '../lib/barcodes.js';
 import { setStock, stockAt } from '../lib/stock.js';
 import { getSettings } from '../lib/settings.js';
+import { groupUnitRows, isUnitImport } from '../lib/importUnits.js';
+import { receiveUnits } from '../lib/units.js';
 
 const router = Router();
 /* The same ceiling whether it arrives as text or as a spreadsheet. */
@@ -63,8 +65,18 @@ function buildRow(record, mapping, index, rate = 0) {
   const sku = value('sku');
   const priceRaw = value('price');
 
+  const imei = value('imei');
+  /*
+   * A per-handset file names the model in every row and gives each phone its
+   * own code, so there is nothing that is a product SKU. The name is what
+   * groups them — see lib/importUnits.js — and demanding a SKU as well would
+   * refuse a file that is not missing anything.
+   */
+  const serialised = Boolean(mapping.imei);
+
   if (!name) errors.push('Missing product name');
-  if (!sku) errors.push('Missing SKU');
+  if (!sku && !serialised) errors.push('Missing SKU');
+  if (serialised && !imei) errors.push('No serial number, so there is no handset to book in');
 
   let price = parseNumber(priceRaw);
   if (priceRaw === '') errors.push('Missing price');
@@ -108,6 +120,7 @@ function buildRow(record, mapping, index, rate = 0) {
     data: {
       name,
       sku,
+      imei,
       price: price ?? 0,
       cost: cost ?? 0,
       stock: Math.trunc(stock ?? 0),
@@ -172,7 +185,12 @@ function analyze(source, requestedFormat, requestedMapping) {
   const format = requestedFormat && PRESETS[requestedFormat] ? requestedFormat : detectFormat(headers);
   const mapping = { ...buildMapping(headers, format), ...(requestedMapping || {}) };
 
-  const missingRequired = CANONICAL_FIELDS.filter((f) => f.required && !mapping[f.key]).map((f) => f.label);
+  /* One row per handset changes what "required" means: the name groups them
+     and the serial identifies them, so a product code is not needed. */
+  const serialised = isUnitImport(mapping);
+  const missingRequired = CANONICAL_FIELDS.filter(
+    (f) => f.required && !mapping[f.key] && !(serialised && f.key === 'sku'),
+  ).map((f) => f.label);
 
   const existingSkus = new Set(
     db
@@ -184,9 +202,42 @@ function analyze(source, requestedFormat, requestedMapping) {
   // The rate any pound-priced row is brought onto dollars at.
   const { exchange_rate: rate } = getSettings();
 
+  /*
+   * Every serial the shop already holds, so a re-import says which line clashes
+   * rather than failing halfway through with one name and no line number.
+   * Both columns, because a number that is IMEI 2 of one phone cannot also be
+   * IMEI 1 of another.
+   */
+  const takenImeis = serialised
+    ? new Set(
+        db
+          .prepare('SELECT imei, imei2 FROM product_units')
+          .all()
+          .flatMap((u) => [u.imei, u.imei2])
+          .filter(Boolean)
+          .map((n) => String(n).replace(/\D/g, '')),
+      )
+    : new Set();
+
   const seenInFile = new Set();
   const rows = records.map((record, index) => {
     const row = buildRow(record, mapping, index, rate);
+
+    if (serialised) {
+      /* The key is the phone, not the product: two rows of the same model are
+         two handsets and entirely normal. */
+      const digits = String(row.data.imei || '').replace(/\D/g, '');
+      if (digits && seenInFile.has(digits)) {
+        row.errors.push('This serial appears twice in the file');
+      }
+      if (digits) seenInFile.add(digits);
+      if (digits && takenImeis.has(digits)) {
+        row.errors.push('This serial is already in stock or sold');
+      }
+      row.action = row.errors.length ? 'error' : 'create';
+      return row;
+    }
+
     const key = row.data.sku.toLowerCase();
 
     if (key && seenInFile.has(key)) {
@@ -198,11 +249,18 @@ function analyze(source, requestedFormat, requestedMapping) {
     return row;
   });
 
+  /* What the file amounts to once the handsets are gathered into models. */
+  const groups = serialised ? groupUnitRows(rows.filter((r) => !r.errors.length)) : null;
+
   return {
     headers,
     // Null for a CSV, which has exactly one grid and nothing to choose between.
     sheets,
     sheet,
+    /* Null unless the file carries serials. The preview shows the models the
+       handsets fall into, which is the thing a shop actually checks. */
+    groups,
+    serialised,
     format,
     detectedFormat: detectFormat(headers),
     mapping,
@@ -216,6 +274,9 @@ function analyze(source, requestedFormat, requestedMapping) {
       // Worth its own figure: it is the number that says the currency column
       // was read, and a shop expecting it to be zero has mapped something wrong.
       converted: rows.filter((r) => r.notes.length > 0).length,
+      /* For a handset file the useful pair is phones and models, not rows. */
+      handsets: groups ? groups.reduce((n, g) => n + g.units.length, 0) : 0,
+      models: groups ? groups.length : 0,
     },
     rate,
   };
@@ -272,7 +333,14 @@ router.post('/commit', requireAuth, requirePermission('imports'), (req, res) => 
       .map((c) => [c.name.toLowerCase(), c.id]),
   );
 
-  const outcome = { created: 0, updated: 0, skipped: 0, categoriesCreated: 0, errors: [] };
+  const outcome = {
+    created: 0,
+    updated: 0,
+    skipped: 0,
+    categoriesCreated: 0,
+    handsets: 0,
+    errors: [],
+  };
 
   const findProduct = db.prepare('SELECT * FROM products WHERE lower(sku) = lower(?)');
   const insertCategory = db.prepare('INSERT INTO categories (name) VALUES (?)');
@@ -290,6 +358,104 @@ router.post('/commit', requireAuth, requirePermission('imports'), (req, res) => 
     INSERT INTO stock_adjustments (product_id, user_id, delta, resulting_stock, reason, note, branch_id)
     VALUES (?, ?, ?, ?, 'count_correction', ?, ?)
   `);
+
+  /**
+   * A category by name, made if the shop allows it. The same lookup both paths
+   * need, so it is said once rather than twice with a chance to drift.
+   */
+  const categoryFor = (name) => {
+    if (!name) return null;
+    const key = name.toLowerCase();
+    if (categoryCache.has(key)) return categoryCache.get(key);
+    if (!createCategories) return null;
+    const id = insertCategory.run(name).lastInsertRowid;
+    categoryCache.set(key, id);
+    outcome.categoriesCreated += 1;
+    return id;
+  };
+
+  /*
+   * A file of phones: each model becomes one serialised product and each row
+   * becomes one handset inside it.
+   *
+   * Stock is never set here. For a serialised product the count of units in
+   * `product_units` *is* the stock — `receiveUnits` keeps the two in step — and
+   * writing the Qty column over it would be one figure claiming to be another.
+   */
+  if (result.serialised) {
+    transaction(() => {
+      for (const row of result.rows) {
+        if (row.errors.length) {
+          outcome.errors.push({ line: row.line, sku: row.data.imei || row.data.name, messages: row.errors });
+        }
+      }
+
+      for (const group of result.groups) {
+        const categoryId = categoryFor(group.category);
+        const existing = findProduct.get(group.sku);
+
+        const payload = {
+          name: group.name,
+          sku: group.sku,
+          price: group.price,
+          /* The product's cost is a fallback for anything booked in later
+             without one; each handset keeps what it actually cost. */
+          cost: group.units[0]?.cost ?? 0,
+          category_id: categoryId,
+          barcode: group.barcode,
+          supplier: group.supplier,
+          image_url: null,
+          reorder_point: 5,
+        };
+
+        let productId;
+        if (existing) {
+          if (!updateExisting) {
+            outcome.skipped += 1;
+            continue;
+          }
+          productId = existing.id;
+          payload.category_id = categoryId ?? existing.category_id;
+          const { sku, ...updatable } = payload;
+          void sku;
+          updateProduct.run({ ...updatable, id: productId });
+          syncBarcode(productId, payload.barcode);
+          outcome.updated += 1;
+        } else {
+          productId = insertProduct.run(payload).lastInsertRowid;
+          syncBarcode(productId, payload.barcode);
+          outcome.created += 1;
+        }
+
+        /* Serialised from here on, whether it was before or not. */
+        db.prepare('UPDATE products SET tracks_units = 1 WHERE id = ?').run(productId);
+
+        /*
+         * One handset at a time rather than the whole batch.
+         *
+         * `receiveUnits` refuses a batch outright if any serial in it is
+         * already taken — right for a person typing at a counter, wrong for a
+         * five-hundred-line file where one clash would throw away the other
+         * four hundred and ninety-nine. Booked one by one, a bad line is a
+         * named line and the rest still lands.
+         */
+        for (const unit of group.units) {
+          try {
+            receiveUnits(
+              productId,
+              [{ imei: unit.imei, condition: unit.condition, cost: unit.cost }],
+              { branchId: req.branchId },
+            );
+            outcome.handsets += 1;
+          } catch (err) {
+            outcome.errors.push({ line: unit.line, sku: unit.imei, messages: [err.message] });
+          }
+        }
+      }
+    })();
+
+    return res.json({ ...outcome, serialised: true });
+  }
 
   transaction(() => {
     for (const row of result.rows) {

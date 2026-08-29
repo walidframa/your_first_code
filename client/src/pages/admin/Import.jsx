@@ -337,10 +337,31 @@ export default function Import() {
           {step === 2 && preview && (
             <Card>
               <div className="flex flex-wrap items-center gap-4 border-b border-slate-100 px-5 py-4">
-                <Badge tone="good" icon={CheckCircle2}>
-                  {preview.summary.create} new
-                </Badge>
-                <Badge tone="info">{preview.summary.update} updates</Badge>
+                {/*
+                  * A file of phones is counted in phones.
+                  *
+                  * "5 new" is true of the rows and useless to the person
+                  * reading it — what they are about to import is four handsets
+                  * across four models, and that is the pair they will check
+                  * against the delivery in front of them.
+                  */}
+                {preview.serialised ? (
+                  <>
+                    <Badge tone="good" icon={CheckCircle2}>
+                      {preview.summary.handsets} phone{preview.summary.handsets === 1 ? '' : 's'}
+                    </Badge>
+                    <Badge tone="info">
+                      {preview.summary.models} model{preview.summary.models === 1 ? '' : 's'}
+                    </Badge>
+                  </>
+                ) : (
+                  <>
+                    <Badge tone="good" icon={CheckCircle2}>
+                      {preview.summary.create} new
+                    </Badge>
+                    <Badge tone="info">{preview.summary.update} updates</Badge>
+                  </>
+                )}
                 {preview.summary.error > 0 && (
                   <Badge tone="critical" icon={AlertTriangle}>
                     {preview.summary.error} skipped
@@ -352,10 +373,64 @@ export default function Import() {
                     {Number(preview.rate).toLocaleString('en-US')}
                   </Badge>
                 )}
+                {preview.serialised && (
+                  <span className="text-xs text-slate-500">
+                    Each row is one handset. Stock will be the number of phones, not the Qty column.
+                  </span>
+                )}
                 {preview.truncated && (
                   <span className="text-xs text-slate-400">Showing the first 100 rows</span>
                 )}
               </div>
+
+              {/*
+                * The models the handsets fall into, before any of it is
+                * written.
+                *
+                * The condition is read off the model's own name — "USED",
+                * "OB" — which is a guess from text and the one thing worth
+                * checking with the delivery in front of you. The row table
+                * below still lists every phone; this is what the rows *mean*.
+                */}
+              {preview.serialised && preview.groups?.length > 0 && (
+                <div className="border-b border-slate-100 px-5 py-3">
+                  <p className="mb-2 text-xs font-medium text-slate-500">
+                    What these rows come to
+                  </p>
+                  <ul className="space-y-1.5">
+                    {preview.groups.slice(0, 40).map((g) => (
+                      <li key={g.sku} className="flex flex-wrap items-baseline gap-x-2 text-sm">
+                        <span className="font-medium text-slate-800">{g.name}</span>
+                        <Badge
+                          tone={
+                            g.condition === 'new'
+                              ? 'good'
+                              : g.condition === 'used'
+                                ? 'warning'
+                                : 'info'
+                          }
+                        >
+                          {g.condition}
+                        </Badge>
+                        <span className="text-slate-600">
+                          {g.units.length} phone{g.units.length === 1 ? '' : 's'}
+                        </span>
+                        <span className="font-mono text-xs text-slate-400">{g.sku}</span>
+                        {g.notes.map((n) => (
+                          <span key={n} className="text-xs text-amber-700">
+                            {n}
+                          </span>
+                        ))}
+                      </li>
+                    ))}
+                  </ul>
+                  {preview.groups.length > 40 && (
+                    <p className="mt-2 text-xs text-slate-400">
+                      and {preview.groups.length - 40} more
+                    </p>
+                  )}
+                </div>
+              )}
 
               <div className="max-h-[380px] overflow-auto">
                 <table className="w-full text-sm">
@@ -413,7 +488,11 @@ export default function Import() {
                   disabled={preview.summary.create + preview.summary.update === 0}
                   onClick={commit}
                 >
-                  Import {preview.summary.create + preview.summary.update} products
+                  {/* A file of phones is committed in phones, for the same
+                      reason it is counted in them above. */}
+                  {preview.serialised
+                    ? `Import ${preview.summary.handsets} phone${preview.summary.handsets === 1 ? '' : 's'}`
+                    : `Import ${preview.summary.create + preview.summary.update} products`}
                 </Button>
               </div>
             </Card>
@@ -429,6 +508,8 @@ export default function Import() {
                 <h2 className="text-lg font-semibold text-slate-900">Import complete</h2>
                 <p className="mt-1 text-sm text-slate-500">
                   {result.created} created · {result.updated} updated
+                  {result.handsets > 0 &&
+                    ` · ${result.handsets} handset${result.handsets === 1 ? '' : 's'} booked in`}
                   {result.categoriesCreated > 0 && ` · ${result.categoriesCreated} new categories`}
                 </p>
               </div>

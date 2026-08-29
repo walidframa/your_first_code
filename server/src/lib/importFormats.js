@@ -19,6 +19,15 @@ export const CANONICAL_FIELDS = [
   { key: 'image_url', label: 'Image URL', required: false },
   { key: 'reorder_point', label: 'Reorder point', required: false },
   /*
+   * The number stamped on a phone.
+   *
+   * Mapping it changes what the file *is*: one row per handset rather than one
+   * row per product, and the quantity column stops meaning anything because a
+   * serialised product's stock is the count of the phones booked into it. See
+   * lib/importUnits.js.
+   */
+  { key: 'imei', label: 'IMEI / serial number', required: false },
+  /*
    * Which currency the price column is in.
    *
    * A Lebanese system exports a mixed list — most lines in dollars and a
@@ -110,6 +119,7 @@ export const PRESETS = {
       barcode: ['Barcode'],
       supplier: ['Brand', 'Source'],
       image_url: [],
+      imei: ['SN', 'Serial', 'IMEI'],
     },
   },
   generic: {
@@ -146,6 +156,8 @@ export const PRESETS = {
       supplier: ['supplier', 'vendor', 'brand', 'manufacturer'],
       image_url: ['image', 'image url', 'image src', 'photo', 'picture'],
       reorder_point: ['reorder point', 'reorder level', 'min stock', 'minimum stock', 'par level'],
+      /* `sn` is what a phone shop's export calls it more often than `imei`. */
+      imei: ['imei', 'sn', 's/n', 'serial', 'serial number', 'serial no', 'imei1', 'imei 1'],
       currency: ['currency', 'currency 1', 'price currency', 'cur'],
       cost_currency: ['cost currency'],
     },
