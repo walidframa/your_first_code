@@ -166,17 +166,32 @@ test('running the same file twice does not double the stock', async () => {
   assert.equal(product.stock, 3, 'the shelf is where it was');
 });
 
-test('a row with no serial is named, and the rest still lands', async () => {
+test('a phone with no serial of its own comes in as a plain quantity', async () => {
+  /*
+   * Two different models, one with a number and one without. The second is not
+   * refused: nothing else in the file claims that model is tracked by IMEI, so
+   * the honest reading is a shop that has one of them and no number written
+   * down. It arrives as an ordinary product with its quantity, and can be
+   * switched to IMEI tracking later once the number is to hand.
+   *
+   * The case where a blank *is* wrong — a model whose other rows carry serials
+   * — is covered above, and that one is refused by line.
+   */
   const text = csv(
     'PIXEL 8 128GB,50.1,357777777777777,600,USD,450,USD,1,CELLPHONES,',
     'PIXEL 8 256GB,50.2,,700,USD,520,USD,1,CELLPHONES,',
   );
   const done = await commit(text);
 
-  assert.equal(done.handsets, 1, 'the good one came in');
-  assert.equal(done.errors.length, 1, 'and the blank one is reported rather than dropped');
-  assert.match(done.errors[0].messages.join(' '), /no serial/i);
-  assert.equal(done.errors[0].line, 3, 'by line number, so it can be found');
+  assert.equal(done.handsets, 1, 'the one with a number is a handset');
+  assert.equal(done.errors.length, 0, 'and the other is not an error');
+
+  const tracked = (await serialised()).find((x) => x.name === 'PIXEL 8 128GB');
+  assert.equal(tracked.stock, 1, 'counted by handset');
+
+  const plain = (await req('GET', '/products')).json.products.find((x) => x.sku === '50.2');
+  assert.equal(plain.tracks_units, 0, 'the other is counted by the box');
+  assert.equal(plain.stock, 1);
 });
 
 test('a short serial is accepted — a shop’s placeholder is still its own', async () => {
@@ -185,6 +200,82 @@ test('a short serial is accepted — a shop’s placeholder is still its own', a
 
   const [product] = (await serialised()).filter((x) => x.name === 'NOKIA 3310');
   assert.equal((await unitsOf(product.id))[0].imei, '123');
+});
+
+test('a catalogue of phones AND accessories imports both halves', async () => {
+  /*
+   * The bug this closes, and it was the first thing a real export did.
+   *
+   * A shop's catalogue is phones and chargers in one list. The serial column
+   * is blank on everything that is not a phone — so treating the whole file as
+   * handsets refused every accessory in it, which is most of the file. A blank
+   * serial is not a broken row; it is a row about something that does not have
+   * one.
+   */
+  const text = csv(
+    'IPHONE 15 128GB,70.1,358888888888881,1100,USD,900,USD,1,CELLPHONES,',
+    'IPHONE 15 128GB,70.2,358888888888882,1100,USD,910,USD,1,CELLPHONES,',
+    'USB-C CABLE 1M,70.3,,8,USD,3,USD,40,ACCESSORIES,5000111222333',
+    'TEMPERED GLASS,70.4,,5,USD,1.5,USD,120,ACCESSORIES,5000111222334',
+  );
+
+  const p = await preview(text);
+  assert.equal(p.serialised, true, 'there are phones in it');
+  assert.equal(p.summary.handsets, 2);
+  assert.equal(p.summary.models, 1);
+  assert.equal(p.summary.plain, 2, 'and two things that are not phones');
+  assert.equal(p.summary.error, 0, 'none of it is refused');
+
+  const done = await commit(text);
+  assert.equal(done.handsets, 2);
+  assert.equal(done.errors.length, 0, JSON.stringify(done.errors));
+
+  const cable = (await req('GET', '/products')).json.products.find((x) => x.sku === '70.3');
+  assert.ok(cable, 'the cable came in');
+  assert.equal(cable.tracks_units, 0, 'as a quantity, not a serialised product');
+  assert.equal(cable.stock, 40, 'with the quantity the file gave it');
+
+  const phone = (await serialised()).find((x) => x.name === 'IPHONE 15 128GB');
+  assert.equal(phone.stock, 2, 'and the phones are counted by handset');
+});
+
+test('a model with some serials and one without says so rather than guessing', async () => {
+  /*
+   * The one case where a blank serial is still wrong: the model already has
+   * phones with numbers, so a row of it with the column empty is a phone
+   * somebody did not fill in — not a quantity of them. Booking it as loose
+   * stock would leave a count and a shelf that disagree for ever.
+   */
+  const text = csv(
+    'PIXEL 9 PRO,80.1,359999999999991,800,USD,600,USD,1,CELLPHONES,',
+    'PIXEL 9 PRO,80.2,,800,USD,600,USD,1,CELLPHONES,',
+  );
+  const p = await preview(text);
+  assert.equal(p.summary.handsets, 1);
+  const refused = p.rows.filter((r) => r.errors.length);
+  assert.equal(refused.length, 1);
+  assert.match(refused[0].errors.join(' '), /needs one too/i);
+
+  const phone = (await serialised()).find((x) => x.name === 'PIXEL 9 PRO');
+  assert.equal(phone, undefined, 'nothing was written by the preview');
+});
+
+test('a file with a serial column but no serials in it is an ordinary catalogue', async () => {
+  /*
+   * Their export always carries the column. A month where no phones came in
+   * must not turn the whole upload into a handset import with nothing in it.
+   */
+  const text = csv(
+    'SCREEN CLEANER,90.1,,4,USD,1,USD,60,ACCESSORIES,',
+    'CAR CHARGER,90.2,,12,USD,6,USD,25,ACCESSORIES,',
+  );
+  const p = await preview(text);
+  assert.equal(p.serialised, false, 'an empty column is not a file of phones');
+  assert.equal(p.summary.error, 0);
+
+  const done = await commit(text);
+  assert.equal(done.created, 2);
+  assert.equal(done.handsets, 0);
 });
 
 test('a file with no serial column still imports as plain products', async () => {

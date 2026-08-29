@@ -353,6 +353,15 @@ export default function Import() {
                     <Badge tone="info">
                       {preview.summary.models} model{preview.summary.models === 1 ? '' : 's'}
                     </Badge>
+                    {/* A real catalogue is phones and chargers together, so the
+                        count of everything that is not a phone belongs here
+                        too — otherwise the file looks half read. */}
+                    {preview.summary.plain > 0 && (
+                      <Badge tone="neutral">
+                        {preview.summary.plain} other product
+                        {preview.summary.plain === 1 ? '' : 's'}
+                      </Badge>
+                    )}
                   </>
                 ) : (
                   <>
@@ -375,7 +384,8 @@ export default function Import() {
                 )}
                 {preview.serialised && (
                   <span className="text-xs text-slate-500">
-                    Each row is one handset. Stock will be the number of phones, not the Qty column.
+                    A row with a serial number is one handset; the rest come in as ordinary products
+                    with their quantity.
                   </span>
                 )}
                 {preview.truncated && (
@@ -491,7 +501,8 @@ export default function Import() {
                   {/* A file of phones is committed in phones, for the same
                       reason it is counted in them above. */}
                   {preview.serialised
-                    ? `Import ${preview.summary.handsets} phone${preview.summary.handsets === 1 ? '' : 's'}`
+                    ? `Import ${preview.summary.handsets} phone${preview.summary.handsets === 1 ? '' : 's'}` +
+                      (preview.summary.plain > 0 ? ` and ${preview.summary.plain} more` : '')
                     : `Import ${preview.summary.create + preview.summary.update} products`}
                 </Button>
               </div>
