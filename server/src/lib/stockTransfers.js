@@ -15,7 +15,7 @@
  * worth having a word for it.
  */
 import { db, transaction } from '../db.js';
-import { moveStock, stockAt } from './stock.js';
+import { mainBranchId, moveStock, stockAt } from './stock.js';
 import { syncStockFromUnits } from './units.js';
 
 export const TRANSFER_STATUSES = ['draft', 'sent', 'received', 'cancelled'];
@@ -85,7 +85,66 @@ export function listTransfers({ branchId = null, status = null, limit = 50 } = {
  * The stock leaves the source branch now — the box is going in the car, and a
  * shelf that still counts what has physically left is a shelf that will oversell.
  */
-export function sendTransfer({ fromBranchId, toBranchId, items, note = null, userId = null }) {
+/**
+ * Every last thing standing on one branch's shelf, as transfer lines.
+ *
+ * For the mistake that has to be undone rather than corrected item by item:
+ * a delivery booked in — or a catalogue imported — while standing at the wrong
+ * counter. Ninety-seven products and five hundred handsets cannot be searched
+ * for and added one at a time, and a shop told to do that will instead leave
+ * the stock where it wrongly is.
+ *
+ * Handsets are listed one line per phone because that is what a serialised
+ * product's stock *is*, and what `sendTransfer` requires: a quantity would say
+ * "five of these" about five objects with five different numbers on them.
+ *
+ * Archived products are included. A product hidden from the shop still has a
+ * quantity somewhere, and "everything on this shelf" that quietly left some of
+ * it behind would be worse than not offering the button.
+ */
+export function everythingAt(branchId) {
+  const main = mainBranchId();
+
+  /* A handset booked in before branches existed carries no branch, and belongs
+     to the main shop — the same reading `sendTransfer` takes below. */
+  const units = db
+    .prepare(
+      `SELECT u.product_id AS productId, u.id AS unitId
+       FROM product_units u
+       WHERE u.status = 'in_stock' AND COALESCE(u.branch_id, ?) = ?
+       ORDER BY u.product_id, u.id`,
+    )
+    .all(main, branchId)
+    .map((u) => ({ productId: u.productId, unitId: u.unitId, quantity: 1 }));
+
+  const loose = db
+    .prepare(
+      `SELECT s.product_id AS productId, s.stock AS quantity
+       FROM branch_stock s
+       JOIN products p ON p.id = s.product_id
+       WHERE s.branch_id = ? AND s.stock > 0
+         AND p.wallet_id IS NULL AND p.tracks_units = 0
+       ORDER BY p.name`,
+    )
+    .all(branchId)
+    .map((r) => ({ productId: r.productId, unitId: null, quantity: r.quantity }));
+
+  return [...loose, ...units];
+}
+
+export function sendTransfer({
+  fromBranchId,
+  toBranchId,
+  items,
+  /* Fill the transfer from the shelf itself rather than from a list built in a
+     browser: five hundred handset ids do not belong in a request body, and the
+     shelf is the only thing that knows what is actually standing on it. Every
+     line is still checked one by one in the loop below, so anything that moved
+     in between fails loudly instead of being sent twice. */
+  everything = false,
+  note = null,
+  userId = null,
+}) {
   if (!fromBranchId || !toBranchId) throw new Error('A transfer needs a branch at each end');
   if (Number(fromBranchId) === Number(toBranchId)) {
     throw new Error('A transfer has to go somewhere else');
@@ -96,7 +155,7 @@ export function sendTransfer({ fromBranchId, toBranchId, items, note = null, use
   if (!from || !to) throw new Error('One of those branches does not exist');
   if (!to.active) throw new Error(`${to.name} is closed`);
 
-  const lines = (items || [])
+  const lines = (everything ? everythingAt(fromBranchId) : items || [])
     .map((line) => ({
       productId: Number(line.productId),
       unitId: line.unitId ? Number(line.unitId) : null,
@@ -104,7 +163,13 @@ export function sendTransfer({ fromBranchId, toBranchId, items, note = null, use
     }))
     .filter((line) => line.productId && line.quantity > 0);
 
-  if (lines.length === 0) throw new Error('There is nothing on this transfer to send');
+  if (lines.length === 0) {
+    throw new Error(
+      everything
+        ? `There is nothing on the shelf at ${from.name} to send`
+        : 'There is nothing on this transfer to send',
+    );
+  }
 
   return transaction(() => {
     const info = db
