@@ -306,6 +306,71 @@ test('a sale takes stock off its own branch and leaves the other alone', async (
 
 /* --------------------------------------------------------- who goes where */
 
+test('a sale parked at one branch is checked against that branch’s shelf', async () => {
+  /*
+   * A hold reserves nothing, so what has changed underneath it is worked out
+   * when somebody picks it up. That check was reading `products.stock` — the
+   * company-wide mirror — so a sale parked at the shop with none of something
+   * came back saying it was all in stock, and the cashier found out at the
+   * moment they tried to take the money.
+   */
+  const made = await makeProduct(6); // six at the main shop, none at Saida
+
+  const cart = [
+    {
+      lineKey: String(made.id),
+      productId: made.id,
+      unitId: null,
+      name: made.name,
+      sku: made.sku,
+      price: made.price,
+      quantity: 2,
+    },
+  ];
+
+  const parked = await req('POST', '/held-sales', { cart }, adminToken, saida.id);
+  assert.equal(parked.status, 201, JSON.stringify(parked.json));
+
+  const back = await req(
+    'POST',
+    `/held-sales/${parked.json.held.id}/resume`,
+    null,
+    adminToken,
+    saida.id,
+  );
+  assert.equal(back.status, 200, JSON.stringify(back.json));
+  assert.equal(back.json.issues.length, 1, 'six at the other shop are not on this shelf');
+  assert.equal(back.json.issues[0].severity, 'gone');
+  assert.equal(back.json.issues[0].available, 0);
+});
+
+test('and the same sale parked where the stock is comes back clean', async () => {
+  const made = await makeProduct(6);
+
+  const cart = [
+    {
+      lineKey: String(made.id),
+      productId: made.id,
+      unitId: null,
+      name: made.name,
+      sku: made.sku,
+      price: made.price,
+      quantity: 2,
+    },
+  ];
+
+  const parked = await req('POST', '/held-sales', { cart }, adminToken, mainBranch.id);
+  const back = await req(
+    'POST',
+    `/held-sales/${parked.json.held.id}/resume`,
+    null,
+    adminToken,
+    mainBranch.id,
+  );
+
+  assert.deepEqual(back.json.issues, [], 'nothing moved, so nothing to report');
+});
+
 test('a cashier is pinned to their own counter', async () => {
   const made = await makeProduct(5);
 

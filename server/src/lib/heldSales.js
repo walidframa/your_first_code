@@ -15,6 +15,7 @@
  */
 import { db, transaction } from '../db.js';
 import { round2 } from './currency.js';
+import { stockAt } from './stock.js';
 
 /** A hold is a draft; it does not survive as one for long. */
 export const HELD_STATUSES = ['held', 'resumed', 'voided'];
@@ -70,6 +71,9 @@ function shape(row) {
     itemCount: row.item_count,
     total: row.total,
     status: row.status,
+    /* The counter it was parked at, which is the shelf it has to be checked
+       against when somebody picks it up again. */
+    branchId: row.branch_id ?? null,
     heldBy: row.held_by,
     heldByName: row.held_by_name || null,
     heldAt: row.held_at,
@@ -176,12 +180,19 @@ export function countHeld(branchId = null) {
  * customer and is the one who decides whether to substitute, re-quote or
  * apologise.
  */
-export function checkHeldCart(cart) {
+export function checkHeldCart(cart, branchId = null) {
   const issues = [];
 
   for (const line of cart) {
+    /*
+     * `stock` is deliberately not selected. It is the company-wide mirror, and
+     * reading it here was the bug: a sale parked at the second shop came back
+     * saying everything was in stock while the goods stood in the other one,
+     * and the cashier found out at the moment they took the money. The shelf
+     * that matters is the one this sale was parked at, read below.
+     */
     const product = db
-      .prepare('SELECT id, name, stock, active, wallet_id FROM products WHERE id = ?')
+      .prepare('SELECT id, name, active, wallet_id FROM products WHERE id = ?')
       .get(line.productId);
 
     if (!product) {
@@ -211,15 +222,18 @@ export function checkHeldCart(cart) {
     if (product.wallet_id) continue;
 
     const wanted = Number(line.quantity) || 0;
-    if (product.stock < wanted) {
+    /* A hold with no branch on it predates branches; `stockAt` reads the main
+       shop for it, which is where that sale was rung up. */
+    const here = stockAt(branchId, product.id);
+    if (here < wanted) {
       issues.push({
         lineKey: line.lineKey,
-        severity: product.stock <= 0 ? 'gone' : 'short',
+        severity: here <= 0 ? 'gone' : 'short',
         message:
-          product.stock <= 0
+          here <= 0
             ? `${product.name} is out of stock`
-            : `${product.name}: only ${product.stock} left, ${wanted} on this sale`,
-        available: product.stock,
+            : `${product.name}: only ${here} left, ${wanted} on this sale`,
+        available: here,
       });
     }
   }
@@ -244,7 +258,7 @@ export function resumeHeld(id, userId = null) {
     db.prepare(
       `UPDATE held_sales SET status = 'resumed', resumed_by = ?, resumed_at = datetime('now') WHERE id = ?`,
     ).run(userId ?? null, id);
-    return { ...heldById(id), issues: checkHeldCart(held.cart) };
+    return { ...heldById(id), issues: checkHeldCart(held.cart, held.branchId) };
   })();
 }
 
