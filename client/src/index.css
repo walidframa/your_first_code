@@ -1,6 +1,35 @@
 @import "tailwindcss";
 
 /*
+ * Hover is for machines that have a pointer.
+ *
+ * This is a till, and most tills are touchscreens. On a touchscreen `:hover` is
+ * not a hover — it is the last thing anybody tapped, and it stays lit until
+ * something else is tapped. So the row a cashier pressed a minute ago sits
+ * there looking selected, and every tile they have been through keeps its
+ * highlight. It reads as state, it is not state, and at a counter that matters
+ * more than any animation.
+ *
+ * The variant is redefined rather than three hundred call sites edited: every
+ * `hover:` utility in the app compiles through this one rule, including the
+ * ones written next year.
+ *
+ * The block form with `@slot` is required. The one-line form —
+ * `@custom-variant hover (@media ... { &:hover })` — is accepted silently and
+ * then emits almost nothing: it took the app from fifty-one hover rules to
+ * five, with no error anywhere. Counted in the built CSS, which is the only
+ * place that would have shown it.
+ */
+@custom-variant hover {
+  @media (hover: hover) and (pointer: fine) {
+    &:hover {
+      @slot;
+    }
+  }
+}
+
+
+/*
  * Design tokens.
  *
  * Brand accent (#059669) and the chart colors below were validated against the
@@ -1103,6 +1132,71 @@ body.native {
 }
 
 /*
+ * The three hundred milliseconds nobody asked for.
+ *
+ * A touch browser waits after a tap to see whether a second one is coming, so
+ * it can zoom. The app has nothing to zoom into and no double-tap gesture, so
+ * every press at the counter was paying a third of a second for a feature that
+ * does not exist here. It is the plainest latency in the app and the cheapest
+ * to delete.
+ *
+ * Not scoped to `body.native` like the two blocks around it: the shop runs this
+ * in a browser on a tablet as often as in the wrapper, and the delay is the
+ * browser's either way.
+ */
+button,
+a,
+[role='button'],
+label,
+summary,
+input[type='checkbox'],
+input[type='radio'] {
+  touch-action: manipulation;
+}
+
+/*
+ * A press that is felt, for the things that are not <Button>.
+ *
+ * The button component has dipped on press for a while; the tiles have not —
+ * and the tiles are what a counter actually presses. A category, a product, the
+ * kind of document being raised: pressed hundreds of times a day, each one
+ * giving nothing back until the screen changed. On a touchscreen there is no
+ * hover to say the finger landed on the tile rather than a millimetre beside
+ * it, so the press is the only chance to say it.
+ *
+ * Instant and tiny: the dip lands on pointer-down, not on release, and it is
+ * undone the moment the finger lifts, so nothing waits on it. Scale rather than
+ * colour because scale reads at a glance from arm's length, which is how far
+ * away a till screen usually is.
+ */
+.pressable {
+  transition: transform 100ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.pressable:active {
+  transform: scale(0.97);
+}
+
+/* A tile that cannot be pressed must not pretend it can. */
+.pressable:disabled:active,
+.pressable[aria-disabled='true']:active {
+  transform: none;
+}
+
+/*
+ * Stillness has been asked for, so the dip goes. The tile still lights on
+ * press through its own colour change, which is the part that carries the
+ * meaning.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .pressable,
+  .pressable:active {
+    transition: none;
+    transform: none;
+  }
+}
+
+/*
  * Text that cannot be selected by accident.
  *
  * A long press on a native button does nothing; on a web page it selects the
@@ -1473,9 +1567,17 @@ body.native {
   background-color: #e6eef6;
 }
 
-:root[data-theme='ledger'] aside.bg-slate-900 .hover\:bg-slate-800:hover,
-:root[data-theme='ledger'] aside.bg-slate-900 .hover\:bg-slate-700:hover {
-  background-color: #dfe9f3;
+/*
+ * Gated by hand, because this rule re-colours a `hover:` utility rather than
+ * being one — so it does not pass through the variant at the top of this file
+ * and would have been the one place on a touchscreen where the rail kept the
+ * last thing tapped lit up.
+ */
+@media (hover: hover) and (pointer: fine) {
+  :root[data-theme='ledger'] aside.bg-slate-900 .hover\:bg-slate-800:hover,
+  :root[data-theme='ledger'] aside.bg-slate-900 .hover\:bg-slate-700:hover {
+    background-color: #dfe9f3;
+  }
 }
 
 :root[data-theme='ledger'] aside.bg-slate-900 .border-slate-800,
