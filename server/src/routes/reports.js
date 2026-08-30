@@ -114,12 +114,26 @@ router.get('/summary', requireAuth, requirePermission('reports'), (req, res) => 
    * Cards are left out: they are sold from a balance rather than a shelf and
    * cannot sit still.
    */
+  /*
+   * Counted on this branch's shelf, like everything else on this screen.
+   *
+   * `products.stock` is the company-wide mirror, and reading it here told a
+   * branch manager they had money asleep on a shelf that is in the other shop.
+   * When the owner asks for all branches the mirror is exactly right, so that
+   * is the one case it is used.
+   */
+  const shelf = branchId === null ? 'p.stock' : 'COALESCE(bs.stock, 0)';
+  const shelfJoin =
+    branchId === null ? '' : 'LEFT JOIN branch_stock bs ON bs.product_id = p.id AND bs.branch_id = ?';
+  const shelfParams = branchId === null ? [] : [branchId];
+
   const slowMovers = db
     .prepare(
-      `SELECT p.id, p.name, p.sku, p.stock, p.cost,
-              ROUND(p.stock * p.cost, 2) AS tiedUp
+      `SELECT p.id, p.name, p.sku, ${shelf} AS stock, p.cost,
+              ROUND(${shelf} * p.cost, 2) AS tiedUp
        FROM products p
-       WHERE p.active = 1 AND p.stock > 0 AND p.wallet_id IS NULL
+       ${shelfJoin}
+       WHERE p.active = 1 AND ${shelf} > 0 AND p.wallet_id IS NULL
          AND p.id NOT IN (
            SELECT oi.product_id FROM order_items oi
            JOIN orders o ON o.id = oi.order_id
@@ -128,7 +142,7 @@ router.get('/summary', requireAuth, requirePermission('reports'), (req, res) => 
        ORDER BY tiedUp DESC, p.name
        LIMIT 10`,
     )
-    .all(...joinedParams);
+    .all(...shelfParams, ...joinedParams);
 
   res.json({
     revenue: totals.revenue,

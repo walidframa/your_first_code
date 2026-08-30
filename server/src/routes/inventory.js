@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import { db, transaction, ADJUSTMENT_REASONS } from '../db.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
-import { moveStock, stockAt } from '../lib/stock.js';
+import { branchParams, branchScope } from '../lib/branchScope.js';
+import { moveStock, stockAt, stockMap } from '../lib/stock.js';
 
 const router = Router();
 
@@ -11,6 +12,23 @@ router.get('/reasons', requireAuth, (req, res) => {
 
 /** Inventory overview: stock levels with derived status and value on hand. */
 router.get('/', requireAuth, requirePermission('inventory'), (req, res) => {
+  /*
+   * The shelf being counted is **this branch's**.
+   *
+   * `products.stock` is the company-wide mirror — what is owned altogether,
+   * kept for the questions that really are company-wide. Reading it here was
+   * the bug: a shop with two branches saw one number on both screens, so goods
+   * imported at one counter appeared to be sitting at the other as well, and
+   * "what do I need to order" was being answered with stock nobody at that
+   * counter could sell. The register has always asked per branch; this screen
+   * now asks the same question.
+   *
+   * `branch=all` is the owner deliberately looking at the whole company, and
+   * that is the one case where the mirror is the right figure.
+   */
+  const branchId = branchScope(req);
+  const here = branchId === null ? null : stockMap(branchId);
+
   const products = db
     .prepare(
       `SELECT p.*, c.name AS category_name
@@ -19,10 +37,26 @@ router.get('/', requireAuth, requirePermission('inventory'), (req, res) => {
        /* Cards are sold from a wallet, not off a shelf. Listing them here would
           add a screenful of permanent "out of stock" to the one screen whose
           job is to show what genuinely needs reordering. */
-       WHERE p.active = 1 AND p.wallet_id IS NULL
-       ORDER BY (p.stock <= p.reorder_point) DESC, p.stock ASC, p.name`,
+       WHERE p.active = 1 AND p.wallet_id IS NULL`,
     )
-    .all();
+    .all()
+    .map((p) => ({
+      ...p,
+      /*
+       * Kept alongside, because the first thing this fix does is make one
+       * branch's screen go empty. "None here, six at the other shop" is the
+       * answer that stops a needless order; a bare zero is not.
+       */
+      total_stock: p.stock,
+      stock: here ? (here.get(p.id) ?? 0) : p.stock,
+    }))
+    /* Sorted on the branch's own figure — what needs reordering here, first. */
+    .sort(
+      (a, b) =>
+        Number(b.stock <= b.reorder_point) - Number(a.stock <= a.reorder_point) ||
+        a.stock - b.stock ||
+        a.name.localeCompare(b.name),
+    );
 
   const totals = products.reduce(
     (acc, p) => {
@@ -52,6 +86,14 @@ router.get('/movements', requireAuth, requirePermission('inventory'), (req, res)
   const { productId, limit } = req.query;
   const max = Math.min(Number(limit) || 100, 500);
 
+  /*
+   * A correction was made by somebody standing at one counter, with the goods
+   * in their hand. Listing the other branch's alongside it turns the history of
+   * this shelf into a history of two, and the running figure beside each line
+   * stops making sense.
+   */
+  const branch = branchParams(req);
+
   const rows = productId
     ? db
         .prepare(
@@ -59,19 +101,20 @@ router.get('/movements', requireAuth, requirePermission('inventory'), (req, res)
            FROM stock_adjustments a
            JOIN products p ON p.id = a.product_id
            LEFT JOIN users u ON u.id = a.user_id
-           WHERE a.product_id = ?
+           WHERE a.product_id = ? AND (? IS NULL OR a.branch_id = ?)
            ORDER BY a.created_at DESC, a.id DESC LIMIT ?`,
         )
-        .all(productId, max)
+        .all(productId, ...branch, max)
     : db
         .prepare(
           `SELECT a.*, p.name AS product_name, p.sku, u.name AS user_name
            FROM stock_adjustments a
            JOIN products p ON p.id = a.product_id
            LEFT JOIN users u ON u.id = a.user_id
+           WHERE (? IS NULL OR a.branch_id = ?)
            ORDER BY a.created_at DESC, a.id DESC LIMIT ?`,
         )
-        .all(max);
+        .all(...branch, max);
 
   res.json({ movements: rows });
 });

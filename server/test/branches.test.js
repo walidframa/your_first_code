@@ -168,6 +168,108 @@ test('but the shelf is not — stock entered at one branch is only there', async
   assert.equal((await product(made.sku, saida.id)).total_stock, 10, 'ten in the company');
 });
 
+test('the inventory screen counts the shelf you are standing at', async () => {
+  /*
+   * The bug this closes, reported from the shop: goods imported at one branch
+   * showed up as the same quantity on both screens.
+   *
+   * `products.stock` is the company-wide mirror — what is owned altogether —
+   * and the inventory screen was reading it. So the one screen whose job is to
+   * answer "what do I need to order here" was answering with stock nobody at
+   * that counter could sell.
+   */
+  const before = {
+    here: (await req('GET', '/inventory', null, adminToken, mainBranch.id)).json.totals.units,
+    there: (await req('GET', '/inventory', null, adminToken, saida.id)).json.totals.units,
+  };
+
+  const made = await makeProduct(12);
+
+  const here = (await req('GET', '/inventory', null, adminToken, mainBranch.id)).json;
+  const there = (await req('GET', '/inventory', null, adminToken, saida.id)).json;
+  const mine = here.products.find((p) => p.id === made.id);
+  const theirs = there.products.find((p) => p.id === made.id);
+
+  assert.equal(mine.stock, 12, 'twelve here');
+  assert.equal(theirs.stock, 0, 'and none at the other counter');
+  assert.equal(theirs.total_stock, 12, 'which says where the rest of them are');
+
+  // The value on hand is this branch's too, or the same goods are counted twice.
+  assert.equal(here.totals.units - before.here, 12);
+  assert.equal(there.totals.units - before.there, 0);
+});
+
+test('and the owner can still ask for the whole company at once', async () => {
+  const made = await makeProduct(7);
+
+  const all = (await req('GET', '/inventory?branch=all', null, adminToken, saida.id)).json;
+  assert.equal(
+    all.products.find((p) => p.id === made.id).stock,
+    7,
+    'seven, wherever in the company they are standing',
+  );
+});
+
+test('a stock correction belongs to the counter it was made at', async () => {
+  const made = await makeProduct(4);
+
+  const adjusted = await req(
+    'POST',
+    '/inventory/adjust',
+    { productId: made.id, delta: -1, reason: 'damaged' },
+    adminToken,
+    mainBranch.id,
+  );
+  assert.equal(adjusted.status, 200, JSON.stringify(adjusted.json));
+
+  const mine = (
+    await req('GET', `/inventory/movements?productId=${made.id}`, null, adminToken, mainBranch.id)
+  ).json.movements;
+  const theirs = (
+    await req('GET', `/inventory/movements?productId=${made.id}`, null, adminToken, saida.id)
+  ).json.movements;
+
+  assert.ok(mine.some((m) => m.delta === -1), 'the correction is in this branch’s history');
+  assert.equal(theirs.length, 0, 'and not in the other branch’s, where nobody touched it');
+});
+
+test('money asleep on the shelf is this branch’s shelf', async () => {
+  /*
+   * The same mistake in the reports: "what am I stuck with" was answered from
+   * the company-wide mirror, so a branch manager was shown the value of stock
+   * standing in the other shop.
+   */
+  /* Priced high on purpose: the report is the ten most expensive things
+     standing still, and this file has stocked plenty of cheaper ones. */
+  const made = (
+    await req(
+      'POST',
+      '/products',
+      { name: 'Unsold showcase', sku: 'BR-SLOW-1', price: 900, cost: 700, stock: 9 },
+      adminToken,
+      mainBranch.id,
+    )
+  ).json.product;
+
+  const mine = (await req('GET', '/reports/summary', null, adminToken, mainBranch.id)).json;
+  const theirs = (await req('GET', '/reports/summary', null, adminToken, saida.id)).json;
+
+  assert.ok(
+    mine.slowMovers.some((p) => p.id === made.id),
+    'nine of them sitting here, unsold',
+  );
+  assert.ok(
+    !theirs.slowMovers.some((p) => p.id === made.id),
+    'and nothing sitting at the branch that has none of them',
+  );
+
+  const all = (await req('GET', '/reports/summary?branch=all', null, adminToken, saida.id)).json;
+  assert.ok(
+    all.slowMovers.some((p) => p.id === made.id),
+    'the owner asking about the whole company still sees them',
+  );
+});
+
 test('a sale can only take what is at the counter it is rung up on', async () => {
   const made = await makeProduct(3);
 
