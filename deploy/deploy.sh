@@ -172,6 +172,24 @@ elif [ -z "$RUNNING" ]; then
   die "Nothing to restart: no '$SERVICE' service and no shops running on this machine. Install deploy/pos.service, or start a shop with 'pos-tenant add' (see the README)."
 fi
 
+#
+# The shop's own port, read where the shop itself reads it.
+#
+# This was `${PORT:-4000}`, which trusts whatever the person at the keyboard
+# happens to have exported — and that is how this deploy learned to lie.
+# Somebody debugging a tenant sets PORT=4100 in their shell, runs a deploy, and
+# every check below asks the tenant's door about pos.service. The tenant did
+# restart, so it answers with the new commit, so the script prints "up to date"
+# and a green "Live at" for a shop that was never asked and is still serving
+# code from a fortnight ago. The one check whose entire purpose is to catch a
+# restart that did not happen was pointed at a process that did.
+#
+# A tenant's port has always been read out of its own env file. So is this one
+# now, and an inherited PORT is ignored outright rather than merely defaulted —
+# there is no reading of it that is more trustworthy than the file.
+OWN_PORT="$(sudo sed -n 's/^PORT=//p' /etc/pos/pos.env 2>/dev/null | tail -1 || true)"
+OWN_PORT="${OWN_PORT:-4000}"
+
 if [ "$OWN_SHOP" = yes ]; then
   say "Restarting $SERVICE"
   sudo systemctl restart "$SERVICE"
@@ -218,10 +236,9 @@ if [ "$OWN_SHOP" = yes ]; then
   # env file rather than here, so asking $PORT for one would be asking the wrong
   # door and calling the shop dead when it is serving.
   say "Waiting for it to answer"
-  PORT="${PORT:-4000}"
   ANSWERED=no
   for attempt in $(seq 1 30); do
-    if curl -fsS "http://127.0.0.1:${PORT}/api/health" >/dev/null 2>&1; then
+    if curl -fsS "http://127.0.0.1:${OWN_PORT}/api/health" >/dev/null 2>&1; then
       ANSWERED=yes
       break
     fi
@@ -307,16 +324,19 @@ check() {
     return
   fi
 
+  # The port is printed, not just used. A check aimed at the wrong door reads
+  # exactly like a check that passed, and the only thing that tells the two
+  # apart on the terminal is which door was knocked on.
   if [ "$got" = "$WANT" ]; then
-    printf '    %-28s %s\n' "$name" "$(printf '%.7s' "$got") — up to date"
+    printf '    %-28s :%-6s %s\n' "$name" "$port" "$(printf '%.7s' "$got") — up to date"
   else
     WRONG="$WRONG $name"
-    printf '    %-28s \033[1;31m%s\033[0m\n' "$name" "$(printf '%.7s' "$got") — STILL ON OLD CODE"
+    printf '    %-28s :%-6s \033[1;31m%s\033[0m\n' "$name" "$port" "$(printf '%.7s' "$got") — STILL ON OLD CODE"
   fi
 }
 
 if [ "$OWN_SHOP" = yes ]; then
-  check "$SERVICE" "${PORT:-4000}"
+  check "$SERVICE" "$OWN_PORT"
 fi
 
 #
