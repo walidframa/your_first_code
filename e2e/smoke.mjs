@@ -126,17 +126,21 @@ async function step(name, fn) {
  * rather than at the dialog that never closed.
  */
 /**
- * Open the New document dialog and wait for it to settle.
+ * Go to the screen where a document is raised, and wait for it to be there.
  *
- * The dialog animates in, and a click that lands mid-animation is reported by
- * Playwright as "element is not stable" — a flake that only shows on a slower
- * machine. Waiting for the heading is waiting for the animation.
+ * It was a dialog and is a page now — its own address, so it survives a reload
+ * and the browser's back button means what it says. The wait is for the type
+ * tiles rather than the heading: the heading renders before the products and
+ * contacts it needs have arrived, and a click on a tile in that gap does
+ * nothing at all.
  */
 async function openNewDocument() {
   await page.click('button:has-text("New document")');
-  await page.waitForSelector('[role=dialog] >> text=New document', { timeout: 15000 });
-  await page.locator('[role=dialog]').getByRole('button', { name: /Quotation/ }).waitFor();
-  return page.locator('[role=dialog]');
+  await page.waitForURL(/\/admin\/documents\/new/, { timeout: 15000 });
+  await page.getByRole('button', { name: /Quotation/ }).first().waitFor();
+  /* The form, not the whole page: every step below looks for its fields
+     inside whatever this returns. */
+  return page.locator('form').first();
 }
 
 /**
@@ -2508,7 +2512,8 @@ try {
 
     await dialog.getByRole('button', { name: /Paid in full/ }).click();
     await dialog.getByLabel('Method').selectOption('cash');
-    await page.waitForSelector('[role=dialog] >> text=Settled', { timeout: 10000 });
+    // The form is a screen now, so its own figures are not in a dialog.
+    await dialog.locator('text=Settled').first().waitFor({ timeout: 10000 });
 
     await page.click('button:has-text("Create draft")');
     await page.waitForSelector('text=/Paid cash/', { timeout: 15000 });
@@ -2537,8 +2542,8 @@ try {
 
     await dialog.getByRole('button', { name: /Part paid/ }).click();
     await dialog.getByLabel('Amount paid now').fill('40');
-    // $100 plus 8% tax, less the $40 handed over.
-    await page.waitForSelector('[role=dialog] >> text=$68.00', { timeout: 10000 });
+    // $100 plus 8% tax, less the $40 handed over — still on the form.
+    await dialog.locator('text=$68.00').first().waitFor({ timeout: 10000 });
 
     // Paying more than the total is refused rather than silently accepted.
     await dialog.getByLabel('Amount paid now').fill('500');
@@ -2648,7 +2653,8 @@ try {
 
     await dialog.getByRole('button', { name: /Paid in full/ }).click();
     await dialog.getByLabel('Method').selectOption('cash');
-    await page.waitForSelector('[role=dialog] >> text=Settled', { timeout: 10000 });
+    // The form is a screen now, so its own figures are not in a dialog.
+    await dialog.locator('text=Settled').first().waitFor({ timeout: 10000 });
 
     await page.click('button:has-text("Create draft")');
     await page.waitForSelector('text=/SI-\\d{4}/', { timeout: 15000 });

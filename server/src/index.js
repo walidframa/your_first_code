@@ -7,6 +7,7 @@ import cors from 'cors';
 import { db } from './db.js';
 import { BUILD } from './lib/build.js';
 import { enabledModules, enforceLicence, enforceModules, licenceStatus } from './middleware/licence.js';
+import { compressJson } from './middleware/compress.js';
 import { licenceMessage } from './lib/licence.js';
 import { getSettings } from './lib/settings.js';
 import authRoutes from './routes/auth.js';
@@ -55,6 +56,12 @@ const app = express();
 const PORT = process.env.PORT || 4000;
 
 app.use(cors());
+/*
+ * Before the routes, so every reply they make is covered. See the middleware
+ * for why this exists: the catalogue is 1.2MB of JSON fetched on every screen,
+ * and it gzips to a thirtieth of that.
+ */
+app.use(compressJson);
 /*
  * Keep the raw body around: Shopify signs the exact bytes it sent, so a webhook
  * cannot be verified against a re-serialised object.

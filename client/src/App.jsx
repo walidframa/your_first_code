@@ -23,6 +23,7 @@ import AdminSims from './pages/admin/Sims';
 import AdminSettings from './pages/admin/Settings';
 import AdminParties from './pages/admin/Parties';
 import AdminDocuments from './pages/admin/Documents';
+import { DocumentNew } from './pages/admin/Documents';
 import AdminCapital from './pages/admin/Capital';
 import AdminChartOfAccounts from './pages/admin/ChartOfAccounts';
 import AdminJournal from './pages/admin/Journal';
@@ -165,6 +166,26 @@ export default function App() {
           element={
             <ProtectedRoute permission="documents">
               <AdminDocuments />
+            </ProtectedRoute>
+          }
+        />
+        {/*
+          * Raising one is a screen, not a dialog. Static segments outrank the
+          * `:kind` route below, so `/new` cannot be mistaken for a kind.
+          */}
+        <Route
+          path="/admin/documents/new"
+          element={
+            <ProtectedRoute permission="documents">
+              <DocumentNew />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/documents/new/:kind"
+          element={
+            <ProtectedRoute permission="documents">
+              <DocumentNew />
             </ProtectedRoute>
           }
         />
