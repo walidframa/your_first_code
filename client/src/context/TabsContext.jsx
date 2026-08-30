@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router';
-import { COUNTER_NAV, ADMIN_NAV } from '../lib/nav';
+import { titleFor } from '../lib/tabTitles';
 
 /**
  * The pages somebody has open, as tabs across the top.
@@ -22,32 +22,9 @@ import { COUNTER_NAV, ADMIN_NAV } from '../lib/nav';
 
 const TabsContext = createContext(null);
 
+export { titleFor };
+
 const STORAGE_KEY = 'pos_tabs';
-
-/** Every screen the app knows about, so a tab can be given its real name. */
-const TITLES = new Map([
-  ...COUNTER_NAV.map((i) => [i.to, i.label]),
-  ...ADMIN_NAV.flatMap((group) => group.items.map((i) => [i.to, i.label])),
-  ['/menu', 'Menu'],
-  ['/admin/settings', 'Settings'],
-]);
-
-/**
- * What to call a page.
- *
- * Falls back to the last part of the address rather than to "Untitled": a tab
- * saying `4821` is at least a tab somebody can recognise as the order they were
- * looking at, and a row of identical labels is a tab bar nobody can use.
- */
-export function titleFor(path) {
-  if (TITLES.has(path)) return TITLES.get(path);
-  // The nearest parent that is a known screen — `/admin/orders/48` is an order.
-  const parent = [...TITLES.keys()]
-    .filter((p) => p !== '/' && path.startsWith(`${p}/`))
-    .sort((a, b) => b.length - a.length)[0];
-  if (parent) return `${TITLES.get(parent)} · ${path.slice(parent.length + 1)}`;
-  return path.replace(/^\//, '') || 'Register';
-}
 
 export function TabsProvider({ children }) {
   const location = useLocation();

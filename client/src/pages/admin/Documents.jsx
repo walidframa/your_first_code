@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 import {
   AlertTriangle,
+  ArrowLeft,
   ArrowRight,
   Ban,
   Check,
@@ -98,7 +99,7 @@ function TypeIcon({ type, size = 16 }) {
  * would change what the document does — so the type picker only appears when
  * creating.
  */
-function DocumentForm({ existing, startAs = null, onClose, onSaved }) {
+function DocumentForm({ existing, startAs = null, page = false, onClose, onSaved }) {
   const toast = useToast();
   const { rate, toLbp, taxRate } = useSettings();
   /*
@@ -415,15 +416,25 @@ function DocumentForm({ existing, startAs = null, onClose, onSaved }) {
     }
   }
 
-  return (
+  const actions = (
     <>
-      <Modal
-        open
-        onClose={onClose}
-        title={editing ? `Edit ${doc.doc_number}` : 'New document'}
-        subtitle={editing ? meta.label : undefined}
-        size="xl"
-      >
+      <Button type="button" variant="secondary" onClick={onClose} className="flex-1">
+        Cancel
+      </Button>
+      <Button type="submit" className="flex-1" disabled={!valid} loading={saving}>
+        {editing ? 'Save changes' : 'Create draft'}
+      </Button>
+    </>
+  );
+
+  /*
+   * The same form either way.
+   *
+   * Written once and given two frames rather than copied into a page and left
+   * to drift from the dialog — a document form that behaves differently
+   * depending on how it was opened is two forms to keep correct.
+   */
+  const body = (
         <form onSubmit={submit} className="space-y-4">
           {/* Type is picked by icon — it decides everything else on this form. */}
           {!editing && (
@@ -938,16 +949,36 @@ function DocumentForm({ existing, startAs = null, onClose, onSaved }) {
 
           {error && <p className="text-sm text-red-600">{error}</p>}
 
-          <ModalActions>
-            <Button type="button" variant="secondary" onClick={onClose} className="flex-1">
-              Cancel
-            </Button>
-            <Button type="submit" className="flex-1" disabled={!valid} loading={saving}>
-              {editing ? 'Save changes' : 'Create draft'}
-            </Button>
-          </ModalActions>
+          {/*
+            * On a page the buttons ride at the bottom of the window rather than
+            * at the bottom of the document. A long invoice scrolls; Save must
+            * not scroll away with it.
+            */}
+          {page ? (
+            <div className="sticky bottom-0 -mx-4 mt-2 flex gap-2 border-t border-edge bg-white px-4 py-3 sm:-mx-6 sm:px-6">
+              {actions}
+            </div>
+          ) : (
+            <ModalActions>{actions}</ModalActions>
+          )}
         </form>
-      </Modal>
+  );
+
+  return (
+    <>
+      {page ? (
+        body
+      ) : (
+        <Modal
+          open
+          onClose={onClose}
+          title={editing ? `Edit ${doc.doc_number}` : 'New document'}
+          subtitle={editing ? meta.label : undefined}
+          size="xl"
+        >
+          {body}
+        </Modal>
+      )}
 
       <ProductQuickCreate
         open={quickCreate !== null}
@@ -1420,6 +1451,7 @@ const KIND_PATHS = {
 
 export default function Documents() {
   const { kind } = useParams();
+  const navigate = useNavigate();
   const only = KIND_PATHS[kind] || null;
 
   const [documents, setDocuments] = useState(null);
@@ -1441,8 +1473,16 @@ export default function Documents() {
    */
   const arrivedFor = params.get('number') || '';
   const history = useHistoryFilter(arrivedFor ? 'all' : 'month', arrivedFor);
-  const [creating, setCreating] = useState(false);
-  const [viewing, setViewing] = useState(null);
+  /*
+   * `?document=` is how the new-document page hands back what it just wrote.
+   * Read as the opening value rather than watched, so closing the paper does
+   * not immediately reopen it — the address is where you arrived from, not a
+   * standing instruction.
+   */
+  const [viewing, setViewing] = useState(() => {
+    const arrived = Number(params.get('document'));
+    return Number.isInteger(arrived) && arrived > 0 ? arrived : null;
+  });
 
   const load = useCallback(() => {
     // Load everything once so the tiles can show per-type counts.
@@ -1483,9 +1523,10 @@ export default function Documents() {
         subtitle={only ? TYPE_META[only].effect : 'Quotations, sales orders, sales invoices and purchase invoices'}
         actions={
           /* On a screen that is one kind, the button already knows which —
-             the type tiles inside the dialog were a third choice for a job
-             the shop had already made twice. */
-          <Button onClick={() => setCreating(true)}>
+             the type tiles on the form were a third choice for a job the shop
+             had already made twice. It goes to a screen of its own now, so it
+             can be reloaded, bookmarked and kept open in a tab. */
+          <Button onClick={() => navigate(kind ? `/admin/documents/new/${kind}` : '/admin/documents/new')}>
             <Plus size={16} /> {only ? `New ${TYPE_META[only].label.toLowerCase()}` : 'New document'}
           </Button>
         }
@@ -1605,19 +1646,6 @@ export default function Documents() {
         </Card>
       </div>
 
-      {creating && (
-        <DocumentForm
-          /* Opened from a screen that is one kind, it starts on that kind —
-             the tiles inside are still there to change your mind. */
-          startAs={only}
-          onClose={() => setCreating(false)}
-          onSaved={(id) => {
-            setCreating(false);
-            load();
-            setViewing(id);
-          }}
-        />
-      )}
 
       {viewing && (
         <DocumentDetail
@@ -1630,6 +1658,65 @@ export default function Documents() {
           }}
         />
       )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------- new, on its own page */
+
+/**
+ * Raising a document on a screen of its own.
+ *
+ * This used to be a dialog, and a dialog is the wrong shape for the job. An
+ * invoice is not a question with two answers — it is a supplier, a stock, a
+ * currency and twenty lines typed off a delivery note, with a total that has to
+ * be checked against a piece of paper on the counter. In a box floating over
+ * the list it gets a fraction of the window, scrolls inside its own little
+ * frame, and cannot be linked to, bookmarked, reloaded or left open in a tab
+ * while somebody goes to look something up.
+ *
+ * On a page it has the whole window, it survives a reload, and the browser's
+ * own back button means what it says. Each kind has its own address, so the
+ * rail can link straight to "new purchase invoice" and a shop can keep one
+ * open per tab the way it keeps one paper pad per job.
+ */
+export function DocumentNew() {
+  const { kind } = useParams();
+  const navigate = useNavigate();
+
+  const startAs = KIND_PATHS[kind] || null;
+  /* Back to the list this was started from, not to the top of the section. */
+  const back = kind ? `/admin/documents/${kind}` : '/admin/documents';
+
+  // A business paper is laid out for a sheet, whatever the till roll printed.
+  usePageSize(A4);
+
+  return (
+    <div className="flex h-full flex-col">
+      <PageHeader
+        title={startAs ? `New ${TYPE_META[startAs].label.toLowerCase()}` : 'New document'}
+        subtitle={startAs ? 'Saved as a draft — nothing moves until it is posted' : 'Pick what it is'}
+        actions={
+          <Button variant="secondary" onClick={() => navigate(back)}>
+            <ArrowLeft size={16} /> Back to the list
+          </Button>
+        }
+      />
+
+      <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
+        <div className="mx-auto max-w-6xl">
+          <Card className="p-4 sm:p-6">
+            <DocumentForm
+              page
+              startAs={startAs}
+              onClose={() => navigate(back)}
+              /* Straight to what was just written, rather than back to a list
+                 to hunt for it. */
+              onSaved={(id) => navigate(`${back}?document=${id}`)}
+            />
+          </Card>
+        </div>
+      </div>
     </div>
   );
 }

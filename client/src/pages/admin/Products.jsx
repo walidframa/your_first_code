@@ -528,9 +528,18 @@ export default function Products() {
   const COLUMNS = [
     {
       key: 'product',
+      band: 'Item',
       label: 'Product',
       fixed: true,
       pad: true,
+      /*
+       * Capped, because a table lays itself out by giving the slack to whatever
+       * can use it and a product name can always use more. Left to itself the
+       * name took a third of the window and pushed stock and margin off the
+       * right-hand edge — the two figures somebody opens this screen to read.
+       * The name truncates; the numbers cannot.
+       */
+      width: 'w-[20rem] max-w-[20rem]',
       cell: (p) => (
         <div className="flex items-center gap-2 sm:gap-3">
           <ProductThumb product={p} size="sm" />
@@ -549,22 +558,58 @@ export default function Products() {
     },
     {
       key: 'category',
+      band: 'Item',
       label: 'Category',
+      width: 'w-32',
       cell: (p) => <span className="text-slate-500">{p.category_name || '—'}</span>,
+    },
+    /*
+     * How many are here, read before any of the money.
+     *
+     * It was the last column, and last is where a wide table clips: on a laptop
+     * the five price columns pushed stock off the right-hand edge, so the one
+     * figure somebody opens the catalogue to check was the one they had to
+     * scroll for. The money is detail — it belongs after the count, not in
+     * front of it.
+     */
+    {
+      key: 'stock',
+      width: 'whitespace-nowrap',
+      band: 'Stock',
+      label: 'Stock',
+      cell: (p) =>
+        /* A card cannot be out of stock, and saying so on every one of them
+           would bury the products that genuinely are. */
+        p.wallet_id ? (
+          <Badge tone="brand">Card · {p.wallet_name}</Badge>
+        ) : (
+          <StockBadge stock={p.stock} reorderPoint={p.reorder_point} />
+        ),
     },
     {
       key: 'price',
+      width: 'whitespace-nowrap',
+      band: 'Prices',
       label: 'Price',
       align: 'right',
+      /*
+       * The pound figure beside the dollar rather than beneath it. Stacked, it
+       * wrapped — "9,612,000 LL" does not fit a price column — and every row in
+       * the catalogue became two rows tall to carry a number nobody prices in.
+       * `whitespace-nowrap` is the point: it may push the column wider, it may
+       * not fold the row.
+       */
       cell: (p) => (
-        <>
-          <span className="block font-medium text-slate-800">{money(p.price)}</span>
-          {rate > 0 && <span className="block text-xs text-slate-400">{lbp(toLbp(p.price))}</span>}
-        </>
+        <span className="whitespace-nowrap">
+          <span className="font-medium text-slate-800">{money(p.price)}</span>
+          {rate > 0 && <span className="ml-1.5 text-xs text-slate-400">{lbp(toLbp(p.price))}</span>}
+        </span>
       ),
     },
     {
       key: 'wholesale',
+      width: 'whitespace-nowrap',
+      band: 'Prices',
       label: 'Wholesale',
       align: 'right',
       // Blank rather than a dash-and-a-zero: most of a catalogue has no
@@ -578,12 +623,16 @@ export default function Products() {
     },
     {
       key: 'cost',
+      width: 'whitespace-nowrap',
+      band: 'Prices',
       label: 'Cost',
       align: 'right',
       cell: (p) => <span className="text-slate-600">{money(p.cost)}</span>,
     },
     {
       key: 'avgCost',
+      width: 'whitespace-nowrap',
+      band: 'Prices',
       label: 'Average cost',
       align: 'right',
       /*
@@ -618,6 +667,8 @@ export default function Products() {
     },
     {
       key: 'margin',
+      width: 'whitespace-nowrap',
+      band: 'Prices',
       label: 'Margin',
       align: 'right',
       /*
@@ -637,19 +688,8 @@ export default function Products() {
       },
     },
     {
-      key: 'stock',
-      label: 'Stock',
-      cell: (p) =>
-        /* A card cannot be out of stock, and saying so on every one of them
-           would bury the products that genuinely are. */
-        p.wallet_id ? (
-          <Badge tone="brand">Card · {p.wallet_name}</Badge>
-        ) : (
-          <StockBadge stock={p.stock} reorderPoint={p.reorder_point} />
-        ),
-    },
-    {
       key: 'actions',
+      band: null,
       label: 'Actions',
       fixed: true,
       pad: true,
@@ -694,6 +734,29 @@ export default function Products() {
     },
   ];
   const cols = useColumns('products', COLUMNS);
+
+  /*
+   * The heading bands, worked out from whichever columns are actually showing.
+   *
+   * Derived rather than declared, because the reader can hide any column that
+   * is not fixed — a band written down as three columns wide is a band that
+   * spans the wrong things the moment somebody hides one of them, and the
+   * heading silently stops sitting over its own numbers.
+   */
+  const bands = [];
+  cols.visible.forEach((c, i) => {
+    const previous = i > 0 ? cols.visible[i - 1].band ?? null : undefined;
+    const band = c.band ?? null;
+    if (band !== previous) {
+      bands.push({ name: band, span: 1 });
+      /* Marks the column a rule is drawn down, so the two heading rows and the
+         body all break in the same places. */
+      c.bandStart = i > 0;
+    } else {
+      bands[bands.length - 1].span += 1;
+      c.bandStart = false;
+    }
+  });
 
   const visible = (products || []).filter((p) => {
     const term = search.trim().toLowerCase();
@@ -749,8 +812,17 @@ export default function Products() {
         }
       />
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
-        <Card>
+      {/*
+        * The table gets the window.
+        *
+        * The page used to scroll as a whole, which meant the search box and the
+        * filters scrolled off the top and the screen wasted its last inch on
+        * padding below a list that had already run out of room. Now the card
+        * fills the height, the controls stay put, and the only thing that
+        * scrolls is the rows — which is the only thing there is more of.
+        */}
+      <div className="min-h-0 flex-1 p-4 sm:p-6">
+        <Card className="flex h-full flex-col overflow-hidden">
           <div className="flex flex-wrap items-center gap-3 border-b border-slate-100 px-4 py-3 sm:px-5">
             <div className="relative min-w-[12rem] flex-1">
               <Search
@@ -847,17 +919,49 @@ export default function Products() {
               }
             />
           ) : (
-            <div className="overflow-x-auto">
+            <div className="min-h-0 flex-1 overflow-auto">
               <table className="w-full text-sm">
-                <thead className="border-b border-slate-100 text-left text-xs text-slate-500">
-                  <tr>
+                {/*
+                  * Two rows of heading, because the columns are three different
+                  * kinds of fact about one product and reading them as one flat
+                  * row means working that out afresh every time. What it is,
+                  * what it costs and sells for, how many are here — said once
+                  * across the top, so the eye can go to the band it wants and
+                  * then to the column.
+                  *
+                  * Sticky, because a catalogue is two thousand rows and a
+                  * heading that scrolls away leaves a wall of numbers with
+                  * nothing to say which is the cost and which is the margin.
+                  */}
+                <thead className="sticky top-0 z-10 bg-white text-left text-xs text-slate-500">
+                  <tr className="border-b border-slate-100">
+                    {bands.map((b, i) => (
+                      <th
+                        key={b.name ?? `gap-${i}`}
+                        colSpan={b.span}
+                        className={cx(
+                          'px-2.5 pt-2 pb-1 text-[11px] font-semibold tracking-wide text-slate-400 uppercase',
+                          b.name === null && 'sticky right-0 z-10 bg-white',
+                          /* A rule between bands, not around them: it separates
+                             without drawing a box the data does not live in. */
+                          i > 0 && 'border-l border-slate-100',
+                        )}
+                      >
+                        {b.name}
+                      </th>
+                    ))}
+                  </tr>
+                  <tr className="border-b border-slate-200">
                     {cols.visible.map((c) => (
                       <th
                         key={c.key}
                         className={cx(
-                          'px-3 py-2.5 font-medium',
+                          'px-2.5 pt-0.5 pb-2 font-medium',
+                          c.width,
                           c.align === 'right' && 'text-right',
-                          c.pad && 'sm:px-5',
+                          c.pad && 'sm:pl-5',
+                          c.bandStart && 'border-l border-slate-100',
+                          c.key === 'actions' && 'sticky right-0 z-10 bg-white',
                         )}
                       >
                         {c.head ?? c.label}
@@ -867,14 +971,28 @@ export default function Products() {
                 </thead>
                 <tbody className="divide-y divide-slate-50">
                   {visible.map((p) => (
-                    <tr key={p.id} className={cx('hover:bg-slate-50/60', !p.active && 'opacity-55')}>
+                    <tr
+                      key={p.id}
+                      className={cx('group/row hover:bg-slate-50/60', !p.active && 'opacity-55')}
+                    >
                       {cols.visible.map((c) => (
                         <td
                           key={c.key}
+                          /* Tighter than it was: a catalogue is read by
+                             scanning down it, and every row that does not fit
+                             is a row somebody has to scroll for. */
                           className={cx(
-                            'px-3 py-2.5',
+                            'px-2.5 py-1.5',
+                            c.width,
                             c.align === 'right' && 'tnum text-right',
-                            c.pad && 'sm:px-5',
+                            c.pad && 'sm:pl-5',
+                            c.bandStart && 'border-l border-slate-100',
+                            /* Pinned to the right edge. A wide catalogue scrolls
+                               sideways, and buttons that scroll out of the
+                               window are buttons nobody can press without first
+                               working out that the table moves. */
+                            c.key === 'actions' &&
+                              'sticky right-0 bg-white shadow-[-8px_0_8px_-8px_rgba(15,23,42,0.15)] group-hover/row:bg-slate-50',
                           )}
                         >
                           {c.cell(p)}
