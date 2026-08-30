@@ -466,6 +466,116 @@ test('the list shows both what this branch sent and what is coming to it', async
   assert.equal(atSaida.status, 200);
 });
 
+test('a whole shelf booked in at the wrong counter can be sent in one go', async () => {
+  /*
+   * The mistake this exists for, reported from the shop: a catalogue imported
+   * while standing at the second branch. The stock is not wrong, it is in the
+   * wrong place — and searching for ninety-seven products one at a time to put
+   * it right is how a shop decides to leave it where it is.
+   */
+  const cable = await makeProduct(0);
+  const glass = await makeProduct(0);
+
+  // Booked in at Saida, which is the mistake.
+  for (const [item, qty] of [[cable, 40], [glass, 120]]) {
+    const put = await req(
+      'POST',
+      '/inventory/adjust',
+      { productId: item.id, delta: qty, reason: 'received' },
+      adminToken,
+      saida.id,
+    );
+    assert.equal(put.status, 200, JSON.stringify(put.json));
+  }
+
+  const sent = await req(
+    'POST',
+    '/stock-transfers',
+    { toBranchId: mainBranch.id, everything: true, note: 'imported at the wrong branch' },
+    adminToken,
+    saida.id,
+  );
+  assert.equal(sent.status, 201, JSON.stringify(sent.json));
+
+  const lines = sent.json.transfer.items;
+  const sentQty = Object.fromEntries(lines.map((l) => [l.product_id, l.quantity]));
+  assert.equal(sentQty[cable.id], 40, 'all forty, not one');
+  assert.equal(sentQty[glass.id], 120);
+
+  // It has left that shelf, which is what sending means.
+  assert.equal((await product(cable.sku, saida.id)).stock, 0);
+  assert.equal((await product(glass.sku, saida.id)).stock, 0);
+
+  const got = await req(
+    'POST',
+    `/stock-transfers/${sent.json.transfer.id}/receive`,
+    null,
+    adminToken,
+    mainBranch.id,
+  );
+  assert.equal(got.status, 200, JSON.stringify(got.json));
+  assert.equal((await product(cable.sku, mainBranch.id)).stock, 40, 'and arrived where it belongs');
+  assert.equal((await product(glass.sku, mainBranch.id)).stock, 120);
+});
+
+test('and it carries the handsets by number, not as a quantity', async () => {
+  /*
+   * A serialised product's stock *is* the phones in it, so "three of these" is
+   * not a thing that can be sent. Each one goes as its own line, or the shelf
+   * and the shelf's IMEIs stop agreeing.
+   */
+  const csv = [
+    'Item,#,SN,Price 1,Currency 1,Average cost,Currency,Qty,Family,Barcode',
+    'PIXEL 7 128GB,BR-P7-1,351000000000001,500,USD,400,USD,1,CELLPHONES,',
+    'PIXEL 7 128GB,BR-P7-2,351000000000002,500,USD,400,USD,1,CELLPHONES,',
+    'PIXEL 7 128GB,BR-P7-3,351000000000003,500,USD,400,USD,1,CELLPHONES,',
+  ].join('\n');
+
+  // Imported at Saida — the mistake, in the shape it actually arrived in.
+  const done = await req('POST', '/imports/commit', { csv }, adminToken, saida.id);
+  assert.equal(done.json.handsets, 3, JSON.stringify(done.json));
+
+  const phone = (await req('GET', '/products', null, adminToken, saida.id)).json.products.find(
+    (p) => p.name === 'PIXEL 7 128GB',
+  );
+  assert.equal(phone.stock, 3, 'three phones at the wrong branch');
+
+  const sent = await req(
+    'POST',
+    '/stock-transfers',
+    { toBranchId: mainBranch.id, everything: true },
+    adminToken,
+    saida.id,
+  );
+  assert.equal(sent.status, 201, JSON.stringify(sent.json));
+
+  const handsetLines = sent.json.transfer.items.filter((l) => l.product_id === phone.id);
+  assert.equal(handsetLines.length, 3, 'one line per phone');
+  assert.ok(handsetLines.every((l) => l.unit_id && l.quantity === 1), 'each by its own number');
+
+  assert.equal(
+    (await req('GET', '/products', null, adminToken, saida.id)).json.products.find(
+      (p) => p.id === phone.id,
+    ).stock,
+    0,
+    'and none of them left behind',
+  );
+});
+
+test('sending everything from an empty shelf says so rather than sending nothing', async () => {
+  const empty = (await req('POST', '/branches', { name: 'Tripoli' }, adminToken)).json.branch;
+
+  const res = await req(
+    'POST',
+    '/stock-transfers',
+    { toBranchId: mainBranch.id, everything: true },
+    adminToken,
+    empty.id,
+  );
+  assert.equal(res.status, 400);
+  assert.match(res.json.error, /nothing on the shelf/i);
+});
+
 test('a transfer has to be received at the branch it was sent to', async () => {
   const made = await makeProduct(5);
   const sent = await req(

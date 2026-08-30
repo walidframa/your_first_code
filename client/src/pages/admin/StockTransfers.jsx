@@ -39,10 +39,25 @@ function SendDialog({ branches, from, onClose, onSent }) {
   const [lines, setLines] = useState([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  /*
+   * The whole shelf, for a delivery or an import booked in at the wrong
+   * counter. Confirmed rather than sent on one click, because it moves
+   * everything this branch has.
+   */
+  const [confirmAll, setConfirmAll] = useState(false);
 
   useEffect(() => {
     api.get('/products', { params: { activeOnly: 'true' } }).then((res) => setProducts(res.data.products));
   }, []);
+
+  /* What the button is about to move, as far as this screen can see it. The
+     server counts it properly from the shelf; this is so nobody is asked to
+     agree to a number they have not been shown. */
+  const onTheShelf = useMemo(
+    () => products.filter((p) => !p.wallet_id && p.stock > 0),
+    [products],
+  );
+  const unitsOnTheShelf = onTheShelf.reduce((n, p) => n + p.stock, 0);
 
   const matches = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -75,17 +90,27 @@ function SendDialog({ branches, from, onClose, onSent }) {
       ),
     );
 
-  async function submit(e) {
-    e.preventDefault();
+  async function send(everything = false) {
     setError('');
     setSaving(true);
     try {
       const res = await api.post('/stock-transfers', {
         toBranchId: Number(toBranchId),
         note: note || null,
-        items: lines.map((l) => ({ productId: l.productId, quantity: l.quantity })),
+        ...(everything
+          ? { everything: true }
+          : { items: lines.map((l) => ({ productId: l.productId, quantity: l.quantity })) }),
       });
-      toast(`${res.data.transfer.reference} sent`);
+      const sent = res.data.transfer;
+      /* Counted in items rather than lines, because that is the column the
+         list below shows and two different numbers for one transfer is a
+         reason to go and check. */
+      const moved = sent.items.reduce((n, l) => n + l.quantity, 0);
+      toast(
+        everything
+          ? `${sent.reference} sent · ${moved} item${moved === 1 ? '' : 's'}`
+          : `${sent.reference} sent`,
+      );
       onSent();
     } catch (err) {
       setError(err.response?.data?.error || 'Could not send that');
@@ -93,6 +118,11 @@ function SendDialog({ branches, from, onClose, onSent }) {
       setSaving(false);
     }
   }
+
+  const submit = (e) => {
+    e.preventDefault();
+    send(false);
+  };
 
   return (
     <Modal open onClose={onClose} title="Send stock" subtitle={`Out of ${from.name}`} size="lg">
@@ -175,6 +205,53 @@ function SendDialog({ branches, from, onClose, onSent }) {
             </ul>
           )}
         </div>
+
+        {/*
+          * Everything at once.
+          *
+          * The case it exists for: a delivery booked in, or a catalogue
+          * imported, while standing at the wrong counter. Ninety-seven
+          * products and five hundred handsets cannot be searched for one at a
+          * time, and a shop told to do that leaves the stock where it wrongly
+          * is. Handsets are sent by number — the server builds those lines
+          * from the shelf, because a phone is not a quantity.
+          */}
+        {onTheShelf.length > 0 &&
+          (confirmAll ? (
+            <div className="rounded-xl bg-amber-50 px-3 py-2.5">
+              <p className="text-sm text-amber-900">
+                Send <span className="font-medium">everything</span> at {from.name} — about{' '}
+                {onTheShelf.length} product{onTheShelf.length === 1 ? '' : 's'} and{' '}
+                {unitsOnTheShelf} item{unitsOnTheShelf === 1 ? '' : 's'} — to the branch above?
+              </p>
+              <p className="mt-1 text-xs text-amber-800">
+                This shelf is left empty. Nothing is lost: it lands at the other branch when
+                somebody there receives it, and the transfer can be cancelled until they do.
+              </p>
+              <div className="mt-2 flex gap-2">
+                <Button type="button" size="sm" variant="secondary" onClick={() => setConfirmAll(false)}>
+                  No, go back
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  loading={saving}
+                  disabled={!toBranchId}
+                  onClick={() => send(true)}
+                >
+                  Yes, send the lot
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setConfirmAll(true)}
+              className="text-sm text-brand-700 underline underline-offset-2 hover:text-brand-800"
+            >
+              Send everything on this shelf instead
+            </button>
+          ))}
 
         <Input label="Note (optional)" name="note" value={note} onChange={(e) => setNote(e.target.value)} />
 

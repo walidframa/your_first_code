@@ -37,12 +37,16 @@ router.get('/:id', ...stockroom, (req, res) => {
  * counts what has physically left is a shelf that will oversell.
  */
 router.post('/', ...stockroom, (req, res) => {
-  const { toBranchId, items, note } = req.body || {};
+  /* `everything` is the whole shelf, for a delivery or an import booked in at
+     the wrong counter. The lines are built server-side from the shelf; see
+     lib/stockTransfers.js. */
+  const { toBranchId, items, everything, note } = req.body || {};
   try {
     const transfer = sendTransfer({
       fromBranchId: req.branchId,
       toBranchId,
       items,
+      everything: everything === true,
       note,
       userId: req.user.id,
     });
