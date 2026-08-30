@@ -318,7 +318,18 @@ export default function Inventory() {
                               <ProductThumb product={p} size="sm" />
                               <div className="min-w-0">
                                 <p className="truncate font-medium text-slate-800">{p.name}</p>
-                                <p className="text-xs text-slate-400">{p.sku}</p>
+                                <p className="text-xs text-slate-400">
+                                  {p.sku}
+                                  {/* This screen counts the shelf you are standing
+                                      at. Saying where the rest of it is turns an
+                                      alarming zero into a transfer request. */}
+                                  {p.total_stock > p.stock && (
+                                    <span className="text-slate-400">
+                                      {' · '}
+                                      {p.total_stock - p.stock} at other branches
+                                    </span>
+                                  )}
+                                </p>
                               </div>
                             </div>
                           </td>
