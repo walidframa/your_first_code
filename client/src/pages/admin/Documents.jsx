@@ -448,7 +448,7 @@ function DocumentForm({ existing, startAs = null, page = false, onClose, onSaved
                     type="button"
                     onClick={() => setDocType(key)}
                     className={cx(
-                      'flex flex-col items-center gap-1.5 rounded-xl px-2 py-3 text-center ring-1 transition',
+                      'pressable flex flex-col items-center gap-1.5 rounded-xl px-2 py-3 text-center ring-1 transition',
                       selected ? m.active : `${m.tint} hover:brightness-95`,
                     )}
                   >
@@ -1562,7 +1562,7 @@ export default function Documents() {
                 key={key}
                 onClick={() => setFilter(key)}
                 className={cx(
-                  'flex flex-col items-start gap-1.5 rounded-xl px-4 py-3 text-left ring-1 transition',
+                  'pressable flex flex-col items-start gap-1.5 rounded-xl px-4 py-3 text-left ring-1 transition',
                   selected ? m.active : `bg-white ring-slate-200 hover:ring-edge ${m.tint.split(' ')[1]}`,
                 )}
               >

@@ -1074,7 +1074,7 @@ export default function Checkout() {
                    the remove mark on a photo. */
                 data-filter-chip=""
                 className={cx(
-                  'rounded-full px-3 py-1.5 text-sm font-medium transition',
+                  'pressable rounded-full px-3 py-1.5 text-sm font-medium transition',
                   activeCategory === c.id
                     ? 'bg-slate-900 text-white'
                     : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
@@ -1125,7 +1125,7 @@ export default function Checkout() {
                     }}
                     disabled={soldOut}
                     className={cx(
-                      'group flex flex-col items-start gap-2 rounded-xl bg-white p-3 text-left ring-1 ring-slate-900/[0.06] transition',
+                      'pressable group flex flex-col items-start gap-2 rounded-xl bg-white p-3 text-left ring-1 ring-slate-900/[0.06] transition',
                       soldOut
                         ? 'cursor-not-allowed opacity-45'
                         : 'hover:-translate-y-0.5 hover:shadow-md hover:ring-brand-300 active:translate-y-0',
