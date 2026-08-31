@@ -3,6 +3,7 @@ import { AlertTriangle, ArrowLeft, CheckCircle2, FileUp, Table2, Upload } from '
 import api from '../../api';
 import PageHeader from '../../components/PageHeader';
 import { Badge, Button, Card, EmptyState, Select, cx, money, useToast } from '../../components/ui';
+import ImportParties from './ImportParties';
 
 const SAMPLE_CSV = `name,sku,price,cost,stock,category,barcode,supplier
 Cold Brew,BEV-020,4.25,1.40,48,Beverages,5012345000301,Blue Bottle Roasters
@@ -11,9 +12,25 @@ Canvas Apron,APP-010,28.00,9.50,15,Apparel,5012345000325,Northside Apparel`;
 
 const STEPS = ['Upload', 'Map columns', 'Review', 'Done'];
 
+/**
+ * The three lists a shop arrives with.
+ *
+ * Held as one screen rather than three menu entries, because "import" is one
+ * job to a shopkeeper — the file is in the same folder and came out of the same
+ * export. Products keep the wizard below; people get their own, because a
+ * customer file is a chart of accounts rather than a list and the review step
+ * has different things to say about it. See ImportParties.jsx.
+ */
+const WHAT = [
+  { key: 'products', label: 'Products' },
+  { key: 'customer', label: 'Customers' },
+  { key: 'supplier', label: 'Suppliers' },
+];
+
 export default function Import() {
   const toast = useToast();
   const fileRef = useRef(null);
+  const [what, setWhat] = useState('products');
 
   const [step, setStep] = useState(0);
   /*
@@ -149,12 +166,34 @@ export default function Import() {
   return (
     <div className="flex h-full flex-col">
       <PageHeader
-        title="Import products"
-        subtitle="Bring your catalog over from Shopify, Square, Lightspeed or any CSV export"
+        title="Import"
+        subtitle={
+          what === 'products'
+            ? 'Bring your catalog over from Shopify, Square, Lightspeed or any CSV export'
+            : 'Bring the people you sell to and buy from over from your old system'
+        }
       />
 
       <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
-        <div className="mx-auto max-w-4xl">
+        <div className="mx-auto mb-5 flex max-w-4xl gap-1 rounded-xl bg-slate-100 p-1">
+          {WHAT.map((w) => (
+            <button
+              key={w.key}
+              type="button"
+              onClick={() => setWhat(w.key)}
+              className={cx(
+                'pressable flex-1 rounded-lg px-3 py-2 text-sm font-medium transition',
+                what === w.key ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600',
+              )}
+            >
+              {w.label}
+            </button>
+          ))}
+        </div>
+
+        {what !== 'products' && <ImportParties key={what} partyType={what} />}
+
+        <div className={cx('mx-auto max-w-4xl', what !== 'products' && 'hidden')}>
           {/* Stepper */}
           <ol className="mb-6 flex items-center gap-2">
             {STEPS.map((label, i) => (

@@ -8,6 +8,7 @@ import { barcodesFor, barcodesFromBody, setBarcodes } from '../lib/barcodes.js';
 import { setStock, stockAt } from '../lib/stock.js';
 import { getSettings } from '../lib/settings.js';
 import { groupUnitRows, isUnitImport } from '../lib/importUnits.js';
+import { PARTY_FIELDS, PARTY_TYPES, analyseParties, commitParties } from '../lib/partyImport.js';
 import { receiveUnits } from '../lib/units.js';
 
 const router = Router();
@@ -633,6 +634,105 @@ router.post('/commit', requireAuth, requirePermission('imports'), (req, res) => 
   transaction(() => importPlainRows(result.rows))();
 
   res.json(outcome);
+});
+
+/* ------------------------------------------------------ customers and suppliers */
+
+/**
+ * The other half of moving in.
+ *
+ * A shop arriving from another system brings two lists, and only one of them
+ * was catered for. Its catalogue could be imported and everybody it sells to
+ * and buys from had to be typed in by hand — a hundred and eighty-five
+ * customers, one at a time, before the app was any use for the thing the shop
+ * actually does on credit.
+ *
+ * Reads the same uploads the product import reads, because it is the same
+ * spreadsheet out of the same accounting package. See lib/partyImport.js for
+ * why a party is not simply a row.
+ */
+function partyAnalysis(req) {
+  const partyType = String(req.body?.partyType || '');
+  if (!PARTY_TYPES.includes(partyType)) {
+    return { error: 'Say whether these are customers or suppliers', status: 400 };
+  }
+
+  const upload = takeUpload(req.body);
+  if (upload.error) return upload;
+
+  let read;
+  try {
+    read = readSource(upload.source);
+  } catch (err) {
+    return { error: err.message, status: 400 };
+  }
+
+  if (read.headers.length === 0) return { error: 'The file appears to be empty', status: 400 };
+
+  try {
+    const analysis = analyseParties({
+      records: read.records,
+      headers: read.headers,
+      partyType,
+      mapping: req.body?.mapping ?? null,
+    });
+    return { analysis: { ...analysis, sheets: read.sheets ?? null, sheet: read.sheet ?? null } };
+  } catch (err) {
+    return { error: err.message, status: 400 };
+  }
+}
+
+router.get('/parties/fields', requireAuth, requirePermission('imports'), (req, res) => {
+  res.json({ fields: PARTY_FIELDS, partyTypes: PARTY_TYPES });
+});
+
+router.post('/parties/preview', requireAuth, requirePermission('imports'), (req, res) => {
+  const result = partyAnalysis(req);
+  if (result.error) return res.status(result.status || 400).json({ error: result.error });
+
+  const { analysis } = result;
+  if (!analysis.mapping.name) {
+    return res.status(400).json({
+      error: 'No column looks like a name. Say which one it is before importing.',
+      ...analysis,
+      parties: [],
+    });
+  }
+
+  // Capped so a long list does not have to travel to be counted; the summary
+  // above it is over the whole file either way.
+  res.json({
+    ...analysis,
+    parties: analysis.parties.slice(0, 100),
+    truncated: analysis.parties.length > 100,
+  });
+});
+
+router.post('/parties/commit', requireAuth, requirePermission('imports'), (req, res) => {
+  const result = partyAnalysis(req);
+  if (result.error) return res.status(result.status || 400).json({ error: result.error });
+
+  const { analysis } = result;
+  if (!analysis.mapping.name) {
+    return res.status(400).json({ error: 'No column is mapped to the name' });
+  }
+
+  try {
+    const outcome = transaction(() =>
+      commitParties({
+        analysis,
+        userId: req.user.id,
+        branchId: req.branchId,
+        /* Names only is a real answer, and the commonest first move: get
+           everybody in, check the list, carry the money over afterwards. */
+        withBalances: req.body?.withBalances !== false,
+      }),
+    )();
+
+    res.json({ ...outcome, partyType: analysis.partyType, total: analysis.summary.parties });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
 });
 
 export default router;

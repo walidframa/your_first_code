@@ -158,3 +158,34 @@ build(HERE / "supplier-catalogue.xlsx", [("Notes", notes), ("Price list", catalo
       runs_cell="Braided USB-C cable")
 
 print(f"wrote {HERE / 'supplier-catalogue.xlsx'}")
+
+# An accounts export out of the shop's previous system.
+#
+# Shaped exactly like the real one this was written against: a chart of
+# accounts rather than a list of people. The heading row sits above its
+# members, one party is split into a pounds ledger and a dollars ledger, one
+# account carries a balance with no name against it, one is in a currency this
+# app does not keep, and one holds a figure left over from something that went
+# wrong years ago.
+accounts = [
+    [S("Code"), S("Name"), S("Address"), S("Phone"), S("Balance"), S("Currency")],
+    # A heading. It is a prefix of every code below it, which is how it is known.
+    [S("401001"), S("Suppliers"), S(""), S(""), N(0), S("")],
+    # An account with money against it and nobody's name.
+    [S("401001000102"), S(""), S(""), S(""), N(129.97), S("USD")],
+    # One supplier, two currency ledgers, one person.
+    [S("401001000201"), S("I-PICK"), S(""), S(""), N(4291601000), S("LBP")],
+    [S("401001000202"), S("I-PICK"), S(""), S("70001988"), N(-331.41), S("USD")],
+    # The ordinary case: no currency ledger at all.
+    [S("4010010003"), S("ALICELL"), S("Basta"), S("03158137"), N(0), S("")],
+    [S("401001000402"), S("AHMAD HALABI"), S(""), S(""), N(-997), S("USD")],
+    # Two suppliers with the same name and different codes: two suppliers.
+    [S("401001000502"), S("CHINA"), S(""), S(""), N(-396.65), S("USD")],
+    [S("401001000603"), S("CHINA"), S(""), S(""), N(-12621), S("¥")],
+    # Five point eight trillion pounds, which is not a balance.
+    [S("401001000701"), S("OMT Lira"), S(""), S(""), N(-5849985307864), S("LBP")],
+]
+
+build(HERE / "accounts-export.xlsx", [("Sheet1", accounts)])
+
+print(f"wrote {HERE / 'accounts-export.xlsx'}")

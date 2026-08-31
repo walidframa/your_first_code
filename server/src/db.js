@@ -1741,6 +1741,26 @@ db.exec(`
 addColumn('orders', 'branch_id', 'INTEGER REFERENCES branches(id)');
 addColumn('stock_adjustments', 'branch_id', 'INTEGER REFERENCES branches(id)');
 addColumn('product_units', 'branch_id', 'INTEGER REFERENCES branches(id)');
+/*
+ * The number this party had in the books the shop kept before.
+ *
+ * Not shown anywhere and not used for anything except finding the same party
+ * again on a second import — which is the one job it cannot be done without. A
+ * shop's export routinely holds three different customers all called CAROLE
+ * LAM, and name is the only other thing to match on: matching those on name
+ * collapses them into one on the first run and cannot tell them apart on the
+ * second. The old code can.
+ *
+ * Null for everybody who was typed in rather than imported, which is most
+ * shops, and nothing reads differently for them.
+ */
+addColumn('customers', 'source_code', 'TEXT');
+addColumn('suppliers', 'source_code', 'TEXT');
+db.exec(`
+  CREATE INDEX IF NOT EXISTS idx_customers_source ON customers(source_code);
+  CREATE INDEX IF NOT EXISTS idx_suppliers_source ON suppliers(source_code);
+`);
+
 addColumn('cash_accounts', 'branch_id', 'INTEGER REFERENCES branches(id)');
 addColumn('documents', 'branch_id', 'INTEGER REFERENCES branches(id)');
 addColumn('expenses', 'branch_id', 'INTEGER REFERENCES branches(id)');
