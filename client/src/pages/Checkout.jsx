@@ -325,7 +325,14 @@ export default function Checkout() {
       api.get('/orders/tax-rate'),
     ]);
     setProducts(productsRes.data.products);
-    setCategories(categoriesRes.data.categories);
+    /*
+     * Only the ones a shop asked for on the counter screen. An imported
+     * catalogue brings its supplier's filing with it — forty families, most of
+     * which mean nothing here — and the chip row became a wall of words to read
+     * past on the way to the products. Chosen per category in Products →
+     * Categories.
+     */
+    setCategories(categoriesRes.data.categories.filter((c) => c.on_register));
     setTaxRate(taxRes.data.taxRate);
     setTaxName(taxRes.data.taxName || 'Tax');
     // Shown as soon as there is something to sell, rather than waiting on the

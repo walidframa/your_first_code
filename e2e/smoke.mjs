@@ -200,6 +200,39 @@ const scanBox = 'input[aria-label="Scan barcode or search products"]';
  * still there because the Sales list sends anybody hunting a single invoice to
  * it, and reached by address because it is no longer a row anybody can click.
  */
+/**
+ * Put a category's chip on the register.
+ *
+ * Categories are off the counter screen until a shop asks for one — an
+ * imported catalogue brings its supplier's filing with it, and the chip row
+ * became a wall of words to read past on the way to the products. Two of this
+ * suite's categories are made partway through the run by the starter card
+ * catalogue, too late for the shop set-up in run.mjs to reach them, so the
+ * steps that filter by them ask here.
+ *
+ * Through the API rather than the categories dialog: these calls sit in the
+ * middle of register flows, and walking to another screen to tick a box would
+ * throw away whatever is in the cart. What the box itself does is covered by
+ * the server's tests. Call it before navigating to the register — arriving
+ * mounts the screen fresh, so nothing needs reloading.
+ */
+async function putCategoryOnRegister(name) {
+  await page.evaluate(async (wanted) => {
+    const auth = {
+      Authorization: `Bearer ${localStorage.getItem('pos_token')}`,
+      'Content-Type': 'application/json',
+    };
+    const { categories } = await (await fetch('/api/products/categories', { headers: auth })).json();
+    const category = categories.find((c) => c.name === wanted);
+    if (!category) throw new Error(`there is no category called ${wanted} to put on the register`);
+    await fetch(`/api/products/categories/${category.id}`, {
+      method: 'PATCH',
+      headers: auth,
+      body: JSON.stringify({ name: category.name, onRegister: true }),
+    });
+  }, name);
+}
+
 async function goToDocuments() {
   await page.goto(`${BASE_URL}/admin/documents`, { waitUntil: 'networkidle' });
   await page.waitForSelector('button:has-text("New document")', { timeout: 20000 });
@@ -394,6 +427,23 @@ try {
     await page.click('[role=dialog] button:has-text("Back to")');
     await page.waitForTimeout(400);
     if (!(await line.innerText()).includes('$3.00')) throw new Error('it did not go back');
+  });
+
+  await step('only the categories the shop asked for are on the register', async () => {
+    /*
+     * A shop that imports a supplier's catalogue inherits its filing — dozens
+     * of families, most meaningless at the counter — so the chip row was a wall
+     * of words to read past on the way to the products. Bakery was put on the
+     * counter screen when this run's shop was set up; Snacks deliberately was
+     * not, and the products in it are still on the grid and still sellable.
+     */
+    await page.waitForSelector('[data-filter-chip]:has-text("Bakery")', { timeout: 15000 });
+    if (await page.locator('[data-filter-chip]:has-text("Snacks")').count()) {
+      throw new Error('a category nobody asked for is on the register');
+    }
+    if ((await page.locator('section button:has-text("Potato Chips")').count()) === 0) {
+      throw new Error('a product was hidden along with its category — only the chip should go');
+    }
   });
 
   await step('category filter narrows the grid', async () => {
@@ -950,6 +1000,8 @@ try {
     await page.locator('[role=dialog]').getByRole('button', { name: 'Save' }).click();
     await page.waitForSelector('text=Card updated', { timeout: 15000 });
 
+    await putCategoryOnRegister('Recharge');
+
     await goTo('Register');
     await page.waitForSelector('text=Current sale', { timeout: 15000 });
     // Exact: "recharge" also appears inside several of the card names.
@@ -1022,6 +1074,7 @@ try {
     await page.waitForSelector('text=/linked$/', { timeout: 15000 });
     await page.waitForSelector('text=$6.00 back to Alfa', { timeout: 15000 });
 
+    await putCategoryOnRegister('Validity');
     await goTo('Register');
     await page.waitForSelector('text=Current sale', { timeout: 15000 });
     await page.getByRole('button', { name: 'Validity', exact: true }).click();
@@ -1412,7 +1465,17 @@ try {
     await dialog.getByLabel('SKU').fill('CHG-20W');
     await dialog.getByLabel('Price', { exact: true }).fill('8.00');
     await dialog.getByRole('button', { name: /^(Create product|Save changes)$/ }).click();
+
+    /*
+     * Searched for rather than scrolled to. The catalogue only renders the rows
+     * in the window now — a shop's list runs to thousands and putting all of
+     * them in the page is what made it crawl — so a product filed under W is
+     * not in the document until something brings it into view. Which is what
+     * the search box is for, and what a shopkeeper would do.
+     */
+    await page.getByPlaceholder(/Search by name/i).fill('Wall charger 20W');
     await page.waitForSelector('td:has-text("Wall charger 20W")', { timeout: 15000 });
+    await page.getByPlaceholder(/Search by name/i).fill('');
   });
 
   /*

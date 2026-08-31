@@ -364,6 +364,44 @@ test('an empty category goes without ceremony', async () => {
   assert.equal(res.json.uncategorised, 0);
 });
 
+test('a category is off the register until the shop puts it there', async () => {
+  /*
+   * A shop that imports a supplier's catalogue inherits its filing — forty
+   * families, most of which mean nothing at the counter. The register drew a
+   * chip for every one, so the row above the products was a wall of words to
+   * read past on the way to the products.
+   */
+  const made = await req('POST', '/products/categories', { name: 'Bench spares' }, adminToken);
+  assert.equal(made.status, 201, JSON.stringify(made.json));
+
+  const listed = async () =>
+    (await req('GET', '/products/categories', null, adminToken)).json.categories.find(
+      (c) => c.id === made.json.category.id,
+    );
+
+  assert.equal((await listed()).on_register, 0, 'a new shelf is not on the counter screen');
+
+  const on = await req(
+    'PATCH',
+    `/products/categories/${made.json.category.id}`,
+    { name: 'Bench spares', onRegister: true },
+    adminToken,
+  );
+  assert.equal(on.status, 200);
+  assert.equal((await listed()).on_register, 1, 'until it is asked for');
+
+  // Renaming must not quietly take it off again.
+  await req(
+    'PATCH',
+    `/products/categories/${made.json.category.id}`,
+    { name: 'Bench parts' },
+    adminToken,
+  );
+  const after = await listed();
+  assert.equal(after.name, 'Bench parts');
+  assert.equal(after.on_register, 1, 'a rename says nothing about the register');
+});
+
 test('a cashier cannot reorganise the catalogue', async () => {
   const cashier = (await req('POST', '/auth/login', { username: 'cashier', password: 'cashier123' })).json
     .token;

@@ -23,6 +23,7 @@ import ProductImageField from '../../components/ProductImageField';
 import BundleEditor from '../../components/BundleEditor';
 import ColumnPicker from '../../components/ColumnPicker';
 import { useColumns } from '../../lib/tableColumns';
+import { useWindowedRows } from '../../lib/windowedRows';
 import UnitsPanel from '../../components/UnitsPanel';
 import { useSettings, lbp } from '../../context/SettingsContext';
 import {
@@ -539,7 +540,7 @@ export default function Products() {
        * right-hand edge — the two figures somebody opens this screen to read.
        * The name truncates; the numbers cannot.
        */
-      width: 'w-[20rem] max-w-[20rem]',
+      width: 'w-[17rem] max-w-[17rem]',
       cell: (p) => (
         <div className="flex items-center gap-2 sm:gap-3">
           <ProductThumb product={p} size="sm" />
@@ -694,8 +695,18 @@ export default function Products() {
       fixed: true,
       pad: true,
       align: 'right',
+      /*
+       * Icons alone, and the labels moved into `title` and `aria-label`.
+       *
+       * Four buttons with words on them were a fifth of the window, and the
+       * columns they pushed off the right-hand edge — average cost, margin —
+       * are the ones somebody opens this screen to compare. A row of icons at
+       * the end of a table row is the one place a shopkeeper does not need
+       * words: they are in the same order on every row, and they are the only
+       * things here that can be pressed.
+       */
       cell: (p) => (
-        <div className="flex justify-end gap-1">
+        <div className="flex justify-end gap-0.5">
           {/* Serialised products are managed by handset, so the shortcut goes
               where the work actually is. */}
           {p.tracks_units ? (
@@ -706,7 +717,7 @@ export default function Products() {
               aria-label={`Handsets of ${p.name}`}
               title="Book in and track each IMEI"
             >
-              <Smartphone size={14} /> <span className="hidden sm:inline">IMEIs</span>
+              <Smartphone size={15} />
             </Button>
           ) : null}
           <Button
@@ -716,10 +727,16 @@ export default function Products() {
             aria-label={`Activity for ${p.name}`}
             title="Sales, deliveries and cost changes"
           >
-            <History size={14} /> <span className="hidden sm:inline">History</span>
+            <History size={15} />
           </Button>
-          <Button size="sm" variant="secondary" onClick={() => setEditing(p)}>
-            <Pencil size={13} /> <span className="hidden sm:inline">Edit</span>
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => setEditing(p)}
+            aria-label={`Edit ${p.name}`}
+            title="Edit this product"
+          >
+            <Pencil size={15} />
           </Button>
           <Button
             size="sm"
@@ -767,6 +784,13 @@ export default function Products() {
       (p.barcodes || []).some((code) => code.includes(term));
     return matchesSearch && (showArchived ? true : p.active);
   });
+
+  /*
+   * Only the rows in the window get rendered. A catalogue this size is tens of
+   * thousands of elements otherwise, and the screen goes sticky under the
+   * scroll. See lib/windowedRows.js.
+   */
+  const rows = useWindowedRows({ count: visible.length });
 
   /*
    * The search's own totals. Worked out from the rows on screen rather than
@@ -919,7 +943,7 @@ export default function Products() {
               }
             />
           ) : (
-            <div className="min-h-0 flex-1 overflow-auto">
+            <div ref={rows.scrollRef} className="min-h-0 flex-1 overflow-auto">
               <table className="w-full text-sm">
                 {/*
                   * Two rows of heading, because the columns are three different
@@ -933,15 +957,26 @@ export default function Products() {
                   * heading that scrolls away leaves a wall of numbers with
                   * nothing to say which is the cost and which is the margin.
                   */}
-                <thead className="sticky top-0 z-10 bg-white text-left text-xs text-slate-500">
+                {/*
+                  * Both rows are pinned, not the `thead`.
+                  *
+                  * Sticky on the section works in some browsers and quietly
+                  * does not in others, and the way it fails is a row of the
+                  * catalogue sliding up *between* the two heading rows —
+                  * legible enough to look deliberate and wrong enough to make
+                  * the column above it mean nothing. Pinning the cells is the
+                  * form that holds everywhere. The band row is a fixed height
+                  * so the row beneath it knows exactly where to stop.
+                  */}
+                <thead className="z-10 text-left text-xs text-slate-500">
                   <tr className="border-b border-slate-100">
                     {bands.map((b, i) => (
                       <th
                         key={b.name ?? `gap-${i}`}
                         colSpan={b.span}
                         className={cx(
-                          'px-2.5 pt-2 pb-1 text-[11px] font-semibold tracking-wide text-slate-400 uppercase',
-                          b.name === null && 'sticky right-0 z-10 bg-white',
+                          'sticky top-0 z-20 h-7 bg-white px-2.5 pt-2 pb-1 text-[11px] font-semibold tracking-wide text-slate-400 uppercase',
+                          b.name === null && 'right-0 z-30',
                           /* A rule between bands, not around them: it separates
                              without drawing a box the data does not live in. */
                           i > 0 && 'border-l border-slate-100',
@@ -956,12 +991,12 @@ export default function Products() {
                       <th
                         key={c.key}
                         className={cx(
-                          'px-2.5 pt-0.5 pb-2 font-medium',
+                          'sticky top-7 z-20 bg-white px-2.5 pt-0.5 pb-2 font-medium',
                           c.width,
                           c.align === 'right' && 'text-right',
                           c.pad && 'sm:pl-5',
                           c.bandStart && 'border-l border-slate-100',
-                          c.key === 'actions' && 'sticky right-0 z-10 bg-white',
+                          c.key === 'actions' && 'right-0 z-30',
                         )}
                       >
                         {c.head ?? c.label}
@@ -970,9 +1005,22 @@ export default function Products() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                  {visible.map((p) => (
+                  {/*
+                    * Two spacers holding open the rows that are not rendered,
+                    * so the scrollbar is the length of the whole catalogue and
+                    * the position in it means what it looks like it means.
+                    */}
+                  {rows.padTop > 0 && (
+                    <tr aria-hidden="true" style={{ height: rows.padTop }}>
+                      <td colSpan={cols.visible.length} />
+                    </tr>
+                  )}
+                  {visible.slice(rows.start, rows.end).map((p, i) => (
                     <tr
                       key={p.id}
+                      /* The first rendered row is the one measured; see the
+                         hook for why the height is measured and not declared. */
+                      ref={i === 0 ? rows.measureRow : undefined}
                       className={cx('group/row hover:bg-slate-50/60', !p.active && 'opacity-55')}
                     >
                       {cols.visible.map((c) => (
@@ -1000,6 +1048,11 @@ export default function Products() {
                       ))}
                     </tr>
                   ))}
+                  {rows.padBottom > 0 && (
+                    <tr aria-hidden="true" style={{ height: rows.padBottom }}>
+                      <td colSpan={cols.visible.length} />
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
