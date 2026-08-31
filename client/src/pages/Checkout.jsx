@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ChevronUp,
   HandCoins,
@@ -32,6 +32,7 @@ import SendCredit from '../components/SendCredit';
 import SittingSales from '../components/SittingSales';
 import { ringUp } from '../lib/sales';
 import { useNarrow } from '../lib/screen';
+import { useWindowedGrid } from '../lib/windowedRows';
 import { buzzBad, buzzGood, keepAwake, letSleep, tap } from '../lib/native';
 import { useOffline } from '../context/OfflineContext';
 import { useLicence } from '../context/LicenceContext';
@@ -493,8 +494,20 @@ export default function Checkout() {
 
   const walletById = useMemo(() => new Map(wallets.map((w) => [w.id, w])), [wallets]);
 
+  /*
+   * The shelf lags one frame behind the box, on purpose.
+   *
+   * `search` drives the input, so what is typed appears the instant it is
+   * typed. `deferredSearch` drives the shelf, and React is allowed to drop a
+   * stale render of it when another key arrives — so a cashier typing quickly
+   * gets every character on screen at once instead of the shelf re-filtering
+   * between each one. Without it the input is only ever as fast as the slowest
+   * thing that reads it.
+   */
+  const deferredSearch = useDeferredValue(search);
+
   const filteredProducts = useMemo(() => {
-    const term = search.trim().toLowerCase();
+    const term = deferredSearch.trim().toLowerCase();
     return products.filter((p) => {
       const matchesCategory = activeCategory === 'all' || p.category_id === activeCategory;
       const matchesSearch =
@@ -504,7 +517,14 @@ export default function Checkout() {
         (p.barcode || '').includes(term);
       return matchesCategory && matchesSearch;
     });
-  }, [products, activeCategory, search]);
+  }, [products, activeCategory, deferredSearch]);
+
+  /*
+   * Only the tiles somebody can see — see lib/windowedRows.js. A shop with
+   * nineteen hundred products was putting nineteen hundred cards in the page
+   * and reconciling all of them on every keystroke.
+   */
+  const shelf = useWindowedGrid({ count: filteredProducts.length, estimate: 132 });
 
   /**
    * Everything settled in the sale dialog, put into the cart at once.
@@ -1093,7 +1113,7 @@ export default function Checkout() {
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto p-5">
+        <div ref={shelf.scrollRef} className="min-h-0 flex-1 overflow-y-auto p-5">
           {loading ? (
             <div className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-3">
               {Array.from({ length: 12 }).map((_, i) => (
@@ -1109,8 +1129,16 @@ export default function Checkout() {
               }
             />
           ) : (
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-3">
-              {filteredProducts.map((p) => {
+            <>
+              {/* Holding open the space the tiles above would have taken, so
+                  the scrollbar is the length it always was and the position
+                  means what it always meant. */}
+              <div style={{ height: shelf.padTop }} aria-hidden="true" />
+              <div
+                ref={shelf.gridRef}
+                className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-3"
+              >
+              {filteredProducts.slice(shelf.start, shelf.end).map((p) => {
                 /*
                  * A card is never sold out. What it can be is unfunded — the
                  * wallet behind it empty — which is worth saying on the tile
@@ -1123,6 +1151,7 @@ export default function Checkout() {
                 return (
                   <button
                     key={p.id}
+                    ref={shelf.measureTile}
                     onClick={() => {
                       if (p.tracks_units) {
                         setPickingUnitFor(p);
@@ -1173,7 +1202,9 @@ export default function Checkout() {
                   </button>
                 );
               })}
-            </div>
+              </div>
+              <div style={{ height: shelf.padBottom }} aria-hidden="true" />
+            </>
           )}
         </div>
       </section>

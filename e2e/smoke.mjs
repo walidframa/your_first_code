@@ -4670,8 +4670,16 @@ try {
        * Whatever is first on the shelf, rather than a product by name: this
        * step runs after others have created, renamed and sold things, and a
        * name pinned here is a step that breaks when the catalogue changes.
+       *
+       * It had a name pinned here anyway, and the shelf being windowed is what
+       * finally caught it — only the tiles in view are in the page now, so a
+       * product far enough down the list is not there to be clicked until
+       * somebody scrolls or searches for it, which is the whole point of the
+       * windowing. Nothing about this step needs a particular product; it needs
+       * a tile. The step next door, which searches before it clicks, is the
+       * pattern for when a *named* product is the thing being tested.
        */
-      await page.locator('button:has-text("Croissant")').first().click();
+      await page.locator('div.grid > button').first().click();
       const saleBar = page.locator('button:has-text("item")').last();
       await saleBar.waitFor({ timeout: 10000 });
 
