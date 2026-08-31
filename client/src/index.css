@@ -38,6 +38,29 @@
  * (#2a78d6 / #eb6834) additionally clears CVD and normal-vision separation.
  */
 @theme {
+  /*
+   * Where the app stops being a phone and becomes a desk.
+   *
+   * Its own name rather than one of Tailwind's sizes, because it answers a
+   * different question. `lg` means "a third column fits now"; this means "there
+   * is a keyboard, a mouse and a window, so give it the rail and the tab strip".
+   * The two had been the same word, and the word was `lg` — 1024px — so a shop
+   * running the counter in a window nine hundred pixels wide got the handset
+   * layout on a desktop machine: a bottom tab bar, no rail, no open pages, and
+   * the tile menu built for a finger.
+   *
+   * 48rem is 768px at the default text size, and it is deliberately a rem
+   * rather than a pixel figure: a shopkeeper who turns the browser text up to
+   * read it across the counter is asking for more room per word, and the layout
+   * should fall back to the simpler one sooner for them, not stay wide and
+   * cramped.
+   *
+   * Below it the shell is a phone: a real handset is 390–430px and a small
+   * tablet held upright is not far past that, and both are touched rather than
+   * pointed at.
+   */
+  --breakpoint-desk: 48rem;
+
   --color-brand-50: #ecfdf5;
   --color-brand-100: #d1fae5;
   --color-brand-200: #a7f3d0;

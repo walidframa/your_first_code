@@ -78,9 +78,30 @@ export default function Layout() {
    * learned yet is a guess, and twenty of them is a menu to be explored rather
    * than read. Whoever wants the space back can take it, once.
    */
-  const [expanded, setExpanded] = useState(
-    () => (localStorage.getItem('pos_nav_expanded') ?? 'true') === 'true',
-  );
+  /*
+   * How wide the rail starts, when nobody has said.
+   *
+   * It used to start wide always, which was right while the rail only ever
+   * appeared on a screen at least 1024px across. Now that the desk layout
+   * begins at 768 — see `--breakpoint-desk` — starting wide there spends 244 of
+   * 900 pixels on a menu and takes the price column off the products table.
+   *
+   * So the default follows the window: open where there is room for it, out of
+   * the way where there is not. Only a default. The moment somebody works the
+   * toggle their answer is stored and this stops being consulted, because a
+   * preference that gets overruled by the window is not a preference.
+   */
+  const [expanded, setExpanded] = useState(() => {
+    const said = localStorage.getItem('pos_nav_expanded');
+    if (said !== null) return said === 'true';
+    return globalThis.matchMedia?.('(min-width: 64rem)').matches ?? true;
+  });
+
+  /** Their answer, which outranks the window from here on. */
+  const chooseExpanded = (next) => {
+    setExpanded(next);
+    localStorage.setItem('pos_nav_expanded', String(next));
+  };
 
   /*
    * The register gets the whole window.
@@ -97,10 +118,6 @@ export default function Layout() {
     () => localStorage.getItem('pos_nav_on_register') === 'true',
   );
   const showRail = onRegister ? railOnRegister : true;
-
-  useEffect(() => {
-    localStorage.setItem('pos_nav_expanded', String(expanded));
-  }, [expanded]);
 
   useEffect(() => {
     localStorage.setItem('pos_nav_on_register', String(railOnRegister));
@@ -225,7 +242,7 @@ export default function Layout() {
       {showRail && (
       <aside
         className={cx(
-          'no-print hidden shrink-0 flex-col bg-slate-900 py-3 transition-[width] duration-150 lg:flex',
+          'no-print hidden shrink-0 flex-col bg-slate-900 py-3 transition-[width] duration-150 desk:flex',
           expanded ? 'w-[244px] px-3' : 'w-[68px] px-2.5',
         )}
       >
@@ -243,7 +260,7 @@ export default function Layout() {
               only way back to the wide rail and must not be hard to find. */}
           {expanded && (
             <button
-              onClick={() => setExpanded(false)}
+              onClick={() => chooseExpanded(false)}
               aria-label={t('Collapse the menu')}
               title={t('Collapse the menu')}
               className="shrink-0 rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-800 hover:text-white"
@@ -255,7 +272,7 @@ export default function Layout() {
 
         {!expanded && (
           <button
-            onClick={() => setExpanded(true)}
+            onClick={() => chooseExpanded(true)}
             aria-label={t('Expand the menu')}
             title={t('Expand the menu')}
             className="mb-2 flex h-9 w-full items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-800 hover:text-white"
@@ -437,14 +454,14 @@ export default function Layout() {
              * hidden the moment the rail appeared. What is duplicated hides
              * below; what is not, stays.
              */
-            showRail && !onRegister && 'lg:hidden',
+            showRail && !onRegister && 'desk:hidden',
           )}
         >
           <NavLink
             to="/menu"
             className={cx(
               'flex h-10 items-center gap-2 rounded-xl px-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-100',
-              showRail && 'lg:hidden',
+              showRail && 'desk:hidden',
             )}
           >
             <MenuIcon size={20} aria-hidden="true" />
@@ -472,7 +489,7 @@ export default function Layout() {
               'max-w-[8rem] min-w-0 flex-1 sm:w-48 sm:max-w-none sm:flex-none [&>*]:mb-0',
               // The rail carries the same switcher, and two of them on one
               // screen is two things to wonder about.
-              showRail && 'lg:hidden',
+              showRail && 'desk:hidden',
             )}
           >
             <BranchSwitcher expanded />
@@ -495,7 +512,7 @@ export default function Layout() {
               onClick={() => setRailOnRegister((v) => !v)}
               title={railOnRegister ? t('Hide the menu') : t('Show the menu')}
               aria-label={railOnRegister ? t('Hide the menu') : t('Show the menu')}
-              className="hidden h-10 items-center rounded-xl px-2.5 text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 lg:flex"
+              className="hidden h-10 items-center rounded-xl px-2.5 text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 desk:flex"
             >
               {railOnRegister ? <PanelLeftClose size={18} /> : <PanelLeftOpen size={18} />}
             </button>
@@ -515,7 +532,7 @@ export default function Layout() {
             className={cx(
               'ms-auto flex min-w-0 items-center gap-1',
               // Also in the rail, at the foot of it.
-              showRail && 'lg:hidden',
+              showRail && 'desk:hidden',
             )}
           >
             <span className="hidden truncate text-sm font-medium text-slate-500 sm:block">
@@ -554,7 +571,7 @@ export default function Layout() {
          * it does costs a bar of height on every screen.
          */}
         {!onRegister && (
-          <div className="hidden lg:block">
+          <div className="hidden desk:block">
             <TabBar />
           </div>
         )}
@@ -593,7 +610,7 @@ export default function Layout() {
          */}
         <div
           aria-hidden="true"
-          className="no-print h-[calc(56px+env(safe-area-inset-bottom))] shrink-0 lg:hidden"
+          className="no-print h-[calc(56px+env(safe-area-inset-bottom))] shrink-0 desk:hidden"
         />
       </main>
 
