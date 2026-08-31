@@ -282,23 +282,33 @@ test('a shop can rewrite what a message says', async () => {
   });
 
   await sell();
-  const messages = await telegram.waitForMessage();
-  assert.ok(messages, 'no message arrived');
-  assert.match(messages[0].text, /^بيع \$3\.50 — ORD-/, 'the shop’s own wording, in its own language');
-  assert.ok(!messages[0].text.includes('🧾'), 'and none of the built-in wording is left');
+  /*
+   * The message this test is about, rather than whichever arrived first.
+   *
+   * Notifications are sent and not awaited, so one raised by the test before
+   * this can land after `beforeEach` has cleared the queue — and `messages[0]`
+   * is then somebody else's sale. It fails in CI, once in a while, pointing at
+   * a line that is perfectly correct. Same reason as `waitForMatch` further
+   * down; see fakeTelegram.js.
+   */
+  const message = await telegram.waitForMatch(/بيع/);
+  assert.ok(message, 'no message arrived');
+  assert.match(message.text, /^بيع \$3\.50 — ORD-/, 'the shop’s own wording, in its own language');
+  assert.ok(!message.text.includes('🧾'), 'and none of the built-in wording is left');
 });
 
 test('rewriting one event leaves the other six alone', async () => {
   await configure({ telegram_templates: JSON.stringify({ sale: 'SOLD {total}' }) });
 
   const sale = await sell();
-  await telegram.waitForMessage();
-  assert.match(telegram.state.messages[0].text, /^SOLD \$3\.50$/);
+  const sold = await telegram.waitForMatch(/^SOLD /);
+  assert.ok(sold, 'no sale message arrived');
+  assert.match(sold.text, /^SOLD \$3\.50$/);
 
   telegram.state.messages.length = 0;
   await req('POST', `/orders/${sale.json.order.id}/refund`, {});
-  await telegram.waitForMessage();
-  assert.match(telegram.state.messages[0].text, /sale voided/, 'the void keeps the built-in wording');
+  const voided = await telegram.waitForMatch(/sale voided/);
+  assert.ok(voided, 'the void keeps the built-in wording');
 });
 
 test('a placeholder nobody recognises is left standing, not swallowed', async () => {
@@ -308,8 +318,14 @@ test('a placeholder nobody recognises is left standing, not swallowed', async ()
    */
   await configure({ telegram_templates: JSON.stringify({ sale: 'Sold for {totl}' }) });
   await sell();
-  const messages = await telegram.waitForMessage();
-  assert.equal(messages[0].text, 'Sold for {totl}');
+  /*
+   * Matched on the half of the wording that is not in question. If the
+   * placeholder were swallowed the text would read "Sold for " and this would
+   * still find it, which is what makes the assertion below worth making.
+   */
+  const message = await telegram.waitForMatch(/Sold for/);
+  assert.ok(message, 'no message arrived');
+  assert.equal(message.text, 'Sold for {totl}');
 });
 
 test('a customer’s name cannot smuggle markup into the message', async () => {
