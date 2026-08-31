@@ -92,7 +92,7 @@ export default function PackEditor({ item, products, onClose, onSave }) {
       subtitle="For this sale only — the pack itself is not changed"
       size="lg"
     >
-      <ul className="divide-y divide-slate-100 rounded-xl ring-1 ring-slate-200">
+      <ul className="divide-y divide-rule rounded-xl ring-1 ring-slate-200">
         {parts.length === 0 ? (
           <li className="px-3 py-6 text-center text-sm text-slate-400">
             Nothing in it. Add at least one thing, or cancel to leave the pack as it was.
@@ -163,7 +163,7 @@ export default function PackEditor({ item, products, onClose, onSave }) {
         </div>
 
         {candidates.length > 0 && (
-          <ul className="mt-2 max-h-48 divide-y divide-slate-100 overflow-y-auto rounded-lg ring-1 ring-slate-200">
+          <ul className="mt-2 max-h-48 divide-y divide-rule overflow-y-auto rounded-lg ring-1 ring-slate-200">
             {candidates.map((p) => (
               <li key={p.id}>
                 <button

@@ -33,7 +33,7 @@ function Waterfall({ report }) {
 
   return (
     <Card className="overflow-hidden">
-      <ul className="divide-y divide-slate-100">
+      <ul className="divide-y divide-rule">
         {rows.map(([label, value, tone, hint]) => (
           <li key={label} className="flex items-baseline justify-between gap-4 px-5 py-3">
             <div>
@@ -285,7 +285,7 @@ export default function Profit() {
                       <th className="px-5 py-2 text-right font-medium">Profit</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-50">
+                  <tbody className="divide-y divide-rule">
                     {report.topProducts.map((p) => (
                       <tr key={p.id}>
                         <td className="px-5 py-2">

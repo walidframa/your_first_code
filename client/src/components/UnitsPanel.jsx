@@ -200,7 +200,7 @@ export default function UnitsPanel({ product, onChanged }) {
                 <th className="px-3 py-2" />
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody className="divide-y divide-rule">
               {data.units.map((u) => (
                 <tr key={u.id}>
                   <td className="px-3 py-2 font-mono text-xs text-slate-800">

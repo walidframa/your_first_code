@@ -338,7 +338,7 @@ export default function Shopify() {
                   <th className="px-5 py-2 text-right font-medium">Keep</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-50">
+              <tbody className="divide-y divide-rule">
                 {differing.map((link) => (
                   <tr key={link.productId}>
                     <td className="px-5 py-2.5">
@@ -412,7 +412,7 @@ export default function Shopify() {
                   <th className="px-5 py-2" />
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-50">
+              <tbody className="divide-y divide-rule">
                 {status.links.map((link) => (
                   <tr key={link.productId} className={cx(link.differs && 'bg-amber-50/40')}>
                     <td className="px-5 py-2.5">
@@ -466,7 +466,7 @@ export default function Shopify() {
           {log.length === 0 ? (
             <EmptyState icon={RefreshCw} title="Nothing yet" description="Sync activity will appear here." />
           ) : (
-            <ul className="divide-y divide-slate-50">
+            <ul className="divide-y divide-rule">
               {log.map((entry) => (
                 <li key={entry.id} className="flex items-center gap-3 px-5 py-2 text-sm">
                   <Badge

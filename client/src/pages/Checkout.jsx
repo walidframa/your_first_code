@@ -2,18 +2,20 @@ import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } f
 import {
   ChevronUp,
   HandCoins,
+  LayoutGrid,
   Minus,
-  Receipt as ReceiptIcon,
-  Send,
-  Smartphone,
-  Wrench,
   PauseCircle,
   Plus,
+  Receipt as ReceiptIcon,
+  Rows3,
   Search,
+  Send,
   ShoppingCart,
+  Smartphone,
   Tags,
   Trash2,
   UserRound,
+  Wrench,
   X,
 } from 'lucide-react';
 import api from '../api';
@@ -34,6 +36,7 @@ import { ringUp } from '../lib/sales';
 import { useNarrow } from '../lib/screen';
 import { useWindowedGrid } from '../lib/windowedRows';
 import { buzzBad, buzzGood, keepAwake, letSleep, tap } from '../lib/native';
+import { useRevalidate } from '../lib/revalidate';
 import { useOffline } from '../context/OfflineContext';
 import { useLicence } from '../context/LicenceContext';
 import { useT } from '../context/LanguageContext';
@@ -352,6 +355,10 @@ export default function Checkout() {
     loadData();
   }, [loadData]);
 
+  /* And again, quietly, whenever this screen is looked at afresh — see
+     lib/revalidate.js. */
+  useRevalidate(loadData);
+
   /*
    * What one of these costs the person standing in front of the till.
    *
@@ -534,7 +541,35 @@ export default function Checkout() {
    * nineteen hundred products was putting nineteen hundred cards in the page
    * and reconciling all of them on every keystroke.
    */
-  const shelf = useWindowedGrid({ count: filteredProducts.length, estimate: 132 });
+  /*
+   * Cards or rows, and the shop's own answer is remembered.
+   *
+   * A card carries a picture and is quick to aim at with a finger — the right
+   * shape for a counter selling forty things somebody recognises by sight. A
+   * shop with two thousand lines of accessories knows them by name and price,
+   * and for that a card is mostly whitespace: four fit across where fourteen
+   * rows fit down.
+   *
+   * Neither is right for both shops, so it is a button rather than a decision
+   * made here.
+   */
+  const [shelfView, setShelfView] = useState(
+    () => localStorage.getItem('pos_shelf_view') || 'grid',
+  );
+  const asList = shelfView === 'list';
+
+  function chooseShelfView(next) {
+    setShelfView(next);
+    localStorage.setItem('pos_shelf_view', next);
+  }
+
+  const shelf = useWindowedGrid({
+    count: filteredProducts.length,
+    estimate: asList ? 56 : 132,
+    // A row is a third the height of a card, so the window has to be measured
+    // again when the shape changes — see lib/windowedRows.js.
+    resetOn: shelfView,
+  });
 
   /**
    * Everything settled in the sale dialog, put into the cart at once.
@@ -1102,6 +1137,16 @@ export default function Checkout() {
               className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-600 transition hover:bg-slate-200 hover:text-slate-900"
             />
           )}
+
+          <button
+            type="button"
+            onClick={() => chooseShelfView(asList ? 'grid' : 'list')}
+            aria-label={asList ? t('Show products as cards') : t('Show products as a list')}
+            title={asList ? t('Show products as cards') : t('Show products as a list')}
+            className="pressable flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-600 transition hover:bg-slate-200 hover:text-slate-900"
+          >
+            {asList ? <LayoutGrid size={19} /> : <Rows3 size={19} />}
+          </button>
           </div>
 
           <div className="mt-3 flex flex-wrap gap-1.5">
@@ -1150,7 +1195,18 @@ export default function Checkout() {
               <div style={{ height: shelf.padTop }} aria-hidden="true" />
               <div
                 ref={shelf.gridRef}
-                className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-3"
+                /* Keyed on the shape so switching between cards and rows is a
+                   change somebody can see happen rather than the shelf being a
+                   different thing between one blink and the next. */
+                key={shelfView}
+                className={cx(
+                  'animate-page-in grid',
+                  asList
+                    ? /* One column, ruled — see the note on separators in
+                         index.css. The rows are the list. */
+                      'grid-cols-1 overflow-hidden rounded-xl bg-white ring-1 ring-slate-900/[0.06]'
+                    : 'grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-3',
+                )}
               >
               {filteredProducts.slice(shelf.start, shelf.end).map((p) => {
                 /*
@@ -1166,17 +1222,69 @@ export default function Checkout() {
                 const noShelf = Boolean(p.is_service || p.wallet_id);
                 const soldOut = !noShelf && p.stock <= 0;
                 const low = !noShelf && !soldOut && p.stock <= p.reorder_point;
+                /* Said once, so the card and the row cannot come to disagree
+                   about what a product's stock line says. */
+                const standing = p.is_service
+                  ? t('service')
+                  : wallet
+                    ? wallet.balance <= 0
+                      ? t('no credit')
+                      : t('card')
+                    : soldOut
+                      ? t('Sold out')
+                      : `${p.stock} ${t('left')}`;
+                const standingTone = cx(
+                  'tnum',
+                  soldOut || (wallet && wallet.balance <= 0)
+                    ? 'text-red-600'
+                    : low
+                      ? 'text-amber-700'
+                      : 'text-slate-400',
+                );
+                const open = () => {
+                  if (p.tracks_units) {
+                    setPickingUnitFor(p);
+                    return;
+                  }
+                  if (addToCart(p) === 'added') toast(`Added ${p.name}`);
+                };
+
+                if (asList) {
+                  return (
+                    <button
+                      key={p.id}
+                      ref={shelf.measureTile}
+                      onClick={open}
+                      disabled={soldOut}
+                      className={cx(
+                        'pressable flex w-full items-center gap-3 border-b border-edge px-3 py-2 text-left transition last:border-b-0',
+                        soldOut ? 'cursor-not-allowed opacity-45' : 'hover:bg-slate-50',
+                      )}
+                    >
+                      <div className="h-9 w-9 shrink-0 overflow-hidden rounded-lg">
+                        <ProductThumb product={p} size="fill" />
+                      </div>
+                      <span className="min-w-0 flex-1 truncate text-sm font-medium text-slate-800">
+                        {p.name}
+                      </span>
+                      <span className={cx('shrink-0 text-xs', standingTone)}>{standing}</span>
+                      <span className="tnum w-24 shrink-0 text-right text-sm font-semibold text-slate-900">
+                        {money(p.price)}
+                        {rate > 0 && (
+                          <span className="block text-[11px] font-medium text-slate-500">
+                            {lbp(toLbp(p.price))}
+                          </span>
+                        )}
+                      </span>
+                    </button>
+                  );
+                }
+
                 return (
                   <button
                     key={p.id}
                     ref={shelf.measureTile}
-                    onClick={() => {
-                      if (p.tracks_units) {
-                        setPickingUnitFor(p);
-                        return;
-                      }
-                      if (addToCart(p) === 'added') toast(`Added ${p.name}`);
-                    }}
+                    onClick={open}
                     disabled={soldOut}
                     className={cx(
                       'pressable group flex flex-col items-start gap-2 rounded-xl bg-white p-3 text-left ring-1 ring-slate-900/[0.06] transition',
@@ -1185,33 +1293,18 @@ export default function Checkout() {
                         : 'hover:-translate-y-0.5 hover:shadow-md hover:ring-brand-300 active:translate-y-0',
                     )}
                   >
-                    <ProductThumb product={p} size="lg" className="w-full" />
+                    {/* A box of the shape the tile wants, with the picture
+                        filling it — see ProductThumb. */}
+                    <div className="aspect-[4/3] w-full overflow-hidden rounded-xl">
+                      <ProductThumb product={p} size="fill" />
+                    </div>
                     <span className="line-clamp-2 min-h-[2.5rem] text-sm leading-tight font-medium text-slate-800">
                       {p.name}
                     </span>
                     <div className="w-full">
                       <div className="flex items-baseline justify-between gap-2">
                         <span className="tnum text-sm font-semibold text-slate-900">{money(p.price)}</span>
-                        <span
-                          className={cx(
-                            'tnum text-xs',
-                            soldOut || (wallet && wallet.balance <= 0)
-                              ? 'text-red-600'
-                              : low
-                                ? 'text-amber-700'
-                                : 'text-slate-400',
-                          )}
-                        >
-                          {p.is_service
-                            ? t('service')
-                            : wallet
-                              ? wallet.balance <= 0
-                                ? t('no credit')
-                                : t('card')
-                              : soldOut
-                                ? t('Sold out')
-                                : `${p.stock} ${t('left')}`}
-                        </span>
+                        <span className={cx('text-xs', standingTone)}>{standing}</span>
                       </div>
                       {rate > 0 && (
                         <span className="tnum block text-xs font-medium text-slate-500">
@@ -1277,7 +1370,16 @@ export default function Checkout() {
         className={cx(
           '@container no-print flex flex-col bg-white',
           /* The column, on anything with room for one. */
-          'desk:static desk:h-auto desk:w-1/3 desk:max-h-none desk:shrink-0 desk:translate-y-0',
+          /*
+           * Two fifths rather than a third.
+           *
+           * This column is what the sale actually *is*, and the shop asked to
+           * see as much of it at once as possible. The extra width buys twice
+           * over: names stop wrapping, and past the container's `@xl` the
+           * quantity controls move up onto the name's own row — so each line
+           * is shorter and more of them fit down the screen.
+           */
+          'desk:static desk:h-auto desk:w-2/5 desk:max-h-none desk:shrink-0 desk:translate-y-0',
           'desk:rounded-none desk:border-s desk:border-slate-200 desk:shadow-none',
           /*
            * The sheet, below that. Held at 88% so the top of the shelf stays
@@ -1747,10 +1849,18 @@ export default function Checkout() {
                 step={discountMode === 'lbp' ? 1000 : discountMode === 'usd' ? 0.5 : 1}
                 value={discountValue}
                 onChange={(e) => setDiscountValue(e.target.value)}
-                className="tnum h-8 w-24 rounded-lg bg-slate-100 px-2 text-right text-sm ring-1 ring-transparent focus:bg-white focus:ring-brand-600 focus:outline-none"
+                className="tnum h-11 w-24 rounded-lg bg-slate-100 px-2 text-right text-sm ring-1 ring-transparent focus:bg-white focus:ring-brand-600 focus:outline-none"
               />
-              {/* Three buttons rather than a dropdown: it is three short words,
-                  and on a touch screen a select is a menu to open and aim at. */}
+              {/*
+                * Three buttons rather than a dropdown: it is three short words,
+                * and on a touch screen a select is a menu to open and aim at.
+                *
+                * At the size they were — 8 units tall, 2 of padding, 12px type
+                * — each was about 28 by 22 pixels, well under the 44 a finger
+                * lands on reliably. Missing "$" and hitting "LL" turns a five
+                * dollar discount into five pounds, which is nothing, and the
+                * cashier finds out from the total rather than from the button.
+                */}
               <div className="flex overflow-hidden rounded-lg bg-slate-100">
                 {[
                   ['percent', '%'],
@@ -1763,10 +1873,10 @@ export default function Checkout() {
                     onClick={() => setDiscountMode(mode)}
                     aria-pressed={discountMode === mode}
                     className={cx(
-                      'h-8 px-2 text-xs font-semibold transition',
+                      'pressable h-11 min-w-11 px-3 text-sm font-semibold transition',
                       discountMode === mode
                         ? 'bg-brand-600 text-white'
-                        : 'text-slate-500 hover:text-slate-800',
+                        : 'text-slate-500 hover:bg-slate-200 hover:text-slate-800',
                     )}
                   >
                     {label}

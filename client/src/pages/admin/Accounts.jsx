@@ -352,7 +352,7 @@ export default function Accounts() {
                     {rows.length === 0 ? (
                       <p className="px-5 py-4 text-sm text-slate-500">Nobody, which is the good answer.</p>
                     ) : (
-                      <ul className="divide-y divide-slate-50">
+                      <ul className="divide-y divide-rule">
                         {rows.slice(0, 6).map((r) => (
                           <li key={r.id} className="flex items-center justify-between px-5 py-2.5 text-sm">
                             <span className="truncate text-slate-700">{r.name}</span>
@@ -429,7 +429,7 @@ export default function Accounts() {
                       />
                     ) : (
                       <table className="w-full text-sm">
-                        <tbody className="divide-y divide-slate-50">
+                        <tbody className="divide-y divide-rule">
                           {rows.map((account) => (
                             <AccountRow
                               key={`${account.type}-${account.id}`}

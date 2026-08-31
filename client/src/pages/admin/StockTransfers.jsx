@@ -442,7 +442,7 @@ export default function StockTransfers() {
                 On the way to {branch?.name} — {incoming.length} to unpack
               </h2>
             </div>
-            <ul className="divide-y divide-slate-50">
+            <ul className="divide-y divide-rule">
               {incoming.map((t) => (
                 <li key={t.id} className="flex items-center gap-3 px-5 py-3">
                   <div className="min-w-0 flex-1">
@@ -488,7 +488,7 @@ export default function StockTransfers() {
                   <th className="px-5 py-2.5 text-right font-medium">Status</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-50">
+              <tbody className="divide-y divide-rule">
                 {transfers.map((t) => (
                   <tr key={t.id} className={cx(t.status === 'cancelled' && 'opacity-55')}>
                     <td className="px-5 py-2.5 font-medium text-slate-800">{t.reference}</td>

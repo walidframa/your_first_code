@@ -127,6 +127,25 @@
   --color-edge: #828f9f;
 
   /*
+   * The line between one row and the next.
+   *
+   * Not `edge`, which is a *control's* boundary and has to clear 3:1 so a field
+   * can be aimed at. Fifty rows ruled at that weight is a cage, and the reader
+   * ends up looking at the lines instead of the figures.
+   *
+   * But it was `slate-50` — 1.03:1 against a white card, which is to say
+   * nothing at all. A list of forty products ran together into a wall of text
+   * and a shopkeeper checking a price read the row above the one they wanted.
+   * That is the failure a rule exists to prevent, and it is worse than a heavy
+   * line.
+   *
+   * Mixed from `edge` rather than picked, so a shop on the dark theme or the
+   * high-contrast one gets a rule that belongs to it without any of the three
+   * having to be kept in step by hand.
+   */
+  --color-rule: color-mix(in oklab, var(--color-edge) 42%, transparent);
+
+  /*
    * The shop's own type.
    *
    * System fonts only, and deliberately: this runs on a counter machine in

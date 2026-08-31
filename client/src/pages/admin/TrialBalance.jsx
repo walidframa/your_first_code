@@ -123,7 +123,7 @@ export default function TrialBalance() {
                     <th className="w-32 px-2 py-2 text-right font-medium">Balance</th>
                   </tr>
                 </thead>
-                <tbody>
+                <tbody className="divide-y divide-rule">
                   {TYPE_ORDER.flatMap((type) => {
                     const rows = report.accounts.filter((a) => a.type === type);
                     if (rows.length === 0) return [];

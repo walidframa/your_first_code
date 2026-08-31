@@ -184,7 +184,7 @@ export default function CashReport({ sessionId, onClose }) {
                 <th className="py-1.5 text-right font-medium">Difference</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-50">
+            <tbody className="divide-y divide-rule">
               {[
                 ['Dollars', expected.usd, counted.usd, difference.usd, money],
                 ['Lebanese pounds (LBP)', expected.lbp, counted.lbp, difference.lbp, lbp],
@@ -226,7 +226,7 @@ export default function CashReport({ sessionId, onClose }) {
       <div className="grid gap-5 sm:grid-cols-2">
         <Section title={closed ? 'What moved through the drawer' : 'What is in the drawer'}>
           <table className="w-full text-sm">
-            <tbody className="divide-y divide-slate-50">
+            <tbody className="divide-y divide-rule">
               {report.byKind.map((k) => (
                 <tr key={k.kind}>
                   <td className="py-1.5 text-slate-600">
@@ -252,7 +252,7 @@ export default function CashReport({ sessionId, onClose }) {
 
         <Section title="Sales in this sitting">
           <table className="w-full text-sm">
-            <tbody className="divide-y divide-slate-50">
+            <tbody className="divide-y divide-rule">
               {report.sales.map((s) => (
                 <tr key={s.payment_method}>
                   <td className="py-1.5 text-slate-600">
@@ -285,7 +285,7 @@ export default function CashReport({ sessionId, onClose }) {
       <Section title="Every movement" className="mt-5">
         <div className="max-h-64 overflow-y-auto rounded-xl ring-1 ring-slate-100">
           <table className="w-full text-sm">
-            <tbody className="divide-y divide-slate-50">
+            <tbody className="divide-y divide-rule">
               {report.movements.map((m) => (
                 <tr key={m.id}>
                   <td className="px-3 py-1.5 text-xs text-slate-400">{clock(m.created_at)}</td>

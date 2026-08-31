@@ -144,7 +144,7 @@ export default function AccountStatement({ partyType, partyId, path, name, onClo
                   <th className="py-2 pl-2 text-right font-medium">Balance</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-rule">
                 <tr className="border-b border-slate-100 bg-slate-50">
                   <td className="py-2 pr-2 text-slate-500">{statement.period.from || '—'}</td>
                   <td className="px-2 py-2" />
@@ -221,7 +221,7 @@ export default function AccountStatement({ partyType, partyId, path, name, onClo
                 <p className="mb-1.5 text-xs tracking-wide text-slate-500 uppercase">
                   Also on file, settled at the time
                 </p>
-                <ul className="divide-y divide-slate-100 text-sm">
+                <ul className="divide-y divide-rule text-sm">
                   {statement.alsoOnFile.map((row) => (
                     <li key={`${row.kind}-${row.reference}`} className="flex justify-between gap-3 py-1.5">
                       <span className="text-slate-600">

@@ -119,7 +119,7 @@ export default function OrderTable({
                   <th className="px-5 py-2.5 text-right font-medium">Total</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-50">
+              <tbody className="divide-y divide-rule">
                 {rows.map((o) => (
                   <tr
                     key={`${o.kind}-${o.id}`}

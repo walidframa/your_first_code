@@ -243,7 +243,7 @@ export default function Labels() {
               </div>
 
               {matches.length > 0 && (
-                <ul className="mt-2 divide-y divide-slate-100">
+                <ul className="mt-2 divide-y divide-rule">
                   {matches.map((p) => (
                     <li key={p.id}>
                       <button
@@ -495,7 +495,7 @@ export default function Labels() {
                   description="Search above, or open a confirmed purchase invoice and choose Print labels."
                 />
               ) : (
-                <ul className="divide-y divide-slate-50">
+                <ul className="divide-y divide-rule">
                   {selection.map(({ product, quantity }) => (
                     <li key={product.id} className="flex items-center gap-2 px-3 py-2">
                       <ProductThumb product={product} size="sm" />

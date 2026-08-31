@@ -122,7 +122,7 @@ export default function Expenses() {
                       <th className="px-5 py-2.5" />
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-50">
+                  <tbody className="divide-y divide-rule">
                     {shown.map((e) => (
                       <tr key={e.id} className="hover:bg-slate-50/60">
                         <td className="px-5 py-2.5 text-slate-500">{e.spent_on}</td>
@@ -165,7 +165,7 @@ export default function Expenses() {
                 <div className="border-b border-slate-100 px-5 py-3">
                   <p className="font-medium text-slate-900">Where the money went</p>
                 </div>
-                <ul className="divide-y divide-slate-50">
+                <ul className="divide-y divide-rule">
                   {data.summary.byCategory.map((c) => {
                     const share = data.summary.total > 0 ? (c.total / data.summary.total) * 100 : 0;
                     return (

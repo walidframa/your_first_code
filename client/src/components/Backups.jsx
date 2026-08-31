@@ -99,7 +99,7 @@ export default function Backups() {
           matters the day something goes wrong.
         </p>
       ) : (
-        <ul className="mt-4 divide-y divide-slate-100">
+        <ul className="mt-4 divide-y divide-rule">
           {state.backups.slice(0, 8).map((b) => (
             <li key={b.name} className="flex items-center justify-between gap-3 py-2 text-sm">
               <span className="min-w-0">

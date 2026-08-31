@@ -116,7 +116,7 @@ export default function ChartOfAccounts() {
                   <th className="w-20 px-2 py-2" />
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-rule">
                 {accounts.map((a) => (
                   <tr
                     key={a.id}

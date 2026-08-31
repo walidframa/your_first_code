@@ -128,25 +128,29 @@ export function useWindowedRows({ count, estimate = 44, overscan = 10 }) {
  * width. The height feedback loop that made measuring per render a hang cannot
  * happen here — see the warning on `useWindowedRows`.
  */
-export function useWindowedGrid({ count, estimate = 132, overscan = 2 }) {
+export function useWindowedGrid({ count, estimate = 132, overscan = 2, resetOn = null }) {
   const scrollRef = useRef(null);
   const gridRef = useRef(null);
 
-  /* Measured once, off a real tile, for exactly the reason given above. */
+  /*
+   * Measured off a real tile, once per *shape*.
+   *
+   * Measuring once is what keeps this from hanging — see the warning on
+   * `useWindowedRows`, and do not weaken it. But "once ever" was only right
+   * while a tile was one shape. The shelf can now be shown as a list, whose
+   * rows are a third the height of a card, and a window still working from the
+   * card's height showed a third of a screen of rows with a page of blank
+   * space under them.
+   *
+   * Read from the grid's own first child rather than handed in by a ref
+   * callback on each tile. A ref callback fires when a node mounts, and
+   * switching between cards and rows re-renders the same `<button>` elements
+   * rather than replacing them — so the callback never fired again and the
+   * stale height stood. The DOM is right here in `recompute`, which already
+   * runs when the shape changes, so it is simply asked.
+   */
   const [rowHeight, setRowHeight] = useState(estimate);
   const measured = useRef(false);
-  const measureTile = useCallback((node) => {
-    if (!node || measured.current) return;
-    const height = node.getBoundingClientRect().height;
-    if (height > 0) {
-      measured.current = true;
-      /* The gap between rows belongs to the row for this purpose: it is space
-         the scroll has to travel past, and leaving it out drifts the window by
-         a whole row every dozen. */
-      const gap = parseFloat(getComputedStyle(node.parentElement || node).rowGap) || 0;
-      setRowHeight(height + gap);
-    }
-  }, []);
 
   const [columns, setColumns] = useState(1);
   const [range, setRange] = useState({ start: 0, end: 60 });
@@ -159,21 +163,40 @@ export function useWindowedGrid({ count, estimate = 132, overscan = 2 }) {
     const recompute = () => {
       frame = 0;
 
+      const grid = gridRef.current;
+
       /*
        * How many fit across, asked of the browser rather than derived. The
        * track list is `repeat(auto-fill, minmax(150px, 1fr))`, so only the
        * browser knows what it resolved to at this width — and it is the one
        * number that makes the arithmetic below mean anything.
+       *
+       * Safe to keep fresh, unlike the height: it derives from the container's
+       * *width*, and nothing this returns changes the width, so the feedback
+       * loop that made measuring per render a hang cannot happen.
        */
-      const grid = gridRef.current;
       const cols = grid
         ? Math.max(1, getComputedStyle(grid).gridTemplateColumns.split(' ').filter(Boolean).length)
         : 1;
       setColumns((prev) => (prev === cols ? prev : cols));
 
+      let height = rowHeight;
+      if (!measured.current && grid?.firstElementChild) {
+        const tile = grid.firstElementChild.getBoundingClientRect().height;
+        if (tile > 0) {
+          /* The gap between rows belongs to the row for this purpose: it is
+             space the scroll travels past, and leaving it out drifts the window
+             by a whole row every dozen. */
+          const gap = parseFloat(getComputedStyle(grid).rowGap) || 0;
+          height = tile + gap;
+          measured.current = true;
+          setRowHeight(height);
+        }
+      }
+
       const rows = Math.ceil(count / cols);
-      const firstRow = Math.max(0, Math.floor(el.scrollTop / rowHeight) - overscan);
-      const rowsThatFit = Math.ceil(el.clientHeight / rowHeight) + overscan * 2;
+      const firstRow = Math.max(0, Math.floor(el.scrollTop / height) - overscan);
+      const rowsThatFit = Math.ceil(el.clientHeight / height) + overscan * 2;
       const lastRow = Math.min(rows, firstRow + rowsThatFit);
 
       setRange((prev) => {
@@ -198,7 +221,18 @@ export function useWindowedGrid({ count, estimate = 132, overscan = 2 }) {
       observer.disconnect();
       if (frame) cancelAnimationFrame(frame);
     };
-  }, [count, rowHeight, overscan]);
+  }, [count, rowHeight, overscan, resetOn]);
+
+  /*
+   * The shape changed, so the height that was measured is somebody else's.
+   *
+   * Cleared in its own effect, which runs before the one above re-runs for the
+   * same change — so `recompute` finds the flag down and measures the tile that
+   * is now on the screen.
+   */
+  useEffect(() => {
+    measured.current = false;
+  }, [resetOn]);
 
   /*
    * Clamped against the count as it is now, for the reason `useWindowedRows`
@@ -215,7 +249,8 @@ export function useWindowedGrid({ count, estimate = 132, overscan = 2 }) {
   return {
     scrollRef,
     gridRef,
-    measureTile,
+    /* Kept so callers need not change; the height is read off the DOM now. */
+    measureTile: () => {},
     start,
     end,
     padTop: rowsAbove * rowHeight,

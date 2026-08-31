@@ -565,7 +565,7 @@ export default function Vouchers() {
                         <th className="px-5 py-2.5" />
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-50">
+                    <tbody className="divide-y divide-rule">
                       {data.vouchers.map((v) => {
                         const cancelled = v.status === 'cancelled';
                         const out = v.kind === 'payment';

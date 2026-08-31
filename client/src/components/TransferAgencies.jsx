@@ -99,7 +99,8 @@ function OpeningDialog({ company, onClose, onSaved }) {
         </p>
 
         <div className="mt-4 grid grid-cols-2 gap-3">
-          <MoneyInput label="In dollars" name="openingUsd" value={usd} onChange={setUsd} />
+          {/* A Pounds box sits beside it, so no switch. */}
+          <MoneyInput label="In dollars" name="openingUsd" value={usd} onChange={setUsd} switchable={false} />
           <PoundsInput label="In pounds" name="openingLbp" value={lbpAmount} onChange={setLbpAmount} />
         </div>
 
@@ -352,7 +353,7 @@ function StatementDialog({ company, onClose }) {
           description="Transfers put money on it; settling up takes it off."
         />
       ) : (
-        <ul className="divide-y divide-slate-100 text-sm">
+        <ul className="divide-y divide-rule text-sm">
           {data.entries.map((e) => (
             <li key={e.id} className="flex items-baseline justify-between gap-3 py-2">
               <span className="min-w-0">
@@ -469,7 +470,7 @@ export default function TransferAgencies({ tillId = null, tillName = 'the drawer
                 <th className="px-5 py-2" />
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-50">
+            <tbody className="divide-y divide-rule">
               {companies.map((c) => (
                 <tr key={c.id} className="hover:bg-slate-50/60">
                   <td className="px-5 py-2.5">

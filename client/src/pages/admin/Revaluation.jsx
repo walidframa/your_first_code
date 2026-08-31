@@ -114,7 +114,7 @@ export default function Revaluation() {
 
                 {a.holdsPounds ? (
                   <table className="w-full text-sm">
-                    <tbody>
+                    <tbody className="divide-y divide-rule">
                       <Row label="Pounds actually held" value={`${a.heldLbp.toLocaleString('en-US')} LL`} />
                       <Row
                         label="On the books at"
@@ -249,7 +249,7 @@ function ConfirmModal({ report, moving, onClose, onDone, onError }) {
       <div className="space-y-4">
         <Card className="overflow-hidden">
           <table className="w-full text-sm">
-            <tbody>
+            <tbody className="divide-y divide-rule">
               {moving.map((a) => (
                 <Row
                   key={a.id}

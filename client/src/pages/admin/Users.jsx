@@ -377,7 +377,7 @@ export default function Users() {
                   <th className="px-5 py-2.5 text-right font-medium">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-50">
+              <tbody className="divide-y divide-rule">
                 {users.map((u) => (
                   <tr key={u.id} className="hover:bg-slate-50/60">
                     <td className="px-5 py-2.5 font-medium text-slate-800">

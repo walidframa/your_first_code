@@ -103,7 +103,7 @@ function Section({ heading, items }) {
         * half is not free just because it is not painted.
         */}
       {narrow ? (
-        <div className="divide-y divide-slate-100 overflow-hidden rounded-2xl ring-1 ring-slate-900/[0.06]">
+        <div className="divide-y divide-rule overflow-hidden rounded-2xl ring-1 ring-slate-900/[0.06]">
           {items.map((item) => (
             <Row key={item.to} {...item} />
           ))}

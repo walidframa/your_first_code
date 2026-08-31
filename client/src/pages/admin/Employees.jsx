@@ -353,7 +353,7 @@ function EmployeeModal({ id, onClose, onChanged }) {
               {salaries.length === 0 ? (
                 <p className="text-sm text-slate-400">No month has been run yet.</p>
               ) : (
-                <ul className="divide-y divide-slate-100 text-sm">
+                <ul className="divide-y divide-rule text-sm">
                   {salaries.map((s) => (
                     <li key={s.id} className="flex items-center justify-between gap-2 py-1.5">
                       <span className="text-slate-700">{monthName(s.period)}</span>
@@ -382,7 +382,7 @@ function EmployeeModal({ id, onClose, onChanged }) {
               {entries.length === 0 ? (
                 <p className="text-sm text-slate-400">Nothing yet.</p>
               ) : (
-                <ul className="max-h-64 divide-y divide-slate-100 overflow-y-auto text-sm">
+                <ul className="max-h-64 divide-y divide-rule overflow-y-auto text-sm">
                   {entries.map((e) => (
                     <li key={e.id} className="flex justify-between gap-3 py-1.5">
                       <span className="min-w-0">
@@ -415,7 +415,7 @@ function EmployeeModal({ id, onClose, onChanged }) {
               {dealings.length === 0 ? (
                 <p className="text-sm text-slate-400">Nothing off the shelf yet.</p>
               ) : (
-                <ul className="max-h-48 divide-y divide-slate-100 overflow-y-auto text-sm">
+                <ul className="max-h-48 divide-y divide-rule overflow-y-auto text-sm">
                   {dealings.map((d) => (
                     <li key={`${d.kind}-${d.id}`} className="flex justify-between gap-3 py-1.5">
                       <span className="font-mono text-xs text-slate-600">{d.reference}</span>
@@ -557,7 +557,7 @@ export default function Employees() {
                   <th className="px-5 py-2 text-right font-medium">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-50">
+              <tbody className="divide-y divide-rule">
                 {employees.map((e) => (
                   <tr key={e.id} className="transition hover:bg-slate-50">
                     <td

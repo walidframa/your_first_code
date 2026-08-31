@@ -198,7 +198,7 @@ export default function CategoryManager({ onClose, onChanged }) {
             description="Add one above, or let an import create them from a supplier's file."
           />
         ) : (
-          <ul className="divide-y divide-slate-100">
+          <ul className="divide-y divide-rule">
             {rows.map((c) => (
               <li key={c.id} className="flex items-center gap-2 py-2">
                 {editingId === c.id ? (

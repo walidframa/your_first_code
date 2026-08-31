@@ -304,7 +304,7 @@ function CloseDrawer({ denominations, accountId, expected, sweepTo, onClose, onC
               <th className="py-1.5 text-right font-medium">Difference</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-50">
+          <tbody className="divide-y divide-rule">
             {rows.map(([label, expected, counted, diff, format]) => (
               <tr key={label}>
                 <td className="py-2 text-slate-600">{label}</td>

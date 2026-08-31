@@ -124,7 +124,7 @@ function Dimensions({ path, title, subtitle, one, hint }) {
                   <th className="w-32 px-2 py-2 text-right font-medium">Left</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-rule">
                 {report.lines.map((l) => (
                   <tr
                     key={l.id ?? 'loose'}
@@ -180,7 +180,7 @@ function Dimensions({ path, title, subtitle, one, hint }) {
                   <th className="w-16 px-2 py-2" />
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-rule">
                 {items.map((c) => (
                   <tr key={c.id} className={cx('border-t border-slate-100', !c.active && 'opacity-40')}>
                     <td className="px-3 py-2 font-mono text-xs text-slate-500">{c.code}</td>

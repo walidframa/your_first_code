@@ -276,7 +276,7 @@ export default function Capital() {
                         <th className="px-5 py-2.5 text-right font-medium">Capital after</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-50">
+                    <tbody className="divide-y divide-rule">
                       {c.months.map((m) => (
                         <tr key={m.month}>
                           <td className="px-5 py-2.5 font-medium text-slate-800">

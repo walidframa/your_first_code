@@ -360,7 +360,19 @@ export function Modal({ open, onClose, title, subtitle, children, footer, size =
   return createPortal(
     <div
       className="animate-backdrop-in fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-[2px]"
-      onClick={onClose}
+      /*
+       * **The backdrop does not close it.**
+       *
+       * A dialog in this app is nearly always a form somebody is part-way
+       * through — a repair being taken in, a customer being created, a drawer
+       * being counted. Dismissing on a stray click outside throws all of that
+       * away with no warning and no way back, and at a counter a stray click
+       * outside is not rare: it is a customer leaning over, a sleeve on a
+       * touchscreen, a mis-aimed tap at a field near the edge.
+       *
+       * The close button and Escape are still there. Both are things somebody
+       * meant to do.
+       */
       role="presentation"
       /*
        * The DOM nesting is gone, but React's is not: an event inside a portal
@@ -621,6 +633,8 @@ export function ProductThumb({ product, size = 'md', className }) {
     sm: 'h-9 w-9 text-xs rounded-lg',
     md: 'h-12 w-12 text-sm rounded-xl',
     lg: 'h-16 w-16 text-lg rounded-xl',
+    /* Shaped by the caller — see `box` below. */
+    fill: '',
   };
 
   const name = product?.name || '';
@@ -649,30 +663,42 @@ export function ProductThumb({ product, size = 'md', className }) {
    */
   const [broken, setBroken] = useState(null);
 
+  /*
+   * A picture fills the tile it is in, corner to corner.
+   *
+   * `object-cover` was already asking for that and could not deliver it,
+   * because the shape came from a size class carrying a fixed `h-16 w-16`
+   * while the register asked for a wide tile with `w-full` after it. Two widths
+   * on one element, and which one wins is down to the order Tailwind happened
+   * to emit them in.
+   *
+   * `fill` says it plainly instead: the thumbnail is the size of whatever box
+   * it was put in. The caller owns the shape, this owns what goes in it, and
+   * neither is guessing at the other's classes.
+   */
+  const box = size === 'fill' ? cx('h-full w-full', className) : cx(sizes[size], className);
+
   if (product?.image_url && broken !== product.image_url) {
     return (
       <img
         src={product.image_url}
         alt=""
         onError={() => setBroken(product.image_url)}
-        className={cx('object-cover ring-1 ring-slate-900/5', sizes[size], className)}
+        className={cx('object-cover ring-1 ring-slate-900/5', box)}
       />
     );
   }
 
   if (product?.image_emoji) {
     return (
-      <div className={cx('flex items-center justify-center bg-slate-100', sizes[size], className)}>
+      <div className={cx('flex items-center justify-center bg-slate-100', box)}>
         <span className="text-xl leading-none">{product.image_emoji}</span>
       </div>
     );
   }
 
   return (
-    <div
-      className={cx('flex items-center justify-center font-semibold', tint, sizes[size], className)}
-      aria-hidden="true"
-    >
+    <div className={cx('flex items-center justify-center font-semibold', tint, box)} aria-hidden="true">
       {initials || '—'}
     </div>
   );

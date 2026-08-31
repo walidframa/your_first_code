@@ -4382,6 +4382,89 @@ try {
    * never touch the cart. So it is checked here, through the counter, twice —
    * because it is the second press that used to fail.
    */
+  /*
+   * Two ways of looking at the same shelf.
+   *
+   * Cards suit a counter selling forty things somebody recognises by sight;
+   * rows suit two thousand accessories known by name and price. The windowing
+   * underneath measures a tile once and reuses the height, and the switch is
+   * where that goes wrong — a window still working from the card's height pads
+   * every row by a card, and the shelf becomes a screen of rows with pages of
+   * nothing under them.
+   *
+   * Checked as a ratio, not as "the list is shorter". A list is one column and
+   * a card grid is five across, so per product the list is in fact a little
+   * *taller* — about 1.2 times, and 5 times if the height was never
+   * re-measured. Anything under 2 can only be a shelf that measured its own
+   * rows.
+   */
+  await step('the shelf can be cards or a list, and the list is a list', async () => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(`${BASE_URL}/`, { waitUntil: 'networkidle' });
+    await page.waitForSelector('text=Current sale', { timeout: 15000 });
+    await page.waitForTimeout(600);
+
+    const shelfHeight = () =>
+      page.evaluate(() => Math.round(document.querySelector('section div.overflow-y-auto').scrollHeight));
+    const asCards = await shelfHeight();
+
+    await page.click('button[aria-label*="as a list"]');
+    await page.waitForTimeout(700);
+    const asRows = await shelfHeight();
+
+    if (asRows > asCards * 2) {
+      throw new Error(
+        `the list is ${(asRows / asCards).toFixed(1)}x the height of the cards ` +
+          `(${asRows} vs ${asCards}) — the window is still padding rows by a card`,
+      );
+    }
+
+    // Remembered, or it is a setting to be set again on every sale.
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.waitForSelector('text=Current sale', { timeout: 15000 });
+    await page.waitForTimeout(600);
+    if (!(await page.locator('button[aria-label*="as cards"]').count())) {
+      throw new Error('the shelf went back to cards on reload');
+    }
+    await page.click('button[aria-label*="as cards"]');
+    await page.waitForTimeout(500);
+  });
+
+  /*
+   * A stray click outside a dialog must not throw the work away.
+   *
+   * At a counter that click is a customer leaning over, a sleeve on a
+   * touchscreen, a tap aimed at a field near the edge — and what it used to
+   * cost was a half-filled repair intake or a customer being created, gone
+   * with no warning and no way back.
+   */
+  await step('clicking beside a dialog keeps what is half-typed in it', async () => {
+    await page.goto(`${BASE_URL}/admin/products`, { waitUntil: 'networkidle' });
+    await page.waitForSelector('button:has-text("New product")', { timeout: 20000 });
+    await page.click('button:has-text("New product")');
+
+    const firstBox = page.locator('[role=dialog] input').first();
+    await firstBox.waitFor({ timeout: 10000 });
+    await firstBox.fill('Half typed thing');
+
+    await page.mouse.click(20, 400); // squarely on the backdrop
+    await page.waitForTimeout(400);
+
+    if (!(await page.locator('[role=dialog]').count())) {
+      throw new Error('the dialog closed on a click outside it, and took the typing with it');
+    }
+    if ((await firstBox.inputValue()) !== 'Half typed thing') {
+      throw new Error('the dialog stayed but the typing did not');
+    }
+
+    // Escape is a thing somebody meant to do, and still closes it.
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(400);
+    if (await page.locator('[role=dialog]').count()) {
+      throw new Error('Escape no longer closes a dialog');
+    }
+  });
+
   await step('a service sells at the counter, and never runs out', async () => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.evaluate(async () => {

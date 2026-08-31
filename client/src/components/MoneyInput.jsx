@@ -56,7 +56,7 @@ export function PoundsInput({ label, name, value, onChange, hint, ...props }) {
  * — keeping them would mean a cost that quietly changed every time the rate
  * moved, which is not what a cost is.
  */
-export default function MoneyInput({ label, name, value, onChange, hint, ...props }) {
+export default function MoneyInput({ label, name, value, onChange, hint, switchable = true, ...props }) {
   const { rate } = useSettings();
   const [currency, setCurrency] = useState('USD');
 
@@ -78,7 +78,15 @@ export default function MoneyInput({ label, name, value, onChange, hint, ...prop
 
   const inPounds = currency === 'LBP';
   // Nothing to convert with, so there is nothing honest to offer.
-  const canSwitch = rate > 0;
+  /*
+   * Off where the form already has a box for each currency.
+   *
+   * A switch above a field that says "type this one in pounds instead" is
+   * useful when there is one box. Beside a second box labelled Pounds it is
+   * two ways to say the same thing, and the shop has to work out whether the
+   * figure it just typed went in the box it is under or the one next door.
+   */
+  const canSwitch = switchable && rate > 0;
 
   return (
     <div className="w-full">
@@ -86,15 +94,25 @@ export default function MoneyInput({ label, name, value, onChange, hint, ...prop
         <label htmlFor={name} className="block text-sm font-medium text-slate-700">
           {label}
         </label>
+        {/*
+          * Big enough to hit with a thumb.
+          *
+          * It was 11px type in a two-pixel pad — about 22px tall, which is
+          * under half the 44px a finger reliably lands on. At a counter this is
+          * pressed with one hand while the other holds the customer's phone,
+          * and missing it puts the next figure in the wrong currency: a
+          * hundred-fold error that looks perfectly ordinary on the screen.
+          */}
         {canSwitch && (
-          <div className="flex rounded-lg bg-slate-100 p-0.5">
+          <div className="flex rounded-lg bg-slate-100 p-1">
             {['USD', 'LBP'].map((c) => (
               <button
                 key={c}
                 type="button"
                 onClick={() => switchTo(c)}
+                aria-pressed={currency === c}
                 className={cx(
-                  'rounded px-1.5 py-0.5 text-[11px] font-medium transition',
+                  'pressable min-w-11 rounded-md px-3 py-1.5 text-sm font-semibold transition',
                   currency === c ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700',
                 )}
               >
