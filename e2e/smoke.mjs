@@ -4318,6 +4318,56 @@ try {
     }
   });
 
+  /*
+   * The window a shop actually runs the app in.
+   *
+   * Reported from a live shop: at anything under a thousand pixels the app was
+   * the handset layout — a bottom tab bar, no rail, no open pages, and the tile
+   * menu built for a finger — on a desktop machine with a keyboard and a mouse.
+   *
+   * The cause was one word. The shell switched on `lg`, which is 1024px, and
+   * `lg` means "a third column fits now" rather than "this is a desk". They had
+   * been the same question only for as long as nobody ran the app in a window.
+   * It now switches on its own breakpoint at 768px — see --breakpoint-desk.
+   */
+  await step('a desktop window under a thousand pixels is a desk, not a handset', async () => {
+    await page.setViewportSize({ width: 900, height: 900 });
+    await page.goto(`${BASE_URL}/admin/products`, { waitUntil: 'networkidle' });
+    await page.waitForSelector('text=Braided USB-C cable', { timeout: 15000 });
+
+    // The rail, which is the whole of what "desktop layout" means here.
+    if (!(await page.locator('aside:visible').count())) {
+      throw new Error('the menu rail is missing at 900px — this is the handset layout');
+    }
+    // And the open pages, which a phone never shows.
+    if (!(await page.locator('nav[aria-label="Open pages"]:visible').count())) {
+      throw new Error('the open-pages strip is missing at 900px');
+    }
+
+    /*
+     * And it has to be worth having. The rail starts out of the way in a window
+     * this size — 244px of a 900px screen is the products table's price column
+     * — so the table must still fit without the page scrolling sideways.
+     */
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    );
+    if (overflow > 2) {
+      throw new Error(`the products page is ${overflow}px wider than a 900px window`);
+    }
+  });
+
+  await step('and a real handset still is one', async () => {
+    // The other side of the same line: moving it must not have taken the phone
+    // layout away from a phone.
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(`${BASE_URL}/admin/products`, { waitUntil: 'networkidle' });
+    await page.waitForTimeout(400);
+    if (await page.locator('aside:visible').count()) {
+      throw new Error('the desktop rail is showing on a 390px phone');
+    }
+  });
+
   await step('on a phone the till still sells, and nothing runs off the side', async () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(`${BASE_URL}/`, { waitUntil: 'networkidle' });

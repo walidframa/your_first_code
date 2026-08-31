@@ -1015,7 +1015,7 @@ export default function Checkout() {
      * which is the order somebody works in anyway: find the thing, then take
      * the money.
      */
-    <div className="flex h-full flex-col overflow-hidden lg:flex-row">
+    <div className="flex h-full flex-col overflow-hidden desk:flex-row">
       {/* Catalog */}
       <section className="flex min-h-0 min-w-0 flex-1 flex-col bg-slate-100">
         <div className="border-b border-slate-200 bg-white px-5 py-3">
@@ -1218,7 +1218,7 @@ export default function Checkout() {
           type="button"
           aria-label={t('Close the cart')}
           onClick={() => setCartOpen(false)}
-          className="no-print fixed inset-0 z-40 bg-slate-900/40 lg:hidden"
+          className="no-print fixed inset-0 z-40 bg-slate-900/40 desk:hidden"
         />
       )}
 
@@ -1226,8 +1226,8 @@ export default function Checkout() {
         className={cx(
           '@container no-print flex flex-col bg-white',
           /* The column, on anything with room for one. */
-          'lg:static lg:h-auto lg:w-1/3 lg:max-h-none lg:shrink-0 lg:translate-y-0',
-          'lg:rounded-none lg:border-s lg:border-slate-200 lg:shadow-none',
+          'desk:static desk:h-auto desk:w-1/3 desk:max-h-none desk:shrink-0 desk:translate-y-0',
+          'desk:rounded-none desk:border-s desk:border-slate-200 desk:shadow-none',
           /*
            * The sheet, below that. Held at 88% so the top of the shelf stays
            * visible behind it — a sheet that covers everything is a page, and a
@@ -1247,7 +1247,7 @@ export default function Checkout() {
             type="button"
             onClick={() => setCartOpen(false)}
             aria-label={t('Close the cart')}
-            className="mx-auto flex h-7 w-full shrink-0 items-center justify-center lg:hidden"
+            className="mx-auto flex h-7 w-full shrink-0 items-center justify-center desk:hidden"
           >
             <span className="h-1.5 w-10 rounded-full bg-slate-300" />
           </button>
@@ -1842,7 +1842,7 @@ export default function Checkout() {
             * button that matters — which on a sheet is the room a thumb needs
             * to press it without covering the total.
             */}
-          <p className="mt-2 hidden text-center text-[11px] text-slate-400 lg:block">
+          <p className="mt-2 hidden text-center text-[11px] text-slate-400 desk:block">
             <kbd className="rounded bg-slate-100 px-1 font-sans">F2</kbd> charge ·{' '}
             <kbd className="rounded bg-slate-100 px-1 font-sans">F3</kbd> hold ·{' '}
             <kbd className="rounded bg-slate-100 px-1 font-sans">F4</kbd> held sales ·{' '}
@@ -1873,7 +1873,7 @@ export default function Checkout() {
             setCartOpen(true);
           }}
           className={cx(
-            'no-print fixed inset-x-0 z-30 flex items-center gap-3 lg:hidden',
+            'no-print fixed inset-x-0 z-30 flex items-center gap-3 desk:hidden',
             'bottom-[calc(56px+env(safe-area-inset-bottom))]',
             'border-t border-brand-700/20 bg-brand-600 px-4 py-3 text-white shadow-lg',
             'active:bg-brand-700',

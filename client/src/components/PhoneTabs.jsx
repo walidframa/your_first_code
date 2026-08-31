@@ -118,7 +118,7 @@ export default function PhoneTabs() {
     <nav
       aria-label="Main"
       className={cx(
-        'no-print fixed inset-x-0 bottom-0 z-40 flex lg:hidden',
+        'no-print fixed inset-x-0 bottom-0 z-40 flex desk:hidden',
         'border-t border-slate-200 bg-white/95 backdrop-blur',
         // The home indicator on an iPhone sits over the bottom of the screen,
         // so the row is lifted clear of it rather than drawn under it.
