@@ -134,11 +134,32 @@ async function draftPaidInCash(type, partyId, amount) {
 
 test('a purchase invoice is settled in cash with every drawer shut', async () => {
   /*
-   * The whole complaint, in one call. Before this it came back 400 with the
-   * name of a drawer the money was never going to come out of.
+   * The whole complaint, done the way the screen does it — which is the part
+   * the first version of this fix got wrong, on a live shop.
+   *
+   * The server was right and the screen undid it. Asked which till it would
+   * use, the app answered with the shut drawer: true as far as it went, since
+   * naming the office's cash is what confirming *does next*. The screen took
+   * the literal answer and sent it back on Confirm, turning the app's own
+   * default into the shop's explicit choice — and a choice is held to the
+   * open-drawer rule while a default is not. The refusal came straight back,
+   * in the new wording, on the very case the change was written for.
+   *
+   * So this asks first and confirms with whatever it was told, exactly as the
+   * screen does. Both halves have to be right for it to pass.
    */
   const doc = await draftPaidInCash('purchase_invoice', supplier.id, 40);
-  const confirmed = await req('POST', `/documents/${doc.id}/confirm`);
+
+  const plan = (await req('GET', `/documents/${doc.id}/settlement`)).json;
+  assert.equal(plan.accountId, null, 'nothing to hand back, so the screen sends nothing');
+  assert.equal(plan.willCreate, true, 'because confirming is what creates it');
+  assert.equal(plan.name, 'Main cash', 'and it says what the money will come out of');
+
+  const confirmed = await req(
+    'POST',
+    `/documents/${doc.id}/confirm`,
+    plan.accountId ? { accountId: plan.accountId } : null,
+  );
 
   assert.equal(confirmed.status, 200, JSON.stringify(confirmed.json));
   assert.equal(confirmed.json.document.status, 'confirmed');

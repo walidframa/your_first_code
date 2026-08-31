@@ -221,6 +221,31 @@ export function needsOfficeCash(accountId) {
 }
 
 /**
+ * What settling this way is *going* to do, without doing any of it.
+ *
+ * The confirm step and the screen that leads up to it must agree, and they did
+ * not. `settlementAccountId` answers "which existing till", and for a shop whose
+ * only account is a shut drawer that answer is the shut drawer — correct as far
+ * as it goes, because `openingOfficeCash` is what happens next. But the screen
+ * asked the same question and believed the literal answer, so it told the shop
+ * it was about to pay out of a drawer that was closed, and then handed that
+ * drawer back as the shop's own choice. A choice is held to the open-drawer
+ * rule; the app's own default is not. The refusal came straight back.
+ *
+ * So the plan is a thing that can be read on its own, and it is a pure read —
+ * nothing is created by looking at it.
+ */
+export function plannedSettlement(branchId = null) {
+  const accountId = settlementAccountId(branchId);
+  if (!needsOfficeCash(accountId)) {
+    const till = db.prepare('SELECT name FROM cash_accounts WHERE id = ?').get(accountId);
+    return { accountId, name: till?.name ?? null, willCreate: false };
+  }
+  // Nothing open and nowhere else to go: confirming will name the office's cash.
+  return { accountId: null, name: OFFICE_CASH_NAME, willCreate: true };
+}
+
+/**
  * Name the pile the money actually came from, the first time it moves.
  *
  * Called only when a settlement has nowhere to go but a drawer nobody has

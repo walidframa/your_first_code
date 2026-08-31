@@ -23,6 +23,7 @@ import {
   currentSession,
   needsOfficeCash,
   openingOfficeCash,
+  plannedSettlement,
   requiresSession,
   settlementAccountId,
 } from '../lib/cash.js';
@@ -124,8 +125,21 @@ router.get('/:id/settlement', requireAuth, requirePermission('documents'), (req,
     .all(branchId, branchId)
     .map((a) => ({ ...a, open: !!currentSession(a.id) }));
 
+  const plan = plannedSettlement(branchId);
   res.json({
-    accountId: settlementAccountId(branchId),
+    /*
+     * Null when confirming would name the office's cash — there is no id to
+     * give yet, and inventing one here would mean creating an account because
+     * somebody opened a screen. `name` says what it will be called.
+     *
+     * The screen must send this back only if the shop *changes* it. Handing the
+     * app's own answer back as a choice is what made the first version of this
+     * refuse the very thing it was written to allow: a choice is held to the
+     * open-drawer rule, and a default is not.
+     */
+    accountId: plan.accountId,
+    name: plan.name,
+    willCreate: plan.willCreate,
     // A shift is a drawer's business and nothing else's — see lib/cash.js.
     requiresOpenDrawer: requiresSession(),
     accounts,
