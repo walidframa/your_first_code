@@ -28,6 +28,7 @@ import AdminCapital from './pages/admin/Capital';
 import AdminChartOfAccounts from './pages/admin/ChartOfAccounts';
 import AdminJournal from './pages/admin/Journal';
 import AdminTrialBalance from './pages/admin/TrialBalance';
+import AdminStatements from './pages/admin/Statements';
 import AdminVat from './pages/admin/Vat';
 import AdminRevaluation from './pages/admin/Revaluation';
 import AdminClosing from './pages/admin/Closing';
@@ -222,6 +223,14 @@ export default function App() {
           element={
             <ProtectedRoute permission="ledger">
               <AdminJournal />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/statements"
+          element={
+            <ProtectedRoute permission="ledger">
+              <AdminStatements />
             </ProtectedRoute>
           }
         />

@@ -1,5 +1,7 @@
 import { Router } from 'express';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
+import { balanceSheet, incomeStatement } from '../lib/financialStatements.js';
+import { branchScope } from '../lib/branchScope.js';
 import {
   ACCOUNT_TYPES,
   accountLedger,
@@ -310,6 +312,26 @@ router.post('/closings/:id/reopen', ...books, (req, res) => {
 
 router.get('/trial-balance', ...books, (req, res) => {
   res.json(trialBalance({ from: req.query.from || null, to: req.query.to || null }));
+});
+
+/*
+ * The two statements, branch-scoped like the rest of the reporting: a branch
+ * manager reading the company's balance sheet as their own is what the
+ * separation exists to prevent, and `branch=all` is the owner asking for the
+ * whole company on purpose.
+ */
+router.get('/income-statement', ...books, (req, res) => {
+  res.json(
+    incomeStatement({
+      from: req.query.from || null,
+      to: req.query.to || null,
+      branchId: branchScope(req),
+    }),
+  );
+});
+
+router.get('/balance-sheet', ...books, (req, res) => {
+  res.json(balanceSheet({ asAt: req.query.asAt || null, branchId: branchScope(req) }));
 });
 
 export default router;

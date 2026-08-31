@@ -1,6 +1,7 @@
 import {
   ArrowLeftRight,
   BarChart3,
+  FileBarChart,
   Banknote,
   CircleDollarSign,
   CalendarClock,
@@ -157,6 +158,9 @@ export const ADMIN_NAV = [
       { to: '/admin/chart-of-accounts', label: 'Chart of accounts', icon: ListTree, permission: 'ledger' },
       { to: '/admin/journal', label: 'Journal', icon: BookOpen, permission: 'ledger' },
       { to: '/admin/trial-balance', label: 'Trial balance', icon: Scale, permission: 'ledger' },
+      /* The trial balance proves the books; these are what anybody outside
+         the shop asks for, so they sit straight after it. */
+      { to: '/admin/statements', label: 'Statements', icon: FileBarChart, permission: 'ledger' },
       /* Read off the same ledger as the trial balance, so the return and the
          books can never disagree. */
       { to: '/admin/vat', label: 'Tax return', icon: Receipt, permission: 'ledger' },
