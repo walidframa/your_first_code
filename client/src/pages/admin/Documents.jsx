@@ -267,18 +267,75 @@ function DocumentForm({ existing, startAs = null, page = false, onClose, onSaved
     );
   }, [priceField]);
 
+  /*
+   * Typing in a delivery, without the mouse.
+   *
+   * The loop a shop actually performs is: find the product, say how many, say
+   * what it cost, find the next product. Every one of those was a click —
+   * search, then reach for the quantity box, then reach for the price box,
+   * then reach back to the search. Twenty lines off a supplier's note is sixty
+   * reaches for a mouse that is usually behind the till roll.
+   *
+   * So: picking a product puts the cursor in that line's quantity with the
+   * figure selected, Enter moves to the price, and Enter again comes back to
+   * the search for the next one. Hands never leave the keyboard, and a barcode
+   * scanner — which is a keyboard that types a number and presses Enter —
+   * lands in exactly the same loop.
+   */
+  /* Arrived with the kind already chosen, so the tiles are a smaller thing. */
+  const compactTypes = Boolean(startAs) && !editing;
+
+  const searchRef = useRef(null);
+  const formRef = useRef(null);
+  const [focusLine, setFocusLine] = useState(null);
+
+  const fieldOf = (key, field) =>
+    formRef.current?.querySelector(`[data-line="${CSS.escape(key)}"][data-field="${field}"]`);
+
+  useEffect(() => {
+    if (!focusLine) return;
+    const box = fieldOf(focusLine, 'quantity');
+    if (box) {
+      box.focus();
+      /* Selected, not appended to: the line arrives saying 1 and what the shop
+         is about to type is how many there really are. */
+      box.select();
+    }
+    setFocusLine(null);
+  }, [focusLine, lines.length]);
+
+  /** Enter walks the line: quantity to price, price back to the search. */
+  function onLineKey(e, key, field) {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    if (field === 'quantity') {
+      const price = fieldOf(key, 'price');
+      if (price) {
+        price.focus();
+        price.select();
+        return;
+      }
+    }
+    searchRef.current?.focus();
+  }
+
   function addProduct(product) {
     setLines((prev) => {
       const existing = prev.findIndex((l) => l.product?.id === product.id);
       if (existing !== -1) {
+        /* Scanned twice: the count goes up, and the cursor still lands on it,
+           because the next thing anybody does is correct that count. */
+        setFocusLine(prev[existing].key);
         return prev.map((l, i) =>
           i === existing ? { ...l, quantity: String(Number(l.quantity || 0) + 1) } : l,
         );
       }
+      const key = `p${product.id}-${Date.now()}`;
+      setFocusLine(key);
       return [
         ...prev,
         {
-          key: `p${product.id}-${Date.now()}`,
+          key,
           product,
           name: product.name,
           quantity: '1',
@@ -435,10 +492,23 @@ function DocumentForm({ existing, startAs = null, page = false, onClose, onSaved
    * depending on how it was opened is two forms to keep correct.
    */
   const body = (
-        <form onSubmit={submit} className="space-y-4">
-          {/* Type is picked by icon — it decides everything else on this form. */}
+        <form ref={formRef} onSubmit={submit} className="space-y-4">
+          {/*
+            * Type is picked by icon — it decides everything else on this form.
+            *
+            * Arriving from "New purchase invoice" the choice has already been
+            * made, so the four tall tiles are a question being asked twice, and
+            * the inch and a half they take is an inch and a half of the lines
+            * below pushed off the screen. They shrink to a row of chips: still
+            * there to change your mind, no longer the loudest thing on a form
+            * about a delivery.
+            */}
           {!editing && (
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <div
+              className={cx(
+                compactTypes ? 'flex flex-wrap gap-1.5' : 'grid grid-cols-2 gap-2 sm:grid-cols-4',
+              )}
+            >
               {Object.entries(TYPE_META).map(([key, m]) => {
                 const Icon = m.icon;
                 const selected = docType === key;
@@ -448,15 +518,25 @@ function DocumentForm({ existing, startAs = null, page = false, onClose, onSaved
                     type="button"
                     onClick={() => setDocType(key)}
                     className={cx(
-                      'pressable flex flex-col items-center gap-1.5 rounded-xl px-2 py-3 text-center ring-1 transition',
+                      'pressable rounded-xl ring-1 transition',
+                      compactTypes
+                        ? 'flex items-center gap-1.5 px-2.5 py-1.5 text-left'
+                        : 'flex flex-col items-center gap-1.5 px-2 py-3 text-center',
                       selected ? m.active : `${m.tint} hover:brightness-95`,
                     )}
                   >
-                    <Icon size={20} />
+                    <Icon size={compactTypes ? 15 : 20} />
                     <span className="text-xs leading-tight font-medium">{m.label}</span>
-                    <span className={cx('text-[10px] leading-tight', selected ? 'opacity-90' : 'opacity-70')}>
-                      {m.effect}
-                    </span>
+                    {!compactTypes && (
+                      <span
+                        className={cx(
+                          'text-[10px] leading-tight',
+                          selected ? 'opacity-90' : 'opacity-70',
+                        )}
+                      >
+                        {m.effect}
+                      </span>
+                    )}
                   </button>
                 );
               })}
@@ -568,6 +648,10 @@ function DocumentForm({ existing, startAs = null, page = false, onClose, onSaved
               priceField={priceField}
               onPick={addProduct}
               onCreateNew={(name) => setQuickCreate(name)}
+              inputRef={searchRef}
+              /* The cursor goes to the new line's quantity instead — see the
+                 loop above addProduct. */
+              keepFocus={false}
             />
 
             {/*
@@ -676,22 +760,34 @@ function DocumentForm({ existing, startAs = null, page = false, onClose, onSaved
                         </td>
                         <td className="px-2 py-2">
                           <input
-                            type="number"
-                            min="0"
-                            step="any"
+                            /*
+                             * Text, not `number`. Browsers refuse `select()` on
+                             * a number input — it silently does nothing — so
+                             * the cursor landed on a quantity of 1 with the 1
+                             * still there, and typing 12 gave 112. `inputMode`
+                             * keeps the numeric keypad on a phone, which is the
+                             * only thing `type=number` was buying here.
+                             */
+                            type="text"
+                            inputMode="decimal"
                             value={l.quantity}
                             onChange={(e) => updateLine(l.key, { quantity: e.target.value })}
+                            onKeyDown={(e) => onLineKey(e, l.key, 'quantity')}
+                            data-line={l.key}
+                            data-field="quantity"
                             aria-label={`Quantity for ${l.product?.name || l.name || 'line'}`}
                             className="h-8 w-full rounded-lg bg-white px-2 text-right text-sm ring-1 ring-edge focus:ring-2 focus:ring-brand-600 focus:outline-none"
                           />
                         </td>
                         <td className="px-2 py-2">
                           <input
-                            type="number"
-                            min="0"
-                            step="0.01"
+                            type="text"
+                            inputMode="decimal"
                             value={l.price}
                             onChange={(e) => updateLine(l.key, { price: e.target.value })}
+                            onKeyDown={(e) => onLineKey(e, l.key, 'price')}
+                            data-line={l.key}
+                            data-field="price"
                             aria-label={`Unit price for ${l.product?.name || l.name || 'line'}`}
                             className={cx(
                               'h-8 w-full rounded-lg bg-white px-2 text-right text-sm ring-1 focus:ring-2 focus:outline-none',

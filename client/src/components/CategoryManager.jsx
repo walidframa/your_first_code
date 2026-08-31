@@ -72,7 +72,14 @@ export default function CategoryManager({ onClose, onChanged }) {
    * chore this exists to end.
    */
   async function setOnRegister(c, on) {
-    await run(() => api.patch(`/products/categories/${c.id}`, { name: c.name, onRegister: on }));
+    const saved = await run(() =>
+      api.patch(`/products/categories/${c.id}`, { name: c.name, onRegister: on }),
+    );
+    /* `run` reloads the list on success, so the only thing left to undo is a
+       tick the server did not accept. */
+    if (!saved) {
+      setRows((prev) => prev.map((r) => (r.id === c.id ? { ...r, on_register: on ? 0 : 1 } : r)));
+    }
   }
 
   async function rename(id) {
@@ -234,8 +241,25 @@ export default function CategoryManager({ onClose, onChanged }) {
                       <input
                         type="checkbox"
                         checked={Boolean(c.on_register)}
-                        onChange={(e) => setOnRegister(c, e.target.checked)}
-                        disabled={busy}
+                        /*
+                         * Ticked here and now, then saved.
+                         *
+                         * It used to wait for the round trip, and it was
+                         * `disabled` while it waited — so the box a shop had
+                         * just clicked went dead and stayed unticked, which
+                         * reads exactly like a button that does nothing. It is
+                         * one bit against a local server; showing it and then
+                         * putting it back if the save fails is honest and
+                         * instant, and going down a list of forty ticking four
+                         * should not have four pauses in it.
+                         */
+                        onChange={(e) => {
+                          const on = e.target.checked;
+                          setRows((prev) =>
+                            prev.map((r) => (r.id === c.id ? { ...r, on_register: on ? 1 : 0 } : r)),
+                          );
+                          setOnRegister(c, on);
+                        }}
                         className="size-4 accent-brand-600"
                       />
                       On register
