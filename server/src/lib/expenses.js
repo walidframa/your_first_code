@@ -10,7 +10,13 @@
 import { db, transaction } from '../db.js';
 import { round2 } from './currency.js';
 import { getSettings } from './settings.js';
-import { currentSession, recordMovement } from './cash.js';
+import {
+  currentSession,
+  needsOfficeCash,
+  openingOfficeCash,
+  recordMovement,
+  settlementAccountId,
+} from './cash.js';
 import { postExpense } from './postings.js';
 
 /**
@@ -98,6 +104,17 @@ function validate({ category, paidWith, amountUsd, amountLbp }) {
  * Paid in cash with the drawer open, it comes out of the drawer as well — the
  * money really did leave the till, and a close that ignored it would come up
  * short for no visible reason.
+ *
+ * With the drawer shut it used to come out of nothing. The cash movement was
+ * written only `if (session)`, so an owner paying the electricity bill before
+ * opening time got the expense in the books, in the profit figure and in the
+ * ledger — and not one cash record anywhere. The shop's cash on hand stayed
+ * exactly as high as it had been the moment before the money left.
+ *
+ * So the money always goes somewhere. The open drawer if there is one, because
+ * that is the till the note was taken out of; otherwise the office's own cash
+ * (see `settlementAccountId`), which is where a bill paid at a desk comes from
+ * and which needs nothing opened.
  */
 export function addExpense({
   branchId = null,
@@ -119,8 +136,16 @@ export function addExpense({
     // the second shop comes out of the till standing in front of the person
     // paying it.
     const session = paidWith === 'cash' ? currentSession(null, branchId) : null;
+    let account = null;
+    if (paidWith === 'cash') {
+      // The open drawer if there is one, because that is the till the note came
+      // out of. Otherwise the office's own cash, which is where a bill paid at a
+      // desk with the shop shut comes from — named on the spot if it has to be.
+      account = session?.account_id ?? settlementAccountId(branchId);
+      if (needsOfficeCash(account)) account = openingOfficeCash(branchId);
+    }
 
-    if (session) {
+    if (account) {
       /*
        * More than the drawer holds is recorded, not refused — the same rule as
        * a manual pay-out, and for the same reason: the money has gone either
@@ -128,6 +153,8 @@ export function addExpense({
        * reports it; see SHORT_DRAWER_WARNING.
        */
       movementId = recordMovement({
+        accountId: account,
+        sessionId: session?.id ?? null,
         kind: 'cash_out',
         amountUsd: -usd,
         amountLbp: -lbp,
@@ -153,7 +180,7 @@ export function addExpense({
 
     const saved = getExpense(info.lastInsertRowid);
     // The books, in the same transaction — see lib/postings.js.
-    postExpense({ expense: saved, tillAccountId: session?.account_id ?? null, userId });
+    postExpense({ expense: saved, tillAccountId: account, userId });
     return saved;
   })();
 }

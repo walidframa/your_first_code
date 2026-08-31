@@ -112,6 +112,155 @@ export function registerAccountId(branchId = null) {
 }
 
 /**
+ * The name the office's own cash goes by when the app has to invent it.
+ *
+ * A shop that never opened the tills screen has one account — the drawer the
+ * register rings into — and until it pays a bill outside opening hours that is
+ * the literal truth about where its money is.
+ */
+export const OFFICE_CASH_NAME = 'Main cash';
+
+/**
+ * The shop's working cash: somewhere that is not a drawer, if it keeps one.
+ *
+ * A drawer is a shift. It is opened with a float, counted at the end, and the
+ * difference is somebody's to explain. A safe or a desk float is not — nobody
+ * hands the safe over at six — so money moves through it without anything to
+ * open, which is already how `recordMovement` treats the two differently.
+ *
+ * Null when the shop has nothing but drawers, because that is a real answer:
+ * for such a shop the drawer is where all the money is, and pretending
+ * otherwise would put figures in its books it never had.
+ */
+export function officeCashId(branchId = null) {
+  /*
+   * Ordered so that a shop which has said which account it prefers is believed,
+   * and one that has not gets the most likely place for working cash: the safe,
+   * then a desk float, then anything else, with a bank account last because
+   * notes handed to a supplier did not come out of one.
+   */
+  const preference = `is_default DESC,
+    CASE kind WHEN 'safe' THEN 0 WHEN 'desk' THEN 1 WHEN 'other' THEN 2 ELSE 3 END,
+    id`;
+
+  if (branchId) {
+    const theirs = db
+      .prepare(
+        `SELECT id FROM cash_accounts
+         WHERE branch_id = ? AND active = 1 AND kind != 'drawer'
+         ORDER BY ${preference} LIMIT 1`,
+      )
+      .get(branchId);
+    if (theirs) return theirs.id;
+  }
+
+  /*
+   * No such account at this branch. The company's own — a second shop whose
+   * bills are paid out of the head office safe is the ordinary case, and it is
+   * a better answer than that shop's counter drawer.
+   */
+  return (
+    db
+      .prepare(
+        `SELECT id FROM cash_accounts
+         WHERE active = 1 AND kind != 'drawer'
+         ORDER BY ${preference} LIMIT 1`,
+      )
+      .get()?.id ?? null
+  );
+}
+
+/**
+ * The till a piece of office paperwork settles through.
+ *
+ * A purchase invoice is paid at a desk, out of the shop's money — not out of
+ * the box in front of whoever is serving customers. The two were the same
+ * account, and the result was this app's own refusal: *"Main drawer is closed —
+ * open it before settling this in cash"*, told to an owner paying a supplier at
+ * nine in the morning with the shop not yet open. Whether a cashier has started
+ * a shift has nothing to do with whether the owner can pay a bill, and opening
+ * a till nobody is going to use — then counting and closing it again — to get
+ * past the message is a ritual, not a control.
+ *
+ * The order below is deliberately conservative: it changes the answer only in
+ * the case that used to have no answer at all.
+ *
+ * 1. **The shop's standing account, if it is not a drawer.** A shop that keeps
+ *    its money in a safe and said so is already served correctly, and moving
+ *    that would rewrite where a live shop's cash has been going.
+ * 2. **A drawer somebody has opened.** The notes really are in it, and taking
+ *    them out is exactly what happened. Unchanged.
+ * 3. **The office's own cash**, for the case this exists for: nobody has opened
+ *    anything, so the money did not come from the register. It came from the
+ *    safe, the office envelope, the owner's pocket.
+ * 4. **The shut drawer**, when the shop keeps nothing else — and then the
+ *    open-drawer rule applies as it always did, until `openingOfficeCash` is
+ *    called to name the pile the money is actually coming from.
+ *
+ * The register is deliberately *not* routed here — see `registerAccountId`. A
+ * sale taken at the counter belongs in the counter's drawer and in the count
+ * the cashier signs for.
+ */
+export function settlementAccountId(branchId = null) {
+  const standing = defaultAccountId(branchId);
+  if (!needsOfficeCash(standing)) return standing;
+  return officeCashId(branchId) ?? standing;
+}
+
+/**
+ * Whether settling this way would be asking a shut drawer for money.
+ *
+ * The question the confirm step needs answered before it refuses anything: not
+ * "is a drawer closed" but "is a closed drawer the only place this shop has to
+ * pay from".
+ */
+export function needsOfficeCash(accountId) {
+  if (!requiresSession()) return false;
+  const till = db.prepare('SELECT kind FROM cash_accounts WHERE id = ?').get(accountId);
+  return till?.kind === 'drawer' && !currentSession(accountId);
+}
+
+/**
+ * Name the pile the money actually came from, the first time it moves.
+ *
+ * Called only when a settlement has nowhere to go but a drawer nobody has
+ * opened — which is a shop telling us, by doing it, that this money did not
+ * come out of the register. It came from the safe, the office envelope, the
+ * owner's pocket. That pile exists whether or not the app has a row for it, and
+ * the choice is between recording it somewhere or recording it nowhere; the
+ * second is what the old refusal amounted to.
+ *
+ * Created here rather than seeded for every shop on upgrade, because a shop
+ * that pays its suppliers across the counter with the till open has no such
+ * pile and should not be given an account that will only ever hold a phantom
+ * negative. It appears when it is earned.
+ *
+ * It starts at zero and goes negative on the first payment, which is honest:
+ * the shop has paid out from cash the app was never told about, and the figure
+ * says exactly that until somebody records what was in there.
+ */
+export function openingOfficeCash(branchId = null) {
+  const existing = officeCashId(branchId);
+  if (existing) return existing;
+
+  const branch =
+    branchId ?? db.prepare('SELECT id FROM branches WHERE is_main = 1').get()?.id ?? null;
+
+  const info = db
+    .prepare(
+      `INSERT INTO cash_accounts (name, kind, note, branch_id)
+       VALUES (?, 'safe', ?, ?)`,
+    )
+    .run(
+      OFFICE_CASH_NAME,
+      'The money bills and suppliers are paid from when the register is shut. ' +
+        'Unlike a drawer it is not opened and counted per shift.',
+      branch,
+    );
+  return info.lastInsertRowid;
+}
+
+/**
  * Where a drawer's takings go when it is closed, or null if they stay put.
  *
  * A shift ends with the notes counted, a float left for tomorrow and the rest
