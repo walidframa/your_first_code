@@ -403,11 +403,21 @@ export default function Checkout() {
         }
 
         /*
-         * A card has no shelf behind it — what it spends is the wallet's
-         * credit, which is settled with the supplier rather than at the
-         * counter. So there is no quantity to cap it against.
+         * Two kinds of line with no shelf behind them, and so nothing to cap a
+         * quantity against.
+         *
+         * A card spends the wallet's credit, which is settled with the supplier
+         * rather than at the counter. A **service** is not a thing at all — it
+         * is an hour of somebody's time, a fitting, a delivery — and a shop
+         * cannot run out of doing something.
+         *
+         * The server already knows this (see lib/stock.js) and the tile is no
+         * longer greyed out at zero, but the cart kept its own count and capped
+         * the line here: the first press added the service and the second took
+         * it straight back off with "Only 0 of Screen fitting in stock". Three
+         * places had to agree and only two of them did.
          */
-        const unlimited = Boolean(product.wallet_id);
+        const unlimited = Boolean(product.wallet_id || product.is_service);
 
         /*
          * A validity card that is going to sell the days and move no credit.
@@ -476,7 +486,7 @@ export default function Checkout() {
     try {
       const res = await api.get('/products/lookup', { params: { code } });
       const product = res.data.product;
-      if (!product.wallet_id && product.stock <= 0) {
+      if (!product.wallet_id && !product.is_service && product.stock <= 0) {
         toast(`${product.name} is out of stock`, 'error');
         return;
       }
@@ -608,7 +618,11 @@ export default function Checkout() {
       (held.cart || []).map((linefromHold) => {
         const product = current.get(linefromHold.productId);
         if (!product || linefromHold.unitId) return linefromHold;
-        return { ...linefromHold, stock: product.stock, unlimited: Boolean(product.wallet_id) };
+        return {
+          ...linefromHold,
+          stock: product.stock,
+          unlimited: Boolean(product.wallet_id || product.is_service),
+        };
       }),
     );
     /*
@@ -1146,8 +1160,12 @@ export default function Checkout() {
                  * still be given, and the supplier is settled with later.
                  */
                 const wallet = p.wallet_id ? walletById.get(p.wallet_id) : null;
-                const soldOut = !p.wallet_id && p.stock <= 0;
-                const low = !p.wallet_id && !soldOut && p.stock <= p.reorder_point;
+                /* A service never runs out — it is something the shop does,
+                   not something it has. Nor does a card, which is sold from a
+                   wallet's credit. */
+                const noShelf = Boolean(p.is_service || p.wallet_id);
+                const soldOut = !noShelf && p.stock <= 0;
+                const low = !noShelf && !soldOut && p.stock <= p.reorder_point;
                 return (
                   <button
                     key={p.id}
@@ -1184,13 +1202,15 @@ export default function Checkout() {
                                 : 'text-slate-400',
                           )}
                         >
-                          {wallet
-                            ? wallet.balance <= 0
-                              ? t('no credit')
-                              : t('card')
-                            : soldOut
-                              ? t('Sold out')
-                              : `${p.stock} ${t('left')}`}
+                          {p.is_service
+                            ? t('service')
+                            : wallet
+                              ? wallet.balance <= 0
+                                ? t('no credit')
+                                : t('card')
+                              : soldOut
+                                ? t('Sold out')
+                                : `${p.stock} ${t('left')}`}
                         </span>
                       </div>
                       {rate > 0 && (

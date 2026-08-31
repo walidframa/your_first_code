@@ -399,7 +399,19 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
            * spent — counting a quantity here would refuse a sale the shop can
            * perfectly well make.
            */
-          if (!lineParts && !product.wallet_id && !product.validity_days && here < quantity) {
+          /*
+           * And a service has no shelf at all — see lib/stock.js. Counting a
+           * quantity for one refuses the very thing it exists to allow: a shop
+           * charging for an hour's labour would be told it had run out of
+           * hours.
+           */
+          if (
+            !lineParts &&
+            !product.wallet_id &&
+            !product.validity_days &&
+            !product.is_service &&
+            here < quantity
+          ) {
             const elsewhere = stockElsewhere(branchId, product.id);
             const alsoAt = elsewhere.length
               ? ` — ${elsewhere.map((b) => `${b.stock} at ${b.branch_name}`).join(', ')}`

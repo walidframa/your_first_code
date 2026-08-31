@@ -79,8 +79,22 @@ function refreshTotal(productId) {
   return total;
 }
 
-const sellsFromCredit = (productId) =>
-  Boolean(db.prepare('SELECT wallet_id FROM products WHERE id = ?').get(productId)?.wallet_id);
+/**
+ * Products that have no shelf, and so have no stock to move.
+ *
+ * Two of them, for two different reasons. A recharge card is sold out of a
+ * wallet's credit rather than off a shelf. A **service** — labour, a fitting, a
+ * delivery charge — is not a thing at all: it is something the shop does.
+ *
+ * Answered here rather than at each of the dozen places that move stock. A
+ * sale, a refund, a purchase invoice, a repair's parts, a bundle and a branch
+ * transfer all come through `moveStock`, and a rule enforced once at the bottom
+ * cannot be forgotten by the next caller written above it.
+ */
+const hasNoShelf = (productId) => {
+  const p = db.prepare('SELECT wallet_id, is_service FROM products WHERE id = ?').get(productId);
+  return Boolean(p?.wallet_id || p?.is_service);
+};
 
 /**
  * Move a quantity at one branch.
@@ -95,7 +109,7 @@ export function moveStock({ branchId, productId, delta, allowNegative = false })
   const change = Math.round(Number(delta) || 0);
   if (!branch) throw new Error('No branch to move stock at');
   if (change === 0) return stockAt(branch, productId);
-  if (sellsFromCredit(productId)) return 0;
+  if (hasNoShelf(productId)) return 0;
 
   const current = stockAt(branch, productId);
   const resulting = current + change;
@@ -118,7 +132,7 @@ export function moveStock({ branchId, productId, delta, allowNegative = false })
 /** Set a branch's shelf to a counted figure, rather than nudging it. */
 export function setStock({ branchId, productId, stock }) {
   const branch = resolveBranch(branchId);
-  if (sellsFromCredit(productId)) return 0;
+  if (hasNoShelf(productId)) return 0;
 
   const counted = Math.max(0, Math.round(Number(stock) || 0));
   db.prepare(

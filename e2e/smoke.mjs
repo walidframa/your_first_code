@@ -4368,6 +4368,61 @@ try {
     }
   });
 
+  /*
+   * Something the shop does, sold at the counter.
+   *
+   * A service has no shelf, and three separate places had to agree about that
+   * before one could be sold: the server, the tile, and the cart's own count.
+   * Two of them did. The server allowed it and the tile was no longer greyed
+   * out at zero — and the cart quietly capped the line against a stock of
+   * nothing, so the first press added the fitting and the second took it
+   * straight back off with "Only 0 of Screen fitting in stock".
+   *
+   * Not something the API tests could catch: they post a finished order and
+   * never touch the cart. So it is checked here, through the counter, twice —
+   * because it is the second press that used to fail.
+   */
+  await step('a service sells at the counter, and never runs out', async () => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.evaluate(async () => {
+      const auth = {
+        Authorization: `Bearer ${localStorage.getItem('pos_token')}`,
+        'Content-Type': 'application/json',
+      };
+      await fetch('/api/products', {
+        method: 'POST',
+        headers: auth,
+        // A quantity is sent on purpose: typing one into a service must not
+        // give it a shelf.
+        body: JSON.stringify({
+          name: 'Screen fitting', sku: 'SVC-FIT', price: 5, cost: 0, stock: 40, is_service: true,
+        }),
+      });
+    });
+
+    await page.goto(`${BASE_URL}/`, { waitUntil: 'networkidle' });
+    await page.waitForSelector('text=Current sale', { timeout: 15000 });
+    await page.fill('input[placeholder*="Scan"]', 'Screen fitting');
+    await page.waitForTimeout(500);
+
+    const tile = page.locator('div.grid > button').first();
+    if (await tile.isDisabled()) throw new Error('the service tile is greyed out — it has no shelf to be out of');
+    if (!/service/i.test(await tile.innerText())) {
+      throw new Error(`the tile should say what it is: ${await tile.innerText()}`);
+    }
+
+    await tile.click();
+    await tile.click();
+
+    const line = page.locator('aside:has-text("Current sale")');
+    await line.locator('text=Screen fitting').first().waitFor({ timeout: 10000 });
+    if (!/2 items/.test(await line.innerText())) {
+      throw new Error(`the second one came off again: ${await line.innerText()}`);
+    }
+
+    await page.click('aside button:has-text("Clear")');
+  });
+
   await step('on a phone the till still sells, and nothing runs off the side', async () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(`${BASE_URL}/`, { waitUntil: 'networkidle' });

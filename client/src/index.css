@@ -722,19 +722,69 @@ body {
  * lines rather than arriving alone on page two.
  */
 @media print {
-  body:has(.print-document) * {
-    visibility: hidden;
+  /*
+   * **Isolated by taking the app out of the flow, not by lifting the document
+   * out of it.** A three-page invoice used to print one page.
+   *
+   * Everything else that prints here is a till slip — one receipt, one label,
+   * one page — so the trick they all share was to hide the app with
+   * `visibility: hidden` and pull the printable part up to the corner with
+   * `position: absolute; top: 0`. That works for one page and cannot work for
+   * two: an absolutely positioned box does not break across pages. Whatever
+   * runs past the bottom of the first sheet is not carried onto a second, it
+   * is simply not printed. A sixty-line invoice printed its first twenty-odd
+   * lines and stopped, with no gap or marker to say so — the customer got a
+   * document that looked complete and was not, and the shop found out when
+   * they queried the total.
+   *
+   * So the document stays exactly where it is in the page, and the app's own
+   * layout is dismantled around it instead. Two rules do it: every box between
+   * the page and the document is let out of the shell's full-height,
+   * never-scrolling layout, and everything standing beside that chain is
+   * removed outright rather than merely made invisible — an invisible box
+   * still takes up its space, and that space prints as blank sheets.
+   *
+   * The chain is stated twice on purpose. A document is shown in a dialog, and
+   * that dialog is a child of `body` sitting beside `#root` — so the branch
+   * holding the entire app is `body`'s own child, and a rule that only reaches
+   * children of `body`'s *descendants* never touches it. Without the first of
+   * the two lines the whole back office prints above the invoice: the tab
+   * strip, the page heading, the type cards, the search box and the list.
+   */
+  html:has(.print-document),
+  body:has(.print-document),
+  body:has(.print-document) *:has(.print-document) {
+    display: block !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    width: auto !important;
+    max-width: none !important;
+    overflow: visible !important;
+    position: static !important;
+    transform: none !important;
+
+    /*
+     * And nothing of the dialog's own on the paper. The chain runs through a
+     * backdrop and a rounded white card, and left alone they print as a grey
+     * margin down two edges and a curved corner on a business document — the
+     * shop's invoice with a screenshot of a dialog around it.
+     */
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    animation: none !important;
   }
 
-  body:has(.print-document) .print-document,
-  body:has(.print-document) .print-document * {
-    visibility: visible;
+  body:has(.print-document) > *:not(:has(.print-document)):not(.print-document),
+  body:has(.print-document) *:has(.print-document) > *:not(:has(.print-document)):not(.print-document) {
+    display: none !important;
   }
 
   body:has(.print-document) .print-document {
-    position: absolute;
-    top: 0;
-    left: 0;
     width: 100%;
     margin: 0;
     padding: 0;

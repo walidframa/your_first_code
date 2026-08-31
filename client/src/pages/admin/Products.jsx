@@ -62,6 +62,7 @@ const emptyForm = {
   image_url: '',
   tracks_units: false,
   is_sim: false,
+  is_service: false,
 };
 
 function ProductModal({ product, categories, allProducts, onClose, onSaved, onCategories }) {
@@ -85,6 +86,7 @@ function ProductModal({ product, categories, allProducts, onClose, onSaved, onCa
           image_url: product.image_url || '',
           tracks_units: Boolean(product.tracks_units),
           is_sim: Boolean(product.is_sim),
+          is_service: Boolean(product.is_service),
         }
       : emptyForm,
   );
@@ -179,6 +181,11 @@ function ProductModal({ product, categories, allProducts, onClose, onSaved, onCa
       tracks_units: form.tracks_units,
       // A product that is not serialised cannot be a SIM.
       is_sim: form.tracks_units && form.is_sim,
+      is_service: form.is_service,
+      // Nothing to count and nothing to reorder. Sent as zero rather than left
+      // as whatever was in the box before the switch was flicked, so a service
+      // does not carry a phantom shelf around with it.
+      ...(form.is_service ? { stock: 0, reorder_point: 0 } : {}),
     };
     try {
       const saved = product
@@ -283,19 +290,26 @@ function ProductModal({ product, categories, allProducts, onClose, onSaved, onCa
             label="Stock on hand"
             type="number"
             step="1"
-            value={form.tracks_units ? '' : form.stock}
+            value={form.tracks_units || form.is_service ? '' : form.stock}
             onChange={set('stock')}
-            disabled={form.tracks_units}
-            hint={form.tracks_units ? 'Counted from the handsets booked in' : undefined}
+            disabled={form.tracks_units || form.is_service}
+            hint={
+              form.is_service
+                ? 'A service has no shelf'
+                : form.tracks_units
+                  ? 'Counted from the handsets booked in'
+                  : undefined
+            }
           />
           <Input
             label="Reorder point"
             type="number"
             step="1"
             min="0"
-            value={form.reorder_point}
+            value={form.is_service ? '' : form.reorder_point}
             onChange={set('reorder_point')}
-            hint="Flag as low at or below this"
+            disabled={form.is_service}
+            hint={form.is_service ? 'Nothing to reorder' : 'Flag as low at or below this'}
           />
           {/*
             * The shelf this goes on, and a way to name a new one without
@@ -370,6 +384,40 @@ function ProductModal({ product, categories, allProducts, onClose, onSaved, onCa
             )}
           </div>
           {/*
+            * Something the shop does, rather than something it has.
+            *
+            * Fitting a screen protector, unlocking a handset, an hour of
+            * labour, a delivery charge. Before this a shop wanting to charge
+            * for one had to invent a product and keep topping its stock up for
+            * ever, because the register greys a tile out at zero and the sale
+            * is refused with "Not enough stock".
+            */}
+          <label className="col-span-2 flex items-start gap-2.5 rounded-xl bg-slate-50 px-3 py-2.5 ring-1 ring-slate-200">
+            <input
+              type="checkbox"
+              checked={form.is_service}
+              onChange={(e) =>
+                setForm((f) => ({
+                  ...f,
+                  is_service: e.target.checked,
+                  // The two are opposites: one is a thing with a serial on it,
+                  // the other is not a thing at all.
+                  tracks_units: e.target.checked ? false : f.tracks_units,
+                  is_sim: e.target.checked ? false : f.is_sim,
+                }))
+              }
+              className="mt-0.5 h-4 w-4 rounded border-slate-300 accent-brand-600"
+            />
+            <span>
+              <span className="block text-sm font-medium text-slate-800">This is a service</span>
+              <span className="block text-xs text-slate-500">
+                Labour, a fitting, a delivery charge. It sells and invoices like anything else and
+                never runs out. Leave the cost at zero unless somebody is paid for it.
+              </span>
+            </span>
+          </label>
+
+          {/*
             * Phones are sold one identified handset at a time; screen
             * protectors are not. The choice is per product so both live in one
             * catalogue.
@@ -378,6 +426,7 @@ function ProductModal({ product, categories, allProducts, onClose, onSaved, onCa
             <input
               type="checkbox"
               checked={form.tracks_units}
+              disabled={form.is_service}
               onChange={(e) =>
                 setForm((f) => ({
                   ...f,
@@ -579,9 +628,11 @@ export default function Products() {
       band: 'Stock',
       label: 'Stock',
       cell: (p) =>
-        /* A card cannot be out of stock, and saying so on every one of them
-           would bury the products that genuinely are. */
-        p.wallet_id ? (
+        /* Neither a card nor a service can be out of stock, and saying so on
+           every one of them would bury the products that genuinely are. */
+        p.is_service ? (
+          <Badge tone="neutral">Service</Badge>
+        ) : p.wallet_id ? (
           <Badge tone="brand">Card · {p.wallet_name}</Badge>
         ) : (
           <StockBadge stock={p.stock} reorderPoint={p.reorder_point} />
