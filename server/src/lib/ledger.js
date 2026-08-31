@@ -152,12 +152,23 @@ export function archiveAccount(id) {
 
 /* ---------------------------------------------------------------- entries */
 
-/** JV-0001, and the next one after that. */
+/**
+ * JV-0001, and the next one after that.
+ *
+ * The **highest** number, not the last row written. Those were the same thing
+ * until vouchers could be renumbered into date order: renumbering makes the
+ * most recently inserted row JV-0001 if it happens to be the oldest, and a
+ * next-number read off `ORDER BY id DESC` then hands out JV-0002 — which
+ * exists. The next entry a shop tried to post died on the unique index with a
+ * message about a constraint, on a screen about a delivery.
+ */
 function nextEntryNumber() {
-  const last = db
-    .prepare("SELECT entry_number FROM journal_entries WHERE entry_number LIKE 'JV-%' ORDER BY id DESC LIMIT 1")
-    .get()?.entry_number;
-  const n = last ? Number(String(last).replace('JV-', '')) || 0 : 0;
+  const { n } = db
+    .prepare(
+      `SELECT COALESCE(MAX(CAST(SUBSTR(entry_number, 4) AS INTEGER)), 0) AS n
+       FROM journal_entries WHERE entry_number LIKE 'JV-%'`,
+    )
+    .get();
   return `JV-${String(n + 1).padStart(4, '0')}`;
 }
 

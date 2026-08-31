@@ -3,6 +3,12 @@ import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { balanceSheet, incomeStatement } from '../lib/financialStatements.js';
 import { branchScope } from '../lib/branchScope.js';
 import {
+  renumber,
+  renumberPreview,
+  transferAccount,
+  transferPreview,
+} from '../lib/ledgerHousekeeping.js';
+import {
   ACCOUNT_TYPES,
   accountLedger,
   accountById,
@@ -332,6 +338,63 @@ router.get('/income-statement', ...books, (req, res) => {
 
 router.get('/balance-sheet', ...books, (req, res) => {
   res.json(balanceSheet({ asAt: req.query.asAt || null, branchId: branchScope(req) }));
+});
+
+/*
+ * Two operations on books already written — see lib/ledgerHousekeeping.js for
+ * why they are allowed at all. Each has a preview, because a shop should be
+ * able to read what will happen in its own numbers before it happens.
+ */
+router.get('/renumber/preview', ...books, (req, res) => {
+  try {
+    res.json(
+      renumberPreview({
+        from: req.query.from || null,
+        to: req.query.to || null,
+        startAt: req.query.startAt || 1,
+      }),
+    );
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post('/renumber', ...books, (req, res) => {
+  try {
+    res.json(renumber({ from: req.body?.from || null, to: req.body?.to || null, startAt: req.body?.startAt || 1 }));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.get('/transfer/preview', ...books, (req, res) => {
+  try {
+    res.json(
+      transferPreview({
+        fromAccountId: Number(req.query.fromAccountId),
+        toAccountId: Number(req.query.toAccountId),
+        from: req.query.from || null,
+        to: req.query.to || null,
+      }),
+    );
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post('/transfer', ...books, (req, res) => {
+  try {
+    res.json(
+      transferAccount({
+        fromAccountId: Number(req.body?.fromAccountId),
+        toAccountId: Number(req.body?.toAccountId),
+        from: req.body?.from || null,
+        to: req.body?.to || null,
+      }),
+    );
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
 });
 
 export default router;

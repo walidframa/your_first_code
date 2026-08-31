@@ -2,6 +2,7 @@ import {
   ArrowLeftRight,
   BarChart3,
   FileBarChart,
+  Hash,
   Banknote,
   CircleDollarSign,
   CalendarClock,
@@ -170,6 +171,9 @@ export const ADMIN_NAV = [
       /* The line under a year: the earnings swept into retained earnings, and
          the period shut so nothing can be posted back into it. */
       { to: '/admin/closing', label: 'Financial closing', icon: Lock, permission: 'ledger' },
+      /* Beside closing, because both are things done to books already
+         written and both refuse to touch a closed period. */
+      { to: '/admin/housekeeping', label: 'Housekeeping', icon: Hash, permission: 'ledger' },
       /* The second axis: what an account cannot say — which part of the shop
          the money belonged to, and where it was. */
       { to: '/admin/cost-centres', label: 'Cost centres', icon: Split, permission: 'ledger' },
