@@ -102,7 +102,7 @@ function IntakeModal({ onClose, onSaved }) {
   }
 
   return (
-    <Modal open onClose={saving ? undefined : onClose} title="Take a device in" size="lg">
+    <Modal open onClose={saving ? undefined : onClose} title="Take a device in" size="full">
       <form onSubmit={submit} className="grid grid-cols-2 gap-3">
         <CustomerField
           value={form}
@@ -301,7 +301,7 @@ function TicketModal({ id, onClose, onChanged }) {
   const paid = Number(ticket.paid_usd || 0) > 0 || Number(ticket.paid_lbp || 0) > 0;
 
   return (
-    <Modal open onClose={onClose} title={ticket.ticket_number} subtitle={ticket.device} size="xl">
+    <Modal open onClose={onClose} title={ticket.ticket_number} subtitle={ticket.device} size="full">
       <div className="grid grid-cols-2 gap-5">
         <div className="space-y-4">
           {/*

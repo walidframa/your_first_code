@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowRight, Ban, PackageCheck, Plus, Search, Truck, X } from 'lucide-react';
 import api from '../../api';
 import PageHeader from '../../components/PageHeader';
@@ -76,9 +76,28 @@ function SendDialog({ branches, from, onClose, onSent }) {
       .slice(0, 6);
   }, [products, search, lines]);
 
+  /*
+   * Where the cursor goes after a line is added.
+   *
+   * Straight into that line's quantity box, selected, so the next thing typed
+   * is the number — the same loop the purchase invoice uses, and the reason a
+   * delivery of thirty lines can be booked in without touching the mouse.
+   */
+  const focusQuantity = useRef(null);
+  const searchRef = useRef(null);
+
+  useEffect(() => {
+    if (!focusQuantity.current) return;
+    const box = document.querySelector(`[data-qty-for="${focusQuantity.current}"]`);
+    focusQuantity.current = null;
+    box?.focus();
+    box?.select?.();
+  }, [lines]);
+
   function add(product) {
     setLines((l) => [...l, { productId: product.id, name: product.name, available: product.stock, quantity: 1 }]);
     setSearch('');
+    focusQuantity.current = product.id;
   }
 
   const setQuantity = (productId, quantity) =>
@@ -125,7 +144,7 @@ function SendDialog({ branches, from, onClose, onSent }) {
   };
 
   return (
-    <Modal open onClose={onClose} title="Send stock" subtitle={`Out of ${from.name}`} size="lg">
+    <Modal open onClose={onClose} title="Send stock" subtitle={`Out of ${from.name}`} size="full">
       <form onSubmit={submit} className="space-y-4">
         <Select
           label="To which branch"
@@ -150,8 +169,24 @@ function SendDialog({ branches, from, onClose, onSent }) {
               className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-slate-400"
             />
             <input
+              ref={searchRef}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
+              /*
+               * **Enter adds the top match. It does not send the transfer.**
+               *
+               * A single line of text in a form is submitted by Enter — that is
+               * what browsers do — so typing a product name and pressing Enter,
+               * which is what anybody does, sent the whole transfer. With one
+               * line on it, or none. The scanner is worse: it types the code
+               * and presses Enter itself, so scanning the first box of a
+               * delivery dispatched it.
+               */
+              onKeyDown={(e) => {
+                if (e.key !== 'Enter') return;
+                e.preventDefault();
+                if (matches[0]) add(matches[0]);
+              }}
               placeholder="Search or scan what you are sending…"
               aria-label="Find a product to send"
               className="h-10 w-full rounded-lg bg-white pr-3 pl-9 text-sm ring-1 ring-edge focus:ring-2 focus:ring-brand-600 focus:outline-none"
@@ -183,12 +218,28 @@ function SendDialog({ branches, from, onClose, onSent }) {
                 <li key={line.productId} className="flex items-center gap-3 rounded-lg bg-slate-50 px-3 py-2">
                   <span className="min-w-0 flex-1 truncate text-sm text-slate-800">{line.name}</span>
                   <span className="text-xs text-slate-400">{line.available} here</span>
+                  {/*
+                    * Text rather than number, so `select()` works.
+                    *
+                    * `select()` does nothing on `type="number"` — the spec does
+                    * not define a selection for it — so the cursor arrived
+                    * beside the 1 that is already there and typing 12 gave 112.
+                    * `inputMode` still brings up the number pad on a phone.
+                    */}
                   <input
-                    type="number"
-                    min="1"
-                    max={line.available}
+                    type="text"
+                    inputMode="numeric"
+                    data-qty-for={line.productId}
                     value={line.quantity}
-                    onChange={(e) => setQuantity(line.productId, e.target.value)}
+                    onChange={(e) => setQuantity(line.productId, e.target.value.replace(/\D/g, ''))}
+                    onFocus={(e) => e.target.select()}
+                    /* Back to the search for the next line, rather than sending
+                       what is on the transfer so far. */
+                    onKeyDown={(e) => {
+                      if (e.key !== 'Enter') return;
+                      e.preventDefault();
+                      searchRef.current?.focus();
+                    }}
                     aria-label={`How many ${line.name}`}
                     className="tnum h-8 w-16 rounded-lg bg-white px-2 text-right text-sm ring-1 ring-edge focus:ring-2 focus:ring-brand-600 focus:outline-none"
                   />

@@ -227,7 +227,7 @@ function ProductModal({ product, categories, allProducts, onClose, onSaved, onCa
   }
 
   return (
-    <Modal open onClose={onClose} title={product ? 'Edit product' : 'New product'} size="lg">
+    <Modal open onClose={onClose} title={product ? 'Edit product' : 'New product'} size="full">
       {confirmConvert && (
         <div className="mb-3 rounded-xl bg-amber-50 px-4 py-3 ring-1 ring-amber-200">
           <p className="text-sm font-medium text-amber-900">

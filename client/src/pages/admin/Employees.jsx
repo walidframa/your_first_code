@@ -264,7 +264,7 @@ function EmployeeModal({ id, onClose, onChanged }) {
 
   if (!detail) {
     return (
-      <Modal open onClose={onClose} title="Employee" size="lg">
+      <Modal open onClose={onClose} title="Employee" size="full">
         <Skeleton className="h-64" />
       </Modal>
     );

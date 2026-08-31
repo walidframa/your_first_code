@@ -49,9 +49,23 @@ const BUTTON_VARIANTS = {
   subtle: 'bg-slate-100 text-slate-700 hover:bg-slate-200 active:bg-slate-300',
 };
 
+/*
+ * Sizes a finger can land on.
+ *
+ * `md` is the one nearly every button in the app uses, and it was 40 pixels
+ * tall. `sm` — every row's edit and archive — was 32. Both are under the 44
+ * that a finger hits reliably, and this app is used on a counter touchscreen as
+ * often as on a machine with a mouse: the same reasoning that made the currency
+ * switches bigger applies to the buttons beside them, and applies to more of
+ * them.
+ *
+ * Four pixels each. Enough to clear the line, small enough that no row grows a
+ * step taller and no toolbar wraps — both checked on the screens that pack the
+ * most buttons into a row.
+ */
 const BUTTON_SIZES = {
-  sm: 'h-8 px-3 text-sm gap-1.5',
-  md: 'h-10 px-4 text-sm gap-2',
+  sm: 'h-9 px-3 text-sm gap-1.5',
+  md: 'h-11 px-4 text-sm gap-2',
   lg: 'h-12 px-5 text-base gap-2',
   xl: 'h-14 px-6 text-lg gap-2.5',
 };
@@ -337,7 +351,29 @@ export function Modal({ open, onClose, title, subtitle, children, footer, size =
 
   if (!open) return null;
 
-  const sizes = { sm: 'max-w-sm', md: 'max-w-lg', lg: 'max-w-2xl', xl: 'max-w-4xl' };
+  /*
+   * `full` is the one a form should be in.
+   *
+   * The rest are dialogs in the ordinary sense — a question, a confirmation, a
+   * couple of fields. A form is not that. The product editor has fifteen
+   * fields, the repair intake has a device and a fault and a customer, and at
+   * 672px they were two cramped columns with a scrollbar, which is what a
+   * shopkeeper means by "it feels like a popup".
+   *
+   * Wide enough for the work and as tall as the window, so it reads as the page
+   * it is. Still a dialog underneath, deliberately: several of these are opened
+   * from the middle of something else — a customer created while writing an
+   * invoice, a product created while taking a repair in — and a route change
+   * would take that half-finished thing away. The frame changes; what happens
+   * when you close it does not.
+   */
+  const sizes = {
+    sm: 'max-w-sm',
+    md: 'max-w-lg',
+    lg: 'max-w-2xl',
+    xl: 'max-w-4xl',
+    full: 'max-w-6xl h-[92dvh]',
+  };
 
   /*
    * Out to the end of the document, rather than wherever it was written.
@@ -420,22 +456,25 @@ export function Modal({ open, onClose, title, subtitle, children, footer, size =
 }
 
 /**
- * A dialog's buttons, pinned to the bottom of it.
+ * A dialog's buttons, at the end of the form rather than floating over it.
  *
- * A long form scrolls, and buttons that scroll with it end up half off the
- * bottom edge — which is exactly where somebody looks for "Save". Sticky rather
- * than in the modal's own footer slot, because it lives inside the scrolling
- * area and so needs no restructuring of the form above it: the fields keep
- * their order, and the buttons simply stop at the bottom of the frame.
+ * They used to be `sticky bottom-0`, so they hung above whatever the form was
+ * showing. Two things wrong with that, and the shop reported both. Buttons that
+ * float over the fields are a strip of the form nobody can read — asked for
+ * plainly: *"do not make the cancel and create draft button float on the
+ * screen"*. And the trick only holds while the content is taller than the
+ * frame; in a page-sized dialog it is not, and the bar settles part-way up with
+ * live fields visible underneath it, which looks like the dialog is broken.
  *
- * The negative margins pull it out to the dialog's full width so the content
- * scrolling underneath is covered rather than showing through at the edges.
+ * So they sit where they belong: after the last field, ruled off, and reached
+ * by scrolling like everything else. The same shape the full-page document form
+ * uses, which is the one the shop said felt right.
  */
 export function ModalActions({ children, className }) {
   return (
     <div
       className={cx(
-        'sticky bottom-0 z-10 -mx-5 -mb-4 mt-5 flex items-center gap-2 border-t border-slate-100 bg-white px-5 py-3',
+        '-mx-5 -mb-4 mt-6 flex items-center gap-2 border-t border-rule bg-white px-5 py-4',
         className,
       )}
     >

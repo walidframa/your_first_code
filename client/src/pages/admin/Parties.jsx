@@ -132,7 +132,7 @@ function PartyForm({ party, config, onClose, onSaved }) {
   }
 
   return (
-    <Modal open onClose={onClose} title={party ? `Edit ${config.single}` : `New ${config.single}`} size="lg">
+    <Modal open onClose={onClose} title={party ? `Edit ${config.single}` : `New ${config.single}`} size="full">
       <form onSubmit={submit} className="space-y-4">
         <div className="grid grid-cols-2 gap-3">
           <Input label="Name" value={form.name} onChange={set('name')} required autoFocus className="col-span-2" />
