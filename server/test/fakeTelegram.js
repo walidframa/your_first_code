@@ -66,5 +66,30 @@ export function createFakeTelegram() {
       }
       return null;
     },
+
+    /**
+     * Wait for the message this test is about, not merely for a message.
+     *
+     * The queue is emptied before each test, which is not the same as it being
+     * empty during one. A notification is sent and forgotten — the request that
+     * triggered it has already answered — so the previous test's message can
+     * arrive *after* the clear and be sitting there when this test looks.
+     * `waitForMessage()` returns the moment any message exists, and a test
+     * reading `messages[0]` then asserts about the one that arrived late.
+     *
+     * It is a race decided by how quickly the notification lands: it held on a
+     * developer's machine and broke on a slower CI runner, which is the worst
+     * way round for a test to fail. Waiting for the message that matches is
+     * immune to it.
+     */
+    async waitForMatch(pattern, timeoutMs = 5000) {
+      const deadline = Date.now() + timeoutMs;
+      while (Date.now() < deadline) {
+        const found = state.messages.find((m) => pattern.test(m.text));
+        if (found) return found;
+        await new Promise((r) => setTimeout(r, 25));
+      }
+      return null;
+    },
   };
 }

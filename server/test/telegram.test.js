@@ -329,8 +329,12 @@ test('a customer’s name cannot smuggle markup into the message', async () => {
     customerId: customer.id,
   });
 
-  const messages = await telegram.waitForMessage();
-  assert.match(messages[0].text, /Ahmad &lt;b&gt;Phones&lt;\/b&gt;/, 'escaped, so it reads as the name it is');
+  /* Waited for by name rather than read off the front of the queue: the
+     previous test's notification is fire-and-forget and can land after the
+     queue was emptied, which is what broke this on CI and not here. */
+  const message = await telegram.waitForMatch(/Ahmad/);
+  assert.ok(message, 'no message carried the customer at all');
+  assert.match(message.text, /Ahmad &lt;b&gt;Phones&lt;\/b&gt;/, 'escaped, so it reads as the name it is');
 });
 
 test('the preview is the same wording the message will use', async () => {
