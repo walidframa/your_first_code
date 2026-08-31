@@ -28,12 +28,25 @@ export function useWindowedRows({ count, estimate = 44, overscan = 10 }) {
    * drifts by whole rows a thousand down the list, and the symptom — the last
    * rows unreachable, or a gap under the last one — looks like a scrolling bug
    * rather than a wrong constant.
+   *
+   * Measured exactly **once**, and that is the whole safety of it. Rows are not
+   * quite identical — one has a badge another does not, a name wraps where the
+   * next does not — so measuring whichever row happens to be at the top of the
+   * window feeds a slightly different height back in every time the window
+   * moves. Each new height moves the window, which lands on a different row,
+   * which reports a different height: the render loop never settles and React
+   * gives up on the screen. That is the crash this comment exists to prevent
+   * ever being reintroduced by somebody "keeping the measurement fresh".
    */
   const [rowHeight, setRowHeight] = useState(estimate);
+  const measured = useRef(false);
   const measureRow = useCallback((node) => {
-    if (!node) return;
-    const measured = node.getBoundingClientRect().height;
-    if (measured > 0) setRowHeight((current) => (Math.abs(current - measured) > 0.5 ? measured : current));
+    if (!node || measured.current) return;
+    const height = node.getBoundingClientRect().height;
+    if (height > 0) {
+      measured.current = true;
+      setRowHeight(height);
+    }
   }, []);
 
   const [range, setRange] = useState({ start: 0, end: Math.min(count, 60) });
@@ -74,8 +87,14 @@ export function useWindowedRows({ count, estimate = 44, overscan = 10 }) {
     };
   }, [count, rowHeight, overscan]);
 
-  const start = Math.min(range.start, Math.max(0, count - 1));
-  const end = Math.min(range.end, count);
+  /*
+   * Clamped against the count as it is now. Typing in the search box can take
+   * the list from two thousand rows to three between a scroll and its render,
+   * and a window still pointing at row 1,400 would ask for a slice past the end
+   * and pad the table by sixty thousand pixels of nothing.
+   */
+  const start = Math.max(0, Math.min(range.start, Math.max(0, count - 1)));
+  const end = Math.max(start, Math.min(range.end, count));
 
   return {
     scrollRef,

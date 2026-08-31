@@ -21,11 +21,31 @@ const MAX_RESULTS = 50;
  * the register, where the stock is in a grid on the left, and no use at all in
  * a dialog where this box is the only way in.
  */
-export default function ProductLineSearch({ products, onPick, onCreateNew, priceField = 'price' }) {
+export default function ProductLineSearch({
+  products,
+  onPick,
+  onCreateNew,
+  priceField = 'price',
+  /*
+   * The box itself, handed out so the screen around it can put the cursor back
+   * here when a line is finished. Typing in a delivery is search, quantity,
+   * price, search, quantity, price — a loop, and the loop has to close without
+   * anybody reaching for the mouse.
+   */
+  inputRef: exposedRef = null,
+  /*
+   * Whether picking a product leaves the cursor in this box. It used to,
+   * always, which is right when the next thing you want is another product and
+   * wrong when it is the quantity of the one just added — and the quantity is
+   * what the shop wants nine times out of ten.
+   */
+  keepFocus = true,
+}) {
   const [term, setTerm] = useState('');
   const [highlight, setHighlight] = useState(0);
   const [focused, setFocused] = useState(false);
-  const inputRef = useRef(null);
+  const ownRef = useRef(null);
+  const inputRef = exposedRef || ownRef;
   const blurTimer = useRef(null);
 
   const query = term.trim().toLowerCase();
@@ -55,7 +75,7 @@ export default function ProductLineSearch({ products, onPick, onCreateNew, price
     onPick(product);
     setTerm('');
     setHighlight(0);
-    inputRef.current?.focus();
+    if (keepFocus) inputRef.current?.focus();
   }
 
   function onKeyDown(e) {
