@@ -57,6 +57,26 @@ const proxy = {
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react(), tailwindcss(), stampServiceWorker()],
+  build: {
+    /*
+     * Media queries a shop's browser can actually read.
+     *
+     * Left alone, the CSS ships modern range syntax — `@media (width>=40rem)`
+     * — which needs Chrome 104, Safari 16.4 or Firefox 102. A browser older
+     * than that does not merely mis-handle the rule, it cannot parse it at
+     * all, so it throws away every one of them. And because the styling is
+     * mobile-first, throwing away the wide-screen rules leaves the narrow
+     * layout: the counter monitor renders the phone app, every screen of it,
+     * with nothing in the console to say why.
+     *
+     * The till in a shop is not a developer's laptop. It is whatever was on
+     * the counter when the shop opened, and it does not update itself. So the
+     * output is lowered to `min-width`, which every browser since about 2012
+     * understands, and the modern syntax buys nothing here that is worth a
+     * shop being unable to use its own register.
+     */
+    cssTarget: ['chrome87', 'edge88', 'firefox78', 'safari14'],
+  },
   server: {
     port: 5173,
     proxy,
