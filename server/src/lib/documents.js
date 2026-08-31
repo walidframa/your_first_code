@@ -248,6 +248,14 @@ function applyDocumentStock(doc, items, userId, direction, note) {
     }
 
     /*
+     * A service is something the shop does, not something it has. It belongs on
+     * the invoice and in the books and nowhere near a shelf — so no movement,
+     * and no stock adjustment logged either: a count that never happened would
+     * turn up in the product's history as though it had.
+     */
+    if (product.is_service) continue;
+
+    /*
      * A serialised product does not move as a quantity. On a delivery the line
      * carries the IMEIs off the boxes and they become the stock; stock is then
      * recounted from the units rather than added to, so the two cannot drift.

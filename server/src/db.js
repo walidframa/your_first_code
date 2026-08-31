@@ -2039,6 +2039,25 @@ addColumn('products', 'credits_included', 'REAL');
  * Null rather than zero for "there isn't one", which is most of the catalogue.
  * Zero would mean the shop gives it away.
  */
+/**
+ * A thing the shop does, rather than a thing it has.
+ *
+ * Fitting a screen protector, unlocking a handset, an hour of labour, a
+ * delivery charge. It is sold, it is invoiced, it earns money — and there is no
+ * shelf it comes off. The app had no way to say that, so a shop wanting to
+ * charge for labour had to invent a product and keep its stock topped up
+ * forever, because the register disables a tile at zero and the sale is refused
+ * with "Not enough stock".
+ *
+ * One flag, and everything about a shelf stops applying to it: no count, no
+ * reorder point, no stock movement when it sells, nothing to transfer between
+ * branches and nothing to find in a stock take. Its cost defaults to zero,
+ * which for most services is the truth — the shop's own time is not bought in
+ * — but a real cost can still be entered where one exists, so the margin on a
+ * job with a subcontractor behind it is honest.
+ */
+addColumn('products', 'is_service', 'INTEGER NOT NULL DEFAULT 0');
+
 addColumn('products', 'wholesale_price', 'REAL');
 
 /*

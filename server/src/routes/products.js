@@ -43,6 +43,23 @@ function serializeProduct(p, { codes = undefined, branchId = null, here = undefi
  * One has no quantity at all, the other has a quantity of exactly one with a
  * number stamped on it, and a product claiming both would satisfy neither.
  */
+/**
+ * A service is not a thing, so it cannot be a thing with a serial on it.
+ *
+ * Enforced here rather than only in the form, because the form is not the
+ * boundary — an import, a script or somebody's curl reaches the same column. A
+ * product claiming both would satisfy neither rule: stock counted from
+ * handsets that cannot exist.
+ *
+ * The service wins rather than the request being refused. It is the answer the
+ * shop just gave, and refusing a product because two boxes disagree teaches
+ * nobody anything.
+ */
+function settleService({ isService, tracksUnits, isSim }) {
+  if (!isService) return { is_service: 0, tracks_units: tracksUnits ? 1 : 0, is_sim: isSim ? 1 : 0 };
+  return { is_service: 1, tracks_units: 0, is_sim: 0 };
+}
+
 function walletProblem(walletId, tracksUnits) {
   if (walletId === undefined || walletId === null || walletId === '') return null;
   const wallet = db.prepare('SELECT * FROM wallets WHERE id = ?').get(walletId);
@@ -337,17 +354,18 @@ router.post('/', requireAuth, requirePermission('catalogue'), (req, res) => {
     name, sku, price, cost, stock, category_id, image_emoji, barcode, supplier, image_url,
     reorder_point, tracks_units, warranty_months, wallet_id, is_sim,
     validity_days, linked_card_id, credit_recovered, credit_wallet_id, credits_included,
-    wholesale_price,
+    wholesale_price, is_service,
   } = req.body || {};
   if (!name || !sku || price == null) {
     return res.status(400).json({ error: 'name, sku and price are required' });
   }
-  const problem = walletProblem(wallet_id, tracks_units);
+  const kind = settleService({ isService: is_service, tracksUnits: tracks_units, isSim: is_sim });
+  const problem = walletProblem(wallet_id, kind.tracks_units);
   if (problem) return res.status(400).json({ error: problem });
   try {
     const info = db.prepare(`
-      INSERT INTO products (name, sku, price, cost, stock, category_id, image_emoji, barcode, supplier, image_url, reorder_point, tracks_units, warranty_months, wallet_id, is_sim, validity_days, linked_card_id, credit_recovered, credit_wallet_id, credits_included, wholesale_price)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO products (name, sku, price, cost, stock, category_id, image_emoji, barcode, supplier, image_url, reorder_point, tracks_units, warranty_months, wallet_id, is_sim, validity_days, linked_card_id, credit_recovered, credit_wallet_id, credits_included, wholesale_price, is_service)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       name,
       sku,
@@ -365,12 +383,12 @@ router.post('/', requireAuth, requirePermission('catalogue'), (req, res) => {
       // Serialised stock starts empty whatever the form said: the handsets are
       // booked in by IMEI, and a typed opening quantity would be a number with
       // no phones behind it.
-      tracks_units ? 1 : 0,
+      kind.tracks_units,
       Math.max(0, Math.round(Number(warranty_months) || 0)),
       wallet_id || null,
       // A SIM is always serialised — the number on it is the whole point, and
       // there is no such thing as "four SIMs" without saying which four.
-      is_sim ? 1 : 0,
+      kind.is_sim,
       /*
        * A validity card can be born already linked. Creating it blank and
        * linking it afterwards works too, but a shop adding a card it has just
@@ -384,6 +402,8 @@ router.post('/', requireAuth, requirePermission('catalogue'), (req, res) => {
       // Null rather than zero for "there isn't a trade price": zero would mean
       // the shop hands it to the trade for nothing.
       tradePrice(wholesale_price),
+      // Something the shop does rather than something it has — see db.js.
+      kind.is_service,
     );
     /*
      * The opening count lands on the shelf of the branch it was entered at —
@@ -393,7 +413,10 @@ router.post('/', requireAuth, requirePermission('catalogue'), (req, res) => {
      * booked in by IMEI, and a typed quantity would be a number with no phones
      * behind it.
      */
-    if (tracks_units) {
+    if (kind.tracks_units || kind.is_service) {
+      /* Serialised stock is booked in by IMEI, and a service has no shelf at
+         all; either way a typed opening quantity is a number with nothing
+         behind it. */
       clearStockEverywhere(info.lastInsertRowid);
     } else if (Number.isFinite(Number(stock)) && Number(stock) !== 0) {
       setStock({ branchId: req.branchId, productId: info.lastInsertRowid, stock: Number(stock) });
@@ -512,6 +535,7 @@ router.put('/:id', requireAuth, requirePermission('catalogue'), (req, res) => {
     // What the trade pays, which is neither a discount off the shelf price nor
     // a markup on the cost — see the column's own note in db.js.
     'wholesale_price',
+    'is_service',
   ];
   const updates = {};
   for (const f of fields) {
@@ -557,12 +581,33 @@ router.put('/:id', requireAuth, requirePermission('catalogue'), (req, res) => {
   if (switchingTracking && updates.tracks_units) merged.stock = 0;
 
   /*
+   * The same rule as on the way in, on a product being changed: turning
+   * something into a service takes the serial tracking off it, because a
+   * service is not a thing with a number stamped on it.
+   */
+  Object.assign(
+    merged,
+    settleService({
+      isService: merged.is_service,
+      tracksUnits: merged.tracks_units,
+      isSim: merged.is_sim,
+    }),
+  );
+
+  /*
+   * And its shelf goes with it. A product with twelve on the shelf that becomes
+   * a delivery charge must not leave twelve deliveries behind in the stock
+   * figures, on the stock take, or in what the branch thinks it owns.
+   */
+  if (merged.is_service && !product.is_service) clearStockEverywhere(product.id);
+
+  /*
    * A typed count means the shelf in front of whoever typed it. Written through
    * lib/stock.js and left out of the UPDATE below, which no longer touches the
    * stock column at all — that one is the company total, refreshed from the
    * branches.
    */
-  if (updates.stock !== undefined && !merged.tracks_units && !merged.wallet_id) {
+  if (updates.stock !== undefined && !merged.tracks_units && !merged.wallet_id && !merged.is_service) {
     setStock({ branchId: req.branchId, productId: product.id, stock: Number(updates.stock) || 0 });
   }
 
@@ -571,7 +616,7 @@ router.put('/:id', requireAuth, requirePermission('catalogue'), (req, res) => {
       active = ?, barcode = ?, supplier = ?, image_url = ?, reorder_point = ?, tracks_units = ?,
       warranty_months = ?, wallet_id = ?, is_sim = ?,
       validity_days = ?, linked_card_id = ?, credit_recovered = ?, credit_wallet_id = ?,
-      credits_included = ?, wholesale_price = ?
+      credits_included = ?, wholesale_price = ?, is_service = ?
     WHERE id = ?
   `).run(
     merged.name,
@@ -595,6 +640,7 @@ router.put('/:id', requireAuth, requirePermission('catalogue'), (req, res) => {
     merged.credit_wallet_id || null,
     Number(merged.credits_included) || null,
     tradePrice(merged.wholesale_price),
+    merged.is_service ? 1 : 0,
     req.params.id
   );
 
