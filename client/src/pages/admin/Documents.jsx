@@ -1135,7 +1135,16 @@ function DocumentDetail({ id, onClose, onChanged, onDeleted }) {
    * offering to change it would be offering something it cannot do.
    */
   const [tills, setTills] = useState(null);
-  const [till, setTill] = useState('');
+  /*
+   * Empty until the shop *changes* it, and that is the whole point.
+   *
+   * This used to be seeded with whatever the server said it would use, and then
+   * sent back on Confirm — which turned the app's own default into the shop's
+   * explicit choice. An explicit choice is held to the open-drawer rule, so a
+   * shop whose only till was a closed drawer got the refusal handed straight
+   * back to it: the fix worked, and the screen undid it on the way out.
+   */
+  const [chosenTill, setChosenTill] = useState('');
 
   const load = useCallback(() => {
     api.get(`/documents/${id}`).then((res) => setData(res.data));
@@ -1156,7 +1165,6 @@ function DocumentDetail({ id, onClose, onChanged, onDeleted }) {
     api.get(`/documents/${id}/settlement`).then((res) => {
       if (!live) return;
       setTills(res.data);
-      setTill(String(res.data.accountId ?? ''));
     });
     return () => {
       live = false;
@@ -1476,10 +1484,21 @@ function DocumentDetail({ id, onClose, onChanged, onDeleted }) {
         * a drawer is still allowed, and then it has to be open, so a closed one
         * says so here instead of failing on the click.
         */}
-      {settlesInCash && tills?.accounts?.length > 1 && (
+      {settlesInCash && tills && (tills.accounts.length > 1 || tills.willCreate) && (
         <div className="no-print mt-5 flex flex-wrap items-center gap-2 rounded-md border border-edge bg-slate-50 px-3 py-2">
           <span className="text-sm text-slate-600">Paying from</span>
-          <Select value={till} onChange={(e) => setTill(e.target.value)} className="min-w-0 flex-1 sm:max-w-64">
+          <Select
+            value={chosenTill || String(tills.accountId ?? '')}
+            onChange={(e) => setChosenTill(e.target.value)}
+            className="min-w-0 flex-1 sm:max-w-64"
+          >
+            {/*
+              * The office's cash before it exists. Confirming is what creates
+              * it — see openingOfficeCash — so it has no id to carry, and an
+              * empty value is exactly right: it means "let the app decide",
+              * which is what sends no accountId at all.
+              */}
+            {tills.willCreate && <option value="">{tills.name}</option>}
             {tills.accounts.map((a) => (
               <option
                 key={a.id}
@@ -1517,7 +1536,7 @@ function DocumentDetail({ id, onClose, onChanged, onDeleted }) {
             onClick={() =>
               act(
                 'confirm',
-                till ? { accountId: Number(till) } : null,
+                chosenTill ? { accountId: Number(chosenTill) } : null,
                 `${doc.doc_number} confirmed`,
               )
             }
