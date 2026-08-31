@@ -1046,14 +1046,17 @@ function DocumentForm({ existing, startAs = null, page = false, onClose, onSaved
           {error && <p className="text-sm text-red-600">{error}</p>}
 
           {/*
-            * On a page the buttons ride at the bottom of the window rather than
-            * at the bottom of the document. A long invoice scrolls; Save must
-            * not scroll away with it.
+            * At the end of the document, not floating over it.
+            *
+            * They were pinned to the bottom of the window so Save could not
+            * scroll away — which sounds right and reads wrong: a bar sitting on
+            * top of the invoice takes a strip of the screen on every line
+            * typed, to save a keystroke on the one moment the form is finished.
+            * The form is short enough to reach the end of, and the end of a
+            * document is where anybody looks for the thing that files it.
             */}
           {page ? (
-            <div className="sticky bottom-0 -mx-4 mt-2 flex gap-2 border-t border-edge bg-white px-4 py-3 sm:-mx-6 sm:px-6">
-              {actions}
-            </div>
+            <div className="mt-2 flex gap-2 border-t border-edge px-1 pt-4">{actions}</div>
           ) : (
             <ModalActions>{actions}</ModalActions>
           )}
