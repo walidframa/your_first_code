@@ -1127,6 +1127,16 @@ function DocumentDetail({ id, onClose, onChanged, onDeleted }) {
   const [editing, setEditing] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
 
+  /*
+   * Which till this one is settled through.
+   *
+   * Only asked for while it still matters — a draft with cash on it. Once
+   * confirmed the money has moved and the answer is history, and a picker
+   * offering to change it would be offering something it cannot do.
+   */
+  const [tills, setTills] = useState(null);
+  const [till, setTill] = useState('');
+
   const load = useCallback(() => {
     api.get(`/documents/${id}`).then((res) => setData(res.data));
   }, [id]);
@@ -1134,6 +1144,24 @@ function DocumentDetail({ id, onClose, onChanged, onDeleted }) {
   useEffect(() => {
     load();
   }, [load]);
+
+  const settlesInCash =
+    data?.document.status === 'draft' &&
+    data.document.payment_method === 'cash' &&
+    data.document.paid_total > 0;
+
+  useEffect(() => {
+    if (!settlesInCash) return;
+    let live = true;
+    api.get(`/documents/${id}/settlement`).then((res) => {
+      if (!live) return;
+      setTills(res.data);
+      setTill(String(res.data.accountId ?? ''));
+    });
+    return () => {
+      live = false;
+    };
+  }, [id, settlesInCash]);
 
   async function remove() {
     setError('');
@@ -1439,6 +1467,33 @@ function DocumentDetail({ id, onClose, onChanged, onDeleted }) {
       </div>
       </div>
 
+      {/*
+        * Where the money comes from, said out loud before it moves.
+        *
+        * The default is the shop's working cash rather than the register, so a
+        * bill can be paid with the counter shut — which is what an owner
+        * settling a supplier at nine in the morning is actually doing. Choosing
+        * a drawer is still allowed, and then it has to be open, so a closed one
+        * says so here instead of failing on the click.
+        */}
+      {settlesInCash && tills?.accounts?.length > 1 && (
+        <div className="no-print mt-5 flex flex-wrap items-center gap-2 rounded-md border border-edge bg-slate-50 px-3 py-2">
+          <span className="text-sm text-slate-600">Paying from</span>
+          <Select value={till} onChange={(e) => setTill(e.target.value)} className="min-w-0 flex-1 sm:max-w-64">
+            {tills.accounts.map((a) => (
+              <option
+                key={a.id}
+                value={a.id}
+                disabled={a.kind === 'drawer' && !a.open && tills.requiresOpenDrawer}
+              >
+                {a.name}
+                {a.kind === 'drawer' && !a.open ? ' — closed' : ''}
+              </option>
+            ))}
+          </Select>
+        </div>
+      )}
+
       {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
 
       <div className="no-print mt-5 flex flex-wrap gap-2">
@@ -1457,7 +1512,16 @@ function DocumentDetail({ id, onClose, onChanged, onDeleted }) {
         )}
 
         {doc.status === 'draft' && (
-          <Button loading={busy} onClick={() => act('confirm', null, `${doc.doc_number} confirmed`)}>
+          <Button
+            loading={busy}
+            onClick={() =>
+              act(
+                'confirm',
+                till ? { accountId: Number(till) } : null,
+                `${doc.doc_number} confirmed`,
+              )
+            }
+          >
             <Check size={15} /> Confirm
           </Button>
         )}

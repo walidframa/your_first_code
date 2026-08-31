@@ -19,7 +19,13 @@ import {
   settlement,
   totalsFor,
 } from '../lib/documents.js';
-import { currentSession, defaultAccountId, requiresSession } from '../lib/cash.js';
+import {
+  currentSession,
+  needsOfficeCash,
+  openingOfficeCash,
+  requiresSession,
+  settlementAccountId,
+} from '../lib/cash.js';
 import { round2 } from '../lib/currency.js';
 import { documentMessage, sendable } from '../lib/whatsapp.js';
 import { notify } from '../lib/telegram.js';
@@ -90,6 +96,40 @@ router.get('/:id', requireAuth, requirePermission('documents'), (req, res) => {
   const found = getDocument(req.params.id);
   if (!found) return res.status(404).json({ error: 'Document not found' });
   res.json(found);
+});
+
+/**
+ * Which till this document would settle through, and what else it could.
+ *
+ * Confirming used to pick a till in silence, and the shop found out which one
+ * only by reading the drawer count afterwards and wondering. The office cash is
+ * the sensible default but it is not the only possible answer — a shop that
+ * genuinely paid a supplier out of the register drawer needs to be able to say
+ * so — and a default nobody can see or change is a guess with extra steps.
+ *
+ * Drawers are offered along with everything else, each saying whether it is
+ * open, because "closed" is the whole reason one of them cannot be chosen.
+ */
+router.get('/:id/settlement', requireAuth, requirePermission('documents'), (req, res) => {
+  const doc = db.prepare('SELECT branch_id FROM documents WHERE id = ?').get(req.params.id);
+  if (!doc) return res.status(404).json({ error: 'Document not found' });
+
+  const branchId = doc.branch_id ?? req.branchId ?? null;
+  const accounts = db
+    .prepare(
+      `SELECT id, name, kind FROM cash_accounts
+       WHERE active = 1 AND (? IS NULL OR branch_id = ? OR kind != 'drawer')
+       ORDER BY is_default DESC, name`,
+    )
+    .all(branchId, branchId)
+    .map((a) => ({ ...a, open: !!currentSession(a.id) }));
+
+  res.json({
+    accountId: settlementAccountId(branchId),
+    // A shift is a drawer's business and nothing else's — see lib/cash.js.
+    requiresOpenDrawer: requiresSession(),
+    accounts,
+  });
 });
 
 /**
@@ -300,7 +340,10 @@ router.put('/:id', requireAuth, requirePermission('documents'), (req, res) => {
           itemsOf(doc.id),
           req.user.id,
           `Edited ${doc.doc_number}`,
-          req.body?.accountId ?? null,
+          // The same till the confirm step would have used, for the same
+          // reason: an edit re-applies the payment, and it must land where the
+          // original did rather than in whichever drawer the fallback found.
+          req.body?.accountId ?? settlementAccountId(req.branchId),
         );
       }
     })();
@@ -323,39 +366,52 @@ router.post('/:id/confirm', requireAuth, requirePermission('documents'), (req, r
   }
 
   /*
-   * `accountId` says which drawer the money went into. Left out it falls to
-   * the shop's default till, which is right for a shop that has one and
-   * wrong for a shop whose office keeps its own float.
+   * Which till the money came out of, or went into.
+   *
+   * Resolved to a real account here rather than left null and worked out again
+   * further down, because the two answers used to differ. The check below asked
+   * `defaultAccountId(req.branchId)` — this branch's first account — while the
+   * movement it was guarding fell all the way through to `defaultAccountId()`
+   * with no branch, which is the *company's* default till. At a second branch
+   * those are different drawers, so the app could refuse to confirm because one
+   * drawer was shut and, once opened, put the money in another.
+   *
+   * Told nothing, this is the office's cash rather than the counter's — see
+   * `settlementAccountId`. Paperwork is settled at a desk; a shift at the
+   * register is somebody else's business.
    */
-  const accountId = req.body?.accountId ?? null;
+  const chosen = req.body?.accountId ?? null;
+  let accountId = chosen ?? settlementAccountId(req.branchId);
 
   /*
-   * The cashbox the money is coming out of has to be open, and this is the
-   * check every other way of moving cash in this app already makes — the
-   * register, a transfer, a voucher, a repair. Documents did not, and that was
-   * the bug: a shop whose default account was its safe rather than its counter
-   * drawer confirmed a purchase invoice in cash, and because nobody had opened
-   * the safe the money was recorded nowhere. The supplier's statement said
-   * paid; the cash never moved.
+   * A shut drawer used to be the end of it.
    *
-   * Named, rather than "the cashbox": with more than one account the whole
-   * question is *which*, and being told to open something without being told
-   * what is not an answer.
+   * The rule itself is sound — money must not leave a till nobody has opened,
+   * or the count at the end of the shift is against a figure the drawer never
+   * held — but it was being applied to money that was never in that till. An
+   * owner paying a supplier at nine in the morning is not raiding the register;
+   * they are paying out of the shop's own cash, and the app refused because it
+   * had only ever been told about the one place.
+   *
+   * So a drawer is asked to be open only when the shop picked it: `chosen`
+   * below. Left to the app, a closed drawer means the money came from the
+   * office, and the office's cash gets a name — see `openingOfficeCash`.
    */
-  if (doc.payment_method === 'cash' && paidUsdEquivalent(doc) > 0 && requiresSession()) {
-    const account = accountId ?? defaultAccountId(req.branchId);
-    const till = db.prepare('SELECT kind, name FROM cash_accounts WHERE id = ?').get(account);
-    /*
-     * Only a drawer. A safe or an office float is a standing balance rather
-     * than a shift — see recordMovement — so it does not have to be opened
-     * before money can come out of it, and asking the shop to would be a till
-     * ritual applied to something that is not a till.
-     */
-    if (till?.kind === 'drawer' && !currentSession(account)) {
+  const settlesInCash = doc.payment_method === 'cash' && paidUsdEquivalent(doc) > 0;
+
+  if (settlesInCash && needsOfficeCash(accountId)) {
+    if (chosen) {
+      /*
+       * Named, rather than "the cashbox": with more than one account the whole
+       * question is *which*, and being told to open something without being
+       * told what is not an answer.
+       */
+      const till = db.prepare('SELECT name FROM cash_accounts WHERE id = ?').get(accountId);
       return res.status(400).json({
-        error: `${till.name || 'The cashbox'} is closed — open it before settling this in cash`,
+        error: `${till?.name || 'The cashbox'} is closed — open it, or settle this from the shop’s cash instead`,
       });
     }
+    accountId = openingOfficeCash(req.branchId);
   }
 
   try {
