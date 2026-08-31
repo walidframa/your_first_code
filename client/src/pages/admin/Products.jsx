@@ -24,6 +24,7 @@ import BundleEditor from '../../components/BundleEditor';
 import ColumnPicker from '../../components/ColumnPicker';
 import { useColumns } from '../../lib/tableColumns';
 import { useWindowedRows } from '../../lib/windowedRows';
+import { useRevalidate } from '../../lib/revalidate';
 import UnitsPanel from '../../components/UnitsPanel';
 import { useSettings, lbp } from '../../context/SettingsContext';
 import {
@@ -556,6 +557,10 @@ export default function Products() {
     load();
   }, [load]);
 
+  /* And again, quietly, whenever this screen is looked at afresh — see
+     lib/revalidate.js. */
+  useRevalidate(load);
+
   async function toggleArchive(product) {
     if (product.active) await api.delete(`/products/${product.id}`);
     else await api.put(`/products/${product.id}`, { active: true });
@@ -1055,7 +1060,7 @@ export default function Products() {
                     ))}
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-50">
+                <tbody className="divide-y divide-rule">
                   {/*
                     * Two spacers holding open the rows that are not rendered,
                     * so the scrollbar is the length of the whole catalogue and

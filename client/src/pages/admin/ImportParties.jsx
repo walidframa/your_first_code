@@ -388,7 +388,7 @@ export default function ImportParties({ partyType }) {
                   <th className="px-3 py-2 font-medium"> </th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-rule">
                 {preview.parties.map((p) => (
                   <tr key={p.code || p.name} className="border-t border-edge">
                     <td className="px-3 py-1.5 text-slate-800">{p.name}</td>

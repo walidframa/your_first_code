@@ -3,6 +3,7 @@ import { ArrowDownRight, ArrowUpRight, History, Search, SlidersHorizontal } from
 import api from '../../api';
 import PageHeader from '../../components/PageHeader';
 import { when } from '../../lib/when';
+import { useRevalidate } from '../../lib/revalidate';
 import {
   Button,
   Card,
@@ -158,7 +159,7 @@ function HistoryModal({ product, onClose }) {
       ) : movements.length === 0 ? (
         <EmptyState icon={History} title="No movements yet" description="Adjustments and imports appear here." />
       ) : (
-        <ul className="divide-y divide-slate-100">
+        <ul className="divide-y divide-rule">
           {movements.map((m) => (
             <li key={m.id} className="flex items-start gap-3 py-2.5">
               <div
@@ -210,6 +211,10 @@ export default function Inventory() {
   useEffect(() => {
     load();
   }, [load]);
+
+  /* And again, quietly, whenever this screen is looked at afresh — see
+     lib/revalidate.js. */
+  useRevalidate(load);
 
   const products = (data?.products || []).filter((p) => {
     const term = search.trim().toLowerCase();
@@ -310,7 +315,7 @@ export default function Inventory() {
                         <th className="px-5 py-2.5 text-right font-medium">Actions</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-50">
+                    <tbody className="divide-y divide-rule">
                       {products.map((p) => (
                         <tr key={p.id} className="hover:bg-slate-50/60">
                           <td className="px-5 py-2.5">

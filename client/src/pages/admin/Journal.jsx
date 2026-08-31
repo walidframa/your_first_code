@@ -98,7 +98,7 @@ export default function Journal() {
                   <th className="w-28 px-2 py-2 text-right font-medium">Amount</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-rule">
                 {entries.map((e) => (
                   <tr
                     key={e.id}
@@ -208,7 +208,7 @@ function EntryDialog({ accounts, centres, areas, onClose, onSaved }) {
                 <th className="w-10 px-2 py-2" />
               </tr>
             </thead>
-            <tbody>
+            <tbody className="divide-y divide-rule">
               {lines.map((l) => (
                 <tr key={l.key} className="border-t border-slate-100">
                   <td className="px-2 py-1.5">
@@ -383,7 +383,7 @@ function EntryView({ id, onClose, onChanged }) {
                   <th className="w-28 px-2 py-2 text-right font-medium">Credit</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-rule">
                 {entry.lines.map((l) => (
                   <tr key={l.id} className="border-t border-slate-100">
                     <td className="px-3 py-2">

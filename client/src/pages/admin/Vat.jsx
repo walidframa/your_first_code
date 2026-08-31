@@ -197,7 +197,7 @@ export default function Vat() {
 
             <Card className="overflow-hidden">
               <table className="w-full text-sm">
-                <tbody>
+                <tbody className="divide-y divide-rule">
                   <Row label="Sales in this period, before tax" value={money(report.netSales)} />
                   <Row label="Rate you charge" value={`${report.rate}%`} />
                   <Row
@@ -343,7 +343,7 @@ function SettleModal({ report, name, accounts, from, to, onClose, onDone, onErro
 
         <Card className="overflow-hidden">
           <table className="w-full text-sm">
-            <tbody>
+            <tbody className="divide-y divide-rule">
               <Row label={`${name} charged, cleared`} value={money(report.output)} />
               <Row label={`${name} paid, reclaimed`} value={money(report.input)} />
               <Row

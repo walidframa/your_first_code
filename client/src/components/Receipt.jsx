@@ -385,7 +385,7 @@ function Sheet({ order, items, tenders, rate, totalLbp, changeText, reprint, t }
               <th className="w-28 py-2 pl-2 text-right font-semibold">Amount</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody className="divide-y divide-rule">
             {items.map((item, n) => (
               <tr key={item.id} className={cx('doc-row border-b border-slate-100', n % 2 === 1 && 'bg-slate-50/60')}>
                 <td className="tnum py-2.5 pr-2 text-right align-top text-xs text-slate-400">{n + 1}</td>

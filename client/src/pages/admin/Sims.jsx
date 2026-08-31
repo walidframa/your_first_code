@@ -271,7 +271,7 @@ export default function Sims() {
                   <th className="px-5 py-2 font-medium">Sold on</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-50">
+              <tbody className="divide-y divide-rule">
                 {sims.map((s) => (
                   <tr key={s.id}>
                     <td className="tnum px-5 py-2.5 font-medium text-slate-800">{s.msisdn}</td>

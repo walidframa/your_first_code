@@ -120,7 +120,7 @@ export default function Closing() {
                 {preview.from ? `${preview.from} to ${preview.to}` : `Everything up to ${preview.to}`}
               </div>
               <table className="w-full text-sm">
-                <tbody>
+                <tbody className="divide-y divide-rule">
                   <tr className="border-b border-slate-100 bg-slate-50/60">
                     <td colSpan={2} className="px-4 py-1.5 text-xs font-semibold text-slate-600">
                       What it earned
@@ -167,7 +167,7 @@ export default function Closing() {
                 Lines already drawn
               </div>
               <table className="w-full text-sm">
-                <tbody>
+                <tbody className="divide-y divide-rule">
                   {data.closings.map((c) => (
                     <tr key={c.id} className="border-t border-slate-100 first:border-t-0">
                       <td className="px-4 py-2.5">

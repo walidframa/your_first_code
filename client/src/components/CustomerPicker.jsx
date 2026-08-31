@@ -103,7 +103,7 @@ export default function CustomerPicker({ customer, onChange }) {
             }
           />
         ) : (
-          <ul className="max-h-80 divide-y divide-slate-100 overflow-y-auto">
+          <ul className="max-h-80 divide-y divide-rule overflow-y-auto">
             {visible.map((c) => (
               <li key={c.id}>
                 <button

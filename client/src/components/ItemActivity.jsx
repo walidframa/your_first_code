@@ -123,7 +123,7 @@ export default function ItemActivity({ productId, onClose, onOpenDocument, onOpe
           </p>
           <div className="mb-4 max-h-32 overflow-y-auto rounded-xl ring-1 ring-slate-100">
             <table className="w-full text-sm">
-              <tbody className="divide-y divide-slate-50">
+              <tbody className="divide-y divide-rule">
                 {costHistory.map((c) => {
                   const up = c.previous_cost !== null && c.cost > c.previous_cost;
                   const Icon = up ? TrendingUp : TrendingDown;
@@ -164,7 +164,7 @@ export default function ItemActivity({ productId, onClose, onOpenDocument, onOpe
       ) : (
         <div className="max-h-80 overflow-y-auto rounded-xl ring-1 ring-slate-100">
           <table className="w-full text-sm">
-            <tbody className="divide-y divide-slate-50">
+            <tbody className="divide-y divide-rule">
               {activity.map((a, i) => {
                 const meta = KINDS[a.kind] || KINDS.adjustment;
                 const Icon = meta.icon;

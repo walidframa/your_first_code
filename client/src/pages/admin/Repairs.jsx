@@ -685,7 +685,7 @@ export default function Repairs() {
                   <th className="px-5 py-2 font-medium">Status</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-50">
+              <tbody className="divide-y divide-rule">
                 {shown.map((t) => (
                   <tr
                     key={t.id}

@@ -27,6 +27,7 @@ import { useAuth } from '../../context/AuthContext';
 import ProductLineSearch, { AddFreeTextButton } from '../../components/ProductLineSearch';
 import HistoryFilter from '../../components/HistoryFilter';
 import { useHistoryFilter } from '../../lib/history';
+import { useRevalidate } from '../../lib/revalidate';
 import ProductQuickCreate from '../../components/ProductQuickCreate';
 import PartyQuickCreate from '../../components/PartyQuickCreate';
 import { A4, usePageSize } from '../../lib/pageSize';
@@ -694,7 +695,7 @@ function DocumentForm({ existing, startAs = null, page = false, onClose, onSaved
                       <th className="w-10 px-2 py-2" />
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100">
+                  <tbody className="divide-y divide-rule">
                     {priced.map((l) => (
                       <tr key={l.key} className={cx(l.dearer !== null && 'bg-red-50')}>
                         <td className="px-3 py-2">
@@ -1154,6 +1155,10 @@ function DocumentDetail({ id, onClose, onChanged, onDeleted }) {
     load();
   }, [load]);
 
+  /* And again, quietly, whenever this screen is looked at afresh — see
+     lib/revalidate.js. */
+  useRevalidate(load);
+
   const settlesInCash =
     data?.document.status === 'draft' &&
     data.document.payment_method === 'cash' &&
@@ -1369,7 +1374,7 @@ function DocumentDetail({ id, onClose, onChanged, onDeleted }) {
               <th className="w-28 py-2 pl-2 text-right font-semibold">Amount</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody className="divide-y divide-rule">
             {items.map((i, n) => (
               <tr key={i.id} className={cx('doc-row border-b border-slate-100', n % 2 === 1 && 'bg-slate-50/60')}>
                 <td className="tnum py-2.5 pr-2 text-right align-top text-xs text-slate-400">{n + 1}</td>
@@ -1789,7 +1794,7 @@ export default function Documents() {
                   <th className="px-5 py-2.5 text-right font-medium">Total</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-50">
+              <tbody className="divide-y divide-rule">
                 {visible.map((d) => (
                   <tr key={d.id} onClick={() => setViewing(d.id)} className="cursor-pointer hover:bg-slate-50/60">
                     <td className="px-5 py-2.5 font-medium text-slate-800">{d.doc_number}</td>

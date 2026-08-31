@@ -356,7 +356,7 @@ function DealingItems({ dealing, onClose }) {
                 <th className="w-24 py-2 text-right font-medium">Total</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-50">
+            <tbody className="divide-y divide-rule">
               {items.map((i) => (
                 <tr key={i.id}>
                   <td className="py-2">
@@ -467,7 +467,7 @@ function PartyDetail({ partyId, config, onClose, onChanged }) {
             <h3 className="mb-1.5 text-xs font-semibold tracking-wide text-slate-500 uppercase">
               Sales, invoices, quotations and repairs
             </h3>
-            <ul className="max-h-56 divide-y divide-slate-100 overflow-y-auto rounded-xl ring-1 ring-slate-200">
+            <ul className="max-h-56 divide-y divide-rule overflow-y-auto rounded-xl ring-1 ring-slate-200">
               {dealings.map((d) => (
                 <li key={`${d.kind}-${d.id}`}>
                   {/*
@@ -522,7 +522,7 @@ function PartyDetail({ partyId, config, onClose, onChanged }) {
         {entries.length === 0 ? (
           <EmptyState title="Nothing on account" description="Charges and payments will appear here." />
         ) : (
-          <ul className="divide-y divide-slate-100">
+          <ul className="divide-y divide-rule">
             {entries.map((e) => {
               const source = sourceOf(e, dealings);
               /*
@@ -899,7 +899,7 @@ export default function Parties({ type }) {
                   <th className="px-5 py-2.5 text-right font-medium">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-50">
+              <tbody className="divide-y divide-rule">
                 {visible.map((p) => (
                   <tr
                     key={p.id}

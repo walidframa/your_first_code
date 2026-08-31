@@ -238,7 +238,7 @@ export default function BundleEditor({ productId, value, onChange, products }) {
       </div>
 
       {search.trim() && (
-        <ul className="mt-2 max-h-56 divide-y divide-slate-100 overflow-y-auto rounded-lg bg-white ring-1 ring-slate-200">
+        <ul className="mt-2 max-h-56 divide-y divide-rule overflow-y-auto rounded-lg bg-white ring-1 ring-slate-200">
           {matches.length === 0 ? (
             <li className="px-3 py-3 text-center text-sm text-slate-400">
               Nothing matches “{search.trim()}”.

@@ -372,7 +372,7 @@ function StatementDialog({ wallet, onClose }) {
               <th className="py-2 text-right font-medium">Amount</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-50">
+          <tbody className="divide-y divide-rule">
             {data.movements.map((m) => (
               <tr key={m.id}>
                 <td className="py-2 text-slate-500">{when(m.created_at)}</td>
@@ -832,7 +832,7 @@ export default function Cards() {
                           <th className="px-5 py-2" />
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-50">
+                      <tbody className="divide-y divide-rule">
                         {list.map((c) => {
                           const margin = Math.round((c.price - c.cost) * 100) / 100;
                           return (

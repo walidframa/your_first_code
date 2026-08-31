@@ -553,7 +553,7 @@ export default function Import() {
                       <th className="px-4 py-2 font-medium">Action</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-50">
+                  <tbody className="divide-y divide-rule">
                     {preview.rows.map((row) => (
                       <tr key={row.line} className={row.action === 'error' ? 'bg-red-50/50' : ''}>
                         <td className="tnum px-4 py-2 text-slate-400">{row.line}</td>

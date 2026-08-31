@@ -149,6 +149,8 @@ export default function SplitPayment({ total, customer, submitting, onConfirm, o
                 name={`usd-${row.id}`}
                 value={row.usd}
                 onChange={(v) => set(row.id, { usd: v })}
+                /* There is a Pounds box beside this one. */
+                switchable={false}
               />
               {/* An account row is a figure in dollars — nobody owes pounds and
                   dollars separately, they owe one balance. */}
@@ -159,6 +161,7 @@ export default function SplitPayment({ total, customer, submitting, onConfirm, o
                   currency="LBP"
                   value={row.lbpAmount}
                   onChange={(v) => set(row.id, { lbpAmount: v })}
+                  switchable={false}
                 />
               )}
             </div>

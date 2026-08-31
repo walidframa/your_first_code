@@ -714,7 +714,7 @@ export default function Transfers() {
                         <th className="px-5 py-2.5" />
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-50">
+                    <tbody className="divide-y divide-rule">
                       {data.transfers.map((t) => {
                         const cancelled = t.status === 'cancelled';
                         return (
