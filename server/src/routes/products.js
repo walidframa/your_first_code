@@ -133,9 +133,18 @@ router.patch('/categories/:id', requireAuth, requirePermission('catalogue'), (re
   const category = db.prepare('SELECT * FROM categories WHERE id = ?').get(req.params.id);
   if (!category) return res.status(404).json({ error: 'Category not found' });
 
+  /* Left alone when the caller does not mention it, so renaming a category
+     cannot quietly take it off the register. */
+  const onRegister =
+    req.body?.onRegister === undefined ? category.on_register : req.body.onRegister ? 1 : 0;
+
   try {
-    db.prepare('UPDATE categories SET name = ? WHERE id = ?').run(name.trim(), category.id);
-    res.json({ category: { ...category, name: name.trim() } });
+    db.prepare('UPDATE categories SET name = ?, on_register = ? WHERE id = ?').run(
+      name.trim(),
+      onRegister,
+      category.id,
+    );
+    res.json({ category: { ...category, name: name.trim(), on_register: onRegister } });
   } catch {
     // Renaming onto a name already taken. Merging two categories is a
     // different job with different consequences, so it is not done by accident.

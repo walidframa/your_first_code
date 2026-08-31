@@ -62,6 +62,19 @@ export default function CategoryManager({ onClose, onChanged }) {
     }
   }
 
+  /*
+   * Whether this shelf gets a chip on the register.
+   *
+   * A tick rather than a screen of its own: it is one fact about a category and
+   * this is the list of categories. Sent on its own so it does not wait on the
+   * name being edited — the common use is going down the list ticking three of
+   * forty, and having to open each one to rename it first would be the same
+   * chore this exists to end.
+   */
+  async function setOnRegister(c, on) {
+    await run(() => api.patch(`/products/categories/${c.id}`, { name: c.name, onRegister: on }));
+  }
+
   async function rename(id) {
     if (!draft.trim()) return setEditingId(null);
     if (await run(() => api.patch(`/products/categories/${id}`, { name: draft.trim() }))) {
@@ -214,6 +227,19 @@ export default function CategoryManager({ onClose, onChanged }) {
                     <span className="shrink-0 text-xs text-slate-400">
                       {c.product_count} product{c.product_count === 1 ? '' : 's'}
                     </span>
+                    <label
+                      className="flex shrink-0 cursor-pointer items-center gap-1.5 text-xs text-slate-500"
+                      title="Show this category as a filter on the register"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={Boolean(c.on_register)}
+                        onChange={(e) => setOnRegister(c, e.target.checked)}
+                        disabled={busy}
+                        className="size-4 accent-brand-600"
+                      />
+                      On register
+                    </label>
                     <Button
                       size="sm"
                       variant="ghost"

@@ -392,6 +392,22 @@ db.exec(`
   for (const row of orphaned) insert.run(row.id, row.barcode.replace(/\s+/g, ''));
 }
 addColumn('products', 'supplier', 'TEXT');
+
+/*
+ * Whether a category earns a chip on the register.
+ *
+ * A shop that imports a supplier's catalogue inherits that supplier's filing —
+ * forty families, most of which mean nothing at the counter. The register drew
+ * a chip for every one of them, so the row above the products became a wall of
+ * words to read past before reaching the products themselves.
+ *
+ * Off by default, and deliberately: the shops that hit this have dozens of
+ * categories and want three. Ticking three is a minute's work; untangling
+ * forty is the state they are complaining about. The categories themselves are
+ * untouched — this is only about the chip row, and every product stays filed
+ * exactly where it was.
+ */
+addColumn('categories', 'on_register', 'INTEGER NOT NULL DEFAULT 0');
 addColumn('products', 'reorder_point', 'INTEGER NOT NULL DEFAULT 5');
 
 // Dual-currency tender. Prices are held in USD; these record what was actually

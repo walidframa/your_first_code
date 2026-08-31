@@ -144,6 +144,21 @@ if (seed.status !== 0) {
   const put = shop.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)');
   put.run('tax_enabled', 'true');
   put.run('tax_percent', '8');
+
+  /*
+   * One shelf put on the counter screen.
+   *
+   * Categories are off the register until a shop asks for one — an imported
+   * catalogue brings its supplier's filing with it and the chip row became a
+   * wall of words. The suite needs one there to test that the filter narrows
+   * the grid, and it is set here rather than clicked because the step that
+   * needs it runs as the cashier, who may not reorganise the catalogue. Snacks
+   * is deliberately left off, so the same step can check that a shelf nobody
+   * asked for stays off.
+   */
+  shop
+    .prepare("UPDATE categories SET on_register = 1 WHERE name IN ('Bakery', 'Recharge')")
+    .run();
   shop.close();
 }
 
