@@ -186,7 +186,7 @@ function EntryDialog({ accounts, centres, areas, onClose, onSaved }) {
   }
 
   return (
-    <Modal open onClose={onClose} title="New journal entry" subtitle="Both columns have to agree" size="xl">
+    <Modal open onClose={onClose} title="New journal entry" subtitle="Both columns have to agree" size="full">
       <form onSubmit={submit} className="space-y-4">
         <div className="grid grid-cols-3 gap-3">
           <Input label="Date" name="entryDate" type="date" value={entryDate} onChange={(e) => setEntryDate(e.target.value)} required />

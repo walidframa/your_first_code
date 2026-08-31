@@ -3721,6 +3721,59 @@ try {
     await page.waitForSelector('text=it has a drawer of its own', { timeout: 15000 });
   });
 
+  /*
+   * Enter adds a line. It does not send the transfer.
+   *
+   * A form with one line of text in it is submitted by Enter — that is what
+   * browsers do — so typing a product name and pressing Enter, which is what
+   * anybody does, dispatched the whole transfer with one line on it or none.
+   * A scanner is worse: it types the code and presses Enter itself, so
+   * scanning the first box of a delivery sent it.
+   */
+  await step('on a transfer, Enter adds the line and moves to the quantity', async () => {
+    await goTo('Move stock');
+    await page.waitForSelector('button:has-text("Send stock")', { timeout: 15000 });
+    await page.click('button:has-text("Send stock")');
+    await page.waitForSelector('[role=dialog] >> text=To which branch', { timeout: 10000 });
+
+    await page.fill('input[aria-label="Find a product to send"]', 'Braided');
+    await page.waitForTimeout(400);
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(400);
+
+    // The transfer must still be sitting there, unsent.
+    if (!(await page.locator('[role=dialog]').count())) {
+      throw new Error('Enter in the search sent the transfer');
+    }
+
+    /* And the cursor is on that line's quantity with the 1 selected, so the
+       next thing typed is the number — the loop the purchase invoice uses. */
+    const landed = await page.evaluate(() => {
+      const el = document.activeElement;
+      return {
+        label: el.getAttribute('aria-label'),
+        allSelected: el.selectionStart === 0 && el.selectionEnd === String(el.value).length,
+      };
+    });
+    if (!/^How many /.test(landed.label || '')) {
+      throw new Error(`after Enter the cursor is on "${landed.label}", not a quantity box`);
+    }
+    if (!landed.allSelected) {
+      throw new Error('the quantity is not selected, so typing 12 would give 112');
+    }
+
+    await page.keyboard.type('3');
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(300);
+    if (!(await page.locator('[role=dialog]').count())) {
+      throw new Error('Enter in the quantity sent the transfer');
+    }
+
+    // Left as it was found; the step below sends one for real.
+    await page.click('[role=dialog] button:has-text("Cancel")');
+    await page.waitForTimeout(400);
+  });
+
   await step('stock sent to it leaves this shelf straight away', async () => {
     await goTo('Move stock');
     await page.waitForSelector('button:has-text("Send stock")', { timeout: 15000 });

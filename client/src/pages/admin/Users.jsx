@@ -129,7 +129,7 @@ function StaffModal({ groups, defaults, onClose, onSaved }) {
   }
 
   return (
-    <Modal open onClose={onClose} size="lg" title="Add staff member">
+    <Modal open onClose={onClose} size="full" title="Add staff member">
       <form onSubmit={submit} className="space-y-4">
         <div className="grid grid-cols-2 gap-3">
           <Input label="Full name" value={form.name} onChange={set('name')} required autoFocus />
