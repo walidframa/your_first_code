@@ -632,3 +632,146 @@ test('tracking cannot be switched off once handsets are booked in', async () => 
   assert.equal(res.status, 400);
   assert.match(res.json.error, /Remove this product's units/i);
 });
+
+/**
+ * How a box of numbers becomes a list of handsets.
+ *
+ * Three separators meaning three different things, and the awkward one is the
+ * space: it appears *inside* one number as printed on the box, and *between*
+ * two numbers when a barcode reader's key is a Tab rather than an Enter.
+ *
+ * Before this, a space separated nothing — every one is stripped — so two scans
+ * on the same line were glued into a single thirty-digit "IMEI" and the shop
+ * was told it had given one number for two phones.
+ */
+test('two scans on one line are two handsets, not one long number', async () => {
+  const sup = await supplier();
+  const before = await stockOf(phone.id);
+
+  const doc = await req(
+    'POST',
+    '/documents',
+    {
+      docType: 'purchase_invoice',
+      partyId: sup.id,
+      items: [
+        {
+          productId: phone.id,
+          quantity: 2,
+          price: 300,
+          // Exactly what a Tab-keyed reader leaves behind: no comma, no newline.
+          imeis: '356001000200011 356001000200012',
+        },
+      ],
+    },
+    adminToken,
+  );
+  assert.equal(doc.status, 201, JSON.stringify(doc.json));
+
+  const confirmed = await req('POST', `/documents/${doc.json.document.id}/confirm`, null, adminToken);
+  assert.equal(confirmed.status, 200, JSON.stringify(confirmed.json));
+  assert.equal(await stockOf(phone.id), before + 2);
+
+  for (const imei of ['356001000200011', '356001000200012']) {
+    const found = await req(`GET`, `/units/lookup?imei=${imei}`, null, adminToken);
+    assert.equal(found.json.unit?.imei, imei, `${imei} is on the shelf in its own right`);
+  }
+});
+
+test('but a number typed off the box, spaces and all, is still one handset', async () => {
+  const sup = await supplier();
+  const before = await stockOf(phone.id);
+
+  const doc = await req(
+    'POST',
+    '/documents',
+    {
+      docType: 'purchase_invoice',
+      partyId: sup.id,
+      // How it is actually printed: 35 6001 0002 0002 1.
+      items: [{ productId: phone.id, quantity: 1, price: 300, imeis: '35 6001 0002 0002 1' }],
+    },
+    adminToken,
+  );
+  const confirmed = await req('POST', `/documents/${doc.json.document.id}/confirm`, null, adminToken);
+  assert.equal(confirmed.status, 200, JSON.stringify(confirmed.json));
+
+  assert.equal(await stockOf(phone.id), before + 1, 'one phone, not five');
+  const found = await req('GET', '/units/lookup?imei=356001000200021', null, adminToken);
+  assert.equal(found.json.unit?.imei, '356001000200021');
+});
+
+test('a dual-SIM keeps its pair even when the first number was typed with spaces', async () => {
+  const sup = await supplier();
+  const doc = await req(
+    'POST',
+    '/documents',
+    {
+      docType: 'purchase_invoice',
+      partyId: sup.id,
+      items: [
+        {
+          productId: phone.id,
+          quantity: 1,
+          price: 300,
+          imeis: '35 6001 0002 0003 1, 356001000200039',
+        },
+      ],
+    },
+    adminToken,
+  );
+  const confirmed = await req('POST', `/documents/${doc.json.document.id}/confirm`, null, adminToken);
+  assert.equal(confirmed.status, 200, JSON.stringify(confirmed.json));
+
+  const found = await req('GET', '/units/lookup?imei=356001000200039', null, adminToken);
+  assert.equal(found.json.unit?.imei, '356001000200031', 'both numbers, one handset');
+});
+
+/**
+ * Editing a delivery must not lose the numbers already on it.
+ *
+ * The form loaded a document's lines without their IMEIs, so saving an edit
+ * wiped them — and confirming afterwards said "1 on the line but 0 IMEIs
+ * given" about handsets the shop had entered and could see on the document a
+ * minute earlier. The server always sent them; nothing read them back.
+ */
+test('a saved delivery hands its IMEIs back, so an edit can keep them', async () => {
+  const sup = await supplier();
+  const doc = await req(
+    'POST',
+    '/documents',
+    {
+      docType: 'purchase_invoice',
+      partyId: sup.id,
+      items: [{ productId: phone.id, quantity: 1, price: 300, imeis: '356001000200041' }],
+    },
+    adminToken,
+  );
+  const id = doc.json.document.id;
+
+  const read = await req('GET', `/documents/${id}`, null, adminToken);
+  assert.equal(read.json.items[0].imeis, '356001000200041', 'sent back with the document');
+
+  // The edit the form makes: same numbers, a corrected quantity beside them.
+  const saved = await req(
+    'PUT',
+    `/documents/${id}`,
+    {
+      partyId: sup.id,
+      items: [
+        {
+          productId: phone.id,
+          quantity: 1,
+          price: 320,
+          imeis: read.json.items[0].imeis,
+        },
+      ],
+    },
+    adminToken,
+  );
+  assert.equal(saved.status, 200, JSON.stringify(saved.json));
+  assert.equal((await req('GET', `/documents/${id}`, null, adminToken)).json.items[0].imeis, '356001000200041');
+
+  const confirmed = await req('POST', `/documents/${id}/confirm`, null, adminToken);
+  assert.equal(confirmed.status, 200, JSON.stringify(confirmed.json));
+});

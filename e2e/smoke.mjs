@@ -2836,7 +2836,13 @@ try {
     await imeis.waitFor({ timeout: 15000 });
 
     await page.getByLabel(/Quantity for/i).first().fill('2');
-    await imeis.fill('354111222333441\n354111222333442');
+    /*
+     * A space between them, not a newline — which is what a barcode reader
+     * whose key is a Tab actually leaves in the box. Every space is stripped
+     * from an IMEI, so these two used to be glued into one thirty-digit number
+     * and the line said one handset where the shop had scanned two.
+     */
+    await imeis.fill('354111222333441 354111222333442');
     await page.waitForSelector('text=/2 of 2 handsets/', { timeout: 10000 });
 
     await page.click('button:has-text("Create draft")');

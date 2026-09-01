@@ -343,7 +343,20 @@ router.put('/:id', requireAuth, requirePermission('documents'), (req, res) => {
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       );
       for (const l of lines) {
-        insertItem.run(doc.id, l.productId, l.name, l.sku, l.price, l.quantity, l.lineTotal, l.cost ?? null);
+        insertItem.run(
+          doc.id, l.productId, l.name, l.sku, l.price, l.quantity, l.lineTotal, l.cost ?? null,
+          /*
+           * The handsets on the line, which this statement claimed nine columns
+           * for and only ever supplied eight values to.
+           *
+           * So every edit of a delivery dropped its IMEIs on the floor, and the
+           * confirm afterwards said "1 on the line but 0 IMEIs given" about
+           * numbers the shop had entered and could still see on the document a
+           * minute earlier. Silent, because a missing bound value is null and
+           * null is a perfectly good "no IMEIs typed yet".
+           */
+          l.imeis ?? null,
+        );
       }
 
       // Then apply the edited version, against its new party and totals.
