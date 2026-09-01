@@ -782,7 +782,8 @@ router.put('/:id', requireAuth, requirePermission('catalogue'), (req, res) => {
 
   db.prepare(`
     UPDATE products SET name = ?, sku = ?, price = ?, cost = ?, category_id = ?, image_emoji = ?,
-      active = ?, barcode = ?, supplier = ?, image_url = ?, reorder_point = ?, tracks_units = ?,
+      active = ?, barcode = ?, supplier = ?, image_url = ?, image_source = ?, reorder_point = ?,
+      tracks_units = ?,
       warranty_months = ?, wallet_id = ?, is_sim = ?,
       validity_days = ?, linked_card_id = ?, credit_recovered = ?, credit_wallet_id = ?,
       credits_included = ?, wholesale_price = ?, is_service = ?
@@ -798,6 +799,16 @@ router.put('/:id', requireAuth, requirePermission('catalogue'), (req, res) => {
     merged.barcode || null,
     merged.supplier || null,
     merged.image_url || null,
+    /*
+     * Where the picture came from, saved with it.
+     *
+     * Accepted into `updates` from the day the app started finding pictures and
+     * left out of this statement, so a picture chosen with "Find one" saved
+     * fine and lost its credit line the moment anything else on the product was
+     * edited — which is exactly the sentence a Creative Commons licence is
+     * granted on condition of keeping.
+     */
+    merged.image_source || null,
     Number.isFinite(Number(merged.reorder_point)) ? Number(merged.reorder_point) : 5,
     merged.tracks_units ? 1 : 0,
     Math.max(0, Math.round(Number(merged.warranty_months) || 0)),
