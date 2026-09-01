@@ -29,6 +29,7 @@ import ProductLineSearch, { AddFreeTextButton } from '../../components/ProductLi
 import HistoryFilter from '../../components/HistoryFilter';
 import { useHistoryFilter } from '../../lib/history';
 import { useRevalidate } from '../../lib/revalidate';
+import { clearDraft, readDraft, useDraft } from '../../lib/draft';
 import ProductQuickCreate from '../../components/ProductQuickCreate';
 import PartyQuickCreate from '../../components/PartyQuickCreate';
 import { A4, usePageSize } from '../../lib/pageSize';
@@ -120,17 +121,52 @@ function DocumentForm({ existing, startAs = null, page = false, onClose, onSaved
   const editing = !!existing;
   const doc = existing?.document;
 
-  const [docType, setDocType] = useState(doc?.doc_type || startAs || 'purchase_invoice');
+  /*
+   * What was typed here last time, if the screen was left without saving.
+   *
+   * Tabs are a list of places rather than live screens, so moving to another
+   * one unmounts this form — and a purchase invoice with forty lines on it is
+   * the single most expensive thing in this app to lose. Read once, into a ref,
+   * so a re-render never reaches for it again. See lib/draft.js.
+   *
+   * Keyed on the document *and its kind*.
+   *
+   * Both halves matter. Without the id, two documents share a drawer; without
+   * the kind, a half-written quotation comes back inside the next purchase
+   * invoice somebody starts, carrying that customer and those lines into a
+   * delivery from a supplier. That is not a hypothetical — it is what the
+   * end-to-end suite found within an hour of this being written, and it is a
+   * far worse failure than the lost typing this set out to fix.
+   */
+  const startType = doc?.doc_type || startAs || 'purchase_invoice';
+  const initialDraft = useRef(readDraft(`documents:${doc?.id ?? 'new'}:${startType}`));
+  const draft = initialDraft.current;
+
+  const [docType, setDocType] = useState(draft?.docType || startType);
+  const draftKey = `documents:${doc?.id ?? 'new'}:${docType}`;
   const [parties, setParties] = useState([]);
-  const [partyId, setPartyId] = useState(doc?.party_id ? String(doc.party_id) : '');
+  const [partyId, setPartyId] = useState(
+    draft?.partyId ?? (doc?.party_id ? String(doc.party_id) : ''),
+  );
   const [products, setProducts] = useState([]);
   const [lines, setLines] = useState([]);
-  const [discountPercent, setDiscountPercent] = useState(doc?.discount_percent ?? 0);
+  const [discountPercent, setDiscountPercent] = useState(
+    draft?.discountPercent ?? doc?.discount_percent ?? 0,
+  );
   /*
    * How the document is settled. `account` leaves the whole total owing; `full`
    * settles it at the counter; `part` takes something now and leaves the rest.
    * The amount is held as typed so a half-entered figure is never rounded away
    * mid-keystroke.
+   */
+  /*
+   * How it is settled is deliberately *not* kept in the draft.
+   *
+   * A draft is for what is expensive to retype — the supplier, the lines, the
+   * note off the delivery docket. Three toggles and a figure are not, and
+   * keeping them is how a form comes back with "part paid" ticked and the
+   * amount empty, which leaves Create draft greyed out with nothing on screen
+   * saying why. Cheap to redo, and the wrong thing to guess at.
    */
   const [settleAs, setSettleAs] = useState(() => {
     if (!doc || !doc.paid_total) return 'account';
@@ -142,7 +178,7 @@ function DocumentForm({ existing, startAs = null, page = false, onClose, onSaved
     if (!doc?.paid_total) return '';
     return String(doc.paid_lbp > 0 ? doc.paid_lbp : doc.paid_usd);
   });
-  const [notes, setNotes] = useState(doc?.notes || '');
+  const [notes, setNotes] = useState(draft?.notes ?? doc?.notes ?? '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [quickCreate, setQuickCreate] = useState(null);
@@ -171,7 +207,7 @@ function DocumentForm({ existing, startAs = null, page = false, onClose, onSaved
    * the shop *pays*, and a trade price on it would be two answers to the same
    * question.
    */
-  const [trade, setTrade] = useState(false);
+  const [trade, setTrade] = useState(Boolean(draft?.trade));
 
   const meta = TYPE_META[docType];
   const partyType = meta.party;
@@ -211,8 +247,42 @@ function DocumentForm({ existing, startAs = null, page = false, onClose, onSaved
    * has loaded. A product archived since is kept as a free-text line rather
    * than dropped, which would silently change the document.
    */
+  /*
+   * Seeded once, not on every change to the catalogue.
+   *
+   * It used to re-run whenever `products` changed, which is every time a
+   * product is created from inside the document — so on an invoice being
+   * *edited*, adding a product threw away every line added in this sitting and
+   * put the saved ones back. Running once fixes that as well as leaving a
+   * restored draft alone.
+   */
+  const [seeded, setSeeded] = useState(false);
   useEffect(() => {
-    if (!editing || products.length === 0) return;
+    if (seeded || products.length === 0) return;
+
+    /*
+     * A draft wins over what is on the server, because it is what this person
+     * typed and has not saved. Lines are held as a product *id* rather than the
+     * product itself: a catalogue row now carries its picture as a data URI,
+     * and forty of those is a megabyte of session storage written on a timer.
+     */
+    if (draft?.lines) {
+      setSeeded(true);
+      setLines(
+        draft.lines.map((l) => ({
+          ...l,
+          product: l.productId ? products.find((p) => p.id === l.productId) || null : null,
+        })),
+      );
+      return;
+    }
+
+    if (!editing) {
+      setSeeded(true);
+      return;
+    }
+
+    setSeeded(true);
     setLines(
       existing.items.map((item, i) => {
         const product = products.find((p) => p.id === item.product_id) || null;
@@ -225,7 +295,48 @@ function DocumentForm({ existing, startAs = null, page = false, onClose, onSaved
         };
       }),
     );
-  }, [editing, existing, products]);
+  }, [editing, existing, products, seeded, draft]);
+
+  /*
+   * Changing the kind of a new document leaves nothing behind under the old one.
+   *
+   * The lines on screen follow the change — the same products, priced the other
+   * way round — so the draft moves with them. Left alone, the abandoned key
+   * would sit there waiting to reappear the next time somebody started a
+   * document of the kind they changed away from.
+   */
+  const lastType = useRef(docType);
+  useEffect(() => {
+    if (lastType.current === docType) return;
+    if (!editing) clearDraft(`documents:new:${lastType.current}`);
+    lastType.current = docType;
+  }, [docType, editing]);
+
+  /*
+   * And kept up to date from then on.
+   *
+   * Held back until the lines have been seeded: an empty form saved over the
+   * draft it is about to restore would turn this into a way of losing work.
+   */
+  const discardDraft = useDraft(
+    draftKey,
+    {
+      docType,
+      partyId,
+      discountPercent,
+      notes,
+      trade,
+      lines: lines.map((l) => ({
+        key: l.key,
+        productId: l.product?.id ?? null,
+        name: l.name,
+        quantity: l.quantity,
+        price: l.price,
+        imeis: l.imeis ?? null,
+      })),
+    },
+    { active: seeded },
+  );
 
   /*
    * What this customer paid last time, fetched when they are picked.
@@ -526,6 +637,10 @@ function DocumentForm({ existing, startAs = null, page = false, onClose, onSaved
       const res = editing
         ? await api.put(`/documents/${doc.id}`, payload)
         : await api.post('/documents', { docType, ...payload });
+      // Saved, so there is nothing left unsaved to come back to — and the
+      // form is about to unmount, which is when the draft would be written
+      // back if this were merely a delete.
+      discardDraft();
       toast(`${meta.label} ${res.data.document.doc_number} ${editing ? 'updated' : 'created'}`);
       onSaved(res.data.document.id);
     } catch (err) {
@@ -535,9 +650,27 @@ function DocumentForm({ existing, startAs = null, page = false, onClose, onSaved
     }
   }
 
+  /*
+   * Leaving without saving, by any of the ways out.
+   *
+   * Cancel, the × on the dialog and Escape all mean the same thing — "I do not
+   * want this" — so all three throw the draft away. Only navigating away keeps
+   * it, which is the case the draft exists for.
+   *
+   * It has to be all three. When only the Cancel button cleared it, a document
+   * abandoned with Escape stayed in the drawer and came back inside the *next*
+   * new document somebody started, carrying lines they never typed. That is a
+   * worse failure than the one this feature set out to fix, and it is what the
+   * end-to-end suite caught.
+   */
+  function abandon() {
+    discardDraft();
+    onClose();
+  }
+
   const actions = (
     <>
-      <Button type="button" variant="secondary" onClick={onClose} className="flex-1">
+      <Button type="button" variant="secondary" onClick={abandon} className="flex-1">
         Cancel
       </Button>
       <Button type="submit" className="flex-1" disabled={!valid} loading={saving}>
@@ -1150,7 +1283,7 @@ function DocumentForm({ existing, startAs = null, page = false, onClose, onSaved
       ) : (
         <Modal
           open
-          onClose={onClose}
+          onClose={abandon}
           title={editing ? `Edit ${doc.doc_number}` : 'New document'}
           subtitle={editing ? meta.label : undefined}
           size="xl"

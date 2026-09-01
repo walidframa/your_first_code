@@ -167,7 +167,19 @@ export default function ProductQuickCreate({
                   setNamingCategory('');
                   return;
                 }
-                setForm((f) => ({ ...f, category_id: e.target.value }));
+                const picked = categories.find((c) => String(c.id) === e.target.value);
+                /*
+                 * A phone filed on the phone shelf is tracked by IMEI, without
+                 * being asked again. The shelf was marked once; this is what
+                 * makes that mark show up where the decision is being made.
+                 * Still a tick box — the odd non-phone on that shelf is the
+                 * shop's business, and it can untick it.
+                 */
+                setForm((f) => ({
+                  ...f,
+                  category_id: e.target.value,
+                  tracks_units: lockTrackUnits ? f.tracks_units : Boolean(picked?.tracks_units),
+                }));
               }}
             >
               <option value="">No category</option>

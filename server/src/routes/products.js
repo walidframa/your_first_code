@@ -136,6 +136,61 @@ function priceHistory(productId) {
 }
 
 /**
+ * Put a whole shelf onto IMEI tracking, and say what it cost.
+ *
+ * Everything counted on that shelf, cleared and switched in one transaction —
+ * either the shelf is handsets or it is not, and half of it changed is a
+ * catalogue in two minds. A product already tracked is skipped rather than
+ * cleared again, so pressing this twice is not a second wipe.
+ *
+ * Anything that is not counted stock is left alone: a service has no shelf, and
+ * something sold from a wallet has no handsets. Neither is a phone, and both
+ * would be refused by the product route if this tried.
+ *
+ * Returns what it did, per product, so the screen can say "eleven switched,
+ * forty-three counts cleared" rather than "done".
+ */
+const trackWholeCategory = transaction((categoryId, userId, branchId) => {
+  const products = db
+    .prepare(
+      `SELECT id, name, stock FROM products
+        WHERE category_id = ? AND tracks_units = 0 AND is_service = 0
+          AND wallet_id IS NULL AND is_sim = 0 AND validity_days IS NULL`,
+    )
+    .all(categoryId);
+
+  const note = db.prepare(
+    `INSERT INTO stock_adjustments (product_id, user_id, delta, resulting_stock, reason, note, branch_id)
+     VALUES (?, ?, ?, ?, 'count_correction', ?, ?)`,
+  );
+  const mark = db.prepare('UPDATE products SET tracks_units = 1, stock = 0 WHERE id = ?');
+
+  const done = [];
+  for (const p of products) {
+    if (p.stock > 0) {
+      clearStockEverywhere(p.id);
+      note.run(
+        p.id,
+        userId,
+        -p.stock,
+        0,
+        'Shelf switched to IMEI tracking — book the handsets in by their numbers',
+        /*
+         * Attributed to the counter it was done from, the same as the one-at-a-
+         * time switch on the product screen. The stock itself is cleared at
+         * every branch — a count somewhere else would be just as untrue — but
+         * the note belongs on the history somebody is actually reading.
+         */
+        branchId ?? null,
+      );
+    }
+    mark.run(p.id);
+    done.push({ id: p.id, name: p.name, cleared: p.stock });
+  }
+  return done;
+});
+
+/**
  * The shelves the catalogue is sorted onto.
  *
  * With a count of what is on each, because that is the number that decides
@@ -295,14 +350,39 @@ router.patch('/categories/:id', requireAuth, requirePermission('catalogue'), (re
      cannot quietly take it off the register. */
   const onRegister =
     req.body?.onRegister === undefined ? category.on_register : req.body.onRegister ? 1 : 0;
+  const tracksUnits =
+    req.body?.tracksUnits === undefined ? category.tracks_units : req.body.tracksUnits ? 1 : 0;
 
   try {
-    db.prepare('UPDATE categories SET name = ?, on_register = ? WHERE id = ?').run(
+    db.prepare('UPDATE categories SET name = ?, on_register = ?, tracks_units = ? WHERE id = ?').run(
       name.trim(),
       onRegister,
+      tracksUnits,
       category.id,
     );
-    res.json({ category: { ...category, name: name.trim(), on_register: onRegister } });
+
+    /*
+     * Marking the shelf switches what is already on it.
+     *
+     * The whole point of saying it about a shelf rather than about a product is
+     * that a shop with two hundred handsets should not tick two hundred boxes.
+     * The counts go, because a handset with no number on record is not tracked
+     * — the same clearing the product screen does one at a time, written to the
+     * stock history so the shelf can be reconciled against what it said before.
+     *
+     * Only on the way *on*. Unmarking a shelf stops the default and leaves
+     * every product as it is: untracking one that already carries booked-in
+     * handsets would strand them.
+     */
+    let switched = [];
+    if (tracksUnits && !category.tracks_units) {
+      switched = trackWholeCategory(category.id, req.user.id, req.branchId);
+    }
+
+    res.json({
+      category: { ...category, name: name.trim(), on_register: onRegister, tracks_units: tracksUnits },
+      switched,
+    });
   } catch {
     // Renaming onto a name already taken. Merging two categories is a
     // different job with different consequences, so it is not done by accident.
@@ -509,7 +589,27 @@ router.post('/', requireAuth, requirePermission('catalogue'), (req, res) => {
   if (!name || !sku || price == null) {
     return res.status(400).json({ error: 'name, sku and price are required' });
   }
-  const kind = settleService({ isService: is_service, tracksUnits: tracks_units, isSim: is_sim });
+
+  /*
+   * A phone filed on the phone shelf is tracked by IMEI without anybody saying
+   * so again.
+   *
+   * The shelf was marked once — see `categories.tracks_units` — and this is
+   * what makes that mark mean something for everything added afterwards, rather
+   * than only for what was on it the day it was ticked. A caller that says so
+   * explicitly still wins either way: this is a default, not a rule, and the
+   * odd non-phone filed under Phones is the shop's business.
+   */
+  const shelfTracks =
+    tracks_units === undefined && category_id
+      ? Boolean(db.prepare('SELECT tracks_units FROM categories WHERE id = ?').get(category_id)?.tracks_units)
+      : undefined;
+
+  const kind = settleService({
+    isService: is_service,
+    tracksUnits: tracks_units === undefined ? shelfTracks : tracks_units,
+    isSim: is_sim,
+  });
   const problem = walletProblem(wallet_id, kind.tracks_units);
   if (problem) return res.status(400).json({ error: problem });
   try {
