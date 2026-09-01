@@ -166,7 +166,7 @@ router.post('/:id/movements', requireAuth, requirePermission('cards'), (req, res
   const wallet = db.prepare('SELECT * FROM wallets WHERE id = ?').get(req.params.id);
   if (!wallet) return res.status(404).json({ error: 'Wallet not found' });
 
-  const { kind = 'top_up', amount, note = null } = req.body || {};
+  const { kind = 'top_up', amount, note = null, costUsd = null } = req.body || {};
   if (!['top_up', 'withdrawal', 'adjustment'].includes(kind)) {
     return res.status(400).json({ error: 'kind must be top_up, withdrawal or adjustment' });
   }
@@ -179,8 +179,37 @@ router.post('/:id/movements', requireAuth, requirePermission('cards'), (req, res
   // read on the statement as money added.
   const signed = kind === 'withdrawal' ? -Math.abs(value) : kind === 'top_up' ? Math.abs(value) : value;
 
+  /*
+   * What the shop actually handed over for this credit.
+   *
+   * Distributors sell credit at a discount — $100 of line for $88 — and that
+   * discount is where a shop's margin on sending credit comes from. The column
+   * has always been here and nothing ever filled it in, so every top-up was
+   * recorded as bought at face value and every dollar sent to a customer was
+   * costed at exactly what it was worth. The profit report duly showed the
+   * whole business earning nothing on credit, which is the one figure the owner
+   * most wants from it.
+   *
+   * Only meaningful on a top-up: a withdrawal takes credit off and a correction
+   * agrees with a statement, and neither is a purchase.
+   */
+  let cost = null;
+  if (kind === 'top_up' && costUsd !== null && costUsd !== undefined && costUsd !== '') {
+    cost = Number(costUsd);
+    if (!Number.isFinite(cost) || cost < 0) {
+      return res.status(400).json({ error: 'What you paid has to be a number, or left empty' });
+    }
+  }
+
   try {
-    recordMovement({ walletId: wallet.id, kind, amount: signed, note, userId: req.user.id });
+    recordMovement({
+      walletId: wallet.id,
+      kind,
+      amount: signed,
+      note,
+      userId: req.user.id,
+      costUsd: cost,
+    });
   } catch (err) {
     return res.status(400).json({ error: err.message });
   }

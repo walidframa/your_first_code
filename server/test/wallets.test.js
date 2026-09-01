@@ -331,3 +331,138 @@ test('a pound wallet is charged in pounds and reported in dollars', async () => 
   const spend = movements.find((m) => m.kind === 'sale');
   assert.equal(spend.amount_usd, -10, 'the books stay in dollars whatever the wallet is kept in');
 });
+
+/**
+ * What the credit cost the shop, and what that makes it worth.
+ *
+ * A distributor sells $100 of line for $88, and that discount is the entire
+ * margin on sending credit to a customer. The column for it has always been
+ * here and nothing ever filled it in: every top-up recorded as bought at face
+ * value, so every dollar sent was costed at exactly what it was worth and the
+ * profit screen reported the credit business earning nothing at all.
+ */
+test('a top-up can say what it actually cost, and the basis follows', async () => {
+  const w = (await req('POST', '/wallets', { name: 'Discounted line' }, adminToken)).json.wallet;
+
+  // Bought at face value until somebody says otherwise, which understates the
+  // margin rather than inventing one.
+  assert.equal((await req('GET', '/wallets', null, adminToken)).json.wallets.find((x) => x.id === w.id).cost_basis, 1);
+
+  const res = await req(
+    'POST',
+    `/wallets/${w.id}/movements`,
+    { kind: 'top_up', amount: 100, costUsd: 88 },
+    adminToken,
+  );
+  assert.equal(res.status, 201);
+  assert.equal(res.json.wallet.balance, 100, 'the balance is what arrived, not what was paid');
+  assert.equal(res.json.wallet.cost_basis, 0.88, 'and a dollar of it cost 88 cents');
+});
+
+test('two top-ups at different prices average out', async () => {
+  const w = (await req('POST', '/wallets', { name: 'Two prices' }, adminToken)).json.wallet;
+  await req('POST', `/wallets/${w.id}/movements`, { kind: 'top_up', amount: 100, costUsd: 90 }, adminToken);
+  await req('POST', `/wallets/${w.id}/movements`, { kind: 'top_up', amount: 100, costUsd: 80 }, adminToken);
+
+  const wallet2 = (await req('GET', '/wallets', null, adminToken)).json.wallets.find((x) => x.id === w.id);
+  assert.equal(wallet2.cost_basis, 0.85);
+});
+
+test('a top-up left blank still means face value, and does not drag the average', async () => {
+  const w = (await req('POST', '/wallets', { name: 'Blank cost' }, adminToken)).json.wallet;
+  await req('POST', `/wallets/${w.id}/movements`, { kind: 'top_up', amount: 100, costUsd: 50 }, adminToken);
+  await req('POST', `/wallets/${w.id}/movements`, { kind: 'top_up', amount: 100 }, adminToken);
+
+  // $50 + $100 paid for $200 of line.
+  const wallet2 = (await req('GET', '/wallets', null, adminToken)).json.wallets.find((x) => x.id === w.id);
+  assert.equal(wallet2.cost_basis, 0.75);
+});
+
+test('the cost is a purchase price, so it is ignored on the two that are not purchases', async () => {
+  const w = (await req('POST', '/wallets', { name: 'Not a purchase' }, adminToken)).json.wallet;
+  await req('POST', `/wallets/${w.id}/movements`, { kind: 'top_up', amount: 100, costUsd: 80 }, adminToken);
+
+  await req('POST', `/wallets/${w.id}/movements`, { kind: 'withdrawal', amount: 10, costUsd: 5 }, adminToken);
+  await req('POST', `/wallets/${w.id}/movements`, { kind: 'adjustment', amount: -5, costUsd: 5 }, adminToken);
+
+  const wallet2 = (await req('GET', '/wallets', null, adminToken)).json.wallets.find((x) => x.id === w.id);
+  assert.equal(wallet2.balance, 85, 'both moved the balance');
+  assert.equal(wallet2.cost_basis, 0.8, 'and neither touched what the credit cost');
+});
+
+test('nonsense in the cost is refused rather than stored', async () => {
+  const w = (await req('POST', '/wallets', { name: 'Bad cost' }, adminToken)).json.wallet;
+  for (const bad of ['abc', -5]) {
+    const res = await req(
+      'POST',
+      `/wallets/${w.id}/movements`,
+      { kind: 'top_up', amount: 100, costUsd: bad },
+      adminToken,
+    );
+    assert.equal(res.status, 400, `${bad} should be refused`);
+  }
+  assert.equal((await req('GET', '/wallets', null, adminToken)).json.wallets.find((x) => x.id === w.id).balance, 0);
+});
+
+test('credit sent to a customer is costed at what the credit cost, not at face value', async () => {
+  const w = (
+    await req('POST', '/wallets', { name: 'Alfa line', kind: 'recharge' }, adminToken)
+  ).json.wallet;
+  await req(
+    'PUT',
+    `/wallets/${w.id}`,
+    { sendsCredit: true, smsFee: 0.15, creditPriceLbp: 110000 },
+    adminToken,
+  );
+  await req('POST', `/wallets/${w.id}/movements`, { kind: 'top_up', amount: 100, costUsd: 80 }, adminToken);
+
+  const quoted = await req('GET', `/credit/quote?walletId=${w.id}&amount=10`, null, adminToken);
+  assert.equal(quoted.status, 200, JSON.stringify(quoted.json));
+  assert.equal(quoted.json.costBasis, 0.8);
+
+  /*
+   * The whole point. Face value plus fees is what leaves the balance; 80% of it
+   * is what the shop is really out of pocket, and the difference is the margin
+   * the profit report was missing entirely.
+   */
+  assert.ok(quoted.json.cost > 10, 'the fees come off the same balance');
+  assert.equal(
+    Math.round(quoted.json.cost * 0.8 * 100) / 100,
+    Math.round(quoted.json.realCost * 100) / 100,
+  );
+  assert.ok(quoted.json.realCost < quoted.json.cost, 'costed below face value');
+});
+
+/**
+ * Three things that were settable on the server and on no screen.
+ *
+ * Whether a wallet can send credit at all, what the carrier charges a message,
+ * and what a dollar of credit sells for in pounds. A shop whose carrier charges
+ * something other than the built-in 15 cents had no way to say so, and every
+ * quote at the counter was out by the difference.
+ */
+test('the fee the carrier charges is the shop\'s to set, and changes the quote', async () => {
+  const w = (await req('POST', '/wallets', { name: 'Own fee', kind: 'recharge' }, adminToken)).json.wallet;
+  await req('PUT', `/wallets/${w.id}`, { sendsCredit: true, smsFee: 0.15 }, adminToken);
+  const cheap = (await req('GET', `/credit/quote?walletId=${w.id}&amount=10`, null, adminToken)).json;
+
+  await req('PUT', `/wallets/${w.id}`, { smsFee: 0.5 }, adminToken);
+  const dear = (await req('GET', `/credit/quote?walletId=${w.id}&amount=10`, null, adminToken)).json;
+
+  assert.ok(dear.cost > cheap.cost, 'a dearer carrier costs the shop more');
+  assert.equal(
+    Math.round((dear.cost - cheap.cost) * 100) / 100,
+    Math.round(cheap.smsCount * 0.35 * 100) / 100,
+    'and the difference is exactly the fee, per message',
+  );
+});
+
+test('a wallet that does not send credit is not offered for it', async () => {
+  const w = (await req('POST', '/wallets', { name: 'Gift float', kind: 'gift_card' }, adminToken)).json.wallet;
+  const res = await req('GET', `/credit/quote?walletId=${w.id}&amount=10`, null, adminToken);
+  assert.equal(res.status, 400);
+  assert.match(res.json.error, /not set up to send credit/);
+
+  await req('PUT', `/wallets/${w.id}`, { sendsCredit: true }, adminToken);
+  assert.equal((await req('GET', `/credit/quote?walletId=${w.id}&amount=10`, null, adminToken)).status, 200);
+});

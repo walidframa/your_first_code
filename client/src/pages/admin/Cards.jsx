@@ -43,6 +43,23 @@ const KINDS = [
 const kindLabel = (k) => KINDS.find(([v]) => v === k)?.[1] || k;
 
 /** Format a balance in whichever currency the wallet is kept in. */
+/**
+ * What a dollar of credit ends up costing, said the way a shop says it.
+ *
+ * "88¢ on the dollar" is the sentence somebody at a counter can check against
+ * what the distributor told them. A pound wallet is converted first, because
+ * cost is held in dollars everywhere in this app while the balance is not.
+ */
+function centsOnTheDollar(paid, added, wallet, rate = 0) {
+  const gotUsd =
+    wallet.currency === 'LBP' ? (rate > 0 ? Number(added) / rate : 0) : Number(added);
+  if (!(gotUsd > 0)) return '—';
+
+  const perDollar = Number(paid) / gotUsd;
+  // Whole cents: a third decimal here is arithmetic nobody asked for.
+  return `${Math.round(perDollar * 100)}¢ on the dollar`;
+}
+
 function walletAmount(amount, currency) {
   return currency === 'LBP' ? lbp(amount) : money(amount);
 }
@@ -97,6 +114,27 @@ function WalletCard({ wallet, onTopUp, onEdit, onDelete, onStatement }) {
         * the customers have them. It is a bill owed to the supplier, and it is
         * shown as such so it gets settled rather than discovered.
         */}
+      {/*
+        * What credit off this wallet is costed at, where the shop can see it.
+        *
+        * `1` means every top-up was recorded at face value, so a dollar sent to
+        * a customer costs a dollar and the profit report shows the credit
+        * business earning nothing. That is a state a shop sits in for months
+        * without knowing, because nothing on any screen said so — and the fix
+        * is one field on the next top-up, which is what this says.
+        */}
+      {wallet.sends_credit ? (
+        wallet.cost_basis < 1 ? (
+          <p className="mt-2 text-xs text-slate-500">
+            Credit costs you {Math.round(wallet.cost_basis * 100)}¢ on the dollar.
+          </p>
+        ) : (
+          <p className="mt-2 text-xs text-slate-400">
+            Credit is costed at face value — put what you paid on your next top-up to see the margin.
+          </p>
+        )
+      ) : null}
+
       {empty && (
         <p className="mt-2 rounded-lg bg-red-50 px-2 py-1.5 text-xs text-red-700">
           {wallet.balance < 0
@@ -113,15 +151,21 @@ function WalletCard({ wallet, onTopUp, onEdit, onDelete, onStatement }) {
       {/* Pushed down, so a wallet carrying a warning does not leave its
           neighbour's buttons floating half way up the row. */}
       <div className="mt-auto flex items-center gap-2 pt-3">
-        {/* Named, because a screenful of wallets means a screenful of buttons
-            that would otherwise all read "Top up". */}
+        {/*
+          * Named, because a screenful of wallets means a screenful of buttons
+          * that would otherwise all read the same.
+          *
+          * "Top up" was the whole label, and taking credit back out lives
+          * behind this same button — so a shop wanting to take money off a
+          * wallet had no reason to press the one thing that would let them.
+          */}
         <Button
           size="sm"
           className="flex-1"
-          aria-label={`Top up ${wallet.name}`}
+          aria-label={`Top up or take out of ${wallet.name}`}
           onClick={() => onTopUp(wallet)}
         >
-          <ArrowDownToLine size={15} /> Top up
+          <ArrowDownToLine size={15} /> Top up / take out
         </Button>
         <button
           onClick={() => onEdit(wallet)}
@@ -150,6 +194,17 @@ function WalletDialog({ wallet, onClose, onSaved }) {
   const [currency, setCurrency] = useState(wallet?.currency || 'USD');
   const [lowBalance, setLowBalance] = useState(String(wallet?.low_balance ?? 0));
   const [opening, setOpening] = useState('');
+  /*
+   * Sending credit to a customer's line, and what the carrier charges to do it.
+   *
+   * All three of these have been settable on the server since the credit dialog
+   * was built and have never appeared on a screen — so a shop whose carrier
+   * charges something other than the built-in 15¢ a message had no way to say
+   * so, and every quote at the counter was out by the difference.
+   */
+  const [sendsCredit, setSendsCredit] = useState(Boolean(wallet?.sends_credit));
+  const [smsFee, setSmsFee] = useState(String(wallet?.sms_fee ?? 0.15));
+  const [creditPriceLbp, setCreditPriceLbp] = useState(String(wallet?.credit_price_lbp ?? 0));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -159,7 +214,14 @@ function WalletDialog({ wallet, onClose, onSaved }) {
     setBusy(true);
     try {
       if (editing) {
-        await api.put(`/wallets/${wallet.id}`, { name, kind, lowBalance: Number(lowBalance) || 0 });
+        await api.put(`/wallets/${wallet.id}`, {
+          name,
+          kind,
+          lowBalance: Number(lowBalance) || 0,
+          sendsCredit,
+          smsFee: Number(smsFee) || 0,
+          creditPriceLbp: Number(creditPriceLbp) || 0,
+        });
       } else {
         await api.post('/wallets', {
           name,
@@ -246,6 +308,60 @@ function WalletDialog({ wallet, onClose, onSaved }) {
           )}
         </div>
 
+        {/*
+          * Only when editing. A wallet is created from the "New wallet" button
+          * with the two things that cannot be changed afterwards, and this is
+          * three more decisions on a form somebody is filling in to get started
+          * — they belong on the second visit, not the first.
+          */}
+        {editing && (
+          <div className="rounded-xl bg-slate-50 p-3 ring-1 ring-slate-200">
+            <label className="flex items-start gap-2.5">
+              <input
+                type="checkbox"
+                name="sendsCredit"
+                checked={sendsCredit}
+                onChange={(e) => setSendsCredit(e.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-slate-300 accent-brand-600"
+              />
+              <span>
+                <span className="block text-sm font-medium text-slate-800">
+                  Credit can be sent to a customer out of this
+                </span>
+                <span className="block text-xs text-slate-500">
+                  Puts it in the register's Send credit dialog. A gift-card float is a balance too,
+                  and sending dollars out of one means nothing.
+                </span>
+              </span>
+            </label>
+
+            {sendsCredit && (
+              <div className="mt-3 grid grid-cols-2 gap-3">
+                <Input
+                  label="Carrier's fee per message"
+                  name="smsFee"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={smsFee}
+                  onChange={(e) => setSmsFee(e.target.value)}
+                  hint="What Alfa or Touch takes each time"
+                />
+                <Input
+                  label="A dollar of credit sells for"
+                  name="creditPriceLbp"
+                  type="number"
+                  min="0"
+                  step="1000"
+                  value={creditPriceLbp}
+                  onChange={(e) => setCreditPriceLbp(e.target.value)}
+                  hint="In pounds — 0 to quote at the day's rate"
+                />
+              </div>
+            )}
+          </div>
+        )}
+
         {error && <p className="text-sm text-red-600">{error}</p>}
 
         <ModalActions>
@@ -263,8 +379,21 @@ function WalletDialog({ wallet, onClose, onSaved }) {
 
 function TopUpDialog({ wallet, onClose, onSaved }) {
   const toast = useToast();
+  // Only used for a pound wallet, whose balance and whose cost are in different
+  // currencies — see centsOnTheDollar.
+  const { rate } = useSettings();
   const [kind, setKind] = useState('top_up');
   const [amount, setAmount] = useState('');
+  /*
+   * What the shop handed over, when that is not the same as what it got.
+   *
+   * A distributor sells $100 of line for $88, and that discount is the entire
+   * margin on sending credit. Left empty this means "bought at face value",
+   * which is what every top-up used to record whether it was true or not — so
+   * every dollar sent to a customer was costed at exactly what it was worth and
+   * the profit screen showed the credit business earning nothing.
+   */
+  const [paid, setPaid] = useState('');
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -278,6 +407,7 @@ function TopUpDialog({ wallet, onClose, onSaved }) {
         kind,
         amount: Number(amount),
         note: note || null,
+        costUsd: kind === 'top_up' && paid !== '' ? Number(paid) : null,
       });
       toast(`${wallet.name} is now ${walletAmount(res.data.wallet.balance, wallet.currency)}`);
       onSaved();
@@ -316,6 +446,35 @@ function TopUpDialog({ wallet, onClose, onSaved }) {
               : undefined
           }
         />
+
+        {kind === 'top_up' && (
+          <>
+            <Input
+              label="What you paid for it (USD)"
+              name="paid"
+              type="number"
+              min="0"
+              step="0.01"
+              value={paid}
+              onChange={(e) => setPaid(e.target.value)}
+              placeholder={wallet.currency === 'USD' ? String(amount || '') : ''}
+              hint="Leave empty if you paid face value"
+            />
+
+            {/*
+              * Said in the shop's own terms, because "cost basis" is not a
+              * phrase anybody at a counter uses, and because the number that
+              * matters is what a dollar sent to a customer will be costed at.
+              */}
+            {Number(paid) > 0 && Number(amount) > 0 && (
+              <p className="rounded-xl bg-slate-50 px-3 py-2.5 text-sm text-slate-600">
+                Credit off this wallet will cost you{' '}
+                <strong>{centsOnTheDollar(paid, amount, wallet, rate)}</strong> — that difference is what
+                you make on every dollar you send.
+              </p>
+            )}
+          </>
+        )}
 
         <Input
           label="Note"

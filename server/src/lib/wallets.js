@@ -44,7 +44,12 @@ export function balanceMap() {
 export function walletById(id) {
   const wallet = db.prepare('SELECT * FROM wallets WHERE id = ?').get(id);
   if (!wallet) return null;
-  return { ...wallet, active: !!wallet.active, balance: balanceOf(wallet.id) };
+  return {
+    ...wallet,
+    active: !!wallet.active,
+    balance: balanceOf(wallet.id),
+    cost_basis: creditCostBasis(wallet.id),
+  };
 }
 
 export function listWallets({ activeOnly = false } = {}) {
@@ -59,6 +64,14 @@ export function listWallets({ activeOnly = false } = {}) {
     ...w,
     active: !!w.active,
     balance: roundAmount(balances.get(w.id) || 0, w.currency),
+    /*
+     * What a dollar of this credit costs the shop, which is what every sale out
+     * of it is costed at. Sent to the screen because a shop cannot check a
+     * figure it cannot see: 1 means "bought at face value, so this earns
+     * nothing", and that is the state a shop sits in without knowing until it
+     * is shown. One small query per wallet, and there are a handful of them.
+     */
+    cost_basis: creditCostBasis(w.id),
   }));
 }
 
