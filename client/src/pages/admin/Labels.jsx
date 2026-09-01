@@ -1,3 +1,4 @@
+import { matchesSearch } from '../../lib/search';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { AlertTriangle, Minus, Plus, Printer, RotateCcw, Search, Tag, Trash2, Truck } from 'lucide-react';
@@ -171,11 +172,9 @@ export default function Labels() {
   const matches = useMemo(() => {
     if (!term || !products) return [];
     return products
+      /* Words in any order — see lib/search.js. */
       .filter(
-        (p) =>
-          p.name.toLowerCase().includes(term) ||
-          p.sku.toLowerCase().includes(term) ||
-          (p.barcode || '').includes(term),
+        (p) => matchesSearch(term, p.name, p.sku, p.barcode),
       )
       .slice(0, 8);
   }, [products, term]);

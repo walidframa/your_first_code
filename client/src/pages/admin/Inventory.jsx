@@ -1,3 +1,4 @@
+import { matchesSearch } from '../../lib/search';
 import { useCallback, useEffect, useState } from 'react';
 import { ArrowDownRight, ArrowUpRight, History, Search, SlidersHorizontal } from 'lucide-react';
 import api from '../../api';
@@ -218,16 +219,12 @@ export default function Inventory() {
 
   const products = (data?.products || []).filter((p) => {
     const term = search.trim().toLowerCase();
-    const matchesSearch =
-      !term ||
-      p.name.toLowerCase().includes(term) ||
-      p.sku.toLowerCase().includes(term) ||
-      (p.supplier || '').toLowerCase().includes(term);
+    /* Words in any order — see lib/search.js. */
     const matchesFilter =
       filter === 'all' ||
       (filter === 'low' && p.stock > 0 && p.stock <= p.reorder_point) ||
       (filter === 'out' && p.stock <= 0);
-    return matchesSearch && matchesFilter;
+    return matchesFilter && matchesSearch(term, p.name, p.sku, p.supplier);
   });
 
   return (

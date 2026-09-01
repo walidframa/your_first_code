@@ -1,3 +1,4 @@
+import { matchesSearch } from '../../lib/search';
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import {
@@ -813,12 +814,10 @@ export default function Parties({ type }) {
   }, [load]);
 
   const term = search.trim().toLowerCase();
+  /* Words in any order, so "ahmad halabi" finds HALABI AHMAD — see
+     lib/search.js. */
   const visible = (parties || []).filter(
-    (p) =>
-      !term ||
-      p.name.toLowerCase().includes(term) ||
-      (p.phone || '').includes(term) ||
-      (p.email || '').toLowerCase().includes(term),
+    (p) => matchesSearch(term, p.name, p.phone, p.email),
   );
 
   const outstanding = (parties || []).reduce((sum, p) => sum + Math.max(0, p.balance), 0);

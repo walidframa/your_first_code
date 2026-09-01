@@ -1,3 +1,4 @@
+import { matchesSearch } from '../../lib/search';
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import {
@@ -833,12 +834,9 @@ export default function Products() {
 
   const visible = (products || []).filter((p) => {
     const term = search.trim().toLowerCase();
-    const matchesSearch =
-      !term ||
-      p.name.toLowerCase().includes(term) ||
-      p.sku.toLowerCase().includes(term) ||
-      (p.barcodes || []).some((code) => code.includes(term));
-    return matchesSearch && (showArchived ? true : p.active);
+    /* Words in any order, across every code the product answers to — see
+       lib/search.js. */
+    return matchesSearch(term, p.name, p.sku, p.barcodes) && (showArchived ? true : p.active);
   });
 
   /*

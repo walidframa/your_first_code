@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Minus, Package, Plus, Search, Trash2 } from 'lucide-react';
 import api from '../api';
 import { Button, cx, money } from './ui';
+import { matchesSearch } from '../lib/search';
 
 /**
  * What a product is made of, when it is made of other products.
@@ -38,7 +39,7 @@ export default function BundleEditor({ productId, value, onChange, products }) {
     if (!term) return [];
     return candidates
       .filter(
-        (p) => p.name.toLowerCase().includes(term) || (p.sku || '').toLowerCase().includes(term),
+        (p) => matchesSearch(term, p.name, p.sku),
       )
       .slice(0, 20);
   }, [candidates, search]);

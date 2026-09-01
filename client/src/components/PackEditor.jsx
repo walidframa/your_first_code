@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Minus, Plus, RotateCcw, Search, Trash2 } from 'lucide-react';
 import { Button, Modal, ModalActions, cx, money } from './ui';
+import { matchesSearch } from '../lib/search';
 
 /**
  * Changing what goes in a pack, for this sale only.
@@ -51,8 +52,7 @@ export default function PackEditor({ item, products, onClose, onSave }) {
             p.id !== item.productId &&
             !chosen.has(p.id) &&
             (!term ||
-              p.name.toLowerCase().includes(term) ||
-              (p.sku || '').toLowerCase().includes(term)),
+              matchesSearch(term, p.name, p.sku)),
         )
         .slice(0, 8),
     // `chosen` is derived from `parts` and changes with it.

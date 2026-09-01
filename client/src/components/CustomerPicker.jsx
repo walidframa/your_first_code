@@ -5,6 +5,7 @@ import { Badge, Button, EmptyState, Modal, cx, money } from './ui';
 import { useT } from '../context/LanguageContext';
 import { useAuth } from '../context/AuthContext';
 import PartyQuickCreate from './PartyQuickCreate';
+import { matchesSearch } from '../lib/search';
 
 /**
  * Attaches a customer to the sale in progress. Optional for cash and card;
@@ -31,7 +32,7 @@ export default function CustomerPicker({ customer, onChange }) {
 
   const term = search.trim().toLowerCase();
   const visible = (customers || []).filter(
-    (c) => !term || c.name.toLowerCase().includes(term) || (c.phone || '').includes(term),
+    (c) => matchesSearch(term, c.name, c.phone),
   );
 
   return (

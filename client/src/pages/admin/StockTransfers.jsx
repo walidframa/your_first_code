@@ -1,5 +1,6 @@
+import { matchesSearch } from '../../lib/search';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowRight, Ban, PackageCheck, Plus, Search, Truck, X } from 'lucide-react';
+import { ArrowRight, Ban, CornerDownLeft, PackageCheck, Plus, Search, Truck, X } from 'lucide-react';
 import api from '../../api';
 import PageHeader from '../../components/PageHeader';
 import { useBranch } from '../../context/BranchContext';
@@ -69,9 +70,8 @@ function SendDialog({ branches, from, onClose, onSent }) {
           !p.wallet_id &&
           p.stock > 0 &&
           !lines.some((l) => l.productId === p.id) &&
-          (p.name.toLowerCase().includes(term) ||
-            p.sku.toLowerCase().includes(term) ||
-            (p.barcodes || []).some((c) => c.includes(term))),
+          /* Words in any order — see lib/search.js. */
+          matchesSearch(term, p.name, p.sku, p.barcodes),
       )
       .slice(0, 6);
   }, [products, search, lines]);
@@ -85,6 +85,23 @@ function SendDialog({ branches, from, onClose, onSent }) {
    */
   const focusQuantity = useRef(null);
   const searchRef = useRef(null);
+
+  /*
+   * Which row the arrows are on.
+   *
+   * Reset to the top whenever what was typed changes, because the row that was
+   * second a keystroke ago is a different product now — leaving the highlight
+   * where it sat is how somebody presses Enter and sends the wrong thing.
+   */
+  const [highlight, setHighlight] = useState(0);
+  const matchListRef = useRef(null);
+
+  useEffect(() => setHighlight(0), [search]);
+
+  /* Arrowing past the bottom of the list has to bring the row with it. */
+  useEffect(() => {
+    matchListRef.current?.children[highlight]?.scrollIntoView({ block: 'nearest' });
+  }, [highlight]);
 
   useEffect(() => {
     if (!focusQuantity.current) return;
@@ -183,9 +200,18 @@ function SendDialog({ branches, from, onClose, onSent }) {
                * delivery dispatched it.
                */
               onKeyDown={(e) => {
-                if (e.key !== 'Enter') return;
-                e.preventDefault();
-                if (matches[0]) add(matches[0]);
+                if (e.key === 'ArrowDown') {
+                  e.preventDefault();
+                  setHighlight((h) => Math.min(h + 1, matches.length - 1));
+                } else if (e.key === 'ArrowUp') {
+                  e.preventDefault();
+                  setHighlight((h) => Math.max(h - 1, 0));
+                } else if (e.key === 'Enter') {
+                  e.preventDefault();
+                  if (matches[highlight]) add(matches[highlight]);
+                } else if (e.key === 'Escape') {
+                  setSearch('');
+                }
               }}
               placeholder="Search or scan what you are sending…"
               aria-label="Find a product to send"
@@ -194,18 +220,30 @@ function SendDialog({ branches, from, onClose, onSent }) {
           </div>
 
           {matches.length > 0 && (
-            <ul className="mt-1 overflow-hidden rounded-lg ring-1 ring-slate-200">
-              {matches.map((p) => (
+            <ul
+              ref={matchListRef}
+              className="mt-1 max-h-64 overflow-y-auto rounded-lg ring-1 ring-slate-200"
+            >
+              {matches.map((p, i) => (
                 <li key={p.id}>
                   <button
                     type="button"
                     onClick={() => add(p)}
-                    className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-slate-50"
+                    /* Hovering moves the highlight too, so the mouse and the
+                       arrows never disagree about which row Enter would take. */
+                    onMouseEnter={() => setHighlight(i)}
+                    className={cx(
+                      'flex w-full items-center justify-between gap-3 border-b border-rule px-3 py-2 text-left text-sm last:border-b-0',
+                      i === highlight ? 'bg-brand-50' : 'hover:bg-slate-50',
+                    )}
                   >
                     <span className="min-w-0 truncate">
                       {p.name} <span className="text-xs text-slate-400">{p.sku}</span>
                     </span>
-                    <span className="tnum shrink-0 text-xs text-slate-500">{p.stock} here</span>
+                    <span className="flex shrink-0 items-center gap-2">
+                      <span className="tnum text-xs text-slate-500">{p.stock} here</span>
+                      {i === highlight && <CornerDownLeft size={13} className="text-brand-600" />}
+                    </span>
                   </button>
                 </li>
               ))}
