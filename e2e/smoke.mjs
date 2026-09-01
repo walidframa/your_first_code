@@ -982,12 +982,48 @@ try {
     // the shop puts its dealer price in.
     await page.waitForSelector('text=Set the cost');
 
-    await page.getByRole('button', { name: 'Top up Mobile recharge' }).click();
+    await page.getByRole('button', { name: 'Top up or take out of Mobile recharge' }).click();
     await page.waitForSelector('[role=dialog] >> text=What happened', { timeout: 10000 });
+
+    /*
+     * Taking credit back out lives behind this same button.
+     *
+     * It always has, and the button used to say only "Top up" — so a shop
+     * wanting to take money off a wallet had no reason to press the one thing
+     * that would let them.
+     */
+    const kinds = await page.locator('[role=dialog] select[name=kind] option').allInnerTexts();
+    if (!kinds.some((k) => /took credit back out/i.test(k))) {
+      throw new Error('there is no way to take credit out of a wallet');
+    }
+
     await page.locator('[role=dialog] #amount').fill('500');
+
+    /*
+     * What the shop actually paid for it.
+     *
+     * A distributor sells $500 of line for $440, and that discount is the whole
+     * margin on sending credit. The field existed on the server and on no
+     * screen, so every top-up recorded face value and every dollar sent to a
+     * customer was costed at exactly what it was worth — the profit report duly
+     * showed the credit business earning nothing.
+     */
+    await page.locator('[role=dialog] #paid').fill('440');
+    await page.waitForSelector('[role=dialog] >> text=/88¢ on the dollar/', { timeout: 10000 });
+
     await page.locator('[role=dialog]').getByRole('button', { name: 'Record it' }).click();
     await page.waitForSelector('text=/is now \\$/', { timeout: 15000 });
     await page.waitForSelector('text=$500.00', { timeout: 15000 });
+
+    // The balance is what arrived; the cost is what was paid for it.
+    const basis = await page.evaluate(async () => {
+      const r = await fetch('/api/wallets', {
+        headers: { Authorization: `Bearer ${localStorage.getItem('pos_token')}` },
+      });
+      const { wallets } = await r.json();
+      return wallets.find((w) => w.name === 'Mobile recharge')?.cost_basis;
+    });
+    if (basis !== 0.88) throw new Error(`credit should cost 88¢ on the dollar, got ${basis}`);
   });
   await shot('cards');
 
