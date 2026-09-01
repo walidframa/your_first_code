@@ -292,6 +292,15 @@ function DocumentForm({ existing, startAs = null, page = false, onClose, onSaved
           name: item.name,
           quantity: String(item.quantity),
           price: String(item.price),
+          /*
+           * The numbers already typed against this line.
+           *
+           * Left out, and every edit of a delivery wiped them: the form loaded
+           * without them, saved without them, and the confirm afterwards said
+           * "1 on the line but 0 IMEIs given" about handsets the shop had
+           * entered and could see on the document a minute earlier.
+           */
+          imeis: item.imeis || '',
         };
       }),
     );
@@ -954,8 +963,9 @@ function DocumentForm({ existing, startAs = null, page = false, onClose, onSaved
                                           : 'text-amber-700',
                                       )}
                                     >
-                                      {imeiCount(l.imeis)} of {Number(l.quantity) || 0} handsets — one per
-                                      line, both numbers of a dual-SIM separated by a comma
+                                      {imeiCount(l.imeis)} of {Number(l.quantity) || 0} handsets — scan
+                                      or type them one after another, and put a comma between the two
+                                      numbers of a dual-SIM
                                     </p>
                                   </div>
                                 )}
@@ -1826,11 +1836,39 @@ function DocumentDetail({ id, onClose, onChanged, onDeleted }) {
 /* -------------------------------------------------------------------- list */
 
 /** How many handsets the typed block actually names. */
+/**
+ * How many handsets are in the box, counted the way the server counts them.
+ *
+ * This has to agree with `parseImeiList` in server/src/lib/units.js exactly, or
+ * the line says "2 of 2" and confirming answers that one IMEI was given — which
+ * is a shop being told it is wrong by a screen that just told it it was right.
+ *
+ * A comma, slash, semicolon or pipe joins two numbers into one dual-SIM
+ * handset. A newline always starts a new one. A space depends on length: a
+ * whole fifteen-digit number stands alone, anything shorter is a fragment of
+ * the number being built — because that is how an IMEI is printed on the box.
+ */
+const WHOLE_IMEI = 15;
+
 function imeiCount(text) {
-  return String(text || '')
-    .split('\n')
-    .map((l) => l.trim())
-    .filter(Boolean).length;
+  const digits = (v) => String(v).replace(/[\s-]/g, '');
+  let count = 0;
+
+  for (const line of String(text || '').split(/[\r\n]+/)) {
+    const tokens = line.replace(/\s*[,/;|]\s*/g, ',').split(/\s+/).filter(Boolean);
+    let buffer = '';
+    for (const token of tokens) {
+      const head = digits(token.split(',')[0]);
+      if (buffer && (digits(buffer).length >= WHOLE_IMEI || head.length >= WHOLE_IMEI)) {
+        count += 1;
+        buffer = '';
+      }
+      buffer += token;
+    }
+    if (buffer) count += 1;
+  }
+
+  return count;
 }
 
 /*

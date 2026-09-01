@@ -5,7 +5,7 @@ import { recordMovement } from './cash.js';
 import { postDocument } from './postings.js';
 import { cancelDocumentVouchers, recordDocumentVoucher } from './vouchers.js';
 import { recordCostChange } from './costHistory.js';
-import { isAvailable, receiveUnits, syncStockFromUnits } from './units.js';
+import { parseImeiList, isAvailable, receiveUnits, syncStockFromUnits } from './units.js';
 import { costOfLine } from './wallets.js';
 import { moveStock, stockAt } from './stock.js';
 import { taxRate } from './settings.js';
@@ -402,19 +402,23 @@ function moveUnits({ doc, item, product, direction, userId, note, branchId = nul
     throw new Error(`${product.name} is tracked by IMEI — sell it from the register, not a document`);
   }
 
-  const lines = String(item.imeis || '')
-    .split('\n')
-    .map((l) => l.trim())
-    .filter(Boolean);
+  /*
+   * One handset per whitespace-separated token, both numbers of a dual-SIM
+   * joined by a comma. Splitting on newlines alone was the rule, and a barcode
+   * reader whose key is a Tab puts two scans on one line — where `normaliseImei`
+   * then glued them into one thirty-digit number and the shop was told it had
+   * given one IMEI for two phones. See lib/units.js.
+   */
+  const handsets = parseImeiList(item.imeis);
 
-  if (lines.length !== wanted) {
+  if (handsets.length !== wanted) {
     throw new Error(
-      `${product.name}: ${wanted} on the line but ${lines.length} IMEI${lines.length === 1 ? '' : 's'} given`,
+      `${product.name}: ${wanted} on the line but ${handsets.length} IMEI${handsets.length === 1 ? '' : 's'} given`,
     );
   }
 
   const cost = item.cost ?? product.cost;
-  receiveUnits(product.id, lines.map((line) => ({ imei: line, cost })), {
+  receiveUnits(product.id, handsets.map((h) => ({ ...h, cost })), {
     documentId: doc.id,
     // The handsets are on the counter of the branch that took the delivery.
     branchId: doc.branch_id ?? null,
@@ -437,7 +441,7 @@ function moveUnits({ doc, item, product, direction, userId, note, branchId = nul
   db.prepare(
     `INSERT INTO stock_adjustments (product_id, user_id, delta, resulting_stock, reason, note)
      VALUES (?, ?, ?, ?, ?, ?)`,
-  ).run(product.id, userId, lines.length, resulting, 'received', note);
+  ).run(product.id, userId, handsets.length, resulting, 'received', note);
 }
 
 /** Does this document belong on somebody's account at all? */

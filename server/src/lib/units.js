@@ -111,6 +111,73 @@ export function parseImeiLine(line) {
 }
 
 /**
+ * How long a number has to be before it stands on its own.
+ *
+ * An IMEI is fifteen digits. Anything shorter is a fragment of one — which is
+ * what a person typing off the back of a box produces, because that is how the
+ * number is printed: `35 6001 0001 0001 1`.
+ */
+const WHOLE_NUMBER = 15;
+
+/**
+ * A typed or scanned box of numbers, as a list of handsets.
+ *
+ * Three separators, meaning three different things:
+ *
+ *  - **A comma, slash, semicolon or pipe** joins two numbers into *one*
+ *    dual-SIM handset. It swallows the spaces around it, so "351…1 , 351…9" is
+ *    one phone, typed the way a person types.
+ *  - **A newline** always starts a new handset.
+ *  - **A space** is the awkward one, and it is why this function exists. It
+ *    appears *inside* one number as printed, and *between* two numbers when a
+ *    barcode reader's key is a Tab rather than an Enter. Length tells them
+ *    apart: a token that is already a whole number stands alone, and anything
+ *    shorter is a fragment that joins what came before.
+ *
+ * Before this, space simply did not separate — `normaliseImei` strips every
+ * one — so two scans on the same line were glued into a single thirty-digit
+ * "IMEI". The shop was told it had given one number for two phones, and nothing
+ * on screen said why.
+ */
+export function parseImeiList(text) {
+  const handsets = [];
+
+  for (const line of String(text ?? '').split(/[\r\n]+/)) {
+    // A pair separator takes the spaces beside it, so it survives the split
+    // below and "a , b" stays one handset.
+    const tokens = line.replace(/\s*[,/;|]\s*/g, ',').split(/\s+/).filter(Boolean);
+
+    let buffer = '';
+    const flush = () => {
+      if (!buffer) return;
+      const parsed = parseImeiLine(buffer);
+      if (parsed.imei) handsets.push(parsed);
+      buffer = '';
+    };
+
+    for (const token of tokens) {
+      /*
+       * Two whole numbers side by side are two handsets; a fragment is more of
+       * the number already being built.
+       *
+       * Measured on the token's *first* number, because a pair separator has
+       * already glued a dual-SIM's second number onto it — and "1,356…9",
+       * which is the tail of one number and the whole of its twin, is a
+       * fragment however long the token reads.
+       */
+      const head = normaliseImei(token.split(',')[0]);
+      if (buffer && (normaliseImei(buffer).length >= WHOLE_NUMBER || head.length >= WHOLE_NUMBER)) {
+        flush();
+      }
+      buffer += token;
+    }
+    flush();
+  }
+
+  return handsets;
+}
+
+/**
  * One unit by either of its IMEIs.
  *
  * The customer reads whichever number they can see; asking them which slot it
