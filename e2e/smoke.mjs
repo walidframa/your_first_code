@@ -3730,6 +3730,54 @@ try {
    * A scanner is worse: it types the code and presses Enter itself, so
    * scanning the first box of a delivery sent it.
    */
+  /*
+   * Arrows pick the row, Enter takes it.
+   *
+   * A list you can only reach with the mouse is a list a counter cannot use
+   * with one hand. The document form has had this; the transfer had a list and
+   * no way down it.
+   */
+  await step('on a transfer, the arrows move down the matches', async () => {
+    await goTo('Move stock');
+    await page.waitForSelector('button:has-text("Send stock")', { timeout: 15000 });
+    await page.click('button:has-text("Send stock")');
+    await page.waitForSelector('input[aria-label="Find a product to send"]', { timeout: 10000 });
+
+    /* Two words, in the wrong order, with a word between them in the product's
+       own name — the shop's complaint, on the screen it was reported from. */
+    await page.fill('input[aria-label="Find a product to send"]', 'cable braided');
+    await page.waitForTimeout(400);
+
+    const lit = () =>
+      page.evaluate(() =>
+        [...document.querySelectorAll('ul > li button')]
+          .map((b, i) => (b.className.includes('bg-brand-50') ? i : -1))
+          .filter((i) => i >= 0),
+      );
+
+    const rows = await page.locator('ul > li button').count();
+    if (rows === 0) throw new Error('"cable braided" found nothing — the words have to match in any order');
+    if ((await lit())[0] !== 0) throw new Error('nothing is highlighted to start with');
+
+    if (rows > 1) {
+      await page.keyboard.press('ArrowDown');
+      await page.waitForTimeout(200);
+      if ((await lit())[0] !== 1) throw new Error('ArrowDown did not move the highlight');
+      await page.keyboard.press('ArrowUp');
+      await page.waitForTimeout(200);
+      if ((await lit())[0] !== 0) throw new Error('ArrowUp did not move it back');
+    }
+
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(400);
+    if (!(await page.locator('[data-qty-for]').count())) {
+      throw new Error('Enter did not take the highlighted row');
+    }
+
+    await page.click('[role=dialog] button:has-text("Cancel")');
+    await page.waitForTimeout(400);
+  });
+
   await step('on a transfer, Enter adds the line and moves to the quantity', async () => {
     await goTo('Move stock');
     await page.waitForSelector('button:has-text("Send stock")', { timeout: 15000 });

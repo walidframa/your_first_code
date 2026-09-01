@@ -5,6 +5,7 @@ import ProductQuickCreate from './ProductQuickCreate';
 import IdPhotoField from './IdPhotoField';
 import { useSettings, lbp } from '../context/SettingsContext';
 import { Button, Input, Modal, ModalActions, Select, cx, money, useToast } from './ui';
+import { matchesSearch } from '../lib/search';
 
 const CONDITIONS = [
   ['used', 'Used'],
@@ -88,7 +89,7 @@ export default function BuyHandsetModal({
 
   const matches = useMemo(() => {
     const t = modelTerm.trim().toLowerCase();
-    return products.filter((p) => !t || p.name.toLowerCase().includes(t)).slice(0, 6);
+    return products.filter((p) => matchesSearch(t, p.name)).slice(0, 6);
   }, [products, modelTerm]);
 
   async function submit(e) {

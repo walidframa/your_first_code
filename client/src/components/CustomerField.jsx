@@ -3,6 +3,7 @@ import { Plus, UserRound, X } from 'lucide-react';
 import api from '../api';
 import PartyQuickCreate from './PartyQuickCreate';
 import { money } from './ui';
+import { matchesSearch } from '../lib/search';
 
 /**
  * Whose phone it is — chosen off the customer list, or simply typed.
@@ -58,7 +59,7 @@ export default function CustomerField({ value, onChange, autoFocus = false, requ
     return customers
       .filter(
         (c) =>
-          !term || c.name.toLowerCase().includes(term) || (c.phone || '').includes(term),
+          matchesSearch(term, c.name, c.phone),
       )
       .slice(0, 8);
   }, [customers, term]);

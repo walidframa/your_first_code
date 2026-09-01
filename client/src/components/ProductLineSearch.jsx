@@ -1,3 +1,4 @@
+import { matchesSearch } from '../lib/search';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, CornerDownLeft, Plus, Search, Sparkles } from 'lucide-react';
 import { ProductThumb, cx, money } from './ui';
@@ -52,12 +53,8 @@ export default function ProductLineSearch({
 
   const results = useMemo(() => {
     const matching = query
-      ? products.filter(
-          (p) =>
-            p.name.toLowerCase().includes(query) ||
-            p.sku.toLowerCase().includes(query) ||
-            (p.barcode || '').includes(query),
-        )
+      /* Words in any order — see lib/search.js. */
+      ? products.filter((p) => matchesSearch(query, p.name, p.sku, p.barcode))
       : products;
     return matching.slice(0, MAX_RESULTS);
   }, [products, query]);

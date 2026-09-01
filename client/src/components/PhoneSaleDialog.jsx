@@ -3,6 +3,7 @@ import { ChevronDown, Gift, KeyRound, Search, Trash2 } from 'lucide-react';
 import api from '../api';
 import { useSettings, lbp } from '../context/SettingsContext';
 import { Button, Modal, ModalActions, cx, money } from './ui';
+import { matchesSearch } from '../lib/search';
 
 const field =
   'h-10 w-full rounded-xl bg-slate-50 px-3 text-sm ring-1 ring-slate-200 focus:bg-white focus:ring-2 focus:ring-brand-600 focus:outline-none';
@@ -88,7 +89,7 @@ export default function PhoneSaleDialog({ product, unit, onCancel, onAdd }) {
       .filter(
         (p) =>
           !p.tracks_units &&
-          (p.name.toLowerCase().includes(t) || (p.sku || '').toLowerCase().includes(t)),
+          matchesSearch(t, p.name, p.sku),
       )
       .slice(0, 6);
   }, [products, giftTerm]);

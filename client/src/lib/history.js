@@ -1,3 +1,4 @@
+import { matchesSearch } from './search';
 import { useState } from 'react';
 
 /**
@@ -70,8 +71,12 @@ export function useHistoryFilter(initialPreset = 'month', initialTerm = '') {
     return (!range.from || on >= range.from) && (!range.to || on <= range.to);
   };
 
-  const matches = (...fields) =>
-    !query || fields.some((f) => String(f ?? '').toLowerCase().includes(query));
+  /*
+   * Words in any order, across the fields together — see lib/search.js. A
+   * shop looking through repairs for a customer types the name the way they
+   * say it, not the way it was keyed in.
+   */
+  const matches = (...fields) => matchesSearch(query, ...fields);
 
   return {
     preset,

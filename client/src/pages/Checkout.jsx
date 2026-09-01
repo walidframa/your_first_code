@@ -1,3 +1,4 @@
+import { matchesSearch } from '../lib/search';
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ChevronUp,
@@ -527,12 +528,9 @@ export default function Checkout() {
     const term = deferredSearch.trim().toLowerCase();
     return products.filter((p) => {
       const matchesCategory = activeCategory === 'all' || p.category_id === activeCategory;
-      const matchesSearch =
-        !term ||
-        p.name.toLowerCase().includes(term) ||
-        p.sku.toLowerCase().includes(term) ||
-        (p.barcode || '').includes(term);
-      return matchesCategory && matchesSearch;
+      /* Words in any order, across name, code and barcode — see
+         lib/search.js. "phone case" has to find PHONE NEW CASE. */
+      return matchesCategory && matchesSearch(term, p.name, p.sku, p.barcode);
     });
   }, [products, activeCategory, deferredSearch]);
 
