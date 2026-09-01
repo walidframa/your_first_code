@@ -80,7 +80,25 @@ git -C /srv/pos rev-parse HEAD
 `pos.service` is easy to forget because the units with obvious names are the
 tenants. It has been left behind by a deploy while the tenants restarted
 correctly — same checkout, same commit on disk, a process from hours earlier
-still serving it. Check every unit, not the ones you expect:
+still serving it.
+
+**The script's own version of that bug is fixed, and it is worth knowing what
+it was**, because the shape recurs. It asked `systemctl list-unit-files | grep
+-q "^pos.service"` under `set -o pipefail`: `grep -q` stops at the match and
+exits, `systemctl` takes SIGPIPE on the rest of the units and dies 141, and
+`pipefail` reports the pipeline as failed *although the match was found*. So the
+deploy concluded the machine had no shop of its own — and a shop it does not
+know about is one it never asks, so it does not appear in the final check at
+all, and the run ends green. The console's detection was the same shape but
+filtered by unit name, so its output was one line and no pipe ever broke; that
+is why the console kept restarting while `pos.service` was skipped.
+
+Detection is now `systemctl cat <unit>`, which uses no pipe. And the script
+refuses outright if any installed `pos*.service` was never asked, so a wrong
+answer to "does this unit exist" can no longer come out green. Held by
+`server/test/deployScript.test.js`.
+
+Check every unit, not the ones you expect:
 
 ```bash
 systemctl list-units --all --type=service --no-pager | grep -i pos

@@ -22,6 +22,38 @@ SERVICE="${POS_SERVICE:-pos}"
 BRANCH="${POS_BRANCH:-main}"
 
 say() { printf '\n\033[1;36m==> %s\033[0m\n' "$1"; }
+
+#
+# Is this unit installed on this machine?
+#
+# **Asked without a pipeline, and that is the whole point of this function.**
+#
+# It used to be `systemctl list-unit-files | grep -q "^pos.service"`, and under
+# `set -o pipefail` that is a trap. `grep -q` stops at the first match and
+# exits; `systemctl` is still writing the other few hundred units, so it takes
+# SIGPIPE and dies with 141; `pipefail` reports the pipeline as 141 — a failure
+# — even though the match was found. The `if` then takes the wrong branch.
+#
+# What it cost: on a machine that has a `pos.service`, the deploy concluded it
+# had none. It never restarted it, and — far worse — never *asked* it what it
+# was serving, so the shop was absent from the final check entirely. The
+# tenants and the console were current, every shop the script knew about
+# reported "up to date", and it printed a green "Live at" over a live shop that
+# was two commits behind. The one check whose entire purpose is to catch a
+# restart that did not happen could not see the process it was about.
+#
+# The console's own check next to this was written with the unit name passed to
+# `systemctl` as a filter, so its output is one line, so `grep` reads all of it
+# and there is no SIGPIPE. That is why the console kept restarting correctly
+# while `pos.service` was skipped — the two were the same bug and only one of
+# them was armed.
+#
+# `systemctl cat` succeeds if and only if the unit exists, reads nothing into a
+# pipe, and cannot be tripped by how much output something else produces.
+#
+unit_exists() {
+  command -v systemctl >/dev/null 2>&1 && systemctl cat "$1" >/dev/null 2>&1
+}
 die() { printf '\n\033[1;31m!! %s\033[0m\n' "$1" >&2; exit 1; }
 
 # ---------------------------------------------------------------- checks
@@ -122,7 +154,7 @@ RUNNING="$(systemctl list-units --state=running --no-legend --plain 'pos-tenant@
 # an unchanged PID in the log.
 #
 # Restarted whenever the unit is installed, running or not.
-if systemctl list-unit-files --no-legend --plain 'pos-console.service' 2>/dev/null | grep -q .; then
+if unit_exists pos-console.service; then
   RUNNING="$(printf '%s\npos-console.service\n' "$RUNNING")"
 fi
 
@@ -166,7 +198,7 @@ done
 #
 # So a missing pos.service is only an error when there is nothing else either.
 OWN_SHOP=no
-if command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files | grep -q "^${SERVICE}.service"; then
+if unit_exists "${SERVICE}.service"; then
   OWN_SHOP=yes
 elif [ -z "$RUNNING" ]; then
   die "Nothing to restart: no '$SERVICE' service and no shops running on this machine. Install deploy/pos.service, or start a shop with 'pos-tenant add' (see the README)."
@@ -288,6 +320,13 @@ say "Checking what each shop is actually serving"
 
 WRONG=""
 UNSURE=""
+#
+# Every shop this run actually put a question to.
+#
+# Kept so the invariant at the bottom can tell "checked and current" apart from
+# "never looked at", which are the same colour of silence and are not the same
+# thing at all — see the note there.
+ASKED=""
 
 # The commit this deploy put in place, in the form /api/health reports.
 WANT="$(git rev-parse HEAD)"
@@ -311,6 +350,17 @@ serving() {
 check() {
   name="$1"
   port="$2"
+
+  #
+  # Noted before anything can go wrong with it. The two early returns below are
+  # still a shop the script knew about and reported on; what the invariant at
+  # the bottom is hunting for is a shop it never reached at all.
+  #
+  # `pos` arrives here bare and a tenant arrives with its suffix, so the suffix
+  # is stripped before it is added back — otherwise a tenant is recorded as
+  # `pos-tenant@x.service.service` and matches nothing.
+  #
+  ASKED="$ASKED ${name%.service}.service"
 
   if [ -z "$port" ]; then
     UNSURE="$UNSURE $name(no port)"
@@ -376,6 +426,45 @@ if [ -n "$WRONG" ]; then
   printf '   The files are new and the process is not. Its screens will be newer\n'
   printf '   than its routes, which shows up as pages that will not load.\n'
   printf '   Look at one with:  sudo journalctl -u <name> -n 50 --no-pager\n\n'
+  exit 1
+fi
+
+#
+# **Nothing may pass unmentioned.**
+#
+# Everything above reports on the shops the script found. This asks the
+# opposite question — is there a shop on this machine the script never found —
+# and it exists because that is exactly how a deploy came to print a green
+# "Live at" over a live shop two commits behind.
+#
+# The detection that missed it is fixed (see `unit_exists`), but a wrong answer
+# to "does this unit exist" must never again be able to produce a *green*
+# light. A shop that is skipped and a shop that is fine are the same silence,
+# and only one of them is acceptable.
+#
+# Asked of systemd rather than of anything this script worked out earlier, so a
+# mistake made up there cannot hide from the check down here. `pos-tenant@`
+# without a slug is the template, which is not a shop.
+#
+INSTALLED_ALL="$(systemctl list-unit-files --no-legend --plain 'pos*.service' 2>/dev/null | awk '{print $1}' || true)"
+MISSED=""
+for unit in $INSTALLED_ALL; do
+  case "$unit" in
+    'pos-tenant@.service') continue ;;
+  esac
+  case " $ASKED $SKIPPED " in
+    *" $unit "*) ;;
+    *) MISSED="$MISSED $unit" ;;
+  esac
+done
+
+if [ -n "$MISSED" ]; then
+  printf '\n\033[1;31m!! Installed on this machine and never checked:%s\033[0m\n' "$MISSED"
+  printf '   This deploy did not ask those what they are serving, so it cannot\n'
+  printf '   say they are up to date — and one of them may be the shop somebody\n'
+  printf '   is actually looking at. Ask by hand:\n'
+  printf '     systemctl show <name> -p MainPID -p ActiveEnterTimestamp\n'
+  printf '     curl -fsS localhost:<its port>/api/health; echo\n\n'
   exit 1
 fi
 
