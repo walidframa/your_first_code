@@ -38,52 +38,6 @@ const OUT_REASONS = [
   ['other', 'Other'],
 ];
 
-/**
- * Count a drawer note by note.
- *
- * Nobody adds up a till in their head, and a mental total is where an
- * over/short that means nothing comes from. Typing counts and letting the
- * screen multiply is how every till in a shop is actually counted.
- */
-function DenominationCounter({ currency, notes, counts, onChange, total }) {
-  return (
-    <div className="rounded-xl p-3 ring-1 ring-slate-200">
-      {/* Named, because side by side the two grids otherwise read as one. */}
-      <p className="mb-2 text-xs font-medium tracking-wide text-slate-500 uppercase">
-        {currency === 'USD' ? 'Dollars' : 'LBP'}
-      </p>
-      <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
-        {notes.map((note) => (
-          <label key={note} className="flex items-center gap-2 text-sm">
-            <span className="tnum w-20 shrink-0 text-right text-slate-500">
-              {currency === 'USD' ? `$${note}` : Number(note).toLocaleString('en-US')}
-            </span>
-            <span className="text-slate-300">×</span>
-            <input
-              type="number"
-              min="0"
-              step="1"
-              value={counts[note] ?? ''}
-              onChange={(e) => onChange({ ...counts, [note]: e.target.value })}
-              aria-label={`${currency} ${note} notes`}
-              className="h-8 w-full rounded-lg bg-white px-2 text-right text-sm ring-1 ring-edge focus:ring-2 focus:ring-brand-600 focus:outline-none"
-            />
-          </label>
-        ))}
-      </div>
-      <p className="mt-2 flex justify-between border-t border-slate-100 pt-2 text-sm font-semibold">
-        <span className="text-slate-500">Counted</span>
-        <span className="tnum text-slate-900">
-          {currency === 'USD' ? money(total) : lbp(total)}
-        </span>
-      </p>
-    </div>
-  );
-}
-
-const sumNotes = (counts) =>
-  Object.entries(counts).reduce((sum, [note, n]) => sum + Number(note) * (Number(n) || 0), 0);
-
 /* Cents, not floating-point dust: $20.10 counted against $20.10 must read as
    matching rather than as three ten-thousandths over. */
 const round2 = (n) => Math.round(n * 100) / 100;
@@ -197,11 +151,13 @@ function OpenDrawer({ denominations, accountId, held, onClose, onOpened }) {
 /**
  * Closing a till.
  *
- * The drawer can be counted note by note or the total typed straight in —
- * plenty of shopkeepers counted it on the counter before opening the app, and
- * making them enter it again a denomination at a time is how a count gets
- * rushed. Either way it is the same figure, and counting notes fills the total
- * in.
+ * One figure per currency, typed. There used to be a grid above this asking
+ * for the count note by note — how many hundreds, how many fifties — which
+ * multiplied out into the same two figures. The shop asked for it to go, and
+ * it was the wrong tool for the way a till is actually closed here: the drawer
+ * is counted on the counter, by hand, before anybody opens the app. Being made
+ * to key that back in a denomination at a time is slower than the count was
+ * and is where a rushed close comes from.
  *
  * For a cashier it is a **blind** count: told what the drawer should hold, the
  * count stops being a check on anything and becomes a number to copy. Whoever
@@ -209,19 +165,11 @@ function OpenDrawer({ denominations, accountId, held, onClose, onOpened }) {
  * behind this dialog, so for them the difference is shown as they type — which
  * is the question they opened the dialog to answer.
  */
-function CloseDrawer({ denominations, accountId, expected, sweepTo, onClose, onClosed, onReport }) {
+function CloseDrawer({ accountId, expected, sweepTo, onClose, onClosed, onReport }) {
   const t = useT();
   const toast = useToast();
   const { rate } = useSettings();
-  const [usdNotes, setUsdNotes] = useState({});
-  const [lbpNotes, setLbpNotes] = useState({});
-  /*
-   * What is actually in the drawer, as one figure per currency.
-   *
-   * Counting note by note fills these in, but plenty of shopkeepers already
-   * know their total — they counted it on the counter before opening the app —
-   * and making them re-enter it note by note is how a count gets rushed.
-   */
+  /* What is actually in the drawer, as one figure per currency. */
   const [totalUsd, setTotalUsd] = useState('');
   const [totalLbp, setTotalLbp] = useState('');
   const [carryUsd, setCarryUsd] = useState('');
@@ -233,16 +181,6 @@ function CloseDrawer({ denominations, accountId, expected, sweepTo, onClose, onC
 
   const countedUsd = Number(totalUsd) || 0;
   const countedLbp = Number(totalLbp) || 0;
-
-  /* Counting notes writes the total; the total stays editable on its own. */
-  function countUsdNotes(next) {
-    setUsdNotes(next);
-    setTotalUsd(String(sumNotes(next)));
-  }
-  function countLbpNotes(next) {
-    setLbpNotes(next);
-    setTotalLbp(String(sumNotes(next)));
-  }
 
   /*
    * The difference, live — but only for somebody who is already allowed to see
@@ -392,23 +330,6 @@ function CloseDrawer({ denominations, accountId, expected, sweepTo, onClose, onC
           </p>
         )}
 
-        <div className="grid grid-cols-2 gap-6">
-          <DenominationCounter
-            currency="USD"
-            notes={denominations?.USD || []}
-            counts={usdNotes}
-            onChange={countUsdNotes}
-            total={sumNotes(usdNotes)}
-          />
-          <DenominationCounter
-            currency="LBP"
-            notes={denominations?.LBP || []}
-            counts={lbpNotes}
-            onChange={countLbpNotes}
-            total={sumNotes(lbpNotes)}
-          />
-        </div>
-
         <div>
           <p className="mb-1.5 text-sm font-medium text-slate-700">
             What is actually in the drawer
@@ -423,7 +344,6 @@ function CloseDrawer({ denominations, accountId, expected, sweepTo, onClose, onC
               placeholder="0.00"
               value={totalUsd}
               onChange={(e) => setTotalUsd(e.target.value)}
-              hint="Counted above, or type it straight in"
             />
             <Input
               label="Lebanese pounds (LBP)"
@@ -434,7 +354,6 @@ function CloseDrawer({ denominations, accountId, expected, sweepTo, onClose, onC
               placeholder="0"
               value={totalLbp}
               onChange={(e) => setTotalLbp(e.target.value)}
-              hint="Counted above, or type it straight in"
             />
           </div>
 
@@ -1126,7 +1045,6 @@ export default function CashBox({
       )}
       {dialog === 'close' && (
         <CloseDrawer
-          denominations={denominations}
           accountId={accountId}
           sweepTo={state.sweepTo}
           expected={state?.expected ?? null}

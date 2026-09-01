@@ -3,6 +3,9 @@ import api from '../api';
 import BarcodeField from './BarcodeField';
 import { Button, Input, Modal, ModalActions, Select, useToast } from './ui';
 
+/** Sentinel option value: picking it asks for a name rather than choosing one. */
+const NEW_CATEGORY = '__new__';
+
 /**
  * Create a product without leaving the document you are building.
  *
@@ -43,11 +46,26 @@ export default function ProductQuickCreate({
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  /*
+   * Naming a new shelf without leaving the delivery being typed in.
+   *
+   * `null` is "not asking"; a string is the name being typed, empty included —
+   * which is why it is not simply falsy-checked.
+   *
+   * The full product form has had this for a while. This one did not, and it is
+   * the dialog a shop actually meets it in: the first delivery of a thing never
+   * stocked before brings the product and the shelf it belongs on at the same
+   * moment, and the only way out was to abandon the half-typed line, go to the
+   * catalogue, make the category, and start the purchase invoice again.
+   */
+  const [namingCategory, setNamingCategory] = useState(null);
+  const [addingCategory, setAddingCategory] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     setForm((f) => ({ ...f, name: initialName, tracks_units: trackUnits }));
     setError('');
+    setNamingCategory(null);
     api.get('/products/categories').then((res) => setCategories(res.data.categories));
   }, [open, initialName, trackUnits]);
 
@@ -63,6 +81,29 @@ export default function ProductQuickCreate({
       .replace(/^-|-$/g, '')
       .slice(0, 12);
     setForm((f) => ({ ...f, sku: `${slug}-${Math.floor(Math.random() * 900 + 100)}` }));
+  }
+
+  async function addCategory() {
+    const name = namingCategory.trim();
+    if (!name) return;
+    setAddingCategory(true);
+    try {
+      const { data } = await api.post('/products/categories', { name });
+      // Into the list and onto the product, because that is what it was made for.
+      setCategories((list) => [...list, data.category].sort((a, b) => a.name.localeCompare(b.name)));
+      setForm((f) => ({ ...f, category_id: String(data.category.id) }));
+      setNamingCategory(null);
+      toast(`${data.category.name} added`);
+    } catch (err) {
+      /*
+       * The commonest answer by far is that it already exists — said as a toast
+       * rather than as a red banner over the whole dialog, because it is about
+       * this one box and the fix is to pick the existing one.
+       */
+      toast(err.response?.data?.error || 'Could not add that category', 'error');
+    } finally {
+      setAddingCategory(false);
+    }
   }
 
   async function submit(e) {
@@ -116,14 +157,68 @@ export default function ProductQuickCreate({
           </div>
           <Input label="Sell price (USD)" name="price" type="number" min="0" step="0.01" value={form.price} onChange={set('price')} required />
           <Input label="Cost (USD)" name="cost" type="number" min="0" step="0.01" value={form.cost} onChange={set('cost')} />
-          <Select label="Category" name="category_id" value={form.category_id} onChange={set('category_id')}>
-            <option value="">No category</option>
-            {categories.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </Select>
+          <div>
+            <Select
+              label="Category"
+              name="category_id"
+              value={form.category_id}
+              onChange={(e) => {
+                if (e.target.value === NEW_CATEGORY) {
+                  setNamingCategory('');
+                  return;
+                }
+                setForm((f) => ({ ...f, category_id: e.target.value }));
+              }}
+            >
+              <option value="">No category</option>
+              {categories.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+              <option value={NEW_CATEGORY}>+ New category…</option>
+            </Select>
+
+            {namingCategory !== null && (
+              <div className="mt-2 flex items-end gap-2">
+                <Input
+                  label="New category"
+                  value={namingCategory}
+                  onChange={(e) => setNamingCategory(e.target.value)}
+                  autoFocus
+                  placeholder="Chargers"
+                  /* Enter makes the category, and must never submit the
+                     half-filled product behind it. */
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      addCategory();
+                    }
+                    if (e.key === 'Escape') setNamingCategory(null);
+                  }}
+                />
+                <Button
+                  type="button"
+                  size="sm"
+                  className="mb-0.5"
+                  loading={addingCategory}
+                  disabled={!namingCategory.trim()}
+                  onClick={addCategory}
+                >
+                  Add
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className="mb-0.5"
+                  onClick={() => setNamingCategory(null)}
+                >
+                  Cancel
+                </Button>
+              </div>
+            )}
+          </div>
           <Input label="Reorder point" name="reorder_point" type="number" min="0" step="1" value={form.reorder_point} onChange={set('reorder_point')} />
 
           {/*

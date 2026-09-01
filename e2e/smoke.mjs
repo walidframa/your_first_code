@@ -2521,12 +2521,49 @@ try {
     await page.fill('[role=dialog] #sku', 'BAK-999');
     await page.fill('[role=dialog] #price', '6.50');
     await page.fill('[role=dialog] #cost', '2.25');
+
+    /*
+     * The shelf it goes on, named from here.
+     *
+     * The full product form has offered this for a while; this dialog did not,
+     * and this is the one a shop actually meets it in — the first delivery of
+     * something never stocked before brings the product and its category at the
+     * same moment. Without it the only way out was to abandon the half-typed
+     * line, go to the catalogue, make the category and start the invoice again.
+     */
+    await page.selectOption('[role=dialog] #category_id', { label: '+ New category…' });
+    await page.fill('[role=dialog] input[placeholder="Chargers"]', 'Sweets');
+    // Enter makes the category. It must not submit the half-filled product.
+    await page.press('[role=dialog] input[placeholder="Chargers"]', 'Enter');
+    await page.waitForSelector('text=Sweets added', { timeout: 15000 });
+    if (await page.locator('[role=dialog] input[placeholder="Chargers"]').count()) {
+      throw new Error('the name box stayed open after the category was made');
+    }
+    const picked = await page.evaluate(() => {
+      const sel = document.querySelector('[role=dialog] #category_id');
+      return sel.options[sel.selectedIndex].innerText.trim();
+    });
+    if (picked !== 'Sweets') throw new Error(`the new category was not picked: ${picked}`);
+
     await page.click('button:has-text("Create and add")');
 
     // It is created and lands on the document as a line at cost.
     await page.waitForSelector('text=Pistachio Baklava created', { timeout: 15000 });
     await page.waitForSelector('td:has-text("BAK-999")', { timeout: 15000 });
     await page.keyboard.press('Escape');
+
+    // And the category came with it, rather than staying only in the box.
+    const shelved = await page.evaluate(async () => {
+      const token = localStorage.getItem('pos_token');
+      const r = await fetch('/api/products?search=Pistachio', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const { products = [] } = await r.json();
+      return products.find((x) => x.name === 'Pistachio Baklava')?.category_name || null;
+    });
+    if (shelved !== 'Sweets') {
+      throw new Error(`the product was created on the wrong shelf: ${shelved}`);
+    }
   });
   await shot('inline-product');
 
@@ -2981,16 +3018,19 @@ try {
     await page.click('button[aria-label="Close the cashbox"]');
     await page.waitForSelector('text=Count what is in the drawer', { timeout: 10000 });
 
-    // Counting note by note fills the total in.
-    await page.getByLabel('USD 100 notes').fill('1');
-    await page.waitForSelector('[role=dialog] >> text=$100.00');
-
     /*
-     * And the total can be typed straight in, which is what a shopkeeper who
-     * counted on the counter before opening the app actually wants. Whoever is
-     * trusted with the till's history sees the difference as they type.
+     * One figure per currency, typed.
+     *
+     * There used to be a grid above this asking for the count note by note.
+     * The shop asked for it to go: the drawer is counted on the counter, by
+     * hand, before anybody opens the app, and re-entering that count as
+     * fourteen boxes is work already done. Whoever is trusted with the till's
+     * history sees the difference against the app as they type.
      */
     const dialog = page.locator('[role=dialog]');
+    if (await dialog.getByLabel('USD 100 notes').count()) {
+      throw new Error('the note-by-note grid is back on the close dialog');
+    }
     await dialog.locator('#countedUsd').fill('120');
     await dialog.locator('text=Against the app').waitFor();
     await dialog.locator('text=/over|short|matches/').first().waitFor();
