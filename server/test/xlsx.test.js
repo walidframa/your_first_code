@@ -416,3 +416,218 @@ test('a cashier cannot reorganise the catalogue', async () => {
   );
   assert.equal((await req('DELETE', `/products/categories/${cases.id}`, null, cashier)).status, 403);
 });
+
+/**
+ * A shelf of handsets, said once.
+ *
+ * A phone shop's "Phones" category is phones: every one of them wants tracking
+ * by IMEI, every one added next month wants it too, and a shop ticking a box
+ * per product will miss the one that later goes missing. So the decision is
+ * made about the shelf.
+ *
+ * It is also destructive, which is why most of what is checked here is the
+ * edges: marking a shelf clears the stock count on everything already on it,
+ * because a handset with no number on record is not tracked.
+ */
+test('marking a shelf as handsets switches everything already on it', async () => {
+  const shelf = (await req('POST', '/products/categories', { name: 'Handsets' }, adminToken)).json
+    .category;
+
+  const phone = (
+    await req(
+      'POST',
+      '/products',
+      { name: 'Galaxy A15', sku: 'SGA15', price: 200, cost: 170, stock: 6, category_id: shelf.id },
+      adminToken,
+    )
+  ).json.product;
+  assert.equal(phone.tracks_units, 0, 'counted while the shelf says nothing');
+  assert.equal(phone.stock, 6);
+
+  const marked = await req(
+    'PATCH',
+    `/products/categories/${shelf.id}`,
+    { name: 'Handsets', tracksUnits: true },
+    adminToken,
+  );
+  assert.equal(marked.status, 200, JSON.stringify(marked.json));
+  assert.equal(marked.json.category.tracks_units, 1);
+
+  // It says what it did, per product, so the screen can report it rather than
+  // saying "done" over a cleared stock count.
+  assert.deepEqual(
+    marked.json.switched.map((p) => [p.name, p.cleared]),
+    [['Galaxy A15', 6]],
+  );
+
+  const after = (await req('GET', `/products/${phone.id}`, null, adminToken)).json.product;
+  assert.equal(after.tracks_units, 1);
+  assert.equal(after.stock, 0, 'the count went, because it is not handsets on record');
+});
+
+test('and the clearing is written down, not silent', async () => {
+  const phone = (await req('GET', '/products/lookup?code=SGA15', null, adminToken)).json.product;
+  const { movements } = (
+    await req('GET', `/inventory/movements?productId=${phone.id}`, null, adminToken)
+  ).json;
+
+  const note = movements.find((m) => /Shelf switched to IMEI/.test(m.note || ''));
+  assert.ok(note, 'the shelf that cleared the count is on the product’s history');
+  assert.equal(note.delta, -6);
+});
+
+test('anything filed there afterwards starts tracked, without being asked', async () => {
+  const shelf = (await req('GET', '/products/categories', null, adminToken)).json.categories.find(
+    (c) => c.name === 'Handsets',
+  );
+
+  const made = (
+    await req(
+      'POST',
+      '/products',
+      { name: 'Redmi 13C', sku: 'RM13C', price: 150, cost: 120, category_id: shelf.id },
+      adminToken,
+    )
+  ).json.product;
+  assert.equal(made.tracks_units, 1);
+});
+
+test('but saying so explicitly still wins — it is a default, not a rule', async () => {
+  const shelf = (await req('GET', '/products/categories', null, adminToken)).json.categories.find(
+    (c) => c.name === 'Handsets',
+  );
+
+  const made = (
+    await req(
+      'POST',
+      '/products',
+      {
+        name: 'Display stand',
+        sku: 'STAND-1',
+        price: 5,
+        cost: 2,
+        stock: 3,
+        category_id: shelf.id,
+        tracks_units: false,
+      },
+      adminToken,
+    )
+  ).json.product;
+  assert.equal(made.tracks_units, 0, 'the odd non-phone on that shelf is the shop’s business');
+  assert.equal(made.stock, 3);
+});
+
+test('a shelf of things that are not stock is left alone', async () => {
+  const shelf = (await req('POST', '/products/categories', { name: 'Mixed' }, adminToken)).json
+    .category;
+
+  await req(
+    'POST',
+    '/products',
+    { name: 'Screen fitting', sku: 'FIT-1', price: 5, is_service: true, category_id: shelf.id },
+    adminToken,
+  );
+  const counted = (
+    await req(
+      'POST',
+      '/products',
+      { name: 'Plain widget', sku: 'WID-9', price: 4, cost: 2, stock: 7, category_id: shelf.id },
+      adminToken,
+    )
+  ).json.product;
+
+  const marked = await req(
+    'PATCH',
+    `/products/categories/${shelf.id}`,
+    { name: 'Mixed', tracksUnits: true },
+    adminToken,
+  );
+  assert.deepEqual(
+    marked.json.switched.map((p) => p.name),
+    ['Plain widget'],
+    'a service has no handsets to book in',
+  );
+  assert.equal(
+    (await req('GET', `/products/${counted.id}`, null, adminToken)).json.product.stock,
+    0,
+  );
+});
+
+test('marking a shelf twice is not a second wipe', async () => {
+  const shelf = (await req('GET', '/products/categories', null, adminToken)).json.categories.find(
+    (c) => c.name === 'Handsets',
+  );
+
+  const again = await req(
+    'PATCH',
+    `/products/categories/${shelf.id}`,
+    { name: 'Handsets', tracksUnits: true },
+    adminToken,
+  );
+  assert.deepEqual(again.json.switched, [], 'nothing on it was still counted');
+});
+
+test('unmarking stops the default and strands nothing', async () => {
+  const shelf = (await req('GET', '/products/categories', null, adminToken)).json.categories.find(
+    (c) => c.name === 'Handsets',
+  );
+  const phone = (await req('GET', '/products/lookup?code=SGA15', null, adminToken)).json.product;
+
+  const off = await req(
+    'PATCH',
+    `/products/categories/${shelf.id}`,
+    { name: 'Handsets', tracksUnits: false },
+    adminToken,
+  );
+  assert.equal(off.status, 200);
+  assert.equal(off.json.category.tracks_units, 0);
+
+  /*
+   * The products stay tracked. Untracking one that already carries booked-in
+   * handsets would strand them — this switch is about what happens next.
+   */
+  assert.equal(
+    (await req('GET', `/products/${phone.id}`, null, adminToken)).json.product.tracks_units,
+    1,
+  );
+
+  // And a new one on that shelf is counted again.
+  const made = (
+    await req(
+      'POST',
+      '/products',
+      { name: 'Plain case', sku: 'CASE-77', price: 9, cost: 4, stock: 2, category_id: shelf.id },
+      adminToken,
+    )
+  ).json.product;
+  assert.equal(made.tracks_units, 0);
+});
+
+test('renaming a shelf does not quietly stop it being handsets', async () => {
+  const shelf = (await req('GET', '/products/categories', null, adminToken)).json.categories.find(
+    (c) => c.name === 'Mixed',
+  );
+  await req('PATCH', `/products/categories/${shelf.id}`, { name: 'Mixed bag' }, adminToken);
+
+  const after = (await req('GET', '/products/categories', null, adminToken)).json.categories.find(
+    (c) => c.id === shelf.id,
+  );
+  assert.equal(after.name, 'Mixed bag');
+  assert.equal(after.tracks_units, 1);
+});
+
+test('a cashier cannot switch a whole shelf onto IMEI', async () => {
+  const cashier = (
+    await req('POST', '/auth/login', { username: 'cashier', password: 'cashier123' })
+  ).json.token;
+  const shelf = (await req('GET', '/products/categories', null, adminToken)).json.categories.find(
+    (c) => c.name === 'Handsets',
+  );
+  const refused = await req(
+    'PATCH',
+    `/products/categories/${shelf.id}`,
+    { name: 'Handsets', tracksUnits: true },
+    cashier,
+  );
+  assert.equal(refused.status, 403);
+});

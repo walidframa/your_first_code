@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Check, Pencil, Plus, Tags, Trash2, X } from 'lucide-react';
 import api from '../api';
 import { Button, EmptyState, Input, Modal, ModalActions, Skeleton, useToast } from './ui';
+import { useConfirm } from './ConfirmProvider';
 
 /**
  * The shelves the catalogue is sorted onto.
@@ -17,6 +18,7 @@ import { Button, EmptyState, Input, Modal, ModalActions, Skeleton, useToast } fr
  */
 export default function CategoryManager({ onClose, onChanged }) {
   const toast = useToast();
+  const confirm = useConfirm();
   const [rows, setRows] = useState(null);
   const [adding, setAdding] = useState('');
   const [editingId, setEditingId] = useState(null);
@@ -40,10 +42,12 @@ export default function CategoryManager({ onClose, onChanged }) {
     setBusy(true);
     setError('');
     try {
-      await work();
+      /* The response, not just "it worked" — switching a shelf to IMEI answers
+         with what it changed, and the toast is worth nothing without it. */
+      const res = await work();
       await load();
       onChanged?.();
-      return true;
+      return res ?? true;
     } catch (err) {
       setError(err.response?.data?.error || 'That did not work');
       return false;
@@ -80,6 +84,55 @@ export default function CategoryManager({ onClose, onChanged }) {
     if (!saved) {
       setRows((prev) => prev.map((r) => (r.id === c.id ? { ...r, on_register: on ? 0 : 1 } : r)));
     }
+  }
+
+  /*
+   * Whether this shelf holds handsets.
+   *
+   * Said once about the shelf, not two hundred times about the products on it.
+   * Ticking it switches everything already there to IMEI tracking and makes it
+   * the starting position for anything filed there afterwards.
+   *
+   * Unlike the tick beside it, this one asks first — and does not move until
+   * the server has answered. It clears the stock count on every product it
+   * touches, because a handset with no number on record is not tracked, and a
+   * box that goes green before that has happened is a box that has understated
+   * what it just did.
+   */
+  async function setTracksUnits(c, on) {
+    if (on) {
+      const agreed = await confirm({
+        title: `Is ${c.name} a shelf of handsets?`,
+        body:
+          `Everything on it will be tracked by IMEI, and anything filed there later starts that ` +
+          `way too. The stock counts on those ${c.product_count} product` +
+          `${c.product_count === 1 ? '' : 's'} are cleared — a handset with no number on record is ` +
+          'not tracked, so you book them in by their numbers instead.',
+        confirmLabel: 'Track this shelf by IMEI',
+        cancelLabel: 'Leave it counted',
+      });
+      if (!agreed) return;
+    }
+
+    const saved = await run(() =>
+      api.patch(`/products/categories/${c.id}`, { name: c.name, tracksUnits: on }),
+    );
+    if (!saved) return;
+
+    const switched = saved.data?.switched || [];
+    if (on) {
+      const cleared = switched.reduce((sum, p) => sum + (p.cleared || 0), 0);
+      toast(
+        switched.length === 0
+          ? `${c.name} is a handset shelf — nothing on it needed switching`
+          : `${switched.length} switched to IMEI${cleared ? `, ${cleared} counted units cleared` : ''}`,
+      );
+    } else {
+      // Nothing is untracked on the way back off, so say so rather than let a
+      // shop assume its handsets went back to being counted.
+      toast(`New products on ${c.name} will be counted — what is there stays tracked`);
+    }
+    onChanged?.();
   }
 
   async function rename(id) {
@@ -263,6 +316,26 @@ export default function CategoryManager({ onClose, onChanged }) {
                         className="size-4 accent-brand-600"
                       />
                       On register
+                    </label>
+                    {/*
+                      * A phone shop's phone shelf, said once.
+                      *
+                      * Every handset wants tracking by IMEI, every one added
+                      * next month wants it too, and a shop ticking a box per
+                      * product will miss the one that later goes missing.
+                      */}
+                    <label
+                      className="flex shrink-0 cursor-pointer items-center gap-1.5 text-xs text-slate-500"
+                      title="Everything on this shelf is tracked by IMEI"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={Boolean(c.tracks_units)}
+                        aria-label={`Track ${c.name} by IMEI`}
+                        onChange={(e) => setTracksUnits(c, e.target.checked)}
+                        className="size-4 accent-brand-600"
+                      />
+                      Handsets (IMEI)
                     </label>
                     <Button
                       size="sm"

@@ -2862,6 +2862,104 @@ try {
     }
   });
 
+  await step('a half-typed invoice survives going to another tab and back', async () => {
+    /*
+     * Tabs are a list of places rather than live screens, so moving to one
+     * unmounts the screen you left — a deliberate trade, because keeping six
+     * pages mounted means six screens polling behind a till on an old tablet.
+     *
+     * The cost of that trade was this: a purchase invoice with forty lines on
+     * it, thrown away because somebody went to look up a price. The register's
+     * cart was already exempted; this is the same exemption for the form where
+     * a person types the most.
+     */
+    await goToDocuments();
+    const dialog = await openNewDocument();
+    await dialog.getByRole('button', { name: /Purchase invoice/ }).click();
+    await dialog.locator('#doc-party').selectOption({ label: 'Corner Bakehouse' });
+    await dialog.getByLabel('Search products to add').fill('Croissant');
+    await dialog.getByLabel('Search products to add').press('Enter');
+    await page.waitForSelector('td:has-text("Croissant")', { timeout: 15000 });
+    await page.getByLabel(/Quantity for/i).first().fill('7');
+    await page.getByLabel('Notes').fill('Delivery note 4471, driver Samir');
+
+    // Long enough for the draft to be written; the unmount writes it anyway.
+    await page.waitForTimeout(700);
+
+    // Off to look something up, exactly as somebody would.
+    await goTo('Products');
+    await page.waitForSelector('button:has-text("New product")', { timeout: 15000 });
+
+    await goToDocuments();
+    const again = await openNewDocument();
+    await again.getByRole('button', { name: /Purchase invoice/ }).click();
+    await page.waitForSelector('td:has-text("Croissant")', { timeout: 15000 });
+
+    const quantity = await page.getByLabel(/Quantity for/i).first().inputValue();
+    if (quantity !== '7') throw new Error(`the quantity came back as "${quantity}"`);
+
+    const party = await page.evaluate(
+      () => document.querySelector('#doc-party')?.selectedOptions[0]?.text,
+    );
+    if (!/Corner Bakehouse/.test(party || '')) {
+      throw new Error(`the supplier came back as "${party}"`);
+    }
+
+    const note = await page.getByLabel('Notes').inputValue();
+    if (note !== 'Delivery note 4471, driver Samir') {
+      throw new Error(`the note came back as "${note}"`);
+    }
+
+    /*
+     * Cancel means abandon, so the draft goes with it — otherwise the next new
+     * document would open holding the one just thrown away, which is what the
+     * steps below would then be typing into.
+     */
+    await page.click('button:has-text("Cancel")');
+    await goToDocuments();
+    const fresh = await openNewDocument();
+    await fresh.getByRole('button', { name: /Purchase invoice/ }).click();
+    await page.waitForTimeout(1000);
+    if (await page.locator('td:has-text("Croissant")').count()) {
+      throw new Error('a cancelled draft came back on the next document');
+    }
+    await page.keyboard.press('Escape');
+  });
+
+  await step('a shelf of handsets is said once, not product by product', async () => {
+    /*
+     * A phone shop's phone shelf is phones: every one wants tracking by IMEI,
+     * every one added next month wants it too, and a shop ticking a box per
+     * product will miss the one that later goes missing.
+     *
+     * It clears the stock counts on that shelf, which is why it asks first —
+     * a handset with no number on record is not tracked.
+     */
+    await goTo('Products');
+    await page.click('button:has-text("Categories")');
+    await page.waitForSelector('[role=dialog] >> text=Bakery', { timeout: 15000 });
+
+    await page.locator('input[aria-label="Track Bakery by IMEI"]').click();
+    const asked = page.getByRole('dialog', { name: /shelf of handsets/ });
+    await asked.waitFor({ timeout: 10000 });
+    // The consequence, in the words of the thing about to happen.
+    await asked.locator('text=/stock counts on those/').waitFor({ timeout: 5000 });
+
+    // Said no: nothing moves.
+    await asked.getByRole('button', { name: /Leave it counted/ }).click();
+    await page.waitForTimeout(500);
+    const untouched = await page.evaluate(async () => {
+      const auth = { Authorization: `Bearer ${localStorage.getItem('pos_token')}` };
+      const { categories } = await (
+        await fetch('/api/products/categories', { headers: auth })
+      ).json();
+      return categories.find((c) => c.name === 'Bakery')?.tracks_units;
+    });
+    if (untouched) throw new Error('saying no still switched the shelf');
+
+    await page.keyboard.press('Escape');
+  });
+
   await step('a new supplier can be created from inside a document', async () => {
     await goToDocuments();
     const dialog = await openNewDocument();

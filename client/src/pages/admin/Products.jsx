@@ -337,7 +337,17 @@ function ProductModal({ product, categories, allProducts, onClose, onSaved, onCa
                   setNamingCategory('');
                   return;
                 }
-                setForm((f) => ({ ...f, category_id: e.target.value }));
+                const picked = categories.find((c) => String(c.id) === e.target.value);
+                /*
+                 * Filing something on the handset shelf ticks IMEI tracking, so
+                 * the decision the shop made once about the shelf is the
+                 * starting position here rather than something to remember.
+                 */
+                setForm((f) => ({
+                  ...f,
+                  category_id: e.target.value,
+                  tracks_units: f.is_service ? f.tracks_units : Boolean(picked?.tracks_units),
+                }));
               }}
             >
               <option value="">No category</option>

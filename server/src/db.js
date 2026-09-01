@@ -419,6 +419,21 @@ addColumn('products', 'supplier', 'TEXT');
  * exactly where it was.
  */
 addColumn('categories', 'on_register', 'INTEGER NOT NULL DEFAULT 0');
+/*
+ * A shelf whose stock is handsets, each with a number on it.
+ *
+ * Said once about the shelf rather than product by product. A phone shop's
+ * "Phones" category is phones: every one of them wants tracking by IMEI, every
+ * one added next month wants it too, and a shop that has to remember a tick box
+ * on each will forget it on the one that later goes missing.
+ *
+ * Marking a shelf switches what is already on it — which clears those stock
+ * counts, because a handset with no number on record is not tracked — and makes
+ * it the starting position for anything filed there afterwards. Unmarking only
+ * stops the default: a product already carrying booked-in handsets is left
+ * alone, since untracking it would strand them.
+ */
+addColumn('categories', 'tracks_units', 'INTEGER NOT NULL DEFAULT 0');
 addColumn('products', 'reorder_point', 'INTEGER NOT NULL DEFAULT 5');
 
 // Dual-currency tender. Prices are held in USD; these record what was actually
