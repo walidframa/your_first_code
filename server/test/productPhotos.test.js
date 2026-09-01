@@ -268,6 +268,35 @@ test('what comes back is the picture, not the link', async () => {
   assert.equal(after.product.image_url, json.image_url);
 });
 
+test('where it came from survives the next edit to the product', async () => {
+  /*
+   * `image_source` was accepted by the product update and left out of the SQL
+   * that writes it, so a picture chosen from the form saved fine and lost its
+   * credit line the moment anything else on the product was edited — which is
+   * the one sentence a Creative Commons licence is granted on condition of
+   * keeping.
+   */
+  const { json: found } = await search('Filing cabinet');
+  const { json: fetched } = await req('POST', '/products/photos/fetch', found.candidates[0]);
+
+  const p = await product('Filing cabinet', 'CAB-1');
+  await req('PUT', `/products/${p.id}`, {
+    ...p,
+    image_url: fetched.image_url,
+    image_source: fetched.image_source,
+  });
+  assert.match((await req('GET', `/products/${p.id}`)).json.product.image_source, /Wikimedia/);
+
+  // Now an ordinary edit that says nothing about the picture.
+  const saved = (await req('GET', `/products/${p.id}`)).json.product;
+  await req('PUT', `/products/${p.id}`, { ...saved, price: 12.5 });
+
+  const after = (await req('GET', `/products/${p.id}`)).json.product;
+  assert.equal(after.price, 12.5);
+  assert.match(after.image_source, /Wikimedia/, 'the credit is still on the product');
+  assert.equal(after.image_url, fetched.image_url, 'and so is the picture');
+});
+
 test('where it came from comes back with it', async () => {
   const { json: found } = await search('Desk lamp');
   const { json } = await req('POST', '/products/photos/fetch', found.candidates[0]);

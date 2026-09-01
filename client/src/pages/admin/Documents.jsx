@@ -24,6 +24,7 @@ import PageHeader from '../../components/PageHeader';
 import Letterhead from '../../components/Letterhead';
 import { useSettings, lbp } from '../../context/SettingsContext';
 import { useAuth } from '../../context/AuthContext';
+import { useConfirm } from '../../components/ConfirmProvider';
 import ProductLineSearch, { AddFreeTextButton } from '../../components/ProductLineSearch';
 import HistoryFilter from '../../components/HistoryFilter';
 import { useHistoryFilter } from '../../lib/history';
@@ -102,6 +103,7 @@ function TypeIcon({ type, size = 16 }) {
  */
 function DocumentForm({ existing, startAs = null, page = false, onClose, onSaved }) {
   const toast = useToast();
+  const confirm = useConfirm();
   const { rate, toLbp, taxRate } = useSettings();
   /*
    * Behind the same permission as the Profit screen and the drawer's profit
@@ -355,6 +357,65 @@ function DocumentForm({ existing, startAs = null, page = false, onClose, onSaved
 
   const updateLine = (key, patch) =>
     setLines((prev) => prev.map((l) => (l.key === key ? { ...l, ...patch } : l)));
+
+  /*
+   * Turn a product into one tracked by IMEI, from the delivery that made it
+   * obvious it should be.
+   *
+   * This used to be a dead end. The line said "to enter IMEIs, tick Track each
+   * one by IMEI on this product first", which meant abandoning a half-typed
+   * invoice, finding the product in the catalogue, ticking a box and starting
+   * again — for the one case that comes up constantly: a shop that has been
+   * selling a handset by the count for a year, and this delivery is the one
+   * they want the numbers off.
+   *
+   * The stock a product already has is the reason this cannot be silent. The
+   * server refuses with `needsConvert` rather than zeroing a count because a
+   * checkbox moved, so the shop is asked in the words the server used and the
+   * same request goes again with its consent.
+   */
+  const [switchingLine, setSwitchingLine] = useState(null);
+
+  async function trackByImei(line) {
+    const product = line.product;
+    setSwitchingLine(line.key);
+
+    const attempt = (convertStock) =>
+      api.put(`/products/${product.id}`, { ...product, tracks_units: true, convertStock });
+
+    try {
+      let saved;
+      try {
+        saved = await attempt(false);
+      } catch (err) {
+        const data = err.response?.data;
+        if (!data?.needsConvert) throw err;
+
+        const agreed = await confirm({
+          title: `Track ${product.name} by IMEI?`,
+          body: data.error,
+          confirmLabel: 'Clear the count and track by IMEI',
+          cancelLabel: 'Leave it counted',
+        });
+        if (!agreed) return;
+        saved = await attempt(true);
+      }
+
+      /*
+       * Put the new product on the line, not just in the catalogue behind it.
+       * The IMEI box is drawn from `l.product.tracks_units`, and a line still
+       * holding the old snapshot would go on saying the product is counted
+       * while the catalogue says otherwise.
+       */
+      updateLine(line.key, { product: saved.data.product });
+      loadProducts();
+      toast(`${product.name} is now tracked by IMEI — type the numbers below`);
+    } catch (err) {
+      toast(err.response?.data?.error || 'Could not switch that product', 'error');
+    } finally {
+      setSwitchingLine(null);
+    }
+  }
 
   const priced = lines.map((l) => {
     const typed = Number(l.price) || 0;
@@ -717,13 +778,31 @@ function DocumentForm({ existing, startAs = null, page = false, onClose, onSaved
                                   * showed no IMEI box and no reason, which
                                   * reads as the feature being broken.
                                   */}
-                                {docType === 'purchase_invoice' && !l.product.tracks_units && (
-                                  <p className="mt-1 text-xs text-slate-400">
-                                    Counted as a quantity. To enter IMEIs, tick{' '}
-                                    <span className="text-slate-500">Track each one by IMEI</span> on this
-                                    product first.
-                                  </p>
-                                )}
+                                {docType === 'purchase_invoice' &&
+                                  !l.product.tracks_units &&
+                                  !l.product.is_service &&
+                                  !l.product.wallet_id && (
+                                    <div className="mt-1">
+                                      <p className="text-xs text-slate-400">Counted as a quantity.</p>
+                                      {can('catalogue') ? (
+                                        <button
+                                          type="button"
+                                          disabled={switchingLine === l.key}
+                                          onClick={() => trackByImei(l)}
+                                          className="mt-0.5 text-xs font-medium text-brand-700 underline-offset-2 hover:underline disabled:opacity-50"
+                                        >
+                                          {switchingLine === l.key
+                                            ? 'Switching…'
+                                            : 'Track each one by IMEI instead'}
+                                        </button>
+                                      ) : (
+                                        <p className="text-xs text-slate-400">
+                                          Somebody who can edit the catalogue has to switch it to IMEI
+                                          tracking first.
+                                        </p>
+                                      )}
+                                    </div>
+                                  )}
                                 {docType === 'purchase_invoice' && l.product.tracks_units && (
                                   <div className="mt-1.5">
                                     <textarea

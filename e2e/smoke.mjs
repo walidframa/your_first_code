@@ -2786,6 +2786,82 @@ try {
   });
   await shot('inline-product');
 
+  await step('a counted product can be switched to IMEI on the delivery that brings the phones', async () => {
+    /*
+     * This used to be a dead end.
+     *
+     * The line said "to enter IMEIs, tick Track each one by IMEI on this
+     * product first" — meaning abandon the half-typed invoice, find the product
+     * in the catalogue, tick a box, and start again. For the case that comes up
+     * constantly: a shop that has sold a handset by the count for a year, and
+     * *this* delivery is the one they want the numbers off.
+     */
+    const counted = await page.evaluate(async () => {
+      const auth = {
+        Authorization: `Bearer ${localStorage.getItem('pos_token')}`,
+        'Content-Type': 'application/json',
+      };
+      const r = await fetch('/api/products', {
+        method: 'POST',
+        headers: auth,
+        body: JSON.stringify({ name: 'Redmi Note 13', sku: 'RN13', price: 180, cost: 150, stock: 4 }),
+      });
+      return (await r.json()).product;
+    });
+    if (counted.tracks_units) throw new Error('the fixture was meant to start counted');
+
+    await goToDocuments();
+    const dialog = await openNewDocument();
+    await dialog.getByRole('button', { name: /Purchase invoice/ }).click();
+    await dialog.locator('#doc-party').selectOption({ label: 'Corner Bakehouse' });
+    await dialog.getByLabel('Search products to add').fill('Redmi Note 13');
+    await dialog.getByLabel('Search products to add').press('Enter');
+    await page.waitForSelector('td:has-text("RN13")', { timeout: 15000 });
+
+    // The line says what it is, and offers the way out rather than an errand.
+    await page.waitForSelector('text=Counted as a quantity.', { timeout: 10000 });
+    await page.click('button:has-text("Track each one by IMEI instead")');
+
+    /*
+     * It has four on the shelf, so it must ask. Silently zeroing a count
+     * because a link was clicked is a stock figure destroyed by a click — the
+     * server refuses without consent, and this is where the consent is given.
+     */
+    await page.waitForSelector('text=/Track Redmi Note 13 by IMEI\\?/', { timeout: 10000 });
+    await page.waitForSelector('text=/has 4 in stock/', { timeout: 5000 });
+    await page.getByRole('button', { name: /Clear the count and track by IMEI/ }).click();
+
+    // And the box appears on the line that asked for it, without a reload.
+    const imeis = page.locator('textarea[aria-label="IMEIs for Redmi Note 13"]');
+    await imeis.waitFor({ timeout: 15000 });
+
+    await page.getByLabel(/Quantity for/i).first().fill('2');
+    await imeis.fill('354111222333441\n354111222333442');
+    await page.waitForSelector('text=/2 of 2 handsets/', { timeout: 10000 });
+
+    await page.click('button:has-text("Create draft")');
+    await page.waitForSelector('text=/PI-\\d{4}/', { timeout: 15000 });
+    await page.click('button:has-text("Confirm")');
+    await page.waitForSelector('text=Confirmed', { timeout: 15000 });
+
+    // The handsets are on record by their numbers, and they are the stock.
+    const booked = await page.evaluate(async () => {
+      const auth = { Authorization: `Bearer ${localStorage.getItem('pos_token')}` };
+      const { product } = await (
+        await fetch('/api/products/lookup?code=RN13', { headers: auth })
+      ).json();
+      const { units = [] } = await (
+        await fetch(`/api/units/product/${product.id}`, { headers: auth })
+      ).json();
+      return { tracks: product.tracks_units, stock: product.stock, imeis: units.map((u) => u.imei).sort() };
+    });
+    if (!booked.tracks) throw new Error('the product is still counted');
+    if (booked.stock !== 2) throw new Error(`the shelf says ${booked.stock}, not the 2 booked in`);
+    if (booked.imeis.join() !== '354111222333441,354111222333442') {
+      throw new Error(`the handsets on record are ${booked.imeis.join(', ')}`);
+    }
+  });
+
   await step('a new supplier can be created from inside a document', async () => {
     await goToDocuments();
     const dialog = await openNewDocument();
