@@ -81,6 +81,9 @@ export const CATALOGUE_TABLES = [
   'products',
   'product_barcodes',
   'product_bundles',
+  /* What a validity package scratches — configuration of the catalogue, so it
+     goes when the catalogue does and stays when only the trading does. */
+  'validity_cards',
   'categories',
   'customers',
   'suppliers',

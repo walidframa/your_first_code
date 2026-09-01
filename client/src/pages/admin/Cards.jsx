@@ -882,9 +882,9 @@ export default function Cards() {
                                       onClick={() => setLinking(c)}
                                       className="text-left text-xs text-brand-700 underline-offset-2 hover:underline"
                                     >
-                                      {c.linked_card_name ? (
+                                      {scratchLabel(c) ? (
                                         <>
-                                          {c.linked_card_name}
+                                          {scratchLabel(c)}
                                           {/*
                                             * A card picked with the credit left
                                             * at nothing is not set up — it just
@@ -1000,4 +1000,19 @@ export default function Cards() {
       )}
     </div>
   );
+}
+
+/**
+ * The cards a validity package scratches, as one line on the row.
+ *
+ * More than one is the ordinary case now — a 180-day package is often two —
+ * so this reads "Alfa $11.11 + Alfa $22.73", and a repeated card is a count
+ * rather than the same name twice.
+ */
+function scratchLabel(card) {
+  const list = card.scratch_cards || [];
+  if (list.length === 0) return card.linked_card_name || '';
+  return list
+    .map((c) => (Number(c.quantity) > 1 ? `${c.quantity} × ${c.name}` : c.name))
+    .join(' + ');
 }

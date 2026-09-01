@@ -1027,6 +1027,19 @@ try {
     await page.waitForSelector('text=$489.00', { timeout: 15000 });
   });
 
+  /** The supplier's recharge line and the Touch carrier line, as figures. */
+  async function walletBalances() {
+    return page.evaluate(async () => {
+      const auth = { Authorization: `Bearer ${localStorage.getItem('pos_token')}` };
+      const wallets = (await (await fetch('/api/wallets', { headers: auth })).json()).wallets || [];
+      const carriers = (await (await fetch('/api/credit/carriers', { headers: auth })).json()).carriers || [];
+      return {
+        recharge: wallets.find((w) => w.name === 'Mobile recharge')?.balance ?? 0,
+        touch: carriers.find((c) => c.name === 'Touch')?.balance ?? 0,
+      };
+    });
+  }
+
   await step('a validity card is linked, and selling one moves all three balances', async () => {
     await goTo('Cards');
     await page.waitForSelector('text=Not linked yet', { timeout: 15000 });
@@ -1049,12 +1062,17 @@ try {
     /*
      * Picking a card that carries credit fills the figure in. Typing it from
      * nothing is what got left at zero, and zero is the silent failure.
+     *
+     * A package names a *list* of cards now, so the first thing is to add a
+     * row — a 180-day top-up is often two cards, and one is a list of one.
      */
+    await page.locator('[role=dialog]').getByRole('button', { name: /Add a card/ }).click();
+    const first = page.locator('[role=dialog] select[name=scratchedCard0]');
     const carrying = await page
-      .locator('[role=dialog] #linkedCard option')
+      .locator('[role=dialog] select[name=scratchedCard0] option')
       .evaluateAll((opts) => opts.find((o) => o.textContent.includes('Alfa $07.58'))?.value);
     if (!carrying) throw new Error('the $7.58 recharge card is not offered as a delivering card');
-    await page.locator('[role=dialog] #linkedCard').selectOption(carrying);
+    await first.selectOption(carrying);
     await page.waitForTimeout(300);
     const prefilled = await page.locator('[role=dialog] #creditRecovered').inputValue();
     if (prefilled !== '7.58') {
@@ -1062,7 +1080,7 @@ try {
     }
 
     // The cost was set to $2.75 by the previous step, and the option says so.
-    await page.locator('[role=dialog] #linkedCard').selectOption({ label: 'ALFA 10 · 1 month · costs $2.75' });
+    await first.selectOption({ label: 'ALFA 10 · 1 month · costs $2.75' });
     // Trimmed to what the shop really keeps off the card.
     await page.locator('[role=dialog] #creditRecovered').fill('6');
     await page.locator('[role=dialog] #creditWallet').selectOption({ label: 'Alfa' });
@@ -1073,6 +1091,8 @@ try {
     await page.locator('[role=dialog]').getByRole('button', { name: 'Save the link' }).click();
     await page.waitForSelector('text=/linked$/', { timeout: 15000 });
     await page.waitForSelector('text=$6.00 back to Alfa', { timeout: 15000 });
+    // Named on the row, so the screen says what a sale will actually scratch.
+    await page.waitForSelector('text=ALFA 10 · 1 month', { timeout: 15000 });
 
     await putCategoryOnRegister('Validity');
     await goTo('Register');
@@ -1378,6 +1398,85 @@ try {
     if (!state.sold.has_id_photo) throw new Error('the buyer’s ID was not kept');
 
     // Back where the steps below expect to be standing.
+    await goTo('Products');
+    await page.waitForSelector('button:has-text("New product")', { timeout: 15000 });
+  });
+
+  await step('a package can be delivered by two cards, and both are scratched', async () => {
+    /*
+     * The reason this is a list rather than one card.
+     *
+     * A 180-day top-up is often delivered by scratching two, because the
+     * carrier sells the denominations it sells and the package is priced
+     * against a total. Held as one card, a shop with a two-card package named
+     * one of them and took the other off its books by hand on every sale —
+     * which is exactly the credit balance nobody trusts that this whole screen
+     * exists to prevent.
+     *
+     * Touch rather than Alfa, so the Alfa arithmetic the steps above pin down
+     * is left exactly as they left it.
+     */
+    await goTo('Cards');
+    await page.waitForSelector('text=Not linked yet', { timeout: 15000 });
+    await page
+      .locator('tr', { hasText: 'Touch 180 days' })
+      .getByRole('button', { name: 'Not linked yet' })
+      .click();
+    await page.waitForSelector('[role=dialog] >> text=What selling one of these does', { timeout: 10000 });
+    const dialog = page.locator('[role=dialog]');
+
+    /* By value, found from the option text: `selectOption` takes a label only
+       as an exact string, and these carry the cost and credit after the name. */
+    const optionFor = async (row, text) => {
+      const value = await dialog
+        .locator(`select[name=scratchedCard${row}] option`)
+        .evaluateAll((opts, wanted) => opts.find((o) => o.textContent.includes(wanted))?.value, text);
+      if (!value) throw new Error(`${text} is not offered as a delivering card`);
+      return value;
+    };
+
+    await dialog.getByRole('button', { name: /Add a card/ }).click();
+    await dialog.locator('select[name=scratchedCard0]').selectOption(await optionFor(0, 'Touch $07.58'));
+    await dialog.getByRole('button', { name: /Another card/ }).click();
+    await dialog.locator('select[name=scratchedCard1]').selectOption(await optionFor(1, 'Touch $15.15'));
+    // Two of the second one: a repeat is a count, not a third row.
+    await dialog.getByLabel('How many of card 2').fill('2');
+    await dialog.locator('#creditRecovered').fill('30');
+    await dialog.locator('#creditWallet').selectOption({ label: 'Touch' });
+
+    // Said back in words, because three things happen on one press.
+    await page.waitForSelector('[role=dialog] >> text=/2 × Touch \\$15\\.15/', { timeout: 10000 });
+    await dialog.getByRole('button', { name: 'Save the link' }).click();
+    await page.waitForSelector('text=/linked$/', { timeout: 15000 });
+
+    // Both named on the row, joined, so the screen says what a sale scratches.
+    await page.waitForSelector('text=/Touch \\$07\\.58 \\+ 2 × Touch \\$15\\.15/', { timeout: 15000 });
+
+    const before = await walletBalances();
+    await putCategoryOnRegister('Validity');
+    await goTo('Register');
+    await page.waitForSelector('text=Current sale', { timeout: 15000 });
+    await page.getByRole('button', { name: 'Validity', exact: true }).click();
+    await page.getByRole('button', { name: /Touch 180 days/ }).first().click();
+    await page.waitForSelector('aside >> text=Touch 180 days', { timeout: 10000 });
+    await page.click('aside button:has-text("Charge $")');
+    await page.waitForSelector('[role=dialog] >> text=Take payment', { timeout: 15000 });
+    await page.click('[role=dialog] button:has-text("Card")');
+    await page.click('[role=dialog] button:has-text("Confirm $")');
+    await page.waitForSelector('text=Payment complete', { timeout: 15000 });
+    await page.click('button:has-text("New sale")');
+
+    const after = await walletBalances();
+    /*
+     * Three cards' worth off the supplier's line — one at $7.58 and two at
+     * $15.15 — not one. This is the whole point: held as a single link, only
+     * the first would have gone.
+     */
+    const spent = Math.round((before.recharge - after.recharge) * 100) / 100;
+    if (spent !== 37.88) throw new Error(`three cards should cost $37.88, spent ${spent}`);
+    const credited = Math.round((after.touch - before.touch) * 100) / 100;
+    if (credited !== 30) throw new Error(`$30 should have come back to Touch, got ${credited}`);
+
     await goTo('Products');
     await page.waitForSelector('button:has-text("New product")', { timeout: 15000 });
   });
@@ -2442,6 +2541,90 @@ try {
       ),
     );
     if (spill) throw new Error('label contents overflow the label');
+  });
+
+  await step('the catalogue can go and find its own pictures', async () => {
+    /*
+     * A register is a wall of tiles, and a tile with no picture is a coloured
+     * monogram. A shop that typed nine hundred products in has nine hundred of
+     * them, so the app goes and looks — by name, from public picture libraries,
+     * writing down where each one came from.
+     *
+     * The libraries here are a stand-in on 127.0.0.1; see e2e/run.mjs. What is
+     * being tested is the screen and the wiring, not Wikimedia.
+     */
+    await goTo('Products');
+    await page.waitForSelector('button:has-text("Find pictures")', { timeout: 15000 });
+    await page.click('button:has-text("Find pictures")');
+    await page.waitForSelector("text=From each product's name", { timeout: 15000 });
+
+    // Said before the button is pressed, not in a help page nobody opens.
+    await page.waitForSelector('text=/matched on the name alone/i', { timeout: 10000 });
+
+    const dialog = page.locator('[role=dialog]');
+    await dialog.getByRole('button', { name: 'Find pictures' }).click();
+    await page.waitForSelector('text=/Finished\\./', { timeout: 60000 });
+
+    const found = Number((await dialog.innerText()).match(/Finished\.\s*(\d+)/)?.[1] || 0);
+    if (found < 1) throw new Error('the run finished having found nothing');
+
+    // Where it came from is on the row, because a Creative Commons licence is
+    // granted on condition the source is credited.
+    await dialog.locator('text=/Wikimedia Commons/').first().waitFor({ timeout: 10000 });
+
+    /*
+     * And it is a picture, stored on the product rather than a link to one.
+     *
+     * Counted as PNGs specifically: the recharge cards carry a drawn SVG face
+     * of their own, also a data URI, and counting those would make this pass
+     * whether the run had stored anything or not — which is exactly what it did
+     * the first time it was written.
+     */
+    const fetched = () =>
+      page.evaluate(async () => {
+        const r = await fetch('/api/products', {
+          headers: { Authorization: `Bearer ${localStorage.getItem('pos_token')}` },
+        });
+        const { products = [] } = await r.json();
+        return products.filter((p) => String(p.image_url || '').startsWith('data:image/png')).length;
+      });
+
+    const stored = await fetched();
+    if (stored < 1) throw new Error('nothing was stored on a product');
+
+    // It is a machine guessing from a name, so it has to be undoable.
+    await dialog.getByRole('button', { name: /Put them all back/ }).click();
+    await page.waitForSelector('text=/put back/i', { timeout: 15000 });
+    const left = await fetched();
+    if (left !== 0) throw new Error(`undo left ${left} products with a fetched picture`);
+
+    // `.last()`: the dialog's own × is also called Close.
+    await dialog.getByRole('button', { name: 'Close' }).last().click();
+  });
+
+  await step('one product can be given a picture from the form', async () => {
+    await goTo('Products');
+    await page.click('button:has-text("New product")');
+    const dialog = page.locator('[role=dialog]');
+    await dialog.getByLabel('Name', { exact: true }).fill('Growatt 5kW inverter');
+
+    await dialog.getByRole('button', { name: /Find one/ }).click();
+    await page.waitForSelector('text=Looking for', { timeout: 15000 });
+    await dialog.locator('ul li button img').first().waitFor({ timeout: 15000 });
+
+    // Picking one fetches it server-side and drops the picture into the field.
+    await dialog.locator('ul li button').first().click();
+    await page.waitForFunction(
+      () => {
+        const img = document.querySelector('[role=dialog] img.h-20');
+        return img && img.src.startsWith('data:image');
+      },
+      { timeout: 15000 },
+    );
+
+    // With the credit beside it.
+    await dialog.locator('p[title*="Wikimedia Commons"]').waitFor({ timeout: 10000 });
+    await page.keyboard.press('Escape');
   });
 
   await step('a new product goes straight to its labels, counted', async () => {

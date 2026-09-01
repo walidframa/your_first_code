@@ -338,6 +338,17 @@ addColumn('account_entries', 'native_lbp', 'REAL');
 
 addColumn('products', 'barcode', 'TEXT');
 addColumn('products', 'image_url', 'TEXT');
+/*
+ * Where a picture came from, when the app went and found it.
+ *
+ * Empty for one the shop chose itself, which needs no explaining. A found one
+ * carries the library, the licence and the page it is on — a Creative Commons
+ * licence is granted on condition the source is credited, and a shop cannot
+ * credit what nobody wrote down. It is also the only way to answer "where did
+ * this come from?" a year later, which is the question asked about the one
+ * picture that turns out to be of the wrong thing.
+ */
+addColumn('products', 'image_source', 'TEXT');
 
 /*
  * Every barcode a product answers to.
@@ -2016,6 +2027,56 @@ addColumn('products', 'validity_days', 'INTEGER');
 addColumn('products', 'linked_card_id', 'INTEGER REFERENCES products(id)');
 addColumn('products', 'credit_recovered', 'REAL NOT NULL DEFAULT 0');
 addColumn('products', 'credit_wallet_id', 'INTEGER REFERENCES wallets(id)');
+
+/*
+ * The cards a validity package scratches — more than one of them.
+ *
+ * `linked_card_id` above held exactly one, which is not how the shop works. A
+ * 180-day package is often delivered by scratching two cards, sometimes two of
+ * the same denomination, because the carrier sells the denominations it sells
+ * and the package is priced against a total. A shop with a two-card package had
+ * to name one of them here and type the other off the books by hand on every
+ * sale — which is the "credit balance nobody trusts" this whole feature exists
+ * to prevent.
+ *
+ * A row per card, with a count, so one card is a list of one and nothing about
+ * a shop that had set the single link changes on screen. This table is now the
+ * only answer to "what gets scratched": `linked_card_id` is kept as the source
+ * this was migrated from and is read by nothing, because two places to look
+ * would eventually disagree.
+ */
+db.exec(`
+  CREATE TABLE IF NOT EXISTS validity_cards (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- The validity package that is sold.
+    product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    -- A card scratched to deliver it.
+    card_id    INTEGER NOT NULL REFERENCES products(id),
+    -- How many of that card. Whole cards only: half a card cannot be scratched.
+    quantity   INTEGER NOT NULL DEFAULT 1 CHECK (quantity > 0),
+    -- The same card twice is a count, not a second row.
+    UNIQUE (product_id, card_id)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_validity_cards_product ON validity_cards(product_id);
+`);
+
+/*
+ * Carry every single link that was already set into the list, once.
+ *
+ * Guarded on the table being empty rather than on each row, so a shop that has
+ * since edited a package's list does not have the old single card put back
+ * under it on the next restart.
+ */
+if (db.prepare('SELECT COUNT(*) AS n FROM validity_cards').get().n === 0) {
+  db.exec(`
+    INSERT INTO validity_cards (product_id, card_id, quantity)
+    SELECT id, linked_card_id, 1
+      FROM products
+     WHERE linked_card_id IS NOT NULL
+       AND validity_days IS NOT NULL
+  `);
+}
 /*
  * How much calling credit a card actually carries.
  *

@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { PROVIDERS } from '../lib/productPhotos.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { serialiseLabelStyle } from '../lib/labelStyle.js';
 import {
@@ -45,6 +46,14 @@ const COMPANY_FIELDS = [
  * here, where somebody is looking at the screen.
  */
 const LEDGER_FIELDS = ['gl_map'];
+
+/*
+ * Finding pictures for the catalogue.
+ *
+ * `photo_base_url` is here so the tests can point all four libraries at one
+ * stand-in, the same arrangement Shopify and Telegram already have.
+ */
+const PHOTO_FIELDS = ['photo_source', 'photo_google_key', 'photo_google_cx', 'photo_base_url'];
 
 const TELEGRAM_FIELDS = [
   'telegram_enabled',
@@ -224,6 +233,22 @@ router.put('/', requireAuth, requirePermission('settings'), (req, res) => {
           return res.status(400).json({ error: `No account has the code ${code}` });
         }
       }
+    }
+
+    setSetting(field, value, req.user.id);
+  }
+
+  for (const field of PHOTO_FIELDS) {
+    if (req.body[field] === undefined) continue;
+    const value = String(req.body[field] ?? '').trim();
+
+    /*
+     * Refused rather than stored, because a name that is not a library is a
+     * search that quietly finds nothing for ever — which reads as "the feature
+     * does not work" rather than as "that setting is wrong".
+     */
+    if (field === 'photo_source' && value && value !== 'auto' && !(value in PROVIDERS)) {
+      return res.status(400).json({ error: `Not a picture library: ${value}` });
     }
 
     setSetting(field, value, req.user.id);
