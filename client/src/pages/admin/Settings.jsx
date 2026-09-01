@@ -6,6 +6,7 @@ import CompanySettings from '../../components/CompanySettings';
 import Backups from '../../components/Backups';
 import TaxSettings from '../../components/TaxSettings';
 import TelegramSettings from '../../components/TelegramSettings';
+import PhotoSourceSettings from '../../components/PhotoSourceSettings';
 import SupportVisits from '../../components/SupportVisits';
 import { useSettings, lbp } from '../../context/SettingsContext';
 import { TEXT_SIZES, applyTextSize, getTextSize } from '../../lib/textSize';
@@ -301,6 +302,12 @@ export default function Settings() {
             it is the one on this page somebody comes here on purpose to set. */}
         <div className="mb-4 max-w-4xl">
           <TelegramSettings />
+        </div>
+
+        {/* Almost nobody opens this — the free libraries work with nothing set
+            up. It is here for the shop whose stock they have nothing for. */}
+        <div className="mb-4 max-w-4xl">
+          <PhotoSourceSettings />
         </div>
 
         <div className="mb-4 grid max-w-4xl grid-cols-2 gap-4">

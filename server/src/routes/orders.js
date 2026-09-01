@@ -34,6 +34,7 @@ import {
 } from '../lib/bundles.js';
 import { encryptSecret } from '../lib/secrets.js';
 import { setIdPhoto } from '../lib/idPhotos.js';
+import { scratchPlan } from '../lib/validityCards.js';
 import { quote, describe as describeCredit } from '../lib/credit.js';
 import { creditCostBasis } from '../lib/wallets.js';
 import { orderMessage, sendable } from '../lib/whatsapp.js';
@@ -835,29 +836,30 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
            * else. That is a real arrangement, not an oversight — the shop
            * says so by leaving the link empty.
            */
-          if (li.product.linked_card_id) {
-            const linked = db.prepare('SELECT * FROM products WHERE id = ?').get(li.product.linked_card_id);
-            /*
-             * Retiring a card does not delete its row, so the link survives it.
-             * Selling on regardless would quietly scratch a card the shop has
-             * said it no longer stocks — better to stop and be re-linked.
-             */
-            if (!linked) throw new Error(`${li.product.name} is linked to a card that no longer exists`);
-            if (!linked.active) {
-              throw new Error(`${li.product.name} is delivered by ${linked.name}, which is no longer stocked`);
-            }
+          /*
+           * Every card on the list, not one.
+           *
+           * A 180-day package is often two cards — sometimes two of the same
+           * denomination — because the carrier sells what it sells and the
+           * package is priced against a total. `scratchPlan` refuses outright
+           * if any of them has been retired since it was linked, rather than
+           * scratching the rest and leaving the package half delivered.
+           */
+          for (const card of scratchPlan(li.product)) {
+            const linked = db.prepare('SELECT * FROM products WHERE id = ?').get(card.cardId);
+            const each = li.quantity * card.quantity;
 
             if (linked.wallet_id) {
               chargeSale({
                 walletId: linked.wallet_id,
                 product: linked,
-                quantity: li.quantity,
+                quantity: each,
                 orderId,
                 userId: req.user.id,
               });
             } else {
               // A linked card held as ordinary stock comes off the shelf instead.
-              moveStock({ branchId, productId: linked.id, delta: -li.quantity });
+              moveStock({ branchId, productId: linked.id, delta: -each });
             }
           }
 

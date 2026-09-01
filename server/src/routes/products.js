@@ -13,6 +13,47 @@ import {
   componentsOf,
   setBundle,
 } from '../lib/bundles.js';
+import { attribution, download, findPhotos } from '../lib/productPhotos.js';
+import { scratchMap, scratchedBy, setScratched } from '../lib/validityCards.js';
+
+/**
+ * What this request says a validity package scratches.
+ *
+ * `scratch_cards` is the list and the real answer. `linked_card_id` is the one
+ * column that came before it, still accepted so that every caller written
+ * against the old shape — the importer, an integration, an older browser tab
+ * left open — goes on meaning what it meant: one card, once.
+ *
+ * Returns `undefined` for a request that mentions neither, which is how a form
+ * that saves a product's price is stopped from silently clearing its cards.
+ */
+function scratchFromBody(body) {
+  const list = body?.scratch_cards;
+  if (Array.isArray(list) && list.length > 0) return list;
+
+  /*
+   * An empty list does not automatically mean "scratch nothing".
+   *
+   * Every form in this app saves a product by sending the whole product back,
+   * and a product read from `GET /products` now carries `scratch_cards: []` on
+   * every row that has none. So a caller written against the old shape — one
+   * that reads a product, sets `linked_card_id` and puts it back — arrives here
+   * with an empty list *and* a card, and taking the list at face value would
+   * throw the card away. The one that was named explicitly wins.
+   */
+  if (body?.linked_card_id !== undefined) {
+    return body.linked_card_id ? [{ cardId: Number(body.linked_card_id), quantity: 1 }] : [];
+  }
+  if (Array.isArray(list)) return [];
+  return undefined;
+}
+import {
+  countWithoutPhotos,
+  start as startPhotoRun,
+  status as photoRunStatus,
+  stop as stopPhotoRun,
+  undo as undoPhotoRun,
+} from '../lib/photoRun.js';
 
 const router = Router();
 
@@ -119,6 +160,106 @@ router.post('/categories', requireAuth, requirePermission('catalogue'), (req, re
     res.status(201).json({ category: { id: info.lastInsertRowid, name: name.trim() } });
   } catch {
     res.status(409).json({ error: 'Category already exists' });
+  }
+});
+
+/* ------------------------------------------------------------------ *
+ * Pictures, found from the product's name
+ * ------------------------------------------------------------------ */
+
+/**
+ * How many products are still grey, so the screen can offer to go and get them.
+ *
+ * Declared with the other collection routes and above `/:id`, because Express
+ * matches in order and "photos" is a perfectly good id as far as a route
+ * pattern is concerned.
+ */
+router.get('/photos/pending', requireAuth, requirePermission('catalogue'), (req, res) => {
+  res.json({
+    pending: countWithoutPhotos({ includeArchived: req.query.archived === 'true' }),
+    run: photoRunStatus(),
+  });
+});
+
+/** Start the run. Answers at once; the work carries on behind it. */
+router.post('/photos/run', requireAuth, requirePermission('catalogue'), (req, res) => {
+  const { limit = null, includeArchived = false } = req.body || {};
+  const outcome = startPhotoRun({
+    limit: Number(limit) > 0 ? Number(limit) : null,
+    includeArchived: Boolean(includeArchived),
+  });
+  if (!outcome.started) return res.status(409).json({ error: outcome.reason, run: outcome.status });
+  res.status(202).json({ run: outcome.status });
+});
+
+/** What the screen polls while it runs, and reads after it finishes. */
+router.get('/photos/run', requireAuth, requirePermission('catalogue'), (req, res) => {
+  res.json({ run: photoRunStatus() });
+});
+
+router.post('/photos/run/stop', requireAuth, requirePermission('catalogue'), (req, res) => {
+  res.json({ run: stopPhotoRun() });
+});
+
+/**
+ * Put back what the run did — one product, or the lot.
+ *
+ * The whole point of an undo here is that this is a machine guessing from a
+ * name. A shop that runs it over nine hundred products and finds it has put a
+ * picture of a garden hose on its cables needs one button, not nine hundred.
+ */
+router.post('/photos/run/undo', requireAuth, requirePermission('catalogue'), (req, res) => {
+  const { productId = null } = req.body || {};
+  res.json({ ...undoPhotoRun({ productId }), run: photoRunStatus() });
+});
+
+/**
+ * Pictures of something, to look at before any of them is kept.
+ *
+ * Takes a query rather than a product id, for two reasons. A product being
+ * typed in for the first time has no id yet and wants a picture just as much as
+ * one that has been on the shelf a year. And the name on the shelf label is not
+ * always the name the internet knows the thing by — "iPh 14 P" is a fine SKU
+ * and a hopeless query, and retyping it is quicker than renaming the product to
+ * suit a search engine.
+ */
+router.get('/photos/search', requireAuth, requirePermission('catalogue'), async (req, res) => {
+  const query = String(req.query.q || '').trim();
+  if (!query) return res.status(400).json({ error: 'What should it look for?' });
+
+  try {
+    res.json(await findPhotos(query));
+  } catch (err) {
+    res.status(502).json({ error: err.message || 'Could not search for pictures' });
+  }
+});
+
+/**
+ * Fetch one, and hand back what the product column would hold.
+ *
+ * The picture is fetched here rather than by the browser: what the browser was
+ * shown is a link, and what a product holds is the picture itself. Doing it
+ * server-side also means the size ceiling and the rules about what may be
+ * fetched at all are applied in one place, whether a person picked this one or
+ * a run did.
+ *
+ * It does not save. The form that asked puts it in the field, and the ordinary
+ * Save writes it with everything else the person changed — so a picture chosen
+ * and then thought better of goes away with Cancel, like every other edit.
+ */
+router.post('/photos/fetch', requireAuth, requirePermission('catalogue'), async (req, res) => {
+  const { url, provider = '', licence = '', page = '' } = req.body || {};
+  if (!url) return res.status(400).json({ error: 'Which picture?' });
+
+  try {
+    const picture = await download(url);
+    res.json({
+      image_url: picture.dataUri,
+      image_source: attribution({ provider, licence, page }),
+      byteSize: picture.byteSize,
+    });
+  } catch (err) {
+    res.status(422).json({ error: err.message || 'That picture could not be used' });
   }
 });
 
@@ -244,6 +385,12 @@ router.get('/', requireAuth, (req, res) => {
    */
   const averages = averageCostMap();
   const latest = lastCostMap();
+  /*
+   * What each validity package scratches, in one query rather than one per row.
+   * The Cards screen names them on every line, and a shop with forty packages
+   * would otherwise make forty extra round trips to draw one screen.
+   */
+  const scratches = scratchMap();
   res.json({
     products: rows.map((p) => {
       const last = latest.get(p.id) || null;
@@ -260,6 +407,9 @@ router.get('/', requireAuth, (req, res) => {
         last_cost: last?.cost ?? null,
         last_cost_at: last?.at ?? null,
         last_cost_ref: last?.reference ?? null,
+        /* Always an array, so the screen never has to tell "none" from "not
+           a validity card" by looking at two different shapes. */
+        scratch_cards: scratches.get(p.id) || [],
       };
       if (!bundles.has(p.id)) return base;
       const parts = componentsOf(p.id);
@@ -435,8 +585,23 @@ router.post('/', requireAuth, requirePermission('catalogue'), (req, res) => {
       return res.status(409).json({ error: err.message });
     }
 
+    const scratched = scratchFromBody(req.body);
+    if (scratched !== undefined) {
+      try {
+        setScratched(info.lastInsertRowid, scratched);
+      } catch (err) {
+        db.prepare('DELETE FROM products WHERE id = ?').run(info.lastInsertRowid);
+        return res.status(400).json({ error: err.message });
+      }
+    }
+
     const product = db.prepare('SELECT * FROM products WHERE id = ?').get(info.lastInsertRowid);
-    res.status(201).json({ product: serializeProduct(product, { branchId: req.branchId }) });
+    res.status(201).json({
+      product: {
+        ...serializeProduct(product, { branchId: req.branchId }),
+        scratch_cards: scratchedBy(info.lastInsertRowid),
+      },
+    });
   } catch (err) {
     res.status(409).json({ error: 'SKU already exists' });
   }
@@ -448,7 +613,11 @@ router.get('/:id', requireAuth, (req, res) => {
   // Where the rest of them are, which is the question asked the moment a shelf
   // here is empty.
   res.json({
-    product: { ...serializeProduct(product, { branchId: req.branchId }), ...priceHistory(product.id) },
+    product: {
+      ...serializeProduct(product, { branchId: req.branchId }),
+      ...priceHistory(product.id),
+      scratch_cards: scratchedBy(product.id),
+    },
     branches: stockByBranch(product.id),
   });
 });
@@ -517,7 +686,7 @@ router.put('/:id', requireAuth, requirePermission('catalogue'), (req, res) => {
 
   const fields = [
     'name', 'sku', 'price', 'cost', 'stock', 'category_id', 'image_emoji',
-    'active', 'barcode', 'supplier', 'image_url', 'reorder_point', 'tracks_units',
+    'active', 'barcode', 'supplier', 'image_url', 'image_source', 'reorder_point', 'tracks_units',
     'warranty_months', 'wallet_id',
     /*
      * A SIM is a serialised unit whose identity is the number on it rather than
@@ -644,6 +813,26 @@ router.put('/:id', requireAuth, requirePermission('catalogue'), (req, res) => {
     req.params.id
   );
 
+  /*
+   * The cards this package scratches, saved with everything else.
+   *
+   * Not its own route, unlike a bundle's parts: this and the credit fields
+   * beside it are one dialog and one press, and saving them separately would
+   * let the credit land while the cards did not — which is the half-configured
+   * state that whole screen exists to prevent.
+   *
+   * Left alone when the field is absent, so every other form that saves a
+   * product does not silently clear it.
+   */
+  const scratched = scratchFromBody(req.body);
+  if (scratched !== undefined) {
+    try {
+      setScratched(product.id, scratched);
+    } catch (err) {
+      return res.status(400).json({ error: err.message });
+    }
+  }
+
   // A cost that moved is worth remembering; one that did not is noise.
   recordCostChange({
     productId: product.id,
@@ -654,7 +843,12 @@ router.put('/:id', requireAuth, requirePermission('catalogue'), (req, res) => {
   });
 
   const updated = db.prepare('SELECT * FROM products WHERE id = ?').get(req.params.id);
-  res.json({ product: serializeProduct(updated, { branchId: req.branchId }) });
+  res.json({
+    product: {
+      ...serializeProduct(updated, { branchId: req.branchId }),
+      scratch_cards: scratchedBy(product.id),
+    },
+  });
 });
 
 router.delete('/:id', requireAuth, requirePermission('catalogue'), (req, res) => {

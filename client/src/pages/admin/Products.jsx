@@ -13,11 +13,13 @@ import {
   Tag,
   Tags,
   Upload,
+  Images,
 } from 'lucide-react';
 import api from '../../api';
 import BarcodeField from '../../components/BarcodeField';
 import MoneyInput from '../../components/MoneyInput';
 import PageHeader from '../../components/PageHeader';
+import PhotoFinder from '../../components/PhotoFinder';
 import ItemActivity from '../../components/ItemActivity';
 import CategoryManager from '../../components/CategoryManager';
 import ProductImageField from '../../components/ProductImageField';
@@ -62,6 +64,7 @@ const emptyForm = {
   category_id: '',
   supplier: '',
   image_url: '',
+  image_source: '',
   tracks_units: false,
   is_sim: false,
   is_service: false,
@@ -86,6 +89,7 @@ function ProductModal({ product, categories, allProducts, onClose, onSaved, onCa
           category_id: product.category_id || '',
           supplier: product.supplier || '',
           image_url: product.image_url || '',
+          image_source: product.image_source || '',
           tracks_units: Boolean(product.tracks_units),
           is_sim: Boolean(product.is_sim),
           is_service: Boolean(product.is_service),
@@ -484,7 +488,14 @@ function ProductModal({ product, categories, allProducts, onClose, onSaved, onCa
           <Input label="Supplier" value={form.supplier} onChange={set('supplier')} />
           <ProductImageField
             value={form.image_url}
-            onChange={(v) => setForm((f) => ({ ...f, image_url: v }))}
+            source={form.image_source}
+            /* The name is what a search has to go on, so it is read live from
+               the form rather than from the saved product — a product being
+               typed in for the first time has no saved name yet. */
+            name={form.name}
+            onChange={(v, foundAt = '') =>
+              setForm((f) => ({ ...f, image_url: v, image_source: foundAt }))
+            }
             className="col-span-2"
           />
 
@@ -532,6 +543,7 @@ export default function Products() {
   const [products, setProducts] = useState(null);
   const [categories, setCategories] = useState([]);
   const [managingCategories, setManagingCategories] = useState(false);
+  const [findingPhotos, setFindingPhotos] = useState(false);
   const [search, setSearch] = useState('');
   const [showArchived, setShowArchived] = useState(false);
   const [editing, setEditing] = useState(undefined);
@@ -878,6 +890,11 @@ export default function Products() {
             <Button variant="secondary" onClick={() => setManagingCategories(true)}>
               <Tags size={16} /> Categories
             </Button>
+            {/* Beside Import for the same reason Categories is: this is the
+                other way a catalogue gets filled in without typing. */}
+            <Button variant="secondary" onClick={() => setFindingPhotos(true)}>
+              <Images size={16} /> Find pictures
+            </Button>
             <Link to="/admin/import">
               <Button variant="secondary">
                 <Upload size={16} /> Import
@@ -1130,6 +1147,14 @@ export default function Products() {
           }}
         />
       )}
+
+      <PhotoFinder
+        open={findingPhotos}
+        onClose={() => setFindingPhotos(false)}
+        /* Only when it actually changed something: a product list carrying a
+           picture per row is not a cheap thing to fetch twice for nothing. */
+        onChanged={load}
+      />
 
       {scanning && (
         <BarcodeScanner

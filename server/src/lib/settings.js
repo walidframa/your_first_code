@@ -149,10 +149,29 @@ export const SETTING_DEFAULTS = {
   telegram_last_error: '',
   // Only ever set by the tests, which point this at a stand-in server.
   telegram_base_url: '',
+
+  /*
+   * Finding pictures for the catalogue from the product's name.
+   *
+   * `photo_source` is which library to ask: 'auto' walks them in order until
+   * one answers, or a single name pins it to that one. The two keyless
+   * libraries need no setting up at all, which is why this is on by default —
+   * a shop that never opens this screen still gets a picture where one exists.
+   *
+   * The Google key and engine id are a credential and are never sent back to
+   * the browser, like the Shopify and Telegram ones. Google is skipped
+   * entirely until both are filled in: see lib/productPhotos.js for why that
+   * one is the shop's own decision rather than a default.
+   */
+  photo_source: 'auto',
+  photo_google_key: '',
+  photo_google_cx: '',
+  // Only ever set by the tests, which point all four libraries at one stand-in.
+  photo_base_url: '',
 };
 
 /** Never leaves the server. Redacted to a boolean for the UI. */
-export const SECRET_SETTINGS = new Set(['shopify_token', 'telegram_bot_token']);
+export const SECRET_SETTINGS = new Set(['shopify_token', 'telegram_bot_token', 'photo_google_key']);
 
 const NUMERIC = new Set(['exchange_rate', 'lbp_rounding', 'tax_percent']);
 

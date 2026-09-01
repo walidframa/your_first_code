@@ -756,3 +756,258 @@ test('a validity card with no card behind it just sells the days', async () => {
   assert.equal(res.status, 201);
   assert.equal(res.json.order.subtotal, 4);
 });
+
+/**
+ * More than one card behind a package.
+ *
+ * A 180-day top-up is often delivered by scratching two cards, sometimes two of
+ * the same denomination, because the carrier sells the denominations it sells
+ * and the package is priced against a total. Before this the app held exactly
+ * one, so a shop with a two-card package named one of them and took the other
+ * off its books by hand on every sale — which is the credit balance nobody
+ * trusts that this whole feature exists to prevent.
+ */
+test('a package can be delivered by two different cards at once', async () => {
+  const products = (await req('GET', '/products', null, adminToken)).json.products;
+  const small = products.find((p) => p.sku === 'CARD-ALFA-WHOLE-1515');
+  const big = products.find((p) => p.sku === 'CARD-ALFA-WHOLE-2273');
+  const package180 = products.find((p) => p.sku === 'CARD-VAL-ALFA-180');
+  assert.ok(small && big && package180);
+
+  // The shop's own numbers, so the arithmetic below has something to check.
+  await req('PUT', `/products/${small.id}`, { ...small, cost: 14 }, adminToken);
+  await req('PUT', `/products/${big.id}`, { ...big, cost: 21 }, adminToken);
+
+  const res = await req(
+    'PUT',
+    `/products/${package180.id}`,
+    {
+      ...package180,
+      linked_card_id: null,
+      scratch_cards: [
+        { cardId: small.id, quantity: 1 },
+        { cardId: big.id, quantity: 1 },
+      ],
+      credit_recovered: 30,
+      credit_wallet_id: alfa.id,
+    },
+    adminToken,
+  );
+  assert.equal(res.status, 200, JSON.stringify(res.json));
+  assert.equal(res.json.product.scratch_cards.length, 2);
+
+  const supplierBefore = (await req('GET', '/wallets', null, adminToken)).json.wallets.find(
+    (w) => w.name === 'Mobile recharge',
+  ).balance;
+  const creditBefore = (await req('GET', '/credit/carriers', null, adminToken)).json.carriers.find(
+    (c) => c.id === alfa.id,
+  ).balance;
+
+  const sale = await req(
+    'POST',
+    '/orders',
+    { items: [{ productId: package180.id, quantity: 1 }], paymentMethod: 'card' },
+    adminToken,
+  );
+  assert.equal(sale.status, 201, JSON.stringify(sale.json));
+
+  const supplierAfter = (await req('GET', '/wallets', null, adminToken)).json.wallets.find(
+    (w) => w.name === 'Mobile recharge',
+  ).balance;
+  const creditAfter = (await req('GET', '/credit/carriers', null, adminToken)).json.carriers.find(
+    (c) => c.id === alfa.id,
+  ).balance;
+
+  // Both cards, not one: what the shop paid for each, $14 + $21.
+  assert.equal(
+    supplierAfter,
+    Math.round((supplierBefore - 14 - 21) * 100) / 100,
+    'both cards were scratched',
+  );
+  assert.equal(creditAfter, Math.round((creditBefore + 30) * 100) / 100);
+});
+
+test('two of the same card is a count, not two rows', async () => {
+  const products = (await req('GET', '/products', null, adminToken)).json.products;
+  const card = products.find((p) => p.sku === 'CARD-TOUCH-WHOLE-758');
+  const package90 = products.find((p) => p.sku === 'CARD-VAL-TOUCH-90');
+  const touch = (await req('GET', '/credit/carriers', null, adminToken)).json.carriers.find(
+    (c) => c.name === 'Touch',
+  );
+
+  await req(
+    'PUT',
+    `/products/${package90.id}`,
+    {
+      ...package90,
+      linked_card_id: null,
+      scratch_cards: [{ cardId: card.id, quantity: 2 }],
+      credit_recovered: 12,
+      credit_wallet_id: touch.id,
+    },
+    adminToken,
+  );
+
+  const before = (await req('GET', '/wallets', null, adminToken)).json.wallets.find(
+    (w) => w.name === 'Mobile recharge',
+  ).balance;
+
+  await req(
+    'POST',
+    '/orders',
+    { items: [{ productId: package90.id, quantity: 1 }], paymentMethod: 'card' },
+    adminToken,
+  );
+
+  const after = (await req('GET', '/wallets', null, adminToken)).json.wallets.find(
+    (w) => w.name === 'Mobile recharge',
+  ).balance;
+  assert.equal(after, Math.round((before - 7.58 * 2) * 100) / 100, 'two cards went, not one');
+});
+
+test('the count multiplies with how many are sold', async () => {
+  const products = (await req('GET', '/products', null, adminToken)).json.products;
+  const package90 = products.find((p) => p.sku === 'CARD-VAL-TOUCH-90');
+
+  const before = (await req('GET', '/wallets', null, adminToken)).json.wallets.find(
+    (w) => w.name === 'Mobile recharge',
+  ).balance;
+
+  await req(
+    'POST',
+    '/orders',
+    { items: [{ productId: package90.id, quantity: 3 }], paymentMethod: 'card' },
+    adminToken,
+  );
+
+  const after = (await req('GET', '/wallets', null, adminToken)).json.wallets.find(
+    (w) => w.name === 'Mobile recharge',
+  ).balance;
+  // Three sold × two cards each.
+  assert.equal(after, Math.round((before - 7.58 * 6) * 100) / 100);
+});
+
+test('the same card cannot be listed twice — that is what the count is for', async () => {
+  const products = (await req('GET', '/products', null, adminToken)).json.products;
+  const card = products.find((p) => p.sku === 'CARD-ALFA-WHOLE-758');
+  const package60 = products.find((p) => p.sku === 'CARD-VAL-ALFA-60');
+
+  const res = await req(
+    'PUT',
+    `/products/${package60.id}`,
+    {
+      ...package60,
+      linked_card_id: null,
+      scratch_cards: [
+        { cardId: card.id, quantity: 1 },
+        { cardId: card.id, quantity: 1 },
+      ],
+    },
+    adminToken,
+  );
+  assert.equal(res.status, 400);
+  assert.match(res.json.error, /listed twice/);
+});
+
+test('cards are scratched whole, so half a card is refused', async () => {
+  const products = (await req('GET', '/products', null, adminToken)).json.products;
+  const card = products.find((p) => p.sku === 'CARD-ALFA-WHOLE-758');
+  const package60 = products.find((p) => p.sku === 'CARD-VAL-ALFA-60');
+
+  const res = await req(
+    'PUT',
+    `/products/${package60.id}`,
+    { ...package60, linked_card_id: null, scratch_cards: [{ cardId: card.id, quantity: 1.5 }] },
+    adminToken,
+  );
+  assert.equal(res.status, 400);
+  assert.match(res.json.error, /whole/);
+});
+
+test('a validity card cannot be delivered by another validity card', async () => {
+  const products = (await req('GET', '/products', null, adminToken)).json.products;
+  const package60 = products.find((p) => p.sku === 'CARD-VAL-ALFA-60');
+  const other = products.find((p) => p.sku === 'CARD-VAL-ALFA-360');
+
+  const res = await req(
+    'PUT',
+    `/products/${package60.id}`,
+    { ...package60, linked_card_id: null, scratch_cards: [{ cardId: other.id, quantity: 1 }] },
+    adminToken,
+  );
+  assert.equal(res.status, 400);
+  assert.match(res.json.error, /itself a validity card/);
+});
+
+test('a package with one of its cards retired refuses the sale, and says which', async () => {
+  const products = (await req('GET', '/products', null, adminToken)).json.products;
+  const good = products.find((p) => p.sku === 'CARD-ALFA-WHOLE-379');
+  const doomed = (
+    await req(
+      'POST',
+      '/products',
+      { name: 'About to be dropped', sku: 'CARD-DOOMED', price: 8, cost: 8, stock: 5 },
+      adminToken,
+    )
+  ).json.product;
+  const package360 = products.find((p) => p.sku === 'CARD-VAL-ALFA-360');
+
+  await req(
+    'PUT',
+    `/products/${package360.id}`,
+    {
+      ...package360,
+      linked_card_id: null,
+      scratch_cards: [
+        { cardId: good.id, quantity: 1 },
+        { cardId: doomed.id, quantity: 1 },
+      ],
+    },
+    adminToken,
+  );
+
+  // Retiring a product hides it rather than deleting it, so the link survives.
+  await req('DELETE', `/products/${doomed.id}`, null, adminToken);
+
+  const before = (await req('GET', '/wallets', null, adminToken)).json.wallets.find(
+    (w) => w.name === 'Mobile recharge',
+  ).balance;
+
+  const res = await req(
+    'POST',
+    '/orders',
+    { items: [{ productId: package360.id, quantity: 1 }], paymentMethod: 'card' },
+    adminToken,
+  );
+  assert.equal(res.status, 400);
+  assert.match(res.json.error, /About to be dropped/);
+
+  /*
+   * And nothing was half delivered. The refusal has to come before any card is
+   * scratched, or a shop that hits it has spent the good card and handed the
+   * customer nothing.
+   */
+  const after = (await req('GET', '/wallets', null, adminToken)).json.wallets.find(
+    (w) => w.name === 'Mobile recharge',
+  ).balance;
+  assert.equal(after, before, 'the other card was not spent on a refused sale');
+});
+
+test('a single link set the old way still works, and reads back as a list of one', async () => {
+  const products = (await req('GET', '/products', null, adminToken)).json.products;
+  const card = products.find((p) => p.sku === 'CARD-TOUCH-WHOLE-450');
+  const package60 = products.find((p) => p.sku === 'CARD-VAL-TOUCH-60');
+
+  // Exactly what an older caller sends: the one column, nothing else.
+  const res = await req(
+    'PUT',
+    `/products/${package60.id}`,
+    { ...package60, linked_card_id: card.id },
+    adminToken,
+  );
+  assert.equal(res.status, 200);
+  assert.deepEqual(
+    res.json.product.scratch_cards.map((c) => [c.cardId, c.quantity]),
+    [[card.id, 1]],
+  );
+});

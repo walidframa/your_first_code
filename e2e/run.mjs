@@ -11,6 +11,8 @@ import { fileURLToPath } from 'node:url';
 const repoRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const API_PORT = 4610;
 const WEB_PORT = 4611;
+/* The stand-in picture libraries — see further down. */
+const LIBRARY_PORT = 4612;
 
 const workDir = mkdtempSync(path.join(tmpdir(), 'pos-e2e-'));
 const children = [];
@@ -159,6 +161,35 @@ if (seed.status !== 0) {
   shop
     .prepare("UPDATE categories SET on_register = 1 WHERE name IN ('Bakery', 'Recharge')")
     .run();
+  shop.close();
+}
+
+/*
+ * A stand-in for the picture libraries.
+ *
+ * The suite has no internet, and finding pictures is a feature about going out
+ * and getting them — so the four libraries are pointed at one local server that
+ * answers the way they do. See server/test/fakePhotoLibrary.js.
+ *
+ * Its own process, because the runner drives the suite with `spawnSync` and
+ * that blocks this event loop for the whole run: a server living in here would
+ * accept connections and answer none of them.
+ */
+await requireFreePort(LIBRARY_PORT, 'picture libraries');
+const library = track(
+  spawn(process.execPath, ['e2e/fake-photo-library.mjs', String(LIBRARY_PORT)], {
+    cwd: repoRoot,
+    stdio: 'inherit',
+  }),
+  'picture libraries',
+);
+await waitFor(`http://127.0.0.1:${LIBRARY_PORT}/health`, 'picture libraries', library);
+{
+  const { DatabaseSync } = await import('node:sqlite');
+  const shop = new DatabaseSync(env.DB_PATH);
+  shop
+    .prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)')
+    .run('photo_base_url', `http://127.0.0.1:${LIBRARY_PORT}`);
   shop.close();
 }
 
