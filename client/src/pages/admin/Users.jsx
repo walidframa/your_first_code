@@ -17,7 +17,13 @@ import {
 } from '../../components/ui';
 import { useConfirm } from '../../components/ConfirmProvider';
 
-const emptyForm = { name: '', username: '', password: '', role: 'cashier' };
+const emptyForm = { name: '', username: '', password: '', role: 'cashier', branchId: '' };
+
+/*
+ * "The main branch" is what an unset branch means, and what a one-branch shop
+ * has. Written once so the form, the table and the picker all say it.
+ */
+const MAIN = 'The main branch';
 
 /**
  * A permission, as a row you can tick.
@@ -98,7 +104,7 @@ function PermissionPicker({ groups, value, onChange, disabled }) {
   );
 }
 
-function StaffModal({ groups, defaults, onClose, onSaved }) {
+function StaffModal({ groups, defaults, branches, onClose, onSaved }) {
   const toast = useToast();
   const [form, setForm] = useState(emptyForm);
   const [permissions, setPermissions] = useState(defaults?.cashier || ['register']);
@@ -118,7 +124,11 @@ function StaffModal({ groups, defaults, onClose, onSaved }) {
     setError('');
     setSaving(true);
     try {
-      await api.post('/users', { ...form, permissions });
+      await api.post('/users', {
+        ...form,
+        branchId: form.branchId ? Number(form.branchId) : null,
+        permissions,
+      });
       toast(`${form.name} added`);
       onSaved();
     } catch (err) {
@@ -149,6 +159,40 @@ function StaffModal({ groups, defaults, onClose, onSaved }) {
             <option value="admin">Admin — the whole shop</option>
           </Select>
         </div>
+
+        {/*
+          * Which counter they stand at, asked here rather than left for a
+          * second visit to this screen.
+          *
+          * Somebody hired for the Saida counter is hired for the Saida counter,
+          * and an account made without it opens at the main branch on their
+          * first morning — which is the till they are not standing at.
+          *
+          * Hidden entirely in a shop with one branch, because a dropdown with
+          * one answer is a question nobody should be asked.
+          */}
+        {branches.length > 1 && (
+          <Select
+            label="Which branch they work at"
+            name="branchId"
+            value={form.branchId}
+            onChange={set('branchId')}
+            hint={
+              form.role === 'admin'
+                ? 'Where they open. An admin can still switch to any branch.'
+                : 'They open here, and stay here — staff cannot sell off another branch\'s shelf.'
+            }
+          >
+            <option value="">{MAIN}</option>
+            {branches
+              .filter((b) => !b.is_main)
+              .map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.name}
+                </option>
+              ))}
+          </Select>
+        )}
 
         {form.role === 'admin' ? (
           <p className="rounded-xl bg-brand-50 px-4 py-3 text-sm text-brand-800">
@@ -304,6 +348,14 @@ export default function Users() {
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState(null);
   const [resetting, setResetting] = useState(null);
+  /*
+   * Empty until it loads, and often a list of one. Everything about branches on
+   * this screen is hidden while there is only the one, because a shop with a
+   * single counter should never be asked which counter.
+   */
+  const [branches, setBranches] = useState([]);
+  /* Which row is mid-save, so its picker says so rather than looking inert. */
+  const [movingId, setMovingId] = useState(null);
   const confirm = useConfirm();
 
   const load = useCallback(() => {
@@ -313,7 +365,34 @@ export default function Users() {
   useEffect(() => {
     load();
     api.get('/users/permissions').then((res) => setCatalogue(res.data));
+    // A failure here just means the column stays hidden, which is the same as
+    // a one-branch shop — not a reason to take the staff list down.
+    api.get('/branches').then((res) => setBranches(res.data.branches || [])).catch(() => {});
   }, [load]);
+
+  /**
+   * Move somebody to another counter.
+   *
+   * Saved on the spot rather than behind a dialog: it is one value, the list
+   * already shows every name beside it, and the whole job is usually "these
+   * three are at Saida now".
+   */
+  async function moveTo(user, branchId) {
+    setMovingId(user.id);
+    try {
+      const { data } = await api.put(`/users/${user.id}/branch`, {
+        branchId: branchId ? Number(branchId) : null,
+      });
+      setUsers((list) => list.map((u) => (u.id === user.id ? { ...u, ...data.user } : u)));
+      toast(`${user.name} works at ${data.user.branch_name || MAIN.toLowerCase()}`);
+    } catch (err) {
+      toast(err.response?.data?.error || 'Could not move them', 'error');
+      // Put the picker back to what the server still believes.
+      load();
+    } finally {
+      setMovingId(null);
+    }
+  }
 
   async function remove(user) {
     const agreed = await confirm({
@@ -373,6 +452,7 @@ export default function Users() {
                   <th className="px-5 py-2.5 font-medium">Name</th>
                   <th className="px-3 py-2.5 font-medium">Username</th>
                   <th className="px-3 py-2.5 font-medium">Role</th>
+                  {branches.length > 1 && <th className="px-3 py-2.5 font-medium">Branch</th>}
                   <th className="px-3 py-2.5 font-medium">Can reach</th>
                   <th className="px-5 py-2.5 text-right font-medium">Actions</th>
                 </tr>
@@ -390,6 +470,35 @@ export default function Users() {
                         {u.role === 'admin' ? 'Admin' : 'Staff'}
                       </Badge>
                     </td>
+                    {/*
+                      * The picker itself, in the row.
+                      *
+                      * A shop moving three people to the new branch does it in
+                      * three presses here rather than in three dialogs, and the
+                      * column doubles as the answer to "who is at Saida?" —
+                      * which is the question this table is actually opened for
+                      * on the morning a second shop opens.
+                      */}
+                    {branches.length > 1 && (
+                      <td className="px-3 py-2.5">
+                        <select
+                          value={u.branch_id ?? ''}
+                          disabled={movingId === u.id}
+                          aria-label={`Branch for ${u.name}`}
+                          onChange={(e) => moveTo(u, e.target.value)}
+                          className="h-9 max-w-[11rem] rounded-lg bg-white px-2 text-sm text-slate-700 ring-1 ring-edge transition focus:ring-2 focus:ring-brand-600 focus:outline-none disabled:opacity-50"
+                        >
+                          <option value="">{MAIN}</option>
+                          {branches
+                            .filter((b) => !b.is_main)
+                            .map((b) => (
+                              <option key={b.id} value={b.id}>
+                                {b.name}
+                              </option>
+                            ))}
+                        </select>
+                      </td>
+                    )}
                     <td className="max-w-xs truncate px-3 py-2.5 text-slate-600">{summarise(u)}</td>
                     <td className="px-5 py-2.5 text-right whitespace-nowrap">
                       <Button
@@ -437,6 +546,7 @@ export default function Users() {
 
       {adding && catalogue && (
         <StaffModal
+          branches={branches}
           groups={catalogue.groups}
           defaults={catalogue.defaults}
           onClose={() => setAdding(false)}

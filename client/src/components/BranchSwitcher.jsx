@@ -17,7 +17,7 @@ import { cx } from './ui';
  * plain text.
  */
 export default function BranchSwitcher({ expanded }) {
-  const { branch, branches, canSwitch, switchTo, incoming, loaded, viewingAll, setViewingAll } =
+  const { branch, branches, canSwitch, switchTo, incoming, loaded, viewingAll, setViewingAll, total } =
     useBranch();
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
@@ -39,7 +39,16 @@ export default function BranchSwitcher({ expanded }) {
   // Nothing to say until the app knows where it is, and a single-branch shop
   // should not carry a picker for a choice it does not have.
   if (!loaded || !branch) return null;
-  if (!canSwitch && branches.length <= 1) return null;
+  /*
+   * `total` rather than what this person can see.
+   *
+   * Somebody pinned to a counter is sent one branch — their own — so counting
+   * that list hid the name from a clerk at Saida exactly as it hid it from a
+   * shop that has only one counter. The first is right and the second was not:
+   * a clerk who cannot see which shop the till belongs to cannot check they are
+   * ringing up against the right shelf.
+   */
+  if (!canSwitch && (total ?? branches.length) <= 1) return null;
 
   const label = viewingAll ? 'All branches' : branch.name;
 

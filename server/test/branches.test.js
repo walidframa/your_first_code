@@ -889,3 +889,140 @@ test('nothing written lands in no branch at all', async () => {
     .json.entries.filter((e) => e.branch_id === null);
   assert.equal(orphans.length, 0, `${orphans.length} entries belong to no branch`);
 });
+
+/**
+ * Which counter somebody stands at, said once when they are hired.
+ *
+ * `users.branch_id` and `setUserBranch` have been here since branches were
+ * built, and nothing ever called them — so there was no way to put anybody
+ * anywhere. Every account opened at the main branch, and a shop with a second
+ * one had to tell its Saida cashier to switch every morning, which is a thing
+ * a cashier cannot do: they are pinned, deliberately.
+ *
+ * Two different jobs, from the one setting:
+ *
+ *  - for a cashier it is a **pin** — every request is answered with their own
+ *    branch whatever the browser asks for, which is what stops one selling off
+ *    the other shop's shelf;
+ *  - for somebody who may switch it is where they **open**, with the picker
+ *    still there for the days they are somewhere else.
+ */
+let saidaClerk;
+
+test('somebody can be hired straight onto a branch', async () => {
+  const made = await req(
+    'POST',
+    '/users',
+    {
+      name: 'Saida clerk',
+      username: 'saidaclerk',
+      password: 'counter123',
+      role: 'cashier',
+      branchId: saida.id,
+      permissions: ['register'],
+    },
+    adminToken,
+  );
+  assert.equal(made.status, 201, JSON.stringify(made.json));
+  assert.equal(made.json.user.branch_id, saida.id);
+  assert.equal(made.json.user.branch_name, saida.name, 'named, so the list can be read');
+  saidaClerk = made.json.user;
+});
+
+test('and they open at that branch without touching anything', async () => {
+  const token = (
+    await req('POST', '/auth/login', { username: 'saidaclerk', password: 'counter123' })
+  ).json.token;
+
+  /*
+   * No branch asked for — a browser that has never been signed into before, or
+   * one somebody else was using. The server answers with where they work.
+   */
+  const where = await req('GET', '/branches', null, token);
+  assert.equal(where.json.current, saida.id, 'they open at their own counter');
+  assert.equal(where.json.home, saida.id);
+  assert.equal(where.json.canSwitch, false);
+  assert.equal(where.json.branches.length, 1, 'and see one shop, not a menu');
+});
+
+test('a machine still asking for the other branch does not move them', async () => {
+  const token = (
+    await req('POST', '/auth/login', { username: 'saidaclerk', password: 'counter123' })
+  ).json.token;
+
+  // Exactly what a shared counter computer sends after the owner used it.
+  const where = await req('GET', '/branches', null, token, mainBranch.id);
+  assert.equal(where.json.current, saida.id, 'pinned, whatever the browser asks for');
+});
+
+test('the list says where everybody works', async () => {
+  const { json } = await req('GET', '/users', null, adminToken);
+  const clerk = json.users.find((u) => u.username === 'saidaclerk');
+  assert.equal(clerk.branch_name, saida.name);
+
+  // Null is the main branch, which is what everybody else still is.
+  const admin = json.users.find((u) => u.username === 'admin');
+  assert.equal(admin.branch_id, null);
+  assert.equal(admin.branch_name, null);
+});
+
+test('somebody already hired can be moved to another counter', async () => {
+  const moved = await req('PUT', `/users/${saidaClerk.id}/branch`, { branchId: null }, adminToken);
+  assert.equal(moved.status, 200);
+  assert.equal(moved.json.user.branch_id, null);
+
+  const token = (
+    await req('POST', '/auth/login', { username: 'saidaclerk', password: 'counter123' })
+  ).json.token;
+  assert.equal((await req('GET', '/branches', null, token)).json.current, mainBranch.id);
+
+  // And back, because "for a fortnight" is the usual reason.
+  await req('PUT', `/users/${saidaClerk.id}/branch`, { branchId: saida.id }, adminToken);
+  assert.equal((await req('GET', '/branches', null, token)).json.current, saida.id);
+});
+
+test('a branch that does not exist is refused, not stored', async () => {
+  const bad = await req('PUT', `/users/${saidaClerk.id}/branch`, { branchId: 9999 }, adminToken);
+  assert.equal(bad.status, 400);
+  assert.match(bad.json.error, /does not exist/);
+
+  const { json } = await req('GET', '/users', null, adminToken);
+  assert.equal(json.users.find((u) => u.id === saidaClerk.id).branch_id, saida.id, 'left alone');
+});
+
+test('a closed branch is refused rather than silently ignored', async () => {
+  const spare = (await req('POST', '/branches', { name: 'Tyre' }, adminToken)).json.branch;
+  await req('DELETE', `/branches/${spare.id}`, null, adminToken);
+
+  const bad = await req('PUT', `/users/${saidaClerk.id}/branch`, { branchId: spare.id }, adminToken);
+  assert.equal(bad.status, 400);
+  assert.match(bad.json.error, /closed/);
+});
+
+test('only somebody who manages staff can move people about', async () => {
+  const refused = await req(
+    'PUT',
+    `/users/${saidaClerk.id}/branch`,
+    { branchId: null },
+    cashierToken,
+  );
+  assert.equal(refused.status, 403);
+});
+
+test('a cashier put at a branch sells off that branch\'s shelf, not the main one', async () => {
+  const made = await makeProduct(3);
+  // Four more at Saida, where the clerk actually stands.
+  await req(
+    'POST',
+    '/inventory/adjust',
+    { productId: made.id, delta: 4, reason: 'received' },
+    adminToken,
+    saida.id,
+  );
+
+  const token = (
+    await req('POST', '/auth/login', { username: 'saidaclerk', password: 'counter123' })
+  ).json.token;
+  const seen = await req('GET', `/products/lookup?code=${made.sku}`, null, token);
+  assert.equal(seen.json.product.stock, 4, 'the Saida shelf, without asking for it');
+});

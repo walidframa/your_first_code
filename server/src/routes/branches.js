@@ -32,6 +32,17 @@ router.get('/', requireAuth, (req, res) => {
     current: req.branchId,
     home: req.user.branch_id ?? null,
     canSwitch,
+    /*
+     * How many shops there are, as distinct from how many this person may see.
+     *
+     * Somebody pinned to a counter is sent one branch — their own — so the app
+     * could not tell "a shop with one branch" from "a cashier at one of three",
+     * and hid the branch name in both cases. The first is right: a shop with
+     * one counter should never be told which counter. The second left a clerk
+     * at Saida with nothing on screen saying so, which matters the moment
+     * somebody has to check they are ringing up against the right shelf.
+     */
+    total: listBranches({ activeOnly: true }).length,
     incoming: incomingCount(req.branchId),
   });
 });

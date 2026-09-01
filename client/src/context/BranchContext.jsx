@@ -12,7 +12,20 @@ const BranchContext = createContext(null);
  * has the final say — a cashier asking for another branch is simply answered
  * with their own — which is what makes this safe to keep in the browser.
  */
-const STORAGE_KEY = 'pos_branch_id';
+/*
+ * Remembered per person, not per machine.
+ *
+ * A counter computer is shared. With one key for the whole browser, the owner
+ * switching to Saida and signing out left the *next* person to sign in asking
+ * for Saida — and for anybody allowed to switch branches, the server grants
+ * it. So a manager assigned to the main branch opened the other shop's till,
+ * on a machine standing in their own, and nothing on screen looked wrong.
+ *
+ * Keying it by user id means a fresh sign-in asks for nothing, the server
+ * answers with where that person actually works, and the app opens there.
+ */
+const STORAGE_PREFIX = 'pos_branch_id';
+const storageKey = (userId) => (userId ? `${STORAGE_PREFIX}:${userId}` : STORAGE_PREFIX);
 
 export function BranchProvider({ children }) {
   const { user } = useAuth();
@@ -26,10 +39,7 @@ export function BranchProvider({ children }) {
    * every morning would be a shop reading two branches' figures as one.
    */
   const [viewingAll, setAll] = useState(false);
-  const [current, setCurrent] = useState(() => {
-    const stored = Number(localStorage.getItem(STORAGE_KEY));
-    return Number.isFinite(stored) && stored > 0 ? stored : null;
-  });
+  const [current, setCurrent] = useState(null);
 
   /*
    * The header on the shared axios instance. Every request the app makes carries
@@ -41,19 +51,35 @@ export function BranchProvider({ children }) {
    * and the page would show the wrong shop's figures until something else
    * happened to refresh it.
    */
-  const applyHeader = useCallback((id) => {
-    if (id) {
-      api.defaults.headers.common['X-Branch-Id'] = String(id);
-      localStorage.setItem(STORAGE_KEY, String(id));
-    } else {
-      delete api.defaults.headers.common['X-Branch-Id'];
-      localStorage.removeItem(STORAGE_KEY);
-    }
-  }, []);
+  const applyHeader = useCallback(
+    (id) => {
+      if (id) {
+        api.defaults.headers.common['X-Branch-Id'] = String(id);
+        if (user?.id) localStorage.setItem(storageKey(user.id), String(id));
+      } else {
+        delete api.defaults.headers.common['X-Branch-Id'];
+        if (user?.id) localStorage.removeItem(storageKey(user.id));
+      }
+    },
+    [user?.id],
+  );
 
-  // Whatever was remembered from last time, on the very first request rather
-  // than after it.
-  useState(() => applyHeader(current));
+  /*
+   * Whatever *this person* was last looking at, before the first request goes
+   * out rather than after it.
+   *
+   * Runs when the signed-in user changes, which is the moment the answer
+   * changes. Nothing remembered means nothing sent, and the server answers with
+   * the branch they are assigned to — which is exactly what should happen on a
+   * machine somebody else was using an hour ago.
+   */
+  useEffect(() => {
+    if (!user?.id) return;
+    const stored = Number(localStorage.getItem(storageKey(user.id)));
+    const remembered = Number.isFinite(stored) && stored > 0 ? stored : null;
+    applyHeader(remembered);
+    setCurrent(remembered);
+  }, [user?.id, applyHeader]);
 
   const refresh = useCallback(async () => {
     const res = await api.get('/branches');
@@ -70,6 +96,13 @@ export function BranchProvider({ children }) {
       setState(null);
       setViewingAll(false);
       setAll(false);
+      /*
+       * Off the shared axios instance, so the next person to sign in on this
+       * machine does not carry the last one's branch into their first request.
+       * Their own remembered branch, if any, is put back by the effect above.
+       */
+      delete api.defaults.headers.common['X-Branch-Id'];
+      setCurrent(null);
       return;
     }
     /*
@@ -122,6 +155,8 @@ export function BranchProvider({ children }) {
       branch: branches.find((b) => b.id === current) ?? null,
       branchId: current,
       canSwitch: Boolean(state?.canSwitch),
+      /* How many shops there are, not how many this person may see. */
+      total: state?.total ?? branches.length,
       incoming: state?.incoming ?? 0,
       loaded: state !== null,
       refresh,

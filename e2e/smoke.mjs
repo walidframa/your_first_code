@@ -305,7 +305,7 @@ async function signOut() {
   await page.waitForSelector('input[name=username]', { timeout: 15000 });
 }
 
-const PASSWORDS = { admin: 'admin123', cashier: 'cashier123' };
+const PASSWORDS = { admin: 'admin123', cashier: 'cashier123', saidaclerk: 'counter123' };
 const REAL = { admin: 'owner-real-password', cashier: 'till-real-password' };
 
 async function signIn(username) {
@@ -4193,6 +4193,101 @@ try {
     await switchTo();
     const back = await onTheShelf();
     if (back !== 6) throw new Error(`coming back showed ${back} rather than 6`);
+  });
+
+  await step('somebody hired onto a branch opens at that branch, on a shared machine', async () => {
+    /*
+     * The reason this exists.
+     *
+     * `users.branch_id` and `setUserBranch` were built with branches and never
+     * called by anything, so there was no way to put anybody anywhere: every
+     * account opened at the main branch, and a shop with a second one had to
+     * tell its Saida cashier to switch every morning — which a cashier cannot
+     * do, because they are pinned, deliberately.
+     *
+     * The second half is the shared counter computer. The branch was remembered
+     * for the whole browser, so the owner switching to Saida and signing out
+     * left the next person asking for Saida.
+     */
+    await goTo('Staff');
+    await page.waitForSelector('button:has-text("Add staff")', { timeout: 15000 });
+    await page.click('button:has-text("Add staff")');
+    await page.waitForSelector('[role=dialog] >> text=Add staff member', { timeout: 10000 });
+
+    const dialog = page.locator('[role=dialog]');
+    await dialog.getByLabel('Full name').fill('Saida clerk');
+    await dialog.getByLabel('Username').fill('saidaclerk');
+    await dialog.getByRole('textbox', { name: 'Password' }).fill('counter123');
+    await dialog.getByLabel('Which branch they work at').selectOption({ label: 'Saida' });
+    await dialog.getByRole('button', { name: 'Add staff member' }).click();
+    await page.waitForSelector('text=/Saida clerk added/', { timeout: 15000 });
+
+    // Named in the list, so "who is at Saida?" is answered by looking.
+    const shown = await page.evaluate(() => {
+      const sel = document.querySelector('select[aria-label="Branch for Saida clerk"]');
+      return sel?.options[sel.selectedIndex]?.text;
+    });
+    if (shown !== 'Saida') throw new Error(`the staff row says "${shown}", not Saida`);
+
+    /*
+     * Leave the machine standing in the other branch, which is what makes this
+     * worth testing: the owner was last looking at Saida — no, at the main one
+     * — and either way the clerk must not inherit it.
+     */
+    await goTo('Products');
+    await page.locator('button[aria-label*="Branch:"]:visible').first().click();
+    await page.waitForTimeout(300);
+    await page.locator('div.absolute button:has-text("Saida")').first().click();
+    await page.waitForTimeout(1500);
+
+    await signOut();
+    await signIn('saidaclerk');
+    await page.waitForSelector('text=Current sale', { timeout: 25000 });
+
+    // Straight onto the register, at their own branch, without touching a thing.
+    const where = await page.evaluate(async () => {
+      const auth = { Authorization: `Bearer ${localStorage.getItem('pos_token')}` };
+      const b = await (await fetch('/api/branches', { headers: auth })).json();
+      return { current: b.current, home: b.home, canSwitch: b.canSwitch, count: b.branches.length };
+    });
+    if (where.current !== where.home) {
+      throw new Error(`opened at branch ${where.current} but works at ${where.home}`);
+    }
+    if (where.canSwitch) throw new Error('a cashier should not be able to switch branch');
+    if (where.count !== 1) throw new Error('they should see where they are, not a menu');
+
+    /*
+     * And the bar says so — as a label, not a picker.
+     *
+     * Pinned staff are sent one branch, so the chip used to hide itself for
+     * them exactly as it hides in a one-branch shop, and a clerk at Saida had
+     * nothing on screen telling them which shelf they were selling off.
+     */
+    const chip = page.locator('[data-branch-chip]:visible').first();
+    await chip.waitFor({ timeout: 15000 });
+    const label = await chip.innerText();
+    if (!/Saida/.test(label)) throw new Error(`the bar says "${label.trim()}", not Saida`);
+    if (await page.locator('button[aria-label*="Branch:"]:visible').count()) {
+      throw new Error('a pinned cashier was given a branch picker');
+    }
+
+    await signOut();
+    await signIn('admin');
+
+    /*
+     * Put the machine back where it was found.
+     *
+     * The branch is remembered per person now, so the owner signing back in
+     * returns to Saida — which is correct, and would leave every step below
+     * this one reading the wrong shelf. `nth=0` is the main branch: the list is
+     * ordered with it first, and by this point in the run it has been renamed
+     * after the shop.
+     */
+    await goTo('Products');
+    await page.locator('button[aria-label*="Branch:"]:visible').first().click();
+    await page.waitForTimeout(300);
+    await page.locator('div.absolute button').first().click();
+    await page.waitForTimeout(1500);
   });
 
   await step('a cashier cannot reach an admin route by URL', async () => {
