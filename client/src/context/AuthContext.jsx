@@ -135,7 +135,33 @@ export function AuthProvider({ children }) {
 
   return (
     <AuthContext.Provider
-      value={{ user, token, loading, login, logout, can, changePassword, signInWithTicket }}
+      value={{
+        user,
+        token,
+        loading,
+        login,
+        logout,
+        can,
+        changePassword,
+        signInWithTicket,
+        /*
+         * The screens somebody starred, kept at the top of the menu.
+         *
+         * Written to the account so it follows them to another machine, and
+         * put on `user` straight away so the star fills in under the finger
+         * rather than a round trip later. A save that fails leaves the menu
+         * showing what the server still believes on the next sign-in, which is
+         * the honest outcome for a bookmark.
+         */
+        setFavourites: async (paths) => {
+          setUser((u) => (u ? { ...u, favourites: paths } : u));
+          try {
+            await api.put('/auth/favourites', { favourites: paths });
+          } catch {
+            /* A shortcut list is not worth interrupting a shopkeeper for. */
+          }
+        },
+      }}
     >
       {children}
     </AuthContext.Provider>

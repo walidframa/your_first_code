@@ -2831,18 +2831,39 @@ try {
     await page.waitForSelector('text=/has 4 in stock/', { timeout: 5000 });
     await page.getByRole('button', { name: /Clear the count and track by IMEI/ }).click();
 
-    // And the box appears on the line that asked for it, without a reload.
-    const imeis = page.locator('textarea[aria-label="IMEIs for Redmi Note 13"]');
-    await imeis.waitFor({ timeout: 15000 });
+    // And the boxes appear on the line that asked for them, without a reload.
+    await page
+      .locator('input[aria-label="Redmi Note 13 handset 1 IMEI 1"]')
+      .waitFor({ timeout: 15000 });
 
-    await page.getByLabel(/Quantity for/i).first().fill('2');
     /*
-     * A space between them, not a newline — which is what a barcode reader
-     * whose key is a Tab actually leaves in the box. Every space is stripped
-     * from an IMEI, so these two used to be glued into one thirty-digit number
-     * and the line said one handset where the shop had scanned two.
+     * Two on the line is two pairs of boxes, drawn from the quantity — the shop
+     * is shown the shape of the delivery rather than asked to remember that a
+     * newline means a handset and a comma means a dual-SIM.
      */
-    await imeis.fill('354111222333441 354111222333442');
+    await page.getByLabel(/Quantity for/i).first().fill('2');
+    await page
+      .locator('input[aria-label="Redmi Note 13 handset 2 IMEI 1"]')
+      .waitFor({ timeout: 10000 });
+
+    /*
+     * Scanned, not typed: digits and then Enter, which is what a barcode reader
+     * sends. It must move to the next box and it must not submit the invoice —
+     * and it must move exactly one box, because the fifteenth digit is a reason
+     * to advance all on its own.
+     */
+    const scan = async (label, number) => {
+      await page.locator(`input[aria-label="${label}"]`).click();
+      await page.keyboard.type(number);
+      await page.keyboard.press('Enter');
+    };
+    await scan('Redmi Note 13 handset 1 IMEI 1', '354111222333441');
+    const landed = await page.evaluate(() => document.activeElement?.getAttribute('aria-label'));
+    if (landed !== 'Redmi Note 13 handset 1 IMEI 2') {
+      throw new Error(`a scan and Enter landed on "${landed}", skipping the dual-SIM box`);
+    }
+    await scan('Redmi Note 13 handset 2 IMEI 1', '354111222333442');
+
     await page.waitForSelector('text=/2 of 2 handsets/', { timeout: 10000 });
 
     await page.click('button:has-text("Create draft")');
@@ -3643,8 +3664,19 @@ try {
 
     await goTo('Register');
     await page.waitForSelector('text=Current sale', { timeout: 15000 });
+    /*
+     * Searched rather than picked off the wall.
+     *
+     * The cart is half the screen now, so the grid beside it holds fewer tiles
+     * at once and the ones further down are not rendered until they are
+     * scrolled to — which is what the shop asked for, and is also how anybody
+     * actually finds one product among nine hundred.
+     */
+    await page.fill(scanBox, 'Espresso');
+    await page.waitForTimeout(400);
     await page.getByRole('button', { name: /^Espresso/ }).first().click();
     await page.waitForSelector('aside >> text=Espresso', { timeout: 10000 });
+    await page.fill(scanBox, '');
     // No tax line at all, rather than a line reading zero.
     if (await page.locator('aside >> text=/^Tax/').count()) {
       throw new Error('the register still shows a tax line with tax switched off');

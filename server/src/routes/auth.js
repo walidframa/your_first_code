@@ -60,7 +60,7 @@ router.post('/login', (req, res) => {
 
 router.get('/me', requireAuth, (req, res) => {
   const account = db
-    .prepare('SELECT must_change_password, text_size, theme FROM users WHERE id = ?')
+    .prepare('SELECT must_change_password, text_size, theme, favourites FROM users WHERE id = ?')
     .get(req.user.id);
   res.json({
     user: {
@@ -69,6 +69,7 @@ router.get('/me', requireAuth, (req, res) => {
       mustChangePassword: Boolean(account?.must_change_password),
       textSize: account?.text_size || null,
       theme: account?.theme || null,
+      favourites: readFavourites(account?.favourites),
     },
   });
 });
@@ -108,6 +109,50 @@ router.put('/theme', requireAuth, (req, res) => {
   const theme = ['system', 'light', 'dark', 'ledger'].includes(wanted) ? wanted : null;
   db.prepare('UPDATE users SET theme = ? WHERE id = ?').run(theme, req.user.id);
   res.json({ theme });
+});
+
+/**
+ * The screens somebody starred, kept at the top of the menu.
+ *
+ * A shop uses six of thirty screens all day and walks past the other
+ * twenty-four every time. Starring is how they say which six, and this is where
+ * that lives — on the account, so it follows them to the office laptop rather
+ * than belonging to whichever machine they happened to set it on.
+ *
+ * Stored as the addresses themselves. The menu is a list of places, an address
+ * is what a place is, and a screen renamed tomorrow keeps its star. Anything
+ * that is not a path is dropped rather than refused: the worst this can do is
+ * show somebody the wrong shortcuts, and a 400 in the middle of a menu over a
+ * bookmark is a worse outcome than that.
+ */
+function readFavourites(raw) {
+  try {
+    const parsed = JSON.parse(raw || '[]');
+    return Array.isArray(parsed) ? parsed.filter((p) => typeof p === 'string' && p.startsWith('/')) : [];
+  } catch {
+    return [];
+  }
+}
+
+router.put('/favourites', requireAuth, (req, res) => {
+  const wanted = Array.isArray(req.body?.favourites) ? req.body.favourites : [];
+  const favourites = [
+    ...new Set(
+      wanted
+        .filter((p) => typeof p === 'string' && p.startsWith('/'))
+        .map((p) => p.trim())
+        .filter(Boolean)
+        /* A menu is a shortcut list, not a second copy of the app. Past a
+           couple of dozen it stops being either. */
+        .slice(0, 24),
+    ),
+  ];
+
+  db.prepare('UPDATE users SET favourites = ? WHERE id = ?').run(
+    JSON.stringify(favourites),
+    req.user.id,
+  );
+  res.json({ favourites });
 });
 
 /**

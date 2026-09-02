@@ -31,6 +31,7 @@ import { useHistoryFilter } from '../../lib/history';
 import { useRevalidate } from '../../lib/revalidate';
 import { clearDraft, readDraft, useDraft } from '../../lib/draft';
 import ProductQuickCreate from '../../components/ProductQuickCreate';
+import ImeiFields from '../../components/ImeiFields';
 import PartyQuickCreate from '../../components/PartyQuickCreate';
 import { A4, usePageSize } from '../../lib/pageSize';
 import {
@@ -946,28 +947,12 @@ function DocumentForm({ existing, startAs = null, page = false, onClose, onSaved
                                     </div>
                                   )}
                                 {docType === 'purchase_invoice' && l.product.tracks_units && (
-                                  <div className="mt-1.5">
-                                    <textarea
-                                      value={l.imeis || ''}
-                                      onChange={(e) => updateLine(l.key, { imeis: e.target.value })}
-                                      rows={Math.max(2, Math.min(Number(l.quantity) || 1, 6))}
-                                      aria-label={`IMEIs for ${l.product.name}`}
-                                      placeholder={'351234567890123, 351234567890124'}
-                                      className="w-full rounded-lg bg-white px-2 py-1.5 font-mono text-xs ring-1 ring-edge focus:ring-2 focus:ring-brand-600 focus:outline-none"
-                                    />
-                                    <p
-                                      className={cx(
-                                        'mt-0.5 text-xs',
-                                        imeiCount(l.imeis) === (Number(l.quantity) || 0)
-                                          ? 'text-brand-700'
-                                          : 'text-amber-700',
-                                      )}
-                                    >
-                                      {imeiCount(l.imeis)} of {Number(l.quantity) || 0} handsets — scan
-                                      or type them one after another, and put a comma between the two
-                                      numbers of a dual-SIM
-                                    </p>
-                                  </div>
+                                  <ImeiFields
+                                    value={l.imeis || ''}
+                                    quantity={l.quantity}
+                                    productName={l.product.name}
+                                    onChange={(imeis) => updateLine(l.key, { imeis })}
+                                  />
                                 )}
                               </div>
                             </div>
@@ -1836,41 +1821,6 @@ function DocumentDetail({ id, onClose, onChanged, onDeleted }) {
 /* -------------------------------------------------------------------- list */
 
 /** How many handsets the typed block actually names. */
-/**
- * How many handsets are in the box, counted the way the server counts them.
- *
- * This has to agree with `parseImeiList` in server/src/lib/units.js exactly, or
- * the line says "2 of 2" and confirming answers that one IMEI was given — which
- * is a shop being told it is wrong by a screen that just told it it was right.
- *
- * A comma, slash, semicolon or pipe joins two numbers into one dual-SIM
- * handset. A newline always starts a new one. A space depends on length: a
- * whole fifteen-digit number stands alone, anything shorter is a fragment of
- * the number being built — because that is how an IMEI is printed on the box.
- */
-const WHOLE_IMEI = 15;
-
-function imeiCount(text) {
-  const digits = (v) => String(v).replace(/[\s-]/g, '');
-  let count = 0;
-
-  for (const line of String(text || '').split(/[\r\n]+/)) {
-    const tokens = line.replace(/\s*[,/;|]\s*/g, ',').split(/\s+/).filter(Boolean);
-    let buffer = '';
-    for (const token of tokens) {
-      const head = digits(token.split(',')[0]);
-      if (buffer && (digits(buffer).length >= WHOLE_IMEI || head.length >= WHOLE_IMEI)) {
-        count += 1;
-        buffer = '';
-      }
-      buffer += token;
-    }
-    if (buffer) count += 1;
-  }
-
-  return count;
-}
-
 /*
  * The four kinds, as they appear in an address.
  *
