@@ -1027,6 +1027,66 @@ try {
   });
   await shot('cards');
 
+  await step('a shelf of cards can be moved onto the balance that funds them', async () => {
+    /*
+     * The starter catalogue funds every recharge card from one shared "Mobile
+     * recharge" balance, on the reasoning that recharge is recharge. A shop
+     * holding two balances with its distributor — one for Alfa, one for Touch —
+     * finds that selling an Alfa card comes off the shared pot while the Alfa
+     * line never moves, so neither figure is the truth.
+     *
+     * The mechanism was never broken: a card has always spent whatever wallet
+     * it names. It was the naming that had to be fixable in fewer than ninety
+     * dialogs.
+     */
+    await goTo('Cards');
+    await page.waitForSelector('text=/sold from credit/', { timeout: 15000 });
+
+    const alfaRows = page.locator('tr', { hasText: /^Alfa \$/ });
+    const count = await alfaRows.count();
+    if (count < 2) throw new Error(`expected the Alfa recharge cards, found ${count}`);
+
+    for (let i = 0; i < count; i += 1) {
+      await alfaRows.nth(i).locator('input[type=checkbox]').check();
+    }
+    await page.waitForSelector(`text=/${count} cards selected/`, { timeout: 10000 });
+
+    await page
+      .locator('select[aria-label="Move the selected cards onto this wallet"]')
+      .selectOption({ label: 'Alfa' });
+    await page.waitForSelector('text=/now paid from Alfa/', { timeout: 15000 });
+
+    // The column says so, for every one of them.
+    const stillShared = await page.evaluate(async () => {
+      const auth = { Authorization: `Bearer ${localStorage.getItem('pos_token')}` };
+      const { products } = await (await fetch('/api/products', { headers: auth })).json();
+      return products.filter((p) => /^Alfa \$/.test(p.name) && p.wallet_name !== 'Alfa').length;
+    });
+    if (stillShared) throw new Error(`${stillShared} Alfa cards are still on the shared balance`);
+
+    /*
+     * Put back, because the rest of this run is written against the shelf as the
+     * starter set leaves it — one shared balance — and a suite that quietly
+     * depends on the order its steps happen to run in is a suite that lies.
+     *
+     * What the move is *for* — a sale coming off Alfa instead of the shared pot
+     * — is arithmetic, and it is pinned down in server/test/wallets.test.js with
+     * the balances read before and after. This step is here for the half only a
+     * browser can check: the ticking, the bar, and the one request behind them.
+     */
+    await page
+      .locator('select[aria-label="Move the selected cards onto this wallet"]')
+      .isVisible()
+      .catch(() => false);
+    for (let i = 0; i < count; i += 1) {
+      await alfaRows.nth(i).locator('input[type=checkbox]').check();
+    }
+    await page
+      .locator('select[aria-label="Move the selected cards onto this wallet"]')
+      .selectOption({ label: 'Mobile recharge' });
+    await page.waitForSelector('text=/now paid from Mobile recharge/', { timeout: 15000 });
+  });
+
   await step('a card sells from the wallet and never runs out of stock', async () => {
     await goTo('Cards');
     await page.waitForSelector('text=Mobile recharge', { timeout: 15000 });

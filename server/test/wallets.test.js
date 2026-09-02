@@ -466,3 +466,141 @@ test('a wallet that does not send credit is not offered for it', async () => {
   await req('PUT', `/wallets/${w.id}`, { sendsCredit: true }, adminToken);
   assert.equal((await req('GET', `/credit/quote?walletId=${w.id}&amount=10`, null, adminToken)).status, 200);
 });
+
+/**
+ * Moving a shelf of cards onto the balance that actually funds them.
+ *
+ * The starter catalogue funds every recharge card from one shared "Mobile
+ * recharge" balance, on the reasoning that recharge is recharge. That is wrong
+ * for a shop holding two balances with its distributor — one for Alfa, one for
+ * Touch: selling an Alfa card comes off the shared pot and the Alfa line never
+ * moves, so neither figure is the truth and the shop stops believing both.
+ *
+ * The mechanism was never broken. A card has always spent whatever wallet it
+ * names; it was the naming that had to be fixable in fewer than ninety dialogs.
+ */
+test('a card spends the wallet it names, whichever one that is', async () => {
+  const alfa = (await req('POST', '/wallets', { name: 'Alfa distributor', kind: 'recharge' }, adminToken))
+    .json.wallet;
+  await req('POST', `/wallets/${alfa.id}/movements`, { kind: 'top_up', amount: 100 }, adminToken);
+
+  const shared = (await req('POST', '/wallets', { name: 'Shared pot', kind: 'recharge' }, adminToken))
+    .json.wallet;
+  await req('POST', `/wallets/${shared.id}/movements`, { kind: 'top_up', amount: 100 }, adminToken);
+
+  const card = (
+    await req(
+      'POST',
+      '/products',
+      { name: 'Alfa $7.58', sku: 'ALFA-758-X', price: 8, cost: 7.58, wallet_id: shared.id },
+      adminToken,
+    )
+  ).json.product;
+
+  // As seeded: the shared pot pays, and the Alfa line does not move.
+  await req('POST', '/orders', { items: [{ productId: card.id, quantity: 1 }], paymentMethod: 'card' }, adminToken);
+  let now = (await req('GET', '/wallets', null, adminToken)).json.wallets;
+  assert.equal(now.find((w) => w.id === shared.id).balance, 92.42);
+  assert.equal(now.find((w) => w.id === alfa.id).balance, 100, 'the Alfa line is untouched');
+
+  // Moved onto Alfa, the next sale comes off Alfa instead.
+  const moved = await req(
+    'POST',
+    '/products/paid-from',
+    { productIds: [card.id], walletId: alfa.id },
+    adminToken,
+  );
+  assert.equal(moved.status, 200, JSON.stringify(moved.json));
+  assert.equal(moved.json.wallet.name, 'Alfa distributor');
+  assert.deepEqual(moved.json.moved.map((m) => m.name), ['Alfa $7.58']);
+
+  await req('POST', '/orders', { items: [{ productId: card.id, quantity: 1 }], paymentMethod: 'card' }, adminToken);
+  now = (await req('GET', '/wallets', null, adminToken)).json.wallets;
+  assert.equal(now.find((w) => w.id === alfa.id).balance, 92.42, 'and now Alfa pays');
+  assert.equal(now.find((w) => w.id === shared.id).balance, 92.42, 'the shared pot stayed put');
+});
+
+test('a whole shelf moves in one request', async () => {
+  const touch = (await req('POST', '/wallets', { name: 'Touch line', kind: 'recharge' }, adminToken))
+    .json.wallet;
+  const ids = [];
+  for (const value of ['379', '450', '758']) {
+    const made = await req(
+      'POST',
+      '/products',
+      { name: `Touch $${value}`, sku: `TOUCH-${value}-X`, price: 5, cost: 4 },
+      adminToken,
+    );
+    ids.push(made.json.product.id);
+  }
+
+  const moved = await req('POST', '/products/paid-from', { productIds: ids, walletId: touch.id }, adminToken);
+  assert.equal(moved.status, 200);
+  assert.equal(moved.json.moved.length, 3);
+
+  const products = (await req('GET', '/products', null, adminToken)).json.products;
+  for (const id of ids) {
+    assert.equal(products.find((p) => p.id === id).wallet_id, touch.id);
+  }
+});
+
+test('one card that cannot take a wallet stops the whole move', async () => {
+  const touch = (await req('GET', '/wallets', null, adminToken)).json.wallets.find(
+    (w) => w.name === 'Touch line',
+  );
+  const ordinary = (
+    await req(
+      'POST',
+      '/products',
+      { name: 'Plain card', sku: 'PLAIN-1', price: 5, cost: 4 },
+      adminToken,
+    )
+  ).json.product;
+  const handset = (
+    await req(
+      'POST',
+      '/products',
+      { name: 'A phone', sku: 'PHONE-W', price: 200, cost: 170, tracks_units: true },
+      adminToken,
+    )
+  ).json.product;
+
+  const refused = await req(
+    'POST',
+    '/products/paid-from',
+    { productIds: [ordinary.id, handset.id], walletId: touch.id },
+    adminToken,
+  );
+  assert.equal(refused.status, 400);
+  assert.match(refused.json.error, /A phone/);
+
+  /*
+   * And the one that could have moved did not. Half a shelf moved is two wrong
+   * balances instead of one, and nothing on screen would say which half.
+   */
+  const products = (await req('GET', '/products', null, adminToken)).json.products;
+  assert.equal(products.find((p) => p.id === ordinary.id).wallet_id, null);
+});
+
+test('a closed wallet is refused rather than quietly used', async () => {
+  const spare = (await req('POST', '/wallets', { name: 'Old line', kind: 'recharge' }, adminToken))
+    .json.wallet;
+  await req('DELETE', `/wallets/${spare.id}`, null, adminToken);
+  const card = (
+    await req('POST', '/products', { name: 'Any card', sku: 'ANY-1', price: 5, cost: 4 }, adminToken)
+  ).json.product;
+
+  const refused = await req(
+    'POST',
+    '/products/paid-from',
+    { productIds: [card.id], walletId: spare.id },
+    adminToken,
+  );
+  assert.equal(refused.status, 400);
+  assert.match(refused.json.error, /closed/);
+});
+
+test('a cashier cannot move what the shop is funded from', async () => {
+  const refused = await req('POST', '/products/paid-from', { productIds: [1], walletId: 1 }, cashierToken);
+  assert.equal(refused.status, 403);
+});
