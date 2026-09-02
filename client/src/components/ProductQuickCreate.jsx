@@ -17,6 +17,16 @@ export default function ProductQuickCreate({
   open,
   initialName = '',
   /*
+   * The number off the box, when that is what was scanned.
+   *
+   * A scan that matches nothing is how most products get created in a phone
+   * shop — the delivery is on the counter and the reader is in hand. That code
+   * used to arrive as the product's *name*, so the shop typed the real name
+   * over it and the barcode, the one thing already known for certain, was
+   * never saved: the same box scanned tomorrow missed again.
+   */
+  initialBarcode = '',
+  /*
    * A model created while buying a used phone in *has* to be serialised, or the
    * handset that prompted it cannot be booked against it. There the answer is
    * already known, so the caller both sets it and locks it.
@@ -63,11 +73,16 @@ export default function ProductQuickCreate({
 
   useEffect(() => {
     if (!open) return;
-    setForm((f) => ({ ...f, name: initialName, tracks_units: trackUnits }));
+    setForm((f) => ({
+      ...f,
+      name: initialName,
+      barcodes: initialBarcode ? [initialBarcode] : [],
+      tracks_units: trackUnits,
+    }));
     setError('');
     setNamingCategory(null);
     api.get('/products/categories').then((res) => setCategories(res.data.categories));
-  }, [open, initialName, trackUnits]);
+  }, [open, initialName, initialBarcode, trackUnits]);
 
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
 
@@ -147,6 +162,9 @@ export default function ProductQuickCreate({
             required
             autoFocus
             className="col-span-2"
+            /* Said, because the barcode below is already filled in and a shop
+               that scanned its way here needs to know what is left to do. */
+            hint={initialBarcode ? `Scanned ${initialBarcode} — this is all that is missing` : undefined}
           />
           <Input label="SKU" name="sku" value={form.sku} onChange={set('sku')} required hint="Filled in from the name" />
           <div className="col-span-2">

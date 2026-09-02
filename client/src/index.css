@@ -321,6 +321,24 @@ h3 {
 }
 
 /*
+ * A strip that slides sideways without a bar under it.
+ *
+ * For one line of tabs, where the scrollbar would be as tall as a third of the
+ * thing it scrolls and where the overflow is meant to be discovered by pushing
+ * rather than by aiming. Only ever on a row that a finger can drag and that
+ * cannot be the only way to reach something — see the category tabs at the
+ * register, where every shelf is also reachable from the search box.
+ */
+.scroll-x-quiet {
+  scrollbar-width: none;
+}
+
+.scroll-x-quiet::-webkit-scrollbar {
+  height: 0;
+  width: 0;
+}
+
+/*
  * A saved password should not repaint the field custard yellow.
  *
  * Chrome's autofill background cannot be set directly, so the colour is faked

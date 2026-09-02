@@ -17,14 +17,23 @@ import { Button, Input, Modal, ModalActions, money, useToast } from './ui';
  * actually paid for: a customer who changes their mind should not leave a
  * photograph of their ID behind.
  */
-export default function SellSim({ onClose, onPicked }) {
+export default function SellSim({ onClose, onPicked, buyer: onSale = null, customer = null }) {
   const toast = useToast();
   const [number, setNumber] = useState('');
   const [sim, setSim] = useState(null);
   const [looking, setLooking] = useState(false);
   const [error, setError] = useState('');
 
-  const [buyer, setBuyer] = useState({ name: '', phone: '' });
+  /*
+   * Seeded from whoever the sale is already for — the customer picked at the
+   * register, or the buyer a handset on the same sale was booked to. A SIM
+   * usually goes out with a phone, to the same person, and that name was
+   * being typed twice.
+   */
+  const [buyer, setBuyer] = useState({
+    name: onSale?.name || customer?.name || '',
+    phone: onSale?.phone || customer?.phone || '',
+  });
   const [idPhoto, setIdPhoto] = useState(null);
   const [price, setPrice] = useState('');
 

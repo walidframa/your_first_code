@@ -8,6 +8,7 @@ import {
   isValidEan13,
   isValidEan8,
   isValidUpcA,
+  looksScanned,
 } from '../src/lib/barcode.js';
 
 test('computes the EAN-13 check digit', () => {
@@ -64,6 +65,19 @@ test('labels a product by barcode, falling back to SKU', () => {
   assert.equal(codeFor({ barcode: null, sku: 'BEV-001' }), 'BEV-001');
   assert.equal(codeFor({ barcode: null, sku: null }), null);
   assert.equal(codeFor(null), null);
+});
+
+test('tells a scanned number from a typed name', () => {
+  assert.ok(looksScanned('6291100097614'), 'an EAN-13 off a box');
+  assert.ok(looksScanned('  036000291452  '), 'a UPC with the scanner\'s whitespace on it');
+  assert.ok(looksScanned('96385074'), 'an EAN-8 is short but still a code');
+  assert.ok(looksScanned('12345678901234'), 'an ITF-14 off an outer carton');
+
+  assert.ok(!looksScanned('iPhone 15'), 'a name with a number in it is a name');
+  assert.ok(!looksScanned('1234567'), 'seven digits is a quantity or a price, not a barcode');
+  assert.ok(!looksScanned('BAK-002'), 'a SKU is typed, not scanned');
+  assert.ok(!looksScanned(''), 'nothing was scanned');
+  assert.ok(!looksScanned(null));
 });
 
 test('flags a retail-length code whose check digit is wrong', () => {

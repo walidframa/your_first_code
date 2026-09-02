@@ -21,7 +21,7 @@ import { lbp, useSettings } from '../context/SettingsContext';
  * shop already bought and already sold, it cost nothing extra, so the margin is
  * against what it really cost rather than against face value.
  */
-export default function SendCredit({ onClose, onPicked }) {
+export default function SendCredit({ onClose, onPicked, customer = null }) {
   const toast = useToast();
   const { rate } = useSettings();
 
@@ -29,7 +29,15 @@ export default function SendCredit({ onClose, onPicked }) {
   const [mode, setMode] = useState('send');
   const [carriers, setCarriers] = useState([]);
   const [walletId, setWalletId] = useState('');
-  const [msisdn, setMsisdn] = useState('');
+  /*
+   * Whoever is on the sale already, if anybody is.
+   *
+   * A shop that has just picked the customer at the register has said whose
+   * phone this is; asking again in the next dialog is the same number typed
+   * twice. Seeded rather than bound, so it can be corrected — the customer
+   * standing there is often topping up somebody else's line.
+   */
+  const [msisdn, setMsisdn] = useState(customer?.phone || '');
   const [amount, setAmount] = useState('');
   const [charged, setCharged] = useState('');
   /*
@@ -133,7 +141,7 @@ export default function SendCredit({ onClose, onPicked }) {
 
   const sending = mode === 'send';
   const ready = sending
-    ? Boolean(quote && msisdn.trim() && !error)
+    ? Boolean(quote && !error)
     : Number(amount) > 0 && Boolean(walletId);
 
   return (
@@ -180,7 +188,13 @@ export default function SendCredit({ onClose, onPicked }) {
           value={msisdn}
           onChange={(e) => setMsisdn(e.target.value)}
           placeholder="e.g. 03 123 456"
-          hint={sending ? undefined : 'Optional — just for the record'}
+          /*
+           * Optional on both sides now. The number is worth keeping — it is
+           * what answers "did the $10 reach that line" months later — but the
+           * sale is the credit, not the paperwork, and a counter topping up the
+           * phone in front of it should not have to type what it can see.
+           */
+          hint="Optional — kept so you can look the send up later"
           autoFocus
         />
         <Input
