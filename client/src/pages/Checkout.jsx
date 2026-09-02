@@ -1262,7 +1262,16 @@ export default function Checkout() {
                       <div className="h-9 w-9 shrink-0 overflow-hidden rounded-lg">
                         <ProductThumb product={p} size="fill" />
                       </div>
-                      <span className="min-w-0 flex-1 truncate text-sm font-medium text-slate-800">
+                      {/*
+                        * Two lines rather than one with a tail cut off.
+                        *
+                        * "TECNO SPARK GO 3 4/64GB BLACK" is a name where the
+                        * last word is the whole point — the colour is what
+                        * tells two rows apart — and truncating is exactly what
+                        * hid it. A second line costs nothing here: the row is
+                        * already as tall as its thumbnail.
+                        */}
+                      <span className="line-clamp-2 min-w-0 flex-1 text-sm leading-snug font-medium break-words text-slate-800">
                         {p.name}
                       </span>
                       <span className={cx('shrink-0 text-xs', standingTone)}>{standing}</span>
@@ -1369,15 +1378,16 @@ export default function Checkout() {
           '@container no-print flex flex-col bg-white',
           /* The column, on anything with room for one. */
           /*
-           * Two fifths rather than a third.
+           * Half the screen.
            *
-           * This column is what the sale actually *is*, and the shop asked to
-           * see as much of it at once as possible. The extra width buys twice
-           * over: names stop wrapping, and past the container's `@xl` the
-           * quantity controls move up onto the name's own row — so each line
-           * is shorter and more of them fit down the screen.
+           * It was a third, then two fifths, and the shop has asked twice for
+           * more — which is the answer: this column is what the sale actually
+           * *is*, and the grid beside it is a way of adding to it. The extra
+           * width buys twice over. Names stop wrapping, and past the
+           * container's `@xl` the quantity controls move up onto the name's own
+           * row, so each line is shorter and more of them fit down the screen.
            */
-          'desk:static desk:h-auto desk:w-2/5 desk:max-h-none desk:shrink-0 desk:translate-y-0',
+          'desk:static desk:h-auto desk:w-1/2 desk:max-h-none desk:shrink-0 desk:translate-y-0',
           'desk:rounded-none desk:border-s desk:border-slate-200 desk:shadow-none',
           /*
            * The sheet, below that. Held at 88% so the top of the shelf stays
@@ -1650,7 +1660,10 @@ export default function Checkout() {
                     <div className="@xl:flex @xl:items-center @xl:gap-4">
                     <div className="min-w-0 @xl:flex-1">
                     <div className="flex items-baseline gap-2">
-                      <p className="min-w-0 flex-1 truncate text-sm font-medium text-slate-800">
+                      {/* Two lines here as well. The cart is now half the
+                          screen; a name it still cannot finish is a name worth
+                          wrapping. */}
+                      <p className="line-clamp-2 min-w-0 flex-1 text-sm leading-snug font-medium break-words text-slate-800">
                         {item.name}
                       </p>
                       <span

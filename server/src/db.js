@@ -2324,6 +2324,16 @@ if (!db.prepare(`SELECT value FROM settings WHERE key = 'flagged_demo_passwords'
 addColumn('users', 'text_size', 'TEXT');
 /* Light or dark, against the person — see the theme route in routes/auth.js. */
 addColumn('users', 'theme', 'TEXT');
+/*
+ * The screens somebody starred, as a JSON list of addresses.
+ *
+ * On the account rather than in the browser, for the same reason the text size
+ * and the theme are: a shopkeeper uses the counter tablet, the office laptop
+ * and their phone, and setting a shortcut again on each one is how somebody
+ * stops bothering. Addresses rather than ids, because that is what the menu is
+ * a list of and what survives a screen being renamed.
+ */
+addColumn('users', 'favourites', 'TEXT');
 
 addColumn('orders', 'trade_in_value', 'REAL NOT NULL DEFAULT 0');
 addColumn('orders', 'trade_in_id', 'INTEGER REFERENCES trade_ins(id)');

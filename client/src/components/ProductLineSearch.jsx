@@ -135,7 +135,16 @@ export default function ProductLineSearch({
                   >
                     <ProductThumb product={p} size="sm" />
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-slate-800">{p.name}</p>
+                      {/*
+                        * Two lines rather than one with its tail cut off. In
+                        * "TECNO SPARK GO 3 4/64GB BLACK" the last word is what
+                        * tells two rows apart, and truncating is exactly what
+                        * hid it — from a list whose only job is telling rows
+                        * apart.
+                        */}
+                      <p className="line-clamp-2 text-sm leading-snug font-medium break-words text-slate-800">
+                        {p.name}
+                      </p>
                       <p className="text-xs text-slate-400">
                         {p.sku}
                         {p.barcode ? ` · ${p.barcode}` : ''} · {p.stock} in stock
