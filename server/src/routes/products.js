@@ -319,6 +319,63 @@ router.post('/photos/fetch', requireAuth, requirePermission('catalogue'), async 
 });
 
 /**
+ * Move a set of cards onto another wallet, in one press.
+ *
+ * The starter catalogue funds every recharge card from one shared "Mobile
+ * recharge" balance, on the reasoning that recharge is recharge. That is wrong
+ * for a shop that buys its Alfa credit and its Touch credit separately and
+ * holds two balances with the distributor: selling an Alfa card comes off the
+ * shared pot and the Alfa line never moves, so neither figure is the truth.
+ *
+ * The fix is one field per card, and there are ninety of them. Doing that one
+ * dialog at a time is the reason a shop gives up and stops trusting the
+ * balances — so it is done in one go, against whatever the shop ticked.
+ *
+ * All or nothing. Half a section moved is two wrong balances instead of one,
+ * and a shop would have no way of knowing which half.
+ */
+router.post('/paid-from', requireAuth, requirePermission('catalogue'), (req, res) => {
+  const { productIds, walletId } = req.body || {};
+  if (!Array.isArray(productIds) || productIds.length === 0) {
+    return res.status(400).json({ error: 'Which cards?' });
+  }
+
+  const wallet = walletId ? db.prepare('SELECT * FROM wallets WHERE id = ?').get(walletId) : null;
+  if (walletId && !wallet) return res.status(400).json({ error: 'That wallet does not exist' });
+  if (wallet && !wallet.active) {
+    return res.status(400).json({ error: `${wallet.name} is closed — pick another wallet` });
+  }
+
+  const ids = [...new Set(productIds.map(Number).filter(Number.isInteger))];
+  const move = transaction(() => {
+    const set = db.prepare('UPDATE products SET wallet_id = ? WHERE id = ?');
+    const moved = [];
+
+    for (const id of ids) {
+      const product = db.prepare('SELECT * FROM products WHERE id = ?').get(id);
+      if (!product) throw new Error('One of those cards no longer exists');
+      /*
+       * The same rule the product form applies one at a time: a handset is an
+       * object with a number on it and cannot also be sold out of a balance.
+       */
+      const problem = walletProblem(wallet?.id ?? null, product.tracks_units);
+      if (problem) throw new Error(`${product.name}: ${problem}`);
+
+      set.run(wallet?.id ?? null, id);
+      moved.push({ id, name: product.name });
+    }
+    return moved;
+  });
+
+  try {
+    const moved = move();
+    res.json({ moved, wallet: wallet ? { id: wallet.id, name: wallet.name } : null });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+/**
  * The shelves a phone shop usually files by, in one press.
  *
  * A shop that has been running a while and never got round to categories is

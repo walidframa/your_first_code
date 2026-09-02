@@ -794,6 +794,15 @@ function CardDialog({ card, wallets, categories, onClose, onSaved }) {
 export default function Cards() {
   const toast = useToast();
   const { rate, toLbp } = useSettings();
+  /*
+   * Which cards are ticked, for moving them onto another wallet together.
+   *
+   * The starter catalogue funds every recharge card from one shared balance,
+   * and a shop that buys its Alfa credit and its Touch credit separately needs
+   * two — which is ninety dialogs, one field each, unless they can be ticked.
+   */
+  const [picked, setPicked] = useState(() => new Set());
+  const [moving, setMoving] = useState(false);
 
   const [wallets, setWallets] = useState(null);
   const [products, setProducts] = useState([]);
@@ -840,6 +849,47 @@ export default function Cards() {
   const cardCount = sections.reduce((n, [, list]) => n + list.length, 0);
   // The validity card whose link is being set.
   const [linking, setLinking] = useState(null);
+
+  /** Move everything ticked onto one wallet, in a single request. */
+  async function moveTo(walletId) {
+    setMoving(true);
+    try {
+      const { data } = await api.post('/products/paid-from', {
+        productIds: [...picked],
+        walletId: Number(walletId) || null,
+      });
+      toast(
+        `${data.moved.length} card${data.moved.length === 1 ? '' : 's'} now paid from ` +
+          `${data.wallet?.name || 'nothing'}`,
+      );
+      setPicked(new Set());
+      await load();
+    } catch (err) {
+      toast(err.response?.data?.error || 'Could not move those', 'error');
+    } finally {
+      setMoving(false);
+    }
+  }
+
+  const toggleCard = (id) =>
+    setPicked((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  /** Tick or clear a whole section, which is how a shelf of Alfa gets moved. */
+  const toggleSection = (list) =>
+    setPicked((prev) => {
+      const next = new Set(prev);
+      const all = list.every((c) => next.has(c.id));
+      for (const c of list) {
+        if (all) next.delete(c.id);
+        else next.add(c.id);
+      }
+      return next;
+    });
 
   async function loadStarter() {
     setLoadingStarter(true);
@@ -971,14 +1021,26 @@ export default function Cards() {
               <div className="space-y-4">
                 {sections.map(([section, list]) => (
                   <Card key={section}>
-                    <div className="flex items-baseline justify-between border-b border-slate-100 px-5 py-3">
-                      <p className="font-medium text-slate-900">{section}</p>
+                    <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3">
+                      <label className="flex cursor-pointer items-center gap-2.5">
+                        {/* Ticking the shelf is how a whole section moves. Alfa
+                            and Touch share one, so the rows tick too. */}
+                        <input
+                          type="checkbox"
+                          aria-label={`Select every card in ${section}`}
+                          checked={list.length > 0 && list.every((c) => picked.has(c.id))}
+                          onChange={() => toggleSection(list)}
+                          className="size-4 accent-brand-600"
+                        />
+                        <span className="font-medium text-slate-900">{section}</span>
+                      </label>
                       <p className="text-xs text-slate-400">{list.length} cards</p>
                     </div>
                     <table className="w-full text-sm">
                       <thead className="border-b border-slate-100 text-left text-xs text-slate-500">
                         <tr>
-                          <th className="px-5 py-2 font-medium">Card</th>
+                          <th className="w-9 px-3 py-2" />
+                          <th className="px-3 py-2 font-medium">Card</th>
                           <th className="px-3 py-2 text-right font-medium">Price</th>
                           <th className="px-3 py-2 text-right font-medium">Costs you</th>
                           <th className="px-3 py-2 text-right font-medium">Margin</th>
@@ -995,8 +1057,23 @@ export default function Cards() {
                         {list.map((c) => {
                           const margin = Math.round((c.price - c.cost) * 100) / 100;
                           return (
-                            <tr key={c.id} className="hover:bg-slate-50/60">
-                              <td className="px-5 py-2 font-medium text-slate-800">
+                            <tr
+                              key={c.id}
+                              className={cx(
+                                'transition',
+                                picked.has(c.id) ? 'bg-brand-50/60' : 'hover:bg-slate-50/60',
+                              )}
+                            >
+                              <td className="px-3 py-2">
+                                <input
+                                  type="checkbox"
+                                  aria-label={`Select ${c.name}`}
+                                  checked={picked.has(c.id)}
+                                  onChange={() => toggleCard(c.id)}
+                                  className="size-4 accent-brand-600"
+                                />
+                              </td>
+                              <td className="px-3 py-2 font-medium text-slate-800">
                                 <span className="flex items-center gap-2">
                                   {/* The picture the register shows, at the size
                                       it takes to tell one card from another. */}
@@ -1099,6 +1176,45 @@ export default function Cards() {
           </>
         )}
       </div>
+
+      {/*
+        * What to do with what is ticked, along the bottom.
+        *
+        * Only when something is. A bar that is always there is a bar to read
+        * past on every visit, and this is a job a shop does once — when it
+        * discovers its Alfa cards have been coming off a shared balance and its
+        * Alfa line has not moved all month.
+        */}
+      {picked.size > 0 && (
+        <div className="sticky bottom-0 z-10 flex flex-wrap items-center gap-3 border-t border-slate-200 bg-white px-4 py-3 shadow-[0_-4px_12px_-6px_rgba(15,23,42,0.2)] sm:px-6">
+          <span className="text-sm font-medium text-slate-800">
+            {picked.size} card{picked.size === 1 ? '' : 's'} selected
+          </span>
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            <span className="shrink-0 text-sm text-slate-500">Paid from</span>
+            <div className="w-56">
+              <Select
+                aria-label="Move the selected cards onto this wallet"
+                value=""
+                disabled={moving}
+                onChange={(e) => e.target.value && moveTo(e.target.value)}
+              >
+                <option value="">Move them to…</option>
+                {(wallets || [])
+                  .filter((w) => w.active)
+                  .map((w) => (
+                    <option key={w.id} value={w.id}>
+                      {w.name}
+                    </option>
+                  ))}
+              </Select>
+            </div>
+          </div>
+          <Button variant="ghost" size="sm" onClick={() => setPicked(new Set())} disabled={moving}>
+            Clear
+          </Button>
+        </div>
+      )}
 
       {(newWallet || editingWallet) && (
         <WalletDialog
