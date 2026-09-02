@@ -447,12 +447,18 @@ try {
   });
 
   await step('category filter narrows the grid', async () => {
-    await page.click('button:has-text("Bakery")');
+    await page.click('[data-filter-chip="Bakery"]');
     await page.waitForTimeout(300);
     if ((await page.locator('section button:has-text("Bagel")').count()) === 0) {
       throw new Error('bakery filter returned nothing');
     }
-    await page.click('button:has-text("All")');
+    // The tab says how many it holds, and it has to be telling the truth.
+    const bakery = await page.locator('[data-filter-chip="Bakery"]').innerText();
+    const shown = await page.locator('section button:has-text("$")').count();
+    if (!bakery.includes(String(shown))) {
+      throw new Error(`Bakery says "${bakery}" with ${shown} products on the shelf`);
+    }
+    await page.click('[data-filter-chip="All"]');
     await page.waitForTimeout(200);
   });
   await shot('cart');
@@ -462,7 +468,21 @@ try {
     if (!(await soldOut.isDisabled())) throw new Error('sold-out product is still clickable');
   });
 
+  await step('sold-out stock can be hidden from the shelf', async () => {
+    const soldOut = page.locator('section button:has-text("Protein Bar")');
+    const box = page.locator('label:has-text("Hide sold out") input[type=checkbox]');
+    await box.check();
+    await soldOut.waitFor({ state: 'detached' });
+    // And back, because the rest of this run expects the whole shelf.
+    await box.uncheck();
+    await soldOut.waitFor({ state: 'visible' });
+  });
+
   await step('discount recalculates the total', async () => {
+    // It lives behind a chip now — the cart is worth more as space for the
+    // sale than as a permanently open form for the minority of sales that
+    // get money off.
+    await page.click('aside button:has-text("Discount")');
     await page.fill('#discount', '10');
     await page.waitForTimeout(200);
   });
@@ -1100,8 +1120,9 @@ try {
 
     await goTo('Register');
     await page.waitForSelector('text=Current sale', { timeout: 15000 });
-    // Exact: "recharge" also appears inside several of the card names.
-    await page.getByRole('button', { name: 'Recharge', exact: true }).click();
+    // By the shelf's own name: the tab carries a count now, so its accessible
+    // name is "Recharge 3", and "recharge" is inside several card names too.
+    await page.click('[data-filter-chip="Recharge"]');
     await page.waitForSelector('text=ALFA 10 · 1 month', { timeout: 15000 });
 
     // Four of a card the shop has none of on any shelf. Not anchored: the
@@ -1193,7 +1214,7 @@ try {
     await putCategoryOnRegister('Validity');
     await goTo('Register');
     await page.waitForSelector('text=Current sale', { timeout: 15000 });
-    await page.getByRole('button', { name: 'Validity', exact: true }).click();
+    await page.click('[data-filter-chip="Validity"]');
     await page.getByRole('button', { name: /Alfa 30 days/ }).first().click();
     await page.waitForSelector('aside >> text=Alfa 30 days', { timeout: 10000 });
 
@@ -1552,7 +1573,7 @@ try {
     await putCategoryOnRegister('Validity');
     await goTo('Register');
     await page.waitForSelector('text=Current sale', { timeout: 15000 });
-    await page.getByRole('button', { name: 'Validity', exact: true }).click();
+    await page.click('[data-filter-chip="Validity"]');
     await page.getByRole('button', { name: /Touch 180 days/ }).first().click();
     await page.waitForSelector('aside >> text=Touch 180 days', { timeout: 10000 });
     await page.click('aside button:has-text("Charge $")');
@@ -1726,7 +1747,7 @@ try {
     await page.waitForSelector('text=Current sale', { timeout: 15000 });
 
     // Three of one thing, so there is something to return part of.
-    await page.getByRole('button', { name: 'All', exact: true }).click();
+    await page.click('[data-filter-chip="All"]');
     const tile = page.getByRole('button', { name: /Chocolate Bar/ }).first();
     for (const _ of [1, 2, 3]) {
       await tile.click();

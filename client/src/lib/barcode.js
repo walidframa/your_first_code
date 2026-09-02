@@ -54,6 +54,25 @@ export function detectFormat(code) {
 }
 
 /**
+ * True when a search term is a number off a box rather than a name typed in.
+ *
+ * The question this answers is what to do when a scan finds nothing. The
+ * search box is one box for both jobs — a name to look up, a code fired at it
+ * by a reader — and until now everything that missed became a *name*, so
+ * scanning an unknown box opened "New product" called `6291100097614` and the
+ * barcode field, the one field that number belongs in, was left empty.
+ *
+ * Length rather than a check digit: an eight-digit-or-longer run of digits is
+ * a code by any reasonable reading, while plenty of real labels — a
+ * distributor's own, anything this shop printed for loose stock — carry no
+ * valid EAN check digit at all and would be thrown back into the name.
+ */
+export function looksScanned(text) {
+  const value = String(text ?? '').trim();
+  return digitsOnly(value) && value.length >= 8;
+}
+
+/**
  * What to encode on a product's label: its barcode if it has one, otherwise
  * its SKU, so every product can be labelled.
  */

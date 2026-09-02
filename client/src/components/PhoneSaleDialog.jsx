@@ -53,11 +53,30 @@ function Section({ icon: Icon, title, hint, count, children }) {
  * So it is a dialog on the way into the cart rather than a panel beside it —
  * a panel is something a busy cashier can finish a sale without ever opening.
  */
-export default function PhoneSaleDialog({ product, unit, onCancel, onAdd }) {
+export default function PhoneSaleDialog({
+  product,
+  unit,
+  /*
+   * Who the sale is already for, if the counter has said.
+   *
+   * `buyer` is what an earlier handset on the same sale was booked to;
+   * `customer` is the account picked at the top of the register. Either is the
+   * shop telling us the name, and typing it again is what this saves — a
+   * second phone for the same family used to mean the same name and number
+   * entered twice, three times with the SIM.
+   *
+   * Seeded, not bound: the boxes stay editable, because the account paying and
+   * the person walking out with the handset are often not the same person.
+   */
+  buyer = null,
+  customer = null,
+  onCancel,
+  onAdd,
+}) {
   const { rate, toLbp, toUsd } = useSettings();
 
-  const [buyerName, setBuyerName] = useState('');
-  const [buyerPhone, setBuyerPhone] = useState('');
+  const [buyerName, setBuyerName] = useState(buyer?.name || customer?.name || '');
+  const [buyerPhone, setBuyerPhone] = useState(buyer?.phone || customer?.phone || '');
   const [priceUsd, setPriceUsd] = useState(String(product.price ?? ''));
   const [discount, setDiscount] = useState('');
   const [gifts, setGifts] = useState([]);

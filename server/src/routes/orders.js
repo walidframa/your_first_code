@@ -93,8 +93,17 @@ function buildCreditLine(item, branchId, exchangeRate) {
   if (!wallet.sends_credit) throw new Error(`${wallet.name} is not set up to send credit`);
   if (!wallet.active) throw new Error(`${wallet.name} is closed`);
 
+  /*
+   * Who it went to, when the shop bothered to say.
+   *
+   * It used to be required, and it is genuinely useful — "did the $10 reach
+   * that number" is a question customers come back with, and it is answered
+   * from this column. But it is not what the sale *is*: a shop that tops up
+   * the phone in the hand of the person paying already knows whose it is, and
+   * making them type it turns a five-second sale into a form. Left blank it is
+   * simply an unrecorded number, not a broken sale.
+   */
   const to = String(msisdn || '').trim();
-  if (!to) throw new Error('Say which number the credit is going to');
 
   // Throws with something the counter can act on for a bad amount.
   const quoted = quote(amount, wallet.sms_fee);
@@ -794,7 +803,9 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
             amountUsd: -quoted.cost,
             orderId,
             userId: req.user.id,
-            note: `$${quoted.amount} to ${to} — ${quoted.smsCount} SMS`,
+            note: to
+              ? `$${quoted.amount} to ${to} — ${quoted.smsCount} SMS`
+              : `$${quoted.amount} — ${quoted.smsCount} SMS`,
           });
 
           db.prepare(

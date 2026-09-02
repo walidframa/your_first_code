@@ -1,6 +1,7 @@
 import { matchesSearch } from '../lib/search';
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ChevronDown,
   ChevronUp,
   HandCoins,
   LayoutGrid,
@@ -14,6 +15,7 @@ import {
   ShoppingCart,
   Smartphone,
   Tags,
+  TicketPercent,
   Trash2,
   UserRound,
   Wrench,
@@ -69,6 +71,16 @@ const optional = (request, fallback) => request.then((res) => res.data).catch(()
 
 
 const round2 = (n) => Math.round(n * 100) / 100;
+
+/**
+ * Things that cannot be sold out, whatever the stock column says.
+ *
+ * A service is something the shop does rather than something it has, and a
+ * card is sold out of a carrier's credit rather than off a shelf. Both sit at
+ * zero for ever, so anything that reasons about "in stock" has to know to skip
+ * them — the tiles already did, and now so does hiding sold-out stock.
+ */
+const neverRunsOut = (p) => Boolean(p.is_service || p.wallet_id);
 
 /** Where a half-rung sale waits while somebody looks at another page. */
 const CART_KEY = 'pos_cart';
@@ -263,6 +275,12 @@ export default function Checkout() {
    */
   const [discountValue, setDiscountValue] = useState(0);
   const [discountMode, setDiscountMode] = useState('percent');
+  /*
+   * Whether the controls for it are showing. Not part of the sale — a held
+   * sale resumed with a discount on it says so on the chip, and opening the
+   * box is a thing somebody does, not a thing the sale carries.
+   */
+  const [discountOpen, setDiscountOpen] = useState(false);
 
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -297,6 +315,29 @@ export default function Checkout() {
    */
   const [buyer, setBuyer] = useState({ name: '', phone: '' });
   const [accounts, setAccounts] = useState([]);
+
+  /**
+   * The customer on the sale, and the paperwork that follows from it.
+   *
+   * Picking a customer at the register is the shop saying who this sale is
+   * for. Everything after it used to ask again: the handset dialog wants a
+   * buyer's name, the SIM dialog wants a buyer's name and number, the credit
+   * dialog wants a number — the same person typed two and three times over,
+   * with a customer standing there.
+   *
+   * So the name and number come with them. Only into what is still blank: a
+   * cashier who has already typed a different name meant it — the account is
+   * often the father and the handset is for the son — and this must never
+   * overwrite that.
+   */
+  function chooseCustomer(picked) {
+    setCustomer(picked);
+    if (!picked) return;
+    setBuyer((b) => ({
+      name: b.name || picked.name || '',
+      phone: b.phone || picked.phone || '',
+    }));
+  }
   /*
    * Sales put to one side. The count sits on the button so a cart parked by the
    * morning shift is visible to the afternoon one without anybody going looking
@@ -524,15 +565,113 @@ export default function Checkout() {
    */
   const deferredSearch = useDeferredValue(search);
 
-  const filteredProducts = useMemo(() => {
+  /*
+   * Whether the shelf shows what it hasn't got.
+   *
+   * A sold-out tile is not useless — it answers "do you have any?" without the
+   * cashier walking to the back — but a shop whose catalogue is mostly things
+   * it once stocked is scrolling past grey rectangles to reach what it can
+   * actually sell. Which of those two shops this is, is not something to guess
+   * at, so it is a switch, and it is remembered per till like the shelf's own
+   * shape.
+   */
+  const [hideSoldOut, setHideSoldOut] = useState(
+    () => localStorage.getItem('pos_hide_sold_out') === 'true',
+  );
+
+  function chooseHideSoldOut(next) {
+    setHideSoldOut(next);
+    localStorage.setItem('pos_hide_sold_out', String(next));
+  }
+
+  /*
+   * Everything the search box and that switch allow, before the category tabs
+   * get a say.
+   *
+   * Split out from the line below so each tab can carry the number of things
+   * it would actually show — a count that has to be measured after the search
+   * and after sold-out are applied, or a tab reads "12" and opens on nothing.
+   */
+  const shelfMatches = useMemo(() => {
     const term = deferredSearch.trim().toLowerCase();
     return products.filter((p) => {
-      const matchesCategory = activeCategory === 'all' || p.category_id === activeCategory;
+      if (hideSoldOut && !neverRunsOut(p) && p.stock <= 0) return false;
       /* Words in any order, across name, code and barcode — see
          lib/search.js. "phone case" has to find PHONE NEW CASE. */
-      return matchesCategory && matchesSearch(term, p.name, p.sku, p.barcode);
+      return matchesSearch(term, p.name, p.sku, p.barcode);
     });
-  }, [products, activeCategory, deferredSearch]);
+  }, [products, deferredSearch, hideSoldOut]);
+
+  const filteredProducts = useMemo(
+    () =>
+      shelfMatches.filter((p) => activeCategory === 'all' || p.category_id === activeCategory),
+    [shelfMatches, activeCategory],
+  );
+
+  /*
+   * Which way the tab strip carries on, so its edges can say so.
+   *
+   * Measured rather than assumed: whether twelve shelves overflow depends on
+   * their names, the text size somebody has chosen and how wide this half of
+   * the screen is, none of which can be known from here.
+   */
+  const tabsRef = useRef(null);
+  const [tabsMore, setTabsMore] = useState({ before: false, after: false });
+
+  const measureTabs = useCallback(() => {
+    const el = tabsRef.current;
+    if (!el) return;
+    const room = el.scrollWidth - el.clientWidth;
+    /* Right-to-left makes scrollLeft negative in every current browser, so it
+       is the distance from each end that is measured, not the sign. */
+    const from = Math.abs(el.scrollLeft);
+    setTabsMore((was) => {
+      const now = { before: from > 4, after: room - from > 4 };
+      return was.before === now.before && was.after === now.after ? was : now;
+    });
+  }, []);
+
+  /* Again whenever the strip's contents or the room for them changes. */
+  useEffect(() => {
+    measureTabs();
+    const el = tabsRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return undefined;
+    const watch = new ResizeObserver(measureTabs);
+    watch.observe(el);
+    return () => watch.disconnect();
+  }, [measureTabs, categories]);
+
+  const tabsMask = useMemo(() => {
+    if (!tabsMore.before && !tabsMore.after) return undefined;
+    return `linear-gradient(to right, ${
+      tabsMore.before ? 'transparent 0, #000 24px' : '#000 0'
+    }, ${tabsMore.after ? '#000 calc(100% - 24px), transparent 100%' : '#000 100%'})`;
+  }, [tabsMore]);
+
+  /** How many each tab would show, so the tabs can say. */
+  const shelfCounts = useMemo(() => {
+    const counts = new Map();
+    for (const p of shelfMatches) {
+      counts.set(p.category_id, (counts.get(p.category_id) ?? 0) + 1);
+    }
+    return counts;
+  }, [shelfMatches]);
+
+  /*
+   * Whether anything is being hidden right now, which is what makes an empty
+   * shelf explicable rather than alarming.
+   */
+  const soldOutHidden = useMemo(() => {
+    if (!hideSoldOut) return 0;
+    const term = deferredSearch.trim().toLowerCase();
+    return products.filter(
+      (p) =>
+        !neverRunsOut(p) &&
+        p.stock <= 0 &&
+        (activeCategory === 'all' || p.category_id === activeCategory) &&
+        matchesSearch(term, p.name, p.sku, p.barcode),
+    ).length;
+  }, [products, deferredSearch, hideSoldOut, activeCategory]);
 
   /*
    * Only the tiles somebody can see — see lib/windowedRows.js. A shop with
@@ -836,6 +975,15 @@ export default function Checkout() {
           : Number(discountValue) || 0,
     ),
   );
+  /** The discount as it was asked for — "10% off", "$5 off", "500,000 LL off". */
+  const discountLabel = `${
+    discountMode === 'percent'
+      ? `${Number(discountValue) || 0}%`
+      : discountMode === 'lbp'
+        ? lbp(Number(discountValue) || 0)
+        : money(Number(discountValue) || 0)
+  } ${t('off')}`;
+
   const taxableAmount = round2(subtotal - discountAmount);
   const tax = round2(taxableAmount * taxRate);
   const total = round2(taxableAmount + tax);
@@ -996,6 +1144,7 @@ export default function Checkout() {
       setCartOpen(false);
       setCart([]);
       setDiscountValue(0);
+      setDiscountOpen(false);
       setCustomer(null);
       setBuyer({ name: '', phone: '' });
       setAccounts([]);
@@ -1147,26 +1296,102 @@ export default function Checkout() {
           </button>
           </div>
 
-          <div className="mt-3 flex flex-wrap gap-1.5">
-            {[{ id: 'all', name: 'All' }, ...categories].map((c) => (
-              <button
-                key={c.id}
-                onClick={() => setActiveCategory(c.id)}
-                /* Named so a theme can re-colour the chosen one without having
-                   to guess at `bg-slate-900`, which four other things use for
-                   reasons of their own — a camera preview, a chart tooltip,
-                   the remove mark on a photo. */
-                data-filter-chip=""
-                className={cx(
-                  'pressable rounded-full px-3 py-1.5 text-sm font-medium transition',
-                  activeCategory === c.id
-                    ? 'bg-slate-900 text-white'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
-                )}
-              >
-                {t(c.name)}
-              </button>
-            ))}
+          {/*
+            * The shelves, as one strip that scrolls sideways.
+            *
+            * It used to wrap, and a shop with fourteen categories got four
+            * rows of pills that pushed the products themselves below the fold
+            * — a filter taking more of the screen than the thing being
+            * filtered. One line that slides is the shape a phone has taught
+            * everybody to expect, and the shelf keeps the same height whatever
+            * the catalogue does.
+            *
+            * Each tab carries what it would show, counted after the search and
+            * the sold-out switch. A tab that opens on an empty shelf is a tap
+            * wasted with a customer waiting, and the number is what stops it.
+            */}
+          <div className="mt-3 flex items-center gap-2">
+            <div
+              ref={tabsRef}
+              onScroll={measureTabs}
+              /*
+               * Faded where it carries on.
+               *
+               * A strip that scrolls and does not say so is a strip a shop
+               * believes is the whole list — the fourth chip happening to end
+               * near the edge reads as "four categories", and the other eight
+               * are never looked for. The mask sits on the box rather than on
+               * the content, so it fades whatever has scrolled under it and
+               * fades nothing at all when everything fits.
+               */
+              style={{
+                maskImage: tabsMask,
+                WebkitMaskImage: tabsMask,
+              }}
+              className="scroll-x-quiet -mx-1 min-w-0 flex-1 overflow-x-auto px-1 py-0.5">
+              <div className="flex w-max items-center gap-1">
+                {[{ id: 'all', name: 'All' }, ...categories].map((c) => {
+                  const on = activeCategory === c.id;
+                  const count = c.id === 'all' ? shelfMatches.length : (shelfCounts.get(c.id) ?? 0);
+                  return (
+                    <button
+                      key={c.id}
+                      onClick={() => setActiveCategory(c.id)}
+                      aria-pressed={on}
+                      /* Named so a theme can re-colour the chosen one without
+                         having to guess at `bg-slate-900`, which four other
+                         things use for reasons of their own — a camera
+                         preview, a chart tooltip, the remove mark on a photo. */
+                      data-filter-chip={c.name}
+                      className={cx(
+                        'pressable flex shrink-0 items-center gap-2 rounded-full py-2 pr-2.5 pl-3.5 text-sm font-medium whitespace-nowrap transition',
+                        on
+                          ? 'bg-slate-900 text-white shadow-sm'
+                          : count === 0
+                            ? 'text-slate-400 ring-1 ring-slate-200/70 ring-inset hover:bg-slate-50'
+                            : 'text-slate-600 ring-1 ring-slate-200 ring-inset hover:bg-slate-50 hover:text-slate-900',
+                      )}
+                    >
+                      {t(c.name)}
+                      <span
+                        className={cx(
+                          'tnum rounded-full px-1.5 py-0.5 text-[11px] leading-none font-semibold',
+                          on ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500',
+                        )}
+                      >
+                        {count}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/*
+              * Sold-out stock, in or out.
+              *
+              * Beside the shelves rather than in a settings screen: it is a
+              * decision that changes with the hour — hidden while serving,
+              * shown while ordering — and a switch somebody has to go and find
+              * is a switch that gets set once and resented.
+              */}
+            <label
+              className={cx(
+                'pressable flex shrink-0 cursor-pointer items-center gap-2 rounded-full py-2 pr-3.5 pl-3 text-sm font-medium whitespace-nowrap transition',
+                hideSoldOut
+                  ? 'bg-brand-50 text-brand-800 ring-1 ring-brand-200 ring-inset'
+                  : 'text-slate-500 ring-1 ring-slate-200 ring-inset hover:bg-slate-50',
+              )}
+              title={t('Leave out anything the shelf has none of')}
+            >
+              <input
+                type="checkbox"
+                checked={hideSoldOut}
+                onChange={(e) => chooseHideSoldOut(e.target.checked)}
+                className="h-4 w-4 rounded border-slate-300 accent-brand-600"
+              />
+              {t('Hide sold out')}
+            </label>
           </div>
         </div>
 
@@ -1181,8 +1406,17 @@ export default function Checkout() {
             <EmptyState
               icon={Search}
               title="No products found"
+              /*
+               * An empty shelf that is empty because of a switch has to say so.
+               * Otherwise the shop is looking at "no products found" for stock
+               * it knows perfectly well it has a tile for.
+               */
               description={
-                search ? `Nothing matches “${search}”.` : 'This category has no active products yet.'
+                soldOutHidden > 0
+                  ? `${soldOutHidden} sold-out product${soldOutHidden === 1 ? ' is' : 's are'} hidden — untick “Hide sold out” to see ${soldOutHidden === 1 ? 'it' : 'them'}.`
+                  : search
+                    ? `Nothing matches “${search}”.`
+                    : 'This category has no active products yet.'
               }
             />
           ) : (
@@ -1217,7 +1451,7 @@ export default function Checkout() {
                 /* A service never runs out — it is something the shop does,
                    not something it has. Nor does a card, which is sold from a
                    wallet's credit. */
-                const noShelf = Boolean(p.is_service || p.wallet_id);
+                const noShelf = neverRunsOut(p);
                 const soldOut = !noShelf && p.stock <= 0;
                 const low = !noShelf && !soldOut && p.stock <= p.reorder_point;
                 /* Said once, so the card and the row cannot come to disagree
@@ -1566,7 +1800,7 @@ export default function Checkout() {
           */}
         <div className="flex items-center gap-1.5 border-b border-slate-100 px-3 py-2">
           <div className="min-w-0 flex-1">
-            <CustomerPicker customer={customer} onChange={setCustomer} />
+            <CustomerPicker customer={customer} onChange={chooseCustomer} />
           </div>
           {[
             /*
@@ -1846,12 +2080,80 @@ export default function Checkout() {
           )}
         </div>
 
-        <div className="border-t border-slate-100 px-5 py-4">
-          <div className="mb-3 flex items-center justify-between">
-            <label htmlFor="discount" className="text-sm text-slate-500">
-              {t('Discount')}
-            </label>
-            <div className="flex items-center gap-1">
+        <div className="border-t border-slate-100 bg-white px-5 py-4">
+          {/*
+            * The discount, put away.
+            *
+            * It was three quarters of an inch of permanently open form —
+            * a labelled box and three unit buttons — sitting between the
+            * things being sold and what they come to, on the one panel of this
+            * app where vertical space is worth most. And it is used on a small
+            * minority of sales: most customers pay the price.
+            *
+            * So it is a chip that says whether there is one, and opens the
+            * controls under itself when there is going to be. Folded rather
+            * than mounted and unmounted so the movement is the height of the
+            * panel changing rather than a form appearing from nowhere, and so
+            * the boxes keep what has been typed while it is shut — see .fold
+            * in index.css, which also keeps them out of the tab order closed.
+            */}
+          <div className="mb-3 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setDiscountOpen((v) => !v)}
+              aria-expanded={discountOpen}
+              aria-controls="discount-panel"
+              className={cx(
+                'pressable inline-flex items-center gap-1.5 rounded-full py-1.5 pr-3 pl-2.5 text-xs font-semibold transition',
+                discountAmount > 0
+                  ? 'bg-brand-50 text-brand-800 ring-1 ring-brand-200 ring-inset'
+                  : 'text-slate-500 ring-1 ring-slate-200 ring-inset hover:bg-slate-50 hover:text-slate-700',
+              )}
+            >
+              <TicketPercent size={14} />
+              {/*
+                * What was asked for, not what it comes to. The line below
+                * already says what it comes to, and two of the same figure an
+                * inch apart is one of them wasted — this way the chip answers
+                * "ten per cent" and the total answers "so, $3.15".
+                */}
+              {discountAmount > 0 ? discountLabel : t('Discount')}
+              <ChevronDown
+                size={13}
+                className={cx('transition-transform duration-200', discountOpen && 'rotate-180')}
+              />
+            </button>
+
+            {/* One tap back to full price, without hunting for the box that
+                took it off. */}
+            {discountAmount > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setDiscountValue(0);
+                  setDiscountOpen(false);
+                }}
+                aria-label={t('Take the discount off')}
+                title={t('Take the discount off')}
+                className="pressable flex h-7 w-7 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
+
+          <div
+            id="discount-panel"
+            className={cx('fold -mt-1', discountOpen && 'fold-open')}
+          >
+            <div>
+            <div className="mb-3 flex items-center gap-2 rounded-xl bg-slate-50 p-2 ring-1 ring-slate-200/70 ring-inset">
+              {/* The empty half of the row, spent saying what the boxes do
+                  rather than on a text field wide enough for a phone number
+                  when what goes in it is "10". */}
+              <span className="min-w-0 flex-1 pl-1 text-xs leading-tight text-slate-500">
+                {t('Money off the whole sale')}
+              </span>
               <input
                 id="discount"
                 type="number"
@@ -1860,7 +2162,8 @@ export default function Checkout() {
                 step={discountMode === 'lbp' ? 1000 : discountMode === 'usd' ? 0.5 : 1}
                 value={discountValue}
                 onChange={(e) => setDiscountValue(e.target.value)}
-                className="tnum h-11 w-24 rounded-lg bg-slate-100 px-2 text-right text-sm ring-1 ring-transparent focus:bg-white focus:ring-brand-600 focus:outline-none"
+                aria-label={t('Discount')}
+                className="tnum h-11 w-24 shrink-0 rounded-lg bg-white px-3 text-right text-sm ring-1 ring-slate-200 focus:ring-2 focus:ring-brand-600 focus:outline-none"
               />
               {/*
                 * Three buttons rather than a dropdown: it is three short words,
@@ -1872,7 +2175,7 @@ export default function Checkout() {
                 * dollar discount into five pounds, which is nothing, and the
                 * cashier finds out from the total rather than from the button.
                 */}
-              <div className="flex overflow-hidden rounded-lg bg-slate-100">
+              <div className="flex shrink-0 overflow-hidden rounded-lg bg-white ring-1 ring-slate-200">
                 {[
                   ['percent', '%'],
                   ['usd', '$'],
@@ -1894,6 +2197,7 @@ export default function Checkout() {
                   </button>
                 ))}
               </div>
+            </div>
             </div>
           </div>
 
@@ -2176,6 +2480,9 @@ export default function Checkout() {
         <PhoneSaleDialog
           product={sellingUnit.product}
           unit={sellingUnit.unit}
+          /* Whoever the sale is already for — see chooseCustomer. */
+          buyer={buyer}
+          customer={customer}
           onCancel={() => setSellingUnit(null)}
           onAdd={(details) => {
             addPhoneToCart(sellingUnit.product, sellingUnit.unit, details);
@@ -2196,6 +2503,7 @@ export default function Checkout() {
             setCart([]);
             setDiscountValue(0);
             setDiscountMode('percent');
+            setDiscountOpen(false);
             setTrade(false);
             setCustomer(null);
             // The old phone goes with it: a trade-in left attached to a cleared
@@ -2233,6 +2541,8 @@ export default function Checkout() {
       {sellingSim && (
         <SellSim
           onClose={() => setSellingSim(false)}
+          buyer={buyer}
+          customer={customer}
           onPicked={({ sim, price, buyer: who, idPhoto }) => {
             /*
              * A SIM never merges with anything: it is one card with one number,
@@ -2260,6 +2570,7 @@ export default function Checkout() {
       {sendingCredit && (
         <SendCredit
           onClose={() => setSendingCredit(false)}
+          customer={customer}
           onPicked={({ walletId, carrierName, msisdn, amount, price, quote }) => {
             setCart((prev) => [
               ...prev,
@@ -2268,7 +2579,9 @@ export default function Checkout() {
                 productId: null,
                 unitId: null,
                 name: `${carrierName} credit — $${amount}`,
-                imei: `${msisdn} · ${quote.smsCount} SMS`,
+                /* The number is optional now, so the line reads as the send it
+                   is rather than starting with an empty separator. */
+                imei: [msisdn, `${quote.smsCount} SMS`].filter(Boolean).join(' · '),
                 price,
                 stock: 1,
                 quantity: 1,

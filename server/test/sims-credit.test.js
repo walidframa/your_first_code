@@ -240,15 +240,28 @@ test('a wallet that is not a carrier cannot send credit', async () => {
   assert.match(res.json.error, /not set up to send credit/i);
 });
 
-test('credit with no number to send it to is refused', async () => {
+test('credit sells without a number, because the phone is usually in the hand paying', async () => {
+  const before = (await req('GET', '/credit/carriers', null, adminToken)).json.carriers.find(
+    (c) => c.id === alfa.id,
+  ).balance;
+
   const res = await req(
     'POST',
     '/orders',
-    { items: [{ creditSend: { walletId: alfa.id, amount: 5 } }], paymentMethod: 'card' },
+    { items: [{ creditSend: { walletId: alfa.id, amount: 5 }, price: 6 }], paymentMethod: 'card' },
     adminToken,
   );
-  assert.equal(res.status, 400);
-  assert.match(res.json.error, /which number/i);
+  assert.equal(res.status, 201);
+
+  // The balance still moves — $5 plus the fee for every message it took.
+  const after = (await req('GET', '/credit/carriers', null, adminToken)).json.carriers.find(
+    (c) => c.id === alfa.id,
+  ).balance;
+  assert.ok(after < before - 5, `${after} should be more than $5 below ${before}`);
+
+  // And the movement reads as a send rather than as a send to nobody.
+  const sends = (await req('GET', '/credit/sends', null, adminToken)).json.sends;
+  assert.equal(sends[0].msisdn, '');
 });
 
 test('an overdrawn carrier still sends — that is a bill, not a customer to turn away', async () => {

@@ -1,4 +1,5 @@
 import { matchesSearch } from '../lib/search';
+import { looksScanned } from '../lib/barcode';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, CornerDownLeft, Plus, Search, Sparkles } from 'lucide-react';
 import { ProductThumb, cx, money } from './ui';
@@ -68,6 +69,19 @@ export default function ProductLineSearch({
     listRef.current?.children[highlight]?.scrollIntoView({ block: 'nearest' });
   }, [highlight]);
 
+  /*
+   * What was in the box, told apart.
+   *
+   * A scan that finds nothing and a name that finds nothing arrive here as the
+   * same string, and they are not the same thing: one is the product's barcode
+   * and one is its name. Sorted out here rather than at the call site, because
+   * this is the box that both of them were typed into — see lib/barcode.js.
+   */
+  const createNew = () => {
+    const text = term.trim();
+    onCreateNew(looksScanned(text) ? { name: '', barcode: text } : { name: text, barcode: '' });
+  };
+
   function choose(product) {
     onPick(product);
     setTerm('');
@@ -85,7 +99,7 @@ export default function ProductLineSearch({
     } else if (e.key === 'Enter') {
       e.preventDefault();
       if (results[highlight]) choose(results[highlight]);
-      else if (query) onCreateNew(term.trim());
+      else if (query) createNew();
     } else if (e.key === 'Escape') {
       setTerm('');
     }
@@ -167,11 +181,13 @@ export default function ProductLineSearch({
           {query ? (
             <button
               type="button"
-              onClick={() => onCreateNew(term.trim())}
+              onClick={createNew}
               className="flex w-full items-center gap-2 border-t border-slate-100 px-3 py-2.5 text-left text-sm font-medium text-brand-700 transition hover:bg-brand-50"
             >
               <Sparkles size={14} />
-              Create “{term.trim()}” as a new product
+              {looksScanned(term.trim())
+                ? `Create a new product with barcode ${term.trim()}`
+                : `Create “${term.trim()}” as a new product`}
             </button>
           ) : (
             products.length > MAX_RESULTS && (

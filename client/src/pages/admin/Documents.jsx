@@ -852,7 +852,9 @@ function DocumentForm({ existing, startAs = null, page = false, onClose, onSaved
               products={products}
               priceField={priceField}
               onPick={addProduct}
-              onCreateNew={(name) => setQuickCreate(name)}
+              /* `{ name, barcode }` — a scan and a typed name are different
+                 things and land in different fields. See ProductLineSearch. */
+              onCreateNew={(seed) => setQuickCreate(seed)}
               inputRef={searchRef}
               /* The cursor goes to the new line's quantity instead — see the
                  loop above addProduct. */
@@ -1289,7 +1291,8 @@ function DocumentForm({ existing, startAs = null, page = false, onClose, onSaved
 
       <ProductQuickCreate
         open={quickCreate !== null}
-        initialName={quickCreate || ''}
+        initialName={quickCreate?.name || ''}
+        initialBarcode={quickCreate?.barcode || ''}
         onClose={() => setQuickCreate(null)}
         onCreated={(product) => {
           setQuickCreate(null);
