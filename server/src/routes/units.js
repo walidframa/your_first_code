@@ -46,7 +46,13 @@ router.get('/product/:productId', requireAuth, (req, res) => {
     return res.status(400).json({ error: `status must be one of: ${UNIT_STATUSES.join(', ')}` });
   }
 
-  const units = unitsFor(product.id, status || null);
+  /*
+   * `?branch=here` is "the ones on this shop's shelf", for anything that is
+   * about to move a physical handset — see unitsFor. Everything else still
+   * gets the company's whole history of the product, which is what a warranty
+   * question needs.
+   */
+  const units = unitsFor(product.id, status || null, req.query.branch === 'here' ? req.branchId : null);
   res.json({
     product,
     units,
@@ -58,7 +64,18 @@ router.get('/product/:productId', requireAuth, (req, res) => {
 router.post('/product/:productId', requireAuth, requirePermission('inventory'), (req, res) => {
   const { units, documentId = null } = req.body || {};
   try {
-    const result = transaction(() => receiveUnits(req.params.productId, units, { documentId }))();
+    /*
+     * On the shelf of the shop booking them in.
+     *
+     * It used to leave the branch off, and `receiveUnits` falls back to the
+     * main shop — so a second branch booking in a delivery of phones put them
+     * on the *other* shop's shelf. Its own stock never moved, and any transfer
+     * of one was refused with "is not at Saida", which is the same complaint
+     * that brought all this up.
+     */
+    const result = transaction(() =>
+      receiveUnits(req.params.productId, units, { documentId, branchId: req.branchId }),
+    )();
     res.status(201).json(result);
   } catch (err) {
     res.status(400).json({ error: err.message });

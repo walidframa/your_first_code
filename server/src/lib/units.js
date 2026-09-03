@@ -83,16 +83,41 @@ export function syncStockFromUnits(productId) {
 }
 
 /** The units of a product, newest first, optionally narrowed to one status. */
-export function unitsFor(productId, status = null) {
-  const sql = `SELECT u.*, o.order_number, o.created_at AS order_date, cu.name AS customer_name
-     FROM product_units u
-     LEFT JOIN orders o ON o.id = u.sold_order_id
-     LEFT JOIN customers cu ON cu.id = o.customer_id
-     WHERE u.product_id = ?${status ? ' AND u.status = ?' : ''}
-     ORDER BY u.status IN ('in_stock', 'returned') DESC, u.created_at DESC, u.id DESC`;
-  return status
-    ? db.prepare(sql).all(productId, status)
-    : db.prepare(sql).all(productId);
+export function unitsFor(productId, status = null, branchId = null) {
+  /*
+   * `branchId` narrows this to the handsets standing in one shop.
+   *
+   * Null is every one of them, which is what the stock list and the counter's
+   * own lookup want — a customer walks in with a phone and "whose shelf is it
+   * on" is not the question. What it is right for is anything that moves a
+   * physical object: offering to send a handset that is in the other branch
+   * produces a transfer the server then refuses, which reads as the app being
+   * broken rather than as the phone being elsewhere.
+   *
+   * A handset booked in before branches existed carries none, and belongs to
+   * the main shop — the same reading every other query takes.
+   */
+  const params = [productId];
+  let where = 'u.product_id = ?';
+  if (status) {
+    where += ' AND u.status = ?';
+    params.push(status);
+  }
+  if (branchId) {
+    where += ' AND COALESCE(u.branch_id, ?) = ?';
+    params.push(mainBranchId(), branchId);
+  }
+
+  return db
+    .prepare(
+      `SELECT u.*, o.order_number, o.created_at AS order_date, cu.name AS customer_name
+       FROM product_units u
+       LEFT JOIN orders o ON o.id = u.sold_order_id
+       LEFT JOIN customers cu ON cu.id = o.customer_id
+       WHERE ${where}
+       ORDER BY u.status IN ('in_stock', 'returned') DESC, u.created_at DESC, u.id DESC`,
+    )
+    .all(...params);
 }
 
 /**

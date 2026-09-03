@@ -680,6 +680,7 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
             exchangeRate,
           },
           req.user.id,
+          branchId,
         );
       }
 

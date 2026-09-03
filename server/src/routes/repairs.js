@@ -307,7 +307,7 @@ router.post('/trade-ins', requireAuth, (req, res) => {
     const { exchange_rate: exchangeRate } = getSettings();
 
     const result = transaction(() => {
-      const taken = takeTradeIn({ ...req.body, exchangeRate }, req.user.id);
+      const taken = takeTradeIn({ ...req.body, exchangeRate }, req.user.id, req.branchId);
 
       /*
        * Buying a phone empties the till. Recorded as cash out so the drawer
