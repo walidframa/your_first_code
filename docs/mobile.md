@@ -86,18 +86,45 @@ npm --prefix client run app:ios       # ... and open Xcode  (macOS only)
 native projects hold a *copy* of the built pages, so a change that has not been
 synced is a change the app has never seen.
 
-### An installable Android file, without installing anything
+### The download link
 
-The **Phone app** workflow in GitHub Actions builds the APK and attaches it to
-the run. Actions → *Phone app* → **Run workflow**, wait a few minutes, download
-`front-desk-<sha>-apk` from the run's Artifacts.
+One address, and it does not change:
 
-That file installs on any Android phone — no Play Store account, no signing key.
-It is what to hand somebody who wants to try it, and what to put on the shop's
-own phones. (Android will warn about installing outside the Play Store; that is
-expected for a debug build.)
+```
+https://github.com/walidframa/your_first_code/releases/download/app/front-desk.apk
+```
 
-Tagging a release (`v1.0.0`) builds one automatically.
+Open it on an Android phone and it installs. No GitHub account, no Play Store
+account, no signing key — the repository is public and a release asset is a
+plain file. It is what to put on the shop's own phones, hand to somebody who
+wants to try it, or print as a QR code beside the counter.
+
+**It always holds the most recent build.** The link points at a release under
+the fixed tag `app`, which every build replaces — so the same link keeps
+working and keeps being current. Android will warn about installing outside the
+Play Store, which is expected for a build handed out directly, and the app asks
+for the shop's address the first time it opens.
+
+### Making a new one
+
+Actions → **Phone app** → **Run workflow**, and wait a couple of minutes. That
+builds the APK, replaces the `app` release with it, and attaches a copy to the
+run itself (`front-desk-<sha>-apk`) as the record of what was built.
+
+Tagging a version (`v1.0.0`) does the same *and* keeps a copy under that tag,
+so a released version still has the file it shipped with after `app` has moved
+on to the next build.
+
+**The phone app is not updated by deploying.** The server's deploy replaces the
+web app; the phone app carries its own copy of the screens inside the APK. A
+change the shop needs on the phones is a new APK, installed over the old one
+(Android keeps the data and the shop address).
+
+### If a build is only for you
+
+The run's own artifact — `front-desk-<sha>-apk` under Artifacts — is a zip, it
+expires after thirty days, and GitHub asks whoever clicks it to sign in. Fine
+for checking a build; not something to send to a shopkeeper.
 
 ### Locally, if you would rather
 
