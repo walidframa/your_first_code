@@ -4443,6 +4443,99 @@ try {
     await page.waitForSelector('text=/TR-\\d+ received/', { timeout: 15000 });
   });
 
+  /*
+   * Reported from the shop: "I can't transfer stock cellphones — it shows an
+   * error to select IMEI, and I already selected the IMEI."
+   *
+   * The send form had no way to name a handset at all: it posted a product and
+   * a quantity, and the server rightly refused every phone with "tracked by
+   * IMEI — pick which handset". So the thing checked here is the whole trip:
+   * picking the model asks which handsets, several can go at once, and the
+   * IMEIs are on the paperwork at the other end.
+   */
+  await step('a phone is transferred by its IMEI, not as a quantity', async () => {
+    // Two handsets of a model of this step's own, on the main shelf.
+    await page.locator('button[aria-label*="Branch:"]:visible').first().click();
+    await page.waitForTimeout(300);
+    await page.locator('div.absolute button').first().click();
+    await page.waitForTimeout(800);
+
+    const made = await page.evaluate(async () => {
+      const auth = {
+        Authorization: `Bearer ${localStorage.getItem('pos_token')}`,
+        'Content-Type': 'application/json',
+      };
+      const { product } = await (
+        await fetch('/api/products', {
+          method: 'POST',
+          headers: auth,
+          body: JSON.stringify({
+            name: 'Transferable handset',
+            sku: 'TR-PHONE',
+            price: 149,
+            cost: 110,
+            stock: 0,
+            tracks_units: true,
+          }),
+        })
+      ).json();
+      await fetch(`/api/units/product/${product.id}`, {
+        method: 'POST',
+        headers: auth,
+        body: JSON.stringify({
+          units: [
+            { imei: '354400111100011', cost: 110 },
+            { imei: '354400111100029', cost: 110 },
+          ],
+        }),
+      });
+      return product;
+    });
+    if (!made?.id) throw new Error('the handset model was not created');
+
+    await goTo('Move stock');
+    await page.waitForSelector('button:has-text("Send stock")', { timeout: 15000 });
+    await page.click('button:has-text("Send stock")');
+    await page.waitForSelector('[role=dialog] >> text=To which branch', { timeout: 10000 });
+
+    await page.fill('input[aria-label="Find a product to send"]', 'Transferable handset');
+    await page.waitForTimeout(400);
+    await page.locator('[role=dialog] li button:has-text("Transferable handset")').first().click();
+
+    // Picking the model asks which handsets rather than adding a quantity.
+    await page.waitForSelector('[role=dialog] >> text=Which handsets are going', { timeout: 10000 });
+    const boxes = page.locator('[role=dialog] input[type=checkbox]');
+    // The dialog opens on a skeleton while it fetches, so count after the
+    // handsets are actually in it rather than a frame too early.
+    await boxes.first().waitFor({ timeout: 10000 });
+    if ((await boxes.count()) !== 2) {
+      throw new Error(`${await boxes.count()} handsets offered — both are on this shelf`);
+    }
+    await boxes.nth(0).check();
+    await boxes.nth(1).check();
+    await page.click('button:has-text("Add 2 handsets")');
+
+    // Two lines, each carrying its own number.
+    await page.waitForSelector('text=354400111100011', { timeout: 10000 });
+    await page.waitForSelector('text=354400111100029', { timeout: 10000 });
+
+    await page.click('button:has-text("Send it")');
+    await page.waitForSelector('text=/TR-\\d+ sent/', { timeout: 15000 });
+
+    // And they are on the other branch's paperwork, by number.
+    await page.locator('button[aria-label*="Branch:"]:visible').first().click();
+    await page.waitForTimeout(300);
+    await page.locator('div.absolute button:has-text("Saida")').first().click();
+    await page.waitForSelector('text=On the way to Saida', { timeout: 15000 });
+    await page.click('button:has-text("Receive")');
+    await page.waitForSelector('[role=dialog] >> text=354400111100011', { timeout: 10000 });
+    await page.click('button:has-text("Receive it")');
+    await page.waitForSelector('text=/TR-\\d+ received/', { timeout: 15000 });
+
+    /* Left at Saida, which is where this step found the run and where the one
+       below expects to start — it is the branch whose shelf it reads. */
+  });
+
   await step('the same product, on the second branch’s register — not a copy of it', async () => {
     await goTo('Register');
     await page.waitForSelector('text=Current sale', { timeout: 15000 });

@@ -446,6 +446,122 @@ test('receiving it puts the stock on the other shelf', async () => {
   assert.equal((await product(made.sku)).total_stock, 10, 'nothing was created or lost');
 });
 
+/*
+ * Reported from the shop: "I can't transfer stock cellphones, it shows an
+ * error to select IMEI and I already selected the IMEI."
+ *
+ * The screen had no way to name a handset at all — it sent a product and a
+ * quantity, and the server rightly refused. These check the other half: that a
+ * transfer naming the handset works end to end, that the phone is only ever on
+ * one shelf, and that a handset which came back over the counter can still be
+ * moved.
+ */
+test('a handset moves by its IMEI, and is on exactly one shelf throughout', async () => {
+  const phone = await makeProduct(0);
+  await req('PUT', `/products/${phone.id}`, { tracks_units: true }, adminToken, mainBranch.id);
+  const booked = await req(
+    'POST',
+    `/units/product/${phone.id}`,
+    { units: [{ imei: '35 9000 1111 2222 1', cost: 120 }, { imei: '359000111122229', cost: 120 }] },
+    adminToken,
+    mainBranch.id,
+  );
+  assert.equal(booked.status, 201, JSON.stringify(booked.json));
+
+  const here = (await req('GET', `/units/product/${phone.id}`, null, adminToken, mainBranch.id)).json;
+  assert.equal(here.units.length, 2);
+  const going = here.units[0];
+
+  // The shelf at each end, before anything moves.
+  assert.equal((await product(phone.sku, mainBranch.id)).stock, 2);
+  assert.equal((await product(phone.sku, saida.id)).stock, 0);
+
+  // Without the IMEI it is refused, and says so in words a shop can act on.
+  const vague = await req(
+    'POST',
+    '/stock-transfers',
+    { toBranchId: saida.id, items: [{ productId: phone.id, quantity: 1 }] },
+    adminToken,
+    mainBranch.id,
+  );
+  assert.equal(vague.status, 400);
+  assert.match(vague.json.error, /tracked by IMEI/i);
+
+  // Named, it goes.
+  const sent = await req(
+    'POST',
+    '/stock-transfers',
+    { toBranchId: saida.id, items: [{ productId: phone.id, unitId: going.id, quantity: 1 }] },
+    adminToken,
+    mainBranch.id,
+  );
+  assert.equal(sent.status, 201, JSON.stringify(sent.json));
+  assert.equal(sent.json.transfer.items[0].imei, going.imei, 'the paperwork names the handset');
+
+  assert.equal((await product(phone.sku, mainBranch.id)).stock, 1, 'it has left this shelf');
+
+  const received = await req(
+    'POST',
+    `/stock-transfers/${sent.json.transfer.id}/receive`,
+    {},
+    adminToken,
+    saida.id,
+  );
+  assert.equal(received.status, 200);
+  assert.equal((await product(phone.sku, saida.id)).stock, 1, 'and arrived at that one');
+  assert.equal((await product(phone.sku)).total_stock, 2, 'nothing was created or lost');
+
+  // And the picker at the other end now offers it, while this one does not.
+  const atSaida = (await req('GET', `/units/product/${phone.id}?branch=here`, null, adminToken, saida.id))
+    .json.units;
+  assert.deepEqual(atSaida.map((u) => u.id), [going.id]);
+
+  const atMain = (
+    await req('GET', `/units/product/${phone.id}?branch=here`, null, adminToken, mainBranch.id)
+  ).json.units;
+  assert.ok(!atMain.some((u) => u.id === going.id), 'a phone in the other shop is not on this shelf');
+
+  // Sending it back on from a branch it is not at is refused by name.
+  const wrongWay = await req(
+    'POST',
+    '/stock-transfers',
+    { toBranchId: saida.id, items: [{ productId: phone.id, unitId: going.id, quantity: 1 }] },
+    adminToken,
+    mainBranch.id,
+  );
+  assert.equal(wrongWay.status, 400);
+  assert.match(wrongWay.json.error, /is not at/i);
+});
+
+/*
+ * Found while fixing the transfer above, and the same shape of bug: a handset
+ * booked in at the second branch went onto the *main* shop's shelf, because the
+ * route left the branch off and `receiveUnits` falls back to main. The branch
+ * that took the delivery then had no stock, and any transfer of one of those
+ * phones was refused with "is not at Saida".
+ */
+test('a handset is booked in at the counter that took it, not at the main shop', async () => {
+  const phone = await makeProduct(0, saida.id);
+  await req('PUT', `/products/${phone.id}`, { tracks_units: true }, adminToken, saida.id);
+
+  const booked = await req(
+    'POST',
+    `/units/product/${phone.id}`,
+    { units: [{ imei: '358800222233341', cost: 90 }] },
+    adminToken,
+    saida.id,
+  );
+  assert.equal(booked.status, 201, JSON.stringify(booked.json));
+
+  assert.equal((await product(phone.sku, saida.id)).stock, 1, 'it is on the shelf that took it');
+  assert.equal((await product(phone.sku, mainBranch.id)).stock, 0, 'and not on the other one');
+
+  const here = (
+    await req('GET', `/units/product/${phone.id}?branch=here`, null, adminToken, saida.id)
+  ).json.units;
+  assert.equal(here.length, 1, 'and the branch that has it can see it to send it');
+});
+
 test('and the product was never duplicated to do it', async () => {
   const all = (await req('GET', '/products', null, adminToken)).json.products;
   const names = all.map((p) => p.sku);

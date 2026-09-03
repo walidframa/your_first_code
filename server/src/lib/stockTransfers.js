@@ -16,7 +16,7 @@
  */
 import { db, transaction } from '../db.js';
 import { mainBranchId, moveStock, stockAt } from './stock.js';
-import { syncStockFromUnits } from './units.js';
+import { AVAILABLE_STATUSES, isAvailable, syncStockFromUnits } from './units.js';
 
 export const TRANSFER_STATUSES = ['draft', 'sent', 'received', 'cancelled'];
 
@@ -111,10 +111,11 @@ export function everythingAt(branchId) {
     .prepare(
       `SELECT u.product_id AS productId, u.id AS unitId
        FROM product_units u
-       WHERE u.status = 'in_stock' AND COALESCE(u.branch_id, ?) = ?
+       WHERE u.status IN (${AVAILABLE_STATUSES.map(() => '?').join(', ')})
+         AND COALESCE(u.branch_id, ?) = ?
        ORDER BY u.product_id, u.id`,
     )
-    .all(main, branchId)
+    .all(...AVAILABLE_STATUSES, main, branchId)
     .map((u) => ({ productId: u.productId, unitId: u.unitId, quantity: 1 }));
 
   const loose = db
@@ -198,7 +199,14 @@ export function sendTransfer({
         if (!line.unitId) throw new Error(`${product.name} is tracked by IMEI — pick which handset`);
         const unit = db.prepare('SELECT * FROM product_units WHERE id = ?').get(line.unitId);
         if (!unit) throw new Error('That handset is not in the records');
-        if (unit.status !== 'in_stock') {
+        /*
+         * Anything the shop could still sell can be sent to the shop that
+         * would sell it — which includes a handset that came back over the
+         * counter and is sitting in the cabinet. It counts as stock at this
+         * branch (see syncStockFromUnits), so refusing to move it left a shelf
+         * showing one that no transfer could shift.
+         */
+        if (!isAvailable(unit.status)) {
           throw new Error(`${unit.imei} has been ${unit.status.replace('_', ' ')} and cannot be sent`);
         }
         if ((unit.branch_id ?? from.id) !== from.id) {

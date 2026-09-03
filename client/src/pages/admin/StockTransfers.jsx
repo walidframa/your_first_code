@@ -1,6 +1,16 @@
 import { matchesSearch } from '../../lib/search';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowRight, Ban, CornerDownLeft, PackageCheck, Plus, Search, Truck, X } from 'lucide-react';
+import {
+  ArrowRight,
+  Ban,
+  CornerDownLeft,
+  PackageCheck,
+  Plus,
+  Search,
+  Smartphone,
+  Truck,
+  X,
+} from 'lucide-react';
 import api from '../../api';
 import PageHeader from '../../components/PageHeader';
 import { useBranch } from '../../context/BranchContext';
@@ -21,6 +31,153 @@ import { useConfirm } from '../../components/ConfirmProvider';
 import { when } from '../../lib/when';
 
 const STATUS_TONES = { draft: 'neutral', sent: 'warning', received: 'good', cancelled: 'critical' };
+
+/** One row of a transfer, as a key: a handset is itself, anything else is its product. */
+const lineKey = (line) => (line.unitId ? `u${line.unitId}` : `p${line.productId}`);
+
+/**
+ * Which handsets are going.
+ *
+ * A serialised product cannot be sent as a quantity — "three iPhone 13" is
+ * three objects with three different numbers on them, and the shop at the
+ * other end has to receive *those* three. Until this dialog existed the send
+ * form had no way to say which, so it sent a product id and a quantity and the
+ * server refused every transfer of a phone with "tracked by IMEI — pick which
+ * handset", which is exactly what the shop reported.
+ *
+ * Several at once, because a shop moving stock between its own branches moves
+ * a box of them, not one.
+ *
+ * Only what is on *this* shelf: `?branch=here`. Offering a handset that is
+ * already at the other branch produces a transfer the server then refuses,
+ * which reads as the app being broken rather than as the phone being
+ * elsewhere.
+ */
+function HandsetPicker({ product, from, already, onAdd, onClose }) {
+  const [units, setUnits] = useState(null);
+  const [term, setTerm] = useState('');
+  const [chosen, setChosen] = useState(() => new Set());
+
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .get(`/units/product/${product.id}`, { params: { branch: 'here' } })
+      .then((res) => {
+        if (cancelled) return;
+        /* On the shelf — and one already on this transfer is not on it twice. */
+        setUnits(
+          res.data.units.filter(
+            (u) => (u.status === 'in_stock' || u.status === 'returned') && !already.has(u.id),
+          ),
+        );
+      })
+      .catch(() => setUnits([]));
+    return () => {
+      cancelled = true;
+    };
+  }, [product.id, already]);
+
+  const shown = useMemo(() => {
+    if (!units) return [];
+    const t = term.replace(/[\s-]/g, '').toUpperCase();
+    return t ? units.filter((u) => u.imei.includes(t) || (u.imei2 || '').includes(t)) : units;
+  }, [units, term]);
+
+  const toggle = (id) =>
+    setChosen((was) => {
+      const next = new Set(was);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={product.name}
+      subtitle={`Which handsets are going out of ${from.name}?`}
+      size="md"
+    >
+      {units === null ? (
+        <Skeleton className="h-40" />
+      ) : units.length === 0 ? (
+        <EmptyState
+          icon={Smartphone}
+          title="None on this shelf"
+          description={`There is no handset of this model at ${from.name} that is not already on this transfer.`}
+        />
+      ) : (
+        <div className="space-y-3">
+          {/* Typing the last few digits is how somebody finds one in a drawer
+              of twenty identical boxes. */}
+          <div className="relative">
+            <Search size={16} className="absolute top-1/2 left-3 -translate-y-1/2 text-slate-400" />
+            <input
+              value={term}
+              onChange={(e) => setTerm(e.target.value)}
+              autoFocus
+              placeholder="Scan or type part of the IMEI"
+              aria-label="Find a handset by IMEI"
+              className="w-full rounded-xl py-2 pr-3 pl-9 font-mono text-sm ring-1 ring-edge focus:ring-2 focus:ring-brand-500 focus:outline-none"
+            />
+          </div>
+
+          <ul className="max-h-80 space-y-1.5 overflow-y-auto">
+            {shown.map((u) => (
+              <li key={u.id}>
+                <label
+                  className={cx(
+                    'flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 ring-1 transition',
+                    chosen.has(u.id)
+                      ? 'bg-brand-50 ring-brand-300'
+                      : 'bg-white ring-slate-200 hover:bg-slate-50',
+                  )}
+                >
+                  <input
+                    type="checkbox"
+                    checked={chosen.has(u.id)}
+                    onChange={() => toggle(u.id)}
+                    className="h-4 w-4 rounded border-slate-300 accent-brand-600"
+                  />
+                  <span className="flex-1 font-mono text-sm text-slate-800">
+                    {u.imei}
+                    {u.imei2 && <span className="block text-xs text-slate-400">{u.imei2}</span>}
+                  </span>
+                  <span className="text-xs text-slate-500 capitalize">{u.condition}</span>
+                  {u.status === 'returned' && (
+                    <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">
+                      returned
+                    </span>
+                  )}
+                </label>
+              </li>
+            ))}
+            {shown.length === 0 && (
+              <li className="px-3 py-6 text-center text-sm text-slate-400">
+                No handset here matches {term}
+              </li>
+            )}
+          </ul>
+        </div>
+      )}
+
+      <ModalActions>
+        <Button type="button" variant="secondary" className="flex-1" onClick={onClose}>
+          Cancel
+        </Button>
+        <Button
+          type="button"
+          className="flex-1"
+          disabled={chosen.size === 0}
+          onClick={() => onAdd(units.filter((u) => chosen.has(u.id)))}
+        >
+          Add {chosen.size || ''} handset{chosen.size === 1 ? '' : 's'}
+        </Button>
+      </ModalActions>
+    </Modal>
+  );
+}
 
 /**
  * Send stock to another shop.
@@ -69,12 +226,23 @@ function SendDialog({ branches, from, onClose, onSent }) {
           // Only what is actually on this shelf: you cannot send what is not here.
           !p.wallet_id &&
           p.stock > 0 &&
-          !lines.some((l) => l.productId === p.id) &&
+          /* A model tracked by IMEI can be picked again — the second time adds
+             a second handset, not a second line for the same one. Anything
+             counted is on the transfer once, with a quantity. */
+          (p.tracks_units || !lines.some((l) => l.productId === p.id)) &&
           /* Words in any order — see lib/search.js. */
           matchesSearch(term, p.name, p.sku, p.barcodes),
       )
       .slice(0, 6);
   }, [products, search, lines]);
+
+  /* The model whose handsets are being chosen, if any. */
+  const [picking, setPicking] = useState(null);
+  /* What is already on the transfer, so the picker cannot offer it twice. */
+  const chosenUnits = useMemo(
+    () => new Set(lines.filter((l) => l.unitId).map((l) => l.unitId)),
+    [lines],
+  );
 
   /*
    * Where the cursor goes after a line is added.
@@ -112,15 +280,44 @@ function SendDialog({ branches, from, onClose, onSent }) {
   }, [lines]);
 
   function add(product) {
+    /*
+     * A phone is not a quantity.
+     *
+     * Picking a serialised model asks which handsets rather than adding a line
+     * with a 1 in it — the transfer has to name the IMEIs, and the shop at the
+     * other end receives those exact phones.
+     */
+    if (product.tracks_units) {
+      setPicking(product);
+      setSearch('');
+      return;
+    }
     setLines((l) => [...l, { productId: product.id, name: product.name, available: product.stock, quantity: 1 }]);
     setSearch('');
     focusQuantity.current = product.id;
   }
 
+  /** The handsets chosen for one model, each its own line. */
+  function addHandsets(product, units) {
+    setLines((l) => [
+      ...l,
+      ...units.map((u) => ({
+        productId: product.id,
+        unitId: u.id,
+        imei: u.imei,
+        name: product.name,
+        available: 1,
+        quantity: 1,
+      })),
+    ]);
+    setPicking(null);
+    searchRef.current?.focus();
+  }
+
   const setQuantity = (productId, quantity) =>
     setLines((l) =>
       l.map((line) =>
-        line.productId === productId
+        line.productId === productId && !line.unitId
           ? { ...line, quantity: Math.max(1, Math.min(Number(quantity) || 1, line.available)) }
           : line,
       ),
@@ -135,7 +332,15 @@ function SendDialog({ branches, from, onClose, onSent }) {
         note: note || null,
         ...(everything
           ? { everything: true }
-          : { items: lines.map((l) => ({ productId: l.productId, quantity: l.quantity })) }),
+          : {
+              items: lines.map((l) => ({
+                productId: l.productId,
+                /* Which handset, for anything tracked by IMEI. Without it the
+                   server rightly refuses the whole transfer. */
+                unitId: l.unitId ?? null,
+                quantity: l.quantity,
+              })),
+            }),
       });
       const sent = res.data.transfer;
       /* Counted in items rather than lines, because that is the column the
@@ -253,38 +458,59 @@ function SendDialog({ branches, from, onClose, onSent }) {
           {lines.length > 0 && (
             <ul className="mt-2 space-y-1">
               {lines.map((line) => (
-                <li key={line.productId} className="flex items-center gap-3 rounded-lg bg-slate-50 px-3 py-2">
-                  <span className="min-w-0 flex-1 truncate text-sm text-slate-800">{line.name}</span>
-                  <span className="text-xs text-slate-400">{line.available} here</span>
-                  {/*
-                    * Text rather than number, so `select()` works.
-                    *
-                    * `select()` does nothing on `type="number"` — the spec does
-                    * not define a selection for it — so the cursor arrived
-                    * beside the 1 that is already there and typing 12 gave 112.
-                    * `inputMode` still brings up the number pad on a phone.
-                    */}
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    data-qty-for={line.productId}
-                    value={line.quantity}
-                    onChange={(e) => setQuantity(line.productId, e.target.value.replace(/\D/g, ''))}
-                    onFocus={(e) => e.target.select()}
-                    /* Back to the search for the next line, rather than sending
-                       what is on the transfer so far. */
-                    onKeyDown={(e) => {
-                      if (e.key !== 'Enter') return;
-                      e.preventDefault();
-                      searchRef.current?.focus();
-                    }}
-                    aria-label={`How many ${line.name}`}
-                    className="tnum h-8 w-16 rounded-lg bg-white px-2 text-right text-sm ring-1 ring-edge focus:ring-2 focus:ring-brand-600 focus:outline-none"
-                  />
+                <li key={lineKey(line)} className="flex items-center gap-3 rounded-lg bg-slate-50 px-3 py-2">
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm text-slate-800">{line.name}</span>
+                    {/* The number on the box, whole and on its own line: it is
+                        what makes this row a different thing from the one under
+                        it, and beside a model name it was what got cut off. */}
+                    {line.imei && (
+                      <span className="block font-mono text-xs text-slate-500">{line.imei}</span>
+                    )}
+                  </span>
+
+                  {line.unitId ? (
+                    /* One phone. There is no quantity to type, and a box
+                       holding a 1 nobody may change is a box in the way. */
+                    <span className="text-xs text-slate-400">1 handset</span>
+                  ) : (
+                    <>
+                      <span className="text-xs text-slate-400">{line.available} here</span>
+                      {/*
+                        * Text rather than number, so `select()` works.
+                        *
+                        * `select()` does nothing on `type="number"` — the spec
+                        * does not define a selection for it — so the cursor
+                        * arrived beside the 1 that is already there and typing
+                        * 12 gave 112. `inputMode` still brings up the number
+                        * pad on a phone.
+                        */}
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        data-qty-for={line.productId}
+                        value={line.quantity}
+                        onChange={(e) => setQuantity(line.productId, e.target.value.replace(/\D/g, ''))}
+                        onFocus={(e) => e.target.select()}
+                        /* Back to the search for the next line, rather than
+                           sending what is on the transfer so far. */
+                        onKeyDown={(e) => {
+                          if (e.key !== 'Enter') return;
+                          e.preventDefault();
+                          searchRef.current?.focus();
+                        }}
+                        aria-label={`How many ${line.name}`}
+                        className="tnum h-8 w-16 rounded-lg bg-white px-2 text-right text-sm ring-1 ring-edge focus:ring-2 focus:ring-brand-600 focus:outline-none"
+                      />
+                    </>
+                  )}
+
                   <button
                     type="button"
-                    onClick={() => setLines((l) => l.filter((x) => x.productId !== line.productId))}
-                    aria-label={`Take ${line.name} off`}
+                    onClick={() =>
+                      setLines((l) => l.filter((x) => lineKey(x) !== lineKey(line)))
+                    }
+                    aria-label={`Take ${line.imei || line.name} off`}
                     className="rounded p-1 text-slate-400 hover:bg-white hover:text-red-600"
                   >
                     <X size={14} />
@@ -361,6 +587,17 @@ function SendDialog({ branches, from, onClose, onSent }) {
           </Button>
         </ModalActions>
       </form>
+
+      {/* Which handsets, for a model that is tracked by IMEI. */}
+      {picking && (
+        <HandsetPicker
+          product={picking}
+          from={from}
+          already={chosenUnits}
+          onAdd={(units) => addHandsets(picking, units)}
+          onClose={() => setPicking(null)}
+        />
+      )}
     </Modal>
   );
 }
@@ -406,20 +643,40 @@ function ReceiveDialog({ transfer, onClose, onReceived }) {
         <ul className="space-y-1">
           {transfer.items.map((item) => (
             <li key={item.id} className="flex items-center gap-3 rounded-lg bg-slate-50 px-3 py-2">
-              <span className="min-w-0 flex-1 truncate text-sm text-slate-800">
-                {item.name}
-                {item.imei && <span className="ml-1.5 font-mono text-xs text-slate-400">{item.imei}</span>}
+              {/* The number on its own line, whole. It is what somebody
+                  checks against the phone in their hand, and beside a model
+                  name in a narrow row it was the half that got cut off. */}
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm text-slate-800">{item.name}</span>
+                {item.imei && (
+                  <span className="block font-mono text-xs text-slate-500">{item.imei}</span>
+                )}
               </span>
-              <span className="text-xs text-slate-400">{item.quantity} sent</span>
-              <input
-                type="number"
-                min="0"
-                max={item.quantity}
-                value={counts[item.id]}
-                onChange={(e) => setCounts((c) => ({ ...c, [item.id]: e.target.value }))}
-                aria-label={`How many ${item.name} arrived`}
-                className="tnum h-8 w-16 rounded-lg bg-white px-2 text-right text-sm ring-1 ring-edge focus:ring-2 focus:ring-brand-600 focus:outline-none"
-              />
+              {/*
+                * A handset is one object with a number on it, and it moved to
+                * this branch the moment it was sent — receiving only confirms
+                * what already happened (see receiveTransfer). A count box
+                * against it would let somebody type 0 for a phone that is
+                * already on this shelf, which records a figure the stock does
+                * not follow. If it genuinely never arrived, that is a phone to
+                * go and look for, not a number to change here.
+                */}
+              {item.unit_id ? (
+                <span className="text-xs text-slate-400">1 handset · already here</span>
+              ) : (
+                <>
+                  <span className="text-xs text-slate-400">{item.quantity} sent</span>
+                  <input
+                    type="number"
+                    min="0"
+                    max={item.quantity}
+                    value={counts[item.id]}
+                    onChange={(e) => setCounts((c) => ({ ...c, [item.id]: e.target.value }))}
+                    aria-label={`How many ${item.name} arrived`}
+                    className="tnum h-8 w-16 rounded-lg bg-white px-2 text-right text-sm ring-1 ring-edge focus:ring-2 focus:ring-brand-600 focus:outline-none"
+                  />
+                </>
+              )}
             </li>
           ))}
         </ul>

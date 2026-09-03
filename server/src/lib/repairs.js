@@ -493,7 +493,7 @@ export function removePart(partId, userId) {
  * costs and reports like any other — and this row only records where it came
  * from.
  */
-export function takeTradeIn(input, userId) {
+export function takeTradeIn(input, userId, branchId = null) {
   const product = db.prepare('SELECT * FROM products WHERE id = ?').get(input.productId);
   if (!product) throw new Error('Which model is it? Pick the product it will be sold as');
   if (!product.tracks_units) throw new Error(`${product.name} is not tracked by IMEI`);
@@ -509,7 +509,9 @@ export function takeTradeIn(input, userId) {
   receiveUnits(
     product.id,
     [{ imei: input.imei, condition: input.condition || 'used', cost, note: input.note || null }],
-    {},
+    /* Onto the shelf of the counter that bought it — a phone handed over at
+       one shop is at that shop. Left unsaid, it landed at the main branch. */
+    { branchId },
   );
 
   const imei = normaliseImei(String(input.imei).split(/[,/;|]/)[0]);
