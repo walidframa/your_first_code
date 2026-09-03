@@ -1230,6 +1230,18 @@ body:not(.native) .app-shell {
 }
 
 /*
+ * And the same again for anything that covers the shell.
+ *
+ * The rule above is padding on the shell, which a `fixed` panel is positioned
+ * against the viewport rather than inside — so a full-screen screen laid over
+ * it (the register's product picker) would start under the camera cutout even
+ * though every page beneath it clears the cutout properly.
+ */
+body.native .over-shell {
+  padding-top: env(safe-area-inset-top);
+}
+
+/*
  * The blue flash on every tap.
  *
  * WebKit and Chrome draw a translucent highlight over anything tappable. On a

@@ -125,6 +125,12 @@ const AR = {
   'No items yet': 'لا يوجد أصناف بعد',
   'Scan a barcode or tap a product to start the sale.':
     'امسح الباركود أو اضغط على منتج لبدء الفاتورة.',
+  'Press Add item to pick from the shelf, or scan a barcode.':
+    'اضغط «إضافة صنف» لاختيار من الرفوف، أو امسح الباركود.',
+  'Add item': 'إضافة صنف',
+  'Add to the sale': 'إضافة إلى الفاتورة',
+  'Back to the sale': 'العودة إلى الفاتورة',
+  Done: 'تم',
   'Scan barcode or search products…': 'امسح الباركود أو ابحث عن منتج…',
   'Scan barcode or search products': 'امسح الباركود أو ابحث عن منتج',
   'press / to focus': 'اضغط / للبحث',
