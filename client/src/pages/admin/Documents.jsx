@@ -31,6 +31,7 @@ import { useHistoryFilter } from '../../lib/history';
 import { useRevalidate } from '../../lib/revalidate';
 import { clearDraft, readDraft, useDraft } from '../../lib/draft';
 import ProductQuickCreate from '../../components/ProductQuickCreate';
+import ProductQuickEdit from '../../components/ProductQuickEdit';
 import ImeiFields from '../../components/ImeiFields';
 import PartyQuickCreate from '../../components/PartyQuickCreate';
 import { A4, usePageSize } from '../../lib/pageSize';
@@ -183,6 +184,8 @@ function DocumentForm({ existing, startAs = null, page = false, onClose, onSaved
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [quickCreate, setQuickCreate] = useState(null);
+  /* The product being corrected from the line it is wrong on, if any. */
+  const [editingProduct, setEditingProduct] = useState(null);
   const [newParty, setNewParty] = useState(false);
   /*
    * What this customer was charged last time, product by product.
@@ -898,7 +901,7 @@ function DocumentForm({ existing, startAs = null, page = false, onClose, onSaved
                         {priceField === 'cost' ? 'Cost' : trade ? 'Wholesale' : 'Price'}
                       </th>
                       <th className="w-24 px-2 py-2 text-right font-medium">Total</th>
-                      <th className="w-10 px-2 py-2" />
+                      <th className="w-16 px-2 py-2" />
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-rule">
@@ -1046,14 +1049,37 @@ function DocumentForm({ existing, startAs = null, page = false, onClose, onSaved
                           {money(l.lineTotal)}
                         </td>
                         <td className="px-2 py-2">
-                          <button
-                            type="button"
-                            onClick={() => setLines((prev) => prev.filter((x) => x.key !== l.key))}
-                            aria-label="Remove line"
-                            className="rounded p-1 text-slate-400 transition hover:bg-red-50 hover:text-red-600"
-                          >
-                            <Trash2 size={14} />
-                          </button>
+                          <div className="flex items-center justify-end gap-0.5">
+                            {/*
+                              * Correct the product from the line it is wrong on.
+                              *
+                              * A wrong barcode or a wrong price is found here —
+                              * with the box in one hand and the supplier's
+                              * paper in the other — and fixing it used to mean
+                              * abandoning the document and going to the
+                              * catalogue. Free-text lines have no product
+                              * behind them, so they have nothing to edit.
+                              */}
+                            {l.product && (
+                              <button
+                                type="button"
+                                onClick={() => setEditingProduct(l.product)}
+                                aria-label={`Edit ${l.product.name}`}
+                                title="Fix this product — its barcode, price or name"
+                                className="rounded p-1 text-slate-400 transition hover:bg-brand-50 hover:text-brand-700"
+                              >
+                                <Pencil size={14} />
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => setLines((prev) => prev.filter((x) => x.key !== l.key))}
+                              aria-label="Remove line"
+                              className="rounded p-1 text-slate-400 transition hover:bg-red-50 hover:text-red-600"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -1066,7 +1092,7 @@ function DocumentForm({ existing, startAs = null, page = false, onClose, onSaved
               <AddFreeTextButton onClick={addFreeText} />
               <button
                 type="button"
-                onClick={() => setQuickCreate('')}
+                onClick={() => setQuickCreate({ name: '', barcode: '' })}
                 className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-brand-700 transition hover:bg-brand-50"
               >
                 <Plus size={14} /> New product
@@ -1288,6 +1314,41 @@ function DocumentForm({ existing, startAs = null, page = false, onClose, onSaved
           {body}
         </Modal>
       )}
+
+      <ProductQuickEdit
+        product={editingProduct}
+        priceField={priceField}
+        onClose={() => setEditingProduct(null)}
+        onSaved={(saved) => {
+          setEditingProduct(null);
+          /*
+           * Onto the lines as well as into the catalogue.
+           *
+           * The row draws its name and its IMEI box from `l.product`, so a
+           * line still holding the old snapshot would go on showing the wrong
+           * name under a product that has just been renamed.
+           *
+           * The price is only carried over where the line was still at the
+           * old catalogue figure. Somebody who has typed their own price on
+           * this line meant it — that is the whole point of the box — and a
+           * correction to the catalogue must not quietly overwrite a price
+           * agreed with the customer standing there.
+           */
+          setLines((prev) =>
+            prev.map((l) => {
+              if (l.product?.id !== saved.id) return l;
+              const wasListed = Number(l.price) === Number(l.product[priceField] ?? l.product.price);
+              return {
+                ...l,
+                product: saved,
+                name: saved.name,
+                price: wasListed ? String(saved[priceField] ?? saved.price ?? 0) : l.price,
+              };
+            }),
+          );
+          loadProducts();
+        }}
+      />
 
       <ProductQuickCreate
         open={quickCreate !== null}

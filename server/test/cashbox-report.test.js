@@ -210,6 +210,104 @@ test('and is absent for a cashier, on the same report of their own sitting', asy
   assert.equal(res.json.report.profit, null, 'what the goods cost is not theirs to know');
 });
 
+/*
+ * Asked for from the counter: "a way to check the profit by cashbox — if I want
+ * to check the cashbox profit on a certain date I can, and it should show the
+ * profit of a cashbox no matter how many days it was open."
+ *
+ * Both halves are here: a sitting is listed for every date it was *open on*,
+ * not only the one it was opened on, and the figure against it covers the whole
+ * sitting however long that ran.
+ */
+test('a sitting is found on every day it was open, with the profit of the whole of it', async () => {
+  // Stretch this run's sitting across three days: opened on the 10th, still
+  // open on the 11th, closed on the 12th.
+  const db = new DatabaseSync(path.join(workDir, 'report.sqlite'));
+  db.prepare('UPDATE cash_sessions SET opened_at = ?, closed_at = ? WHERE id = ?').run(
+    '2026-04-10 08:00:00',
+    '2026-04-12 20:00:00',
+    sessionId,
+  );
+  // And the sale it made, on the middle day.
+  db.prepare('UPDATE orders SET created_at = ? WHERE id = (SELECT MIN(id) FROM orders)').run(
+    '2026-04-11 13:00:00',
+  );
+  db.close();
+
+  const on = async (day, token = adminToken) =>
+    (
+      await req(
+        'GET',
+        `/cash/sessions?from=${day}&to=${day}&withProfit=true`,
+        null,
+        token,
+      )
+    ).json.sessions;
+
+  // The middle day: the drawer was open on it, though it was opened the day
+  // before and closed the day after.
+  const middle = await on('2026-04-11');
+  const found = middle.find((s) => s.id === sessionId);
+  assert.ok(found, 'a sitting open on that day has to be findable on that day');
+
+  // Its profit is the whole sitting's, including the sale on the middle day.
+  assert.ok(found.profit, 'the owner asked for the profit, and may see it');
+  assert.ok(found.profit.revenue > 0, 'the whole sitting, not the day it was opened');
+  assert.equal(
+    found.profit.grossProfit,
+    Math.round((found.profit.revenue - found.profit.cost) * 100) / 100,
+  );
+
+  // The first and last days too — it was open on all three.
+  for (const day of ['2026-04-10', '2026-04-12']) {
+    assert.ok(
+      (await on(day)).some((s) => s.id === sessionId),
+      `the sitting was open on ${day}`,
+    );
+  }
+
+  // And not on a day it was shut.
+  assert.ok(
+    !(await on('2026-04-13')).some((s) => s.id === sessionId),
+    'it was closed by then',
+  );
+
+  /*
+   * And the figures are behind the permission on this list too.
+   *
+   * A default cashier cannot open the sittings list at all — it is a cashbox
+   * screen — so the check that matters is the one for somebody who *can* see
+   * the list without being allowed to see profit. Granted `cashbox` and
+   * nothing else, the rows come back with no profit on them.
+   */
+  const counter = await req(
+    'POST',
+    '/users',
+    {
+      name: 'Till watcher',
+      username: 'tillwatcher',
+      password: 'watch-the-till-9182',
+      role: 'cashier',
+      permissions: ['register', 'cashbox'],
+    },
+    adminToken,
+  );
+  assert.equal(counter.status, 201, JSON.stringify(counter.json));
+  const watcherToken = (
+    await req('POST', '/auth/login', {
+      username: 'tillwatcher',
+      password: 'watch-the-till-9182',
+    })
+  ).json.token;
+
+  const theirs = await on('2026-04-11', watcherToken);
+  assert.ok(theirs.length > 0, 'they can see the sittings, which is their job');
+  assert.ok(
+    theirs.every((s) => !s.profit),
+    'what the goods cost is not theirs to know',
+  );
+});
+
 test('a cashier cannot read a sitting that was never theirs', async () => {
   // A second till, opened by the owner, that the cashier never sat at.
   const account = await req(

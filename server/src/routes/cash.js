@@ -25,6 +25,7 @@ import { balanceOf as balanceOfCashAccount } from '../lib/cashAccounts.js';
 import { notify } from '../lib/telegram.js';
 import { cashText, cashboxText } from '../lib/notifyText.js';
 import { postCashMovement } from '../lib/postings.js';
+import { dayEndUtc, dayStartUtc, shopZone } from '../lib/shopTime.js';
 
 const router = Router();
 
@@ -277,12 +278,36 @@ router.post('/close', requireAuth, (req, res) => {
   }
 });
 
+/**
+ * Every sitting of a till, and — for whoever may see profit — what each made.
+ *
+ * `from` and `to` are the shop's own dates, and a sitting is listed if it was
+ * **open during** them rather than opened inside them: the shop asked to check
+ * a cashbox's profit on a certain date "no matter how many days it was open",
+ * and a drawer opened on Friday and closed on Sunday belongs to Saturday too.
+ *
+ * The profit is per sitting, from its own opening to its own close, so it does
+ * not matter how many days that spans either. It is left out entirely for
+ * anyone without `reports` — this list is read by cashiers, and what the goods
+ * cost is not theirs to know.
+ */
 router.get('/sessions', requireAuth, requirePermission('cashbox'), (req, res) => {
+  const zone = shopZone();
+  const sessions = listSessions(
+    req.query.limit,
+    Number(req.query.accountId) || registerAccountId(req.branchId),
+    {
+      from: req.query.from ? dayStartUtc(req.query.from, zone) : null,
+      to: req.query.to ? dayEndUtc(req.query.to, zone) : null,
+    },
+  );
+
+  const withProfit = req.query.withProfit === 'true' && can(req.user, 'reports');
+
   res.json({
-    sessions: listSessions(
-      req.query.limit,
-      Number(req.query.accountId) || registerAccountId(req.branchId),
-    ),
+    sessions: withProfit
+      ? sessions.map((s) => ({ ...s, profit: sessionProfit(s.id, req.branchId) }))
+      : sessions,
   });
 });
 
