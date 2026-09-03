@@ -5266,11 +5266,16 @@ try {
     );
     if (overflow > 2) throw new Error(`the page is ${overflow}px wider than the phone`);
 
-    // The shelf and the cart are both reachable, one under the other.
+    /*
+     * The shelf is a screen you go into on a phone, so searching starts by
+     * going there. Coming back is what puts the product in front of the money.
+     */
+    await page.click('button:has-text("Add item")');
     await page.click(scanBox);
     await page.fill(scanBox, 'Espresso');
     await page.waitForTimeout(400);
-    await page.click('button:has-text("Espresso")');
+    await page.click('div.grid > button:has-text("Espresso")');
+    await page.click('button:has-text("Done ·")');
     await page.waitForSelector('aside >> text=Espresso', { timeout: 10000 });
   });
   await shot('register-phone');
@@ -5516,16 +5521,23 @@ try {
    * cannot read the English screen asking them to choose — so that is where
    * this starts, before any credentials are typed.
    */
-  await step('on a phone the shop is a tab bar, and the cart is one press away', async () => {
+  await step('on a phone the sale is the page, and the shelf is somewhere you go', async () => {
     /*
      * The register at handset width, which is a different screen from the same
      * page at 1440 and has to be checked as one.
      *
-     * The bug this exists for is not cosmetic. On a narrow screen the cart used
-     * to be the *bottom half of one long scrolling page*, under the whole
-     * product grid — so taking the money meant scrolling past nine hundred
-     * products with a customer waiting. It is a sheet now, reached from a bar
-     * that always shows the total, and both of those have to still be there.
+     * The bug this exists for is not cosmetic, and it has had three answers.
+     * The cart was once the bottom half of one long scrolling page under the
+     * whole product grid, so taking the money meant scrolling past nineteen
+     * hundred products with a customer waiting. Then it was a sheet pulled up
+     * over the shelf, which fixed the distance and left the customer, the
+     * discount, the total and the Charge button all behind a gesture — and the
+     * shop said so: "I have to scroll all the way down to reach the cash and
+     * subtotal."
+     *
+     * So the sale is the page. What is checked here is that arriving at the
+     * register on a phone puts the money on screen with nothing pressed, and
+     * that the shelf is one press away and hands the sale back.
      */
     await page.setViewportSize({ width: 390, height: 844 });
     try {
@@ -5553,44 +5565,48 @@ try {
       if (count > 5) throw new Error(`${count} tabs — a thumb cannot aim that finely`);
 
       /*
+       * The money, on screen, with nothing pressed and nothing scrolled.
+       *
+       * Scoped to the cart: `has-text` is a case-insensitive substring, so a
+       * bare "Charge" also matches the Recharge shelf's own tab.
+       */
+      const charge = await page.locator('aside button:has-text("Charge $")').first().boundingBox();
+      if (!charge) throw new Error('there is no Charge button on the register');
+      if (charge.y + charge.height > box.y + 2) {
+        throw new Error('the charge button is underneath the tab bar');
+      }
+
+      // And the shelf is a press away.
+      await page.click('button:has-text("Add item")');
+      await page.waitForSelector('text=Add to the sale', { timeout: 10000 });
+
+      /*
        * Whatever is first on the shelf, rather than a product by name: this
        * step runs after others have created, renamed and sold things, and a
        * name pinned here is a step that breaks when the catalogue changes.
        *
        * It had a name pinned here anyway, and the shelf being windowed is what
-       * finally caught it — only the tiles in view are in the page now, so a
-       * product far enough down the list is not there to be clicked until
-       * somebody scrolls or searches for it, which is the whole point of the
-       * windowing. Nothing about this step needs a particular product; it needs
-       * a tile. The step next door, which searches before it clicks, is the
-       * pattern for when a *named* product is the thing being tested.
+       * finally caught it — only the tiles in view are in the page now.
        */
       await page.locator('div.grid > button').first().click();
-      const saleBar = page.locator('button:has-text("item")').last();
-      await saleBar.waitFor({ timeout: 10000 });
 
-      // It sits above the tab bar rather than under it — two fixed things at
-      // the same offset is one covering the other.
-      const barBox = await saleBar.boundingBox();
-      if (barBox && box && barBox.y + barBox.height > box.y + 2) {
-        throw new Error('the sale bar is underneath the tab bar');
+      // The way back carries what the sale has come to, so the shop can decide
+      // it is finished without leaving the shelf to look.
+      const done = page.locator('button:has-text("Done ·")');
+      await done.waitFor({ timeout: 10000 });
+      const doneBox = await done.boundingBox();
+      if (!doneBox || doneBox.y + doneBox.height > 844) {
+        throw new Error('the way back off the shelf is off the bottom of the screen');
       }
 
-      // And it opens the cart, with the way to take the money in it.
-      await saleBar.click();
-      await page.waitForSelector('button:has-text("Charge")', { timeout: 10000 });
-
-      /*
-       * The whole point of the sheet: the charge button has to be *on screen*,
-       * not somewhere below the fold at the end of a page of products.
-       */
-      const charge = await page.locator('button:has-text("Charge")').first().boundingBox();
-      if (!charge || charge.y > 844) {
-        throw new Error('the charge button is off the bottom of a phone screen');
+      await done.click();
+      await page.waitForSelector('button:has-text("Add item")', { timeout: 10000 });
+      const after = await page.locator('aside button:has-text("Charge $")').first().innerText();
+      if (/Charge \$0\.00/.test(after)) {
+        throw new Error(`nothing came back with the sale — the button reads "${after}"`);
       }
 
-      // Leave the cart as it was found, so later steps are not surprised. The
-      // sheet is already open, so Clear is on screen.
+      // Leave the cart as it was found, so later steps are not surprised.
       await page.click('aside button:has-text("Clear")');
       await page.waitForSelector('text=No items yet', { timeout: 10000 });
     } finally {

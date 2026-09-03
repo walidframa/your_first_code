@@ -1,8 +1,8 @@
 import { matchesSearch } from '../lib/search';
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ArrowLeft,
   ChevronDown,
-  ChevronUp,
   HandCoins,
   LayoutGrid,
   Minus,
@@ -178,12 +178,33 @@ export default function Checkout() {
   // Keyboard advice belongs on things with keyboards.
   const narrow = useNarrow();
   /*
-   * Below `lg` the cart is a sheet rather than a column — the same breakpoint
-   * the two-pane layout switches at, so what the classes do and what this
-   * decides cannot disagree about where the line is.
+   * On a phone the register is two screens rather than two panes.
+   *
+   * 767.98px is `--breakpoint-desk` (48rem) less a hair — the width the `desk:`
+   * classes take over at. What the stylesheet does and what this decides must
+   * not disagree about where the line is, and they did: this used to say
+   * 1023px, so a 900-pixel tablet got the two-pane layout from the classes and
+   * the phone's behaviour from the code.
    */
-  const compact = useNarrow('(max-width: 1023px)');
-  const [cartOpen, setCartOpen] = useState(false);
+  const compact = useNarrow('(max-width: 767.98px)');
+
+  /*
+   * Which of the two screens a phone is on.
+   *
+   * The counter's own order is: the sale is the thing, and the shelf is how
+   * you add to it. On a desktop both are on screen at once and the question
+   * does not arise. On a phone it used to be answered the other way round —
+   * the shelf was the page and the sale was a sheet you pulled up — which
+   * meant the running total, the customer, the discount and the Charge button
+   * were all behind a gesture, and a shop with nineteen hundred products
+   * scrolled a long way past them.
+   *
+   * So the sale is the page, and the shelf is somewhere you go: press Add
+   * item, search or scan, tap what you are selling, come back. The shelf is
+   * kept mounted behind the sale rather than unmounted with it, so coming back
+   * to it returns to the same place in the same list.
+   */
+  const [picking, setPicking] = useState(false);
 
   /*
    * Who is buying: the public, or the trade.
@@ -544,12 +565,36 @@ export default function Checkout() {
         setSearch('');
         return;
       }
-      if (addToCart(product) === 'added') toast(`Added ${product.name}`);
+      if (addToCart(product) === 'added') sayAdded(product.name);
       setSearch('');
     } catch (err) {
       toast(err.response?.data?.error || 'Product not found', 'error');
     }
   }
+
+  /**
+   * Say a thing joined the sale, in whichever way this screen can.
+   *
+   * A toast is right at a counter machine, where it appears in a corner of a
+   * wide screen and nothing is behind it. On the phone's picker it lands on
+   * top of the search box and the shelves — the two controls somebody is about
+   * to use next — and tapping four things stacks four of them there.
+   *
+   * On that screen the confirmation is already on the screen and larger than a
+   * toast: the count in the bar at the top and the total on the button under
+   * the thumb both change. So the phone gets a tap it can feel instead of a
+   * notice in its way.
+   */
+  const sayAdded = useCallback(
+    (name) => {
+      if (compact && picking) {
+        tap();
+        return;
+      }
+      toast(`Added ${name}`);
+    },
+    [compact, picking, toast],
+  );
 
   const walletById = useMemo(() => new Map(wallets.map((w) => [w.id, w])), [wallets]);
 
@@ -1141,7 +1186,8 @@ export default function Checkout() {
          the only confirmation somebody actually notices. */
       buzzGood();
       setSalesMade((n) => n + 1);
-      setCartOpen(false);
+      /* Whatever screen the phone was on, the next customer starts at the sale. */
+      setPicking(false);
       setCart([]);
       setDiscountValue(0);
       setDiscountOpen(false);
@@ -1233,7 +1279,62 @@ export default function Checkout() {
      */
     <div className="flex h-full flex-col overflow-hidden desk:flex-row">
       {/* Catalog */}
-      <section className="flex min-h-0 min-w-0 flex-1 flex-col bg-slate-100">
+      <section
+        /*
+         * A pane on a desktop, a screen you go into on a phone.
+         *
+         * Kept mounted either way — off to the side rather than unmounted —
+         * so coming back to it finds the same search, the same shelf and the
+         * same scroll position, and so the tiles are not rebuilt every time
+         * somebody adds a second thing to the sale.
+         *
+         * `inert` rather than only a transform: a panel sitting off the bottom
+         * of the screen is still in the tab order and still read out, and a
+         * shop that swipes into it by accident has no way back.
+         */
+        inert={compact && !picking ? true : undefined}
+        className={cx(
+          'over-shell flex min-h-0 min-w-0 flex-1 flex-col bg-slate-100',
+          'fixed inset-0 z-50 transition-transform duration-200 ease-out',
+          picking ? 'translate-y-0' : 'translate-y-full',
+          /*
+           * Every part of "it is a screen on top" undone at desk width, and
+           * two of them are subtler than they look.
+           *
+           * `z-auto`, because **this is a flex item**, and a flex item's
+           * z-index counts even though it is `position: static` — so `z-50`
+           * quietly made this pane a stacking context above everything in the
+           * header, and the drawer's own menu opened *behind the shelf*.
+           *
+           * `translate-none` rather than `translate-y-0`, because any translate
+           * but none makes a stacking context too. Zero is a value; none is the
+           * absence of one.
+           */
+          'desk:static desk:z-auto desk:translate-none desk:transition-none',
+        )}
+      >
+        {/*
+          * The way back, at the top where a thumb reaches for it on a phone
+          * and where every other screen in this app keeps its back.
+          */}
+        {compact && (
+          <div className="flex items-center gap-2 border-b border-slate-200 bg-white px-2 py-2 desk:hidden">
+            <button
+              type="button"
+              onClick={() => setPicking(false)}
+              aria-label={t('Back to the sale')}
+              className="pressable flex h-10 w-10 items-center justify-center rounded-xl text-slate-600 transition hover:bg-slate-100"
+            >
+              <ArrowLeft size={20} />
+            </button>
+            <span className="font-semibold text-slate-900">{t('Add to the sale')}</span>
+            {cart.length > 0 && (
+              <span className="tnum ms-auto pr-2 text-sm text-slate-500">
+                {itemCount} · {money(total)}
+              </span>
+            )}
+          </div>
+        )}
         <div className="border-b border-slate-200 bg-white px-5 py-3">
           {/*
             * The camera sits beside the box rather than inside it: a scan is a
@@ -1478,7 +1579,7 @@ export default function Checkout() {
                     setPickingUnitFor(p);
                     return;
                   }
-                  if (addToCart(p) === 'added') toast(`Added ${p.name}`);
+                  if (addToCart(p) === 'added') sayAdded(p.name);
                 };
 
                 if (asList) {
@@ -1561,6 +1662,24 @@ export default function Checkout() {
             </>
           )}
         </div>
+
+        {/*
+          * And the way back again, under the thumb.
+          *
+          * The arrow at the top is where a phone's back lives; this is where
+          * the hand already is after tapping four tiles, and it carries what
+          * the sale has come to so the shop can decide it is finished without
+          * leaving to look.
+          */}
+        {compact && (
+          <div className="shrink-0 border-t border-slate-200 bg-white p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] desk:hidden">
+            <Button size="lg" className="w-full" onClick={() => setPicking(false)}>
+              {cart.length === 0
+                ? t('Back to the sale')
+                : `${t('Done')} · ${itemCount} ${itemCount === 1 ? t('item') : t('items')} · ${money(total)}`}
+            </Button>
+          </div>
+        )}
       </section>
 
       {/*
@@ -1588,25 +1707,17 @@ export default function Checkout() {
         * The cart, and where it lives on a phone.
         *
         * Wide, it is the column down the right and always in view. Narrow, it
-        * used to be the *bottom half of one long scrolling page* — which meant
-        * that taking the money required scrolling past the entire shelf. On a
-        * shop with nine hundred products, with a customer waiting, that is not
-        * a layout, it is an obstacle.
+        * is the page itself — the sale is what a till is for, so it is what a
+        * phone shows: the lines, the customer, the discount, the total and the
+        * Charge button, all without scrolling past a shelf to reach them.
         *
-        * So on a phone it is a sheet: out of the way while you are picking
-        * things, and one thumb-press from the bar that is always showing what
-        * the sale comes to. That press is at the bottom of the screen, which is
-        * where a thumb already is.
+        * It has been both of the other two things. First the bottom half of
+        * one long scrolling page, which meant taking the money required
+        * scrolling past nineteen hundred products. Then a sheet you pulled up
+        * over the shelf, which fixed the distance but left everything about
+        * the sale behind a gesture — and the shop reported exactly that: "I
+        * have to scroll all the way down to reach the cash and subtotal."
         */}
-      {compact && cartOpen && (
-        <button
-          type="button"
-          aria-label={t('Close the cart')}
-          onClick={() => setCartOpen(false)}
-          className="no-print fixed inset-0 z-40 bg-slate-900/40 desk:hidden"
-        />
-      )}
-
       <aside
         className={cx(
           '@container no-print flex flex-col bg-white',
@@ -1621,32 +1732,11 @@ export default function Checkout() {
            * container's `@xl` the quantity controls move up onto the name's own
            * row, so each line is shorter and more of them fit down the screen.
            */
-          'desk:static desk:h-auto desk:w-1/2 desk:max-h-none desk:shrink-0 desk:translate-y-0',
-          'desk:rounded-none desk:border-s desk:border-slate-200 desk:shadow-none',
-          /*
-           * The sheet, below that. Held at 88% so the top of the shelf stays
-           * visible behind it — a sheet that covers everything is a page, and a
-           * page needs a back button to leave.
-           */
-          'fixed inset-x-0 bottom-0 z-50 max-h-[88dvh] w-full rounded-t-2xl shadow-2xl',
-          'transition-transform duration-200 ease-out',
-          cartOpen ? 'translate-y-0' : 'translate-y-full',
+          'desk:w-1/2 desk:shrink-0 desk:border-s desk:border-slate-200',
+          /* The page, below that: the whole of what is left of the screen. */
+          'min-h-0 min-w-0 flex-1',
         )}
-        /* The home indicator, kept out from under the pay button. */
-        style={compact ? { paddingBottom: 'env(safe-area-inset-bottom)' } : undefined}
-        aria-hidden={compact && !cartOpen ? 'true' : undefined}
       >
-        {/* The handle, which is how a phone says "this pulls down". */}
-        {compact && (
-          <button
-            type="button"
-            onClick={() => setCartOpen(false)}
-            aria-label={t('Close the cart')}
-            className="mx-auto flex h-7 w-full shrink-0 items-center justify-center desk:hidden"
-          >
-            <span className="h-1.5 w-10 rounded-full bg-slate-300" />
-          </button>
-        )}
         <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-slate-100 px-4 py-3 @xl:px-5 @xl:py-3.5">
           <div className="flex min-w-0 flex-wrap items-baseline gap-x-2.5 gap-y-1">
             <div className="min-w-0">
@@ -1840,6 +1930,40 @@ export default function Checkout() {
         </div>
 
         {/*
+          * The way onto the shelf, on a phone.
+          *
+          * The one thing this screen cannot do by itself is add a product, so
+          * it is the one full-width button on it — above the lines, where the
+          * list it adds to begins, and in the same place whether the sale is
+          * empty or has eight things on it.
+          *
+          * The camera sits beside it rather than inside the shelf, because a
+          * scan is the commonest way a thing joins a sale and it should not
+          * cost a screen to get to: read the code, the product joins the sale,
+          * the shop never leaves this page.
+          */}
+        {compact && (
+          <div className="flex items-center gap-2 border-b border-slate-100 px-3 py-2 desk:hidden">
+            <Button
+              size="lg"
+              className="flex-1"
+              onClick={() => {
+                tap();
+                setPicking(true);
+              }}
+            >
+              <Plus size={18} /> {t('Add item')}
+            </Button>
+            {canScan() && (
+              <ScanButton
+                onClick={() => setScanning(true)}
+                className="pressable flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600 transition hover:bg-slate-200 hover:text-slate-900"
+              />
+            )}
+          </div>
+        )}
+
+        {/*
           * Buyer and accounts are collected in the sale dialog on the way in,
           * so a handset cannot reach the cart without them being asked for.
           * Shown here only as a reminder of what was captured.
@@ -1864,7 +1988,11 @@ export default function Checkout() {
             <EmptyState
               icon={ShoppingCart}
               title={t('No items yet')}
-              description={t('Scan a barcode or tap a product to start the sale.')}
+              description={
+                compact
+                  ? t('Press Add item to pick from the shelf, or scan a barcode.')
+                  : t('Scan a barcode or tap a product to start the sale.')
+              }
             />
           ) : (
             <ul className="space-y-1">
@@ -2329,42 +2457,6 @@ export default function Checkout() {
           </p>
         </div>
       </aside>
-
-      {/*
-        * What the sale comes to, always in sight, always under a thumb.
-        *
-        * The one thing a person at a counter needs to know without doing
-        * anything, and the way into the cart. It sits directly above the tab
-        * bar rather than at the very bottom, because the tab bar is fixed too
-        * and two fixed things at the same offset are one covering the other.
-        *
-        * Only when there is something to total, and only while the sheet is
-        * shut — a bar restating what is already on screen is a bar in the way.
-        */}
-      {compact && cart.length > 0 && !cartOpen && (
-        <button
-          type="button"
-          onClick={() => {
-            tap();
-            setCartOpen(true);
-          }}
-          className={cx(
-            'no-print fixed inset-x-0 z-30 flex items-center gap-3 desk:hidden',
-            'bottom-[calc(56px+env(safe-area-inset-bottom))]',
-            'border-t border-brand-700/20 bg-brand-600 px-4 py-3 text-white shadow-lg',
-            'active:bg-brand-700',
-          )}
-        >
-          <span className="flex h-8 min-w-8 items-center justify-center rounded-full bg-white/20 px-2 text-sm font-semibold">
-            {itemCount}
-          </span>
-          <span className="text-sm font-medium">
-            {itemCount === 1 ? t('item') : t('items')}
-          </span>
-          <span className="tnum ms-auto text-lg font-semibold">{money(total)}</span>
-          <ChevronUp size={20} aria-hidden="true" />
-        </button>
-      )}
 
       <PaymentSheet
         open={paymentOpen}
