@@ -3,6 +3,7 @@ import { AlertTriangle, CheckCircle2 } from 'lucide-react';
 import api from '../../api';
 import PageHeader from '../../components/PageHeader';
 import { Card, Input, LoadError, Skeleton, cx, money } from '../../components/ui';
+import { isoDay } from '../../lib/when';
 
 /**
  * The two statements a shop is actually asked for.
@@ -20,8 +21,10 @@ import { Card, Input, LoadError, Skeleton, cx, money } from '../../components/ui
 function thisMonth() {
   const now = new Date();
   const first = new Date(now.getFullYear(), now.getMonth(), 1);
-  const iso = (d) => d.toISOString().slice(0, 10);
-  return { from: iso(first), to: iso(now) };
+  /* Formatted on the device's own calendar: `toISOString` on a local midnight
+     lands on the day before in any zone east of Greenwich, so "this month"
+     quietly began on the 31st. See lib/when.js. */
+  return { from: isoDay(first), to: isoDay(now) };
 }
 
 function Lines({ rows, empty }) {

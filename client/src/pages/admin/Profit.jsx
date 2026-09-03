@@ -3,11 +3,17 @@ import { AlertTriangle, Printer, TrendingUp } from 'lucide-react';
 import api from '../../api';
 import PageHeader from '../../components/PageHeader';
 import { Card, EmptyState, Input, LoadError, Select, Skeleton, cx, money } from '../../components/ui';
+import { isoDay } from '../../lib/when';
 
 const PRESETS = [
   ['today', 'Today'],
+  ['yesterday', 'Yesterday'],
   ['week', 'This week'],
+  /* The comparison a shop actually makes. "This week" on a Tuesday morning is
+     two days measured against somebody's memory of seven. */
+  ['lastweek', 'Last week'],
   ['month', 'This month'],
+  ['lastmonth', 'Last month'],
   ['year', 'This year'],
   ['custom', 'Custom dates…'],
 ];
@@ -73,8 +79,9 @@ function Waterfall({ report }) {
 
 export default function Profit() {
   const [preset, setPreset] = useState('month');
-  const [from, setFrom] = useState(new Date().toISOString().slice(0, 8) + '01');
-  const [to, setTo] = useState(new Date().toISOString().slice(0, 10));
+  /* This device's calendar, not UTC's — see lib/when.js. */
+  const [from, setFrom] = useState(`${isoDay().slice(0, 8)}01`);
+  const [to, setTo] = useState(isoDay());
   const [includeExpenses, setIncludeExpenses] = useState(true);
   const [report, setReport] = useState(null);
   const [failed, setFailed] = useState(null);
@@ -107,7 +114,19 @@ export default function Profit() {
     <div className="flex h-full flex-col">
       <PageHeader
         title="Profit"
-        subtitle="What the shop made, after what it cost"
+        /*
+          * The dates the period actually came out as, not just its name.
+          *
+          * "This week" is a label, and a shop that thinks it means one thing
+          * while the server means another has no way to find that out from a
+          * screen that only ever says "This week". Saying the two dates makes
+          * the range checkable at a glance.
+          */
+        subtitle={
+          report?.period?.from
+            ? `${report.period.from} to ${report.period.to} · what the shop made, after what it cost`
+            : 'What the shop made, after what it cost'
+        }
         actions={
           <div className="flex items-center gap-2">
             <label className="flex shrink-0 items-center gap-2 text-sm whitespace-nowrap text-slate-600">
@@ -262,6 +281,80 @@ export default function Profit() {
                 )}
               </Card>
             </div>
+
+            {/*
+              * The same total, day by day.
+              *
+              * The complaint this answers: "the register says $650 and the
+              * report says something else." With one number on the screen
+              * there is nothing to check it against and no way to find out
+              * which of the two is wrong — so here are the days it is made of.
+              * A day that looks wrong can be opened in Sales and counted.
+              */}
+            <Card>
+              <div className="border-b border-slate-100 px-5 py-3">
+                <p className="font-medium text-slate-900">Day by day</p>
+                <p className="text-sm text-slate-500">
+                  What the total above is made of{report.period.zone ? ` · days as they fall in ${report.period.zone.replace(/_/g, ' ')}` : ''}
+                </p>
+              </div>
+              {report.byDay.length === 0 ? (
+                <EmptyState
+                  icon={TrendingUp}
+                  title="No sales in this period"
+                  description={
+                    report.period.from
+                      ? `Nothing was rung up or invoiced between ${report.period.from} and ${report.period.to}.`
+                      : 'Nothing has been sold yet.'
+                  }
+                />
+              ) : (
+                <table className="w-full text-sm">
+                  <thead className="border-b border-slate-100 text-left text-xs text-slate-500">
+                    <tr>
+                      <th className="px-5 py-2 font-medium">Day</th>
+                      <th className="px-3 py-2 text-right font-medium">Sales</th>
+                      <th className="px-3 py-2 text-right font-medium">Revenue</th>
+                      <th className="px-3 py-2 text-right font-medium">Cost</th>
+                      <th className="px-5 py-2 text-right font-medium">Gross profit</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-rule">
+                    {report.byDay.map((d) => (
+                      <tr key={d.day}>
+                        <td className="tnum px-5 py-2 font-medium text-slate-800">{d.day}</td>
+                        <td className="tnum px-3 py-2 text-right text-slate-600">{d.sales}</td>
+                        <td className="tnum px-3 py-2 text-right text-slate-700">{money(d.revenue)}</td>
+                        <td className="tnum px-3 py-2 text-right text-slate-500">{money(d.cost)}</td>
+                        <td
+                          className={cx(
+                            'tnum px-5 py-2 text-right font-semibold',
+                            d.profit >= 0 ? 'text-brand-700' : 'text-red-600',
+                          )}
+                        >
+                          {money(d.profit)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  {/* The column adds up to the figure at the top, which is the
+                      whole point of showing it. */}
+                  <tfoot className="border-t border-slate-200 text-sm font-semibold">
+                    <tr>
+                      <td className="px-5 py-2 text-slate-900">Total</td>
+                      <td className="tnum px-3 py-2 text-right text-slate-700">
+                        {report.byDay.reduce((n, d) => n + d.sales, 0)}
+                      </td>
+                      <td className="tnum px-3 py-2 text-right text-slate-900">{money(report.revenue)}</td>
+                      <td className="tnum px-3 py-2 text-right text-slate-600">{money(report.cost)}</td>
+                      <td className="tnum px-5 py-2 text-right text-brand-700">
+                        {money(report.grossProfit)}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              )}
+            </Card>
 
             <Card>
               <div className="border-b border-slate-100 px-5 py-3">

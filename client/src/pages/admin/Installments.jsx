@@ -6,6 +6,7 @@ import CustomerPicker from '../../components/CustomerPicker';
 import MoneyInput from '../../components/MoneyInput';
 import WhatsAppButton from '../../components/WhatsAppButton';
 import { lbp, useSettings } from '../../context/SettingsContext';
+import { isoDay } from '../../lib/when';
 import {
   Badge,
   Button,
@@ -22,13 +23,15 @@ import {
 } from '../../components/ui';
 import { useConfirm } from '../../components/ConfirmProvider';
 
-const today = () => new Date().toISOString().slice(0, 10);
+/* This device's calendar rather than UTC's, which is a different day for the
+   first hours of every morning in Beirut — see lib/when.js. */
+const today = () => isoDay();
 
 /** A month from today, which is when a first instalment usually falls. */
 function nextMonth() {
   const d = new Date();
   d.setMonth(d.getMonth() + 1);
-  return d.toISOString().slice(0, 10);
+  return isoDay(d);
 }
 
 /* ------------------------------------------------------------- new plan */

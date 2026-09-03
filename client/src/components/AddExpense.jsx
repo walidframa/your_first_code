@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Plus } from 'lucide-react';
 import api from '../api';
 import { Button, Input, Modal, ModalActions, Select, useToast } from './ui';
+import { isoDay } from '../lib/when';
 
 export const EXPENSE_CATEGORIES = [
   ['rent', 'Rent'],
@@ -38,7 +39,9 @@ export default function AddExpense({ onClose, onSaved }) {
   const [usd, setUsd] = useState('');
   const [lbpAmount, setLbpAmount] = useState('');
   const [paidWith, setPaidWith] = useState('cash');
-  const [spentOn, setSpentOn] = useState(new Date().toISOString().slice(0, 10));
+  /* The date on this device's own calendar — `toISOString` is UTC's, which is
+     yesterday for the first hours of every morning here. See lib/when.js. */
+  const [spentOn, setSpentOn] = useState(isoDay());
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');

@@ -11,6 +11,7 @@ import { encryptSecret } from './secrets.js';
 import { normaliseImei, receiveUnits, syncStockFromUnits } from './units.js';
 import { setIdPhoto } from './idPhotos.js';
 import { getSettings } from './settings.js';
+import { dayEndUtc, dayStartUtc } from './shopTime.js';
 
 export const REPAIR_STATUSES = [
   'received',
@@ -335,10 +336,14 @@ export function takePayment(ticketId, { charged = null, paidUsd = 0, paidLbp = 0
  * hiding the cost of the promise.
  */
 export function repairProfit({ from = null, to = null, branchId = null } = {}) {
-  // Inclusive of the whole end day: a report "to the 31st" that stopped at
-  // midnight would drop the busiest day of the month.
-  const lo = from ? `${from} 00:00:00` : '0000-01-01';
-  const hi = to ? `${to} 23:59:59` : '9999-12-31';
+  /*
+   * Inclusive of the whole end day, and of the shop's day rather than UTC's —
+   * see lib/shopTime.js. A report "to the 31st" that stopped at midnight would
+   * drop the busiest day of the month, and one that stopped at UTC midnight
+   * would drop the evening of it in any shop east of Greenwich.
+   */
+  const lo = from ? dayStartUtc(from) : '0000-01-01';
+  const hi = to ? dayEndUtc(to) : '9999-12-31';
   const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
   const collected = db

@@ -4,6 +4,7 @@ import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { decryptSecret } from '../lib/secrets.js';
 import { normaliseImei } from '../lib/units.js';
 import { getSettings } from '../lib/settings.js';
+import { dayEndUtc, dayStartUtc } from '../lib/shopTime.js';
 import { recordMovement, registerAccountId, registerSession, requiresSession } from '../lib/cash.js';
 import {
   REPAIR_STATUSES,
@@ -66,13 +67,14 @@ router.get('/', requireAuth, (req, res) => {
    * happened to fall inside the most recent two hundred tickets, silently. The
    * cap is still there; it now applies to the period asked for.
    */
+  /* Cut where every other report cuts the day — see lib/shopTime.js. */
   if (from) {
     clauses.push('t.created_at >= ?');
-    params.push(`${from} 00:00:00`);
+    params.push(dayStartUtc(from));
   }
   if (to) {
     clauses.push('t.created_at <= ?');
-    params.push(`${to} 23:59:59`);
+    params.push(dayEndUtc(to));
   }
 
   if (q) {

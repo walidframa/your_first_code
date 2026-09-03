@@ -8,6 +8,7 @@ import TaxSettings from '../../components/TaxSettings';
 import TelegramSettings from '../../components/TelegramSettings';
 import PhotoSourceSettings from '../../components/PhotoSourceSettings';
 import SupportVisits from '../../components/SupportVisits';
+import ShopClock from '../../components/ShopClock';
 import { useSettings, lbp } from '../../context/SettingsContext';
 import { TEXT_SIZES, applyTextSize, getTextSize } from '../../lib/textSize';
 import { THEMES, applyTheme, getTheme } from '../../lib/theme';
@@ -330,6 +331,12 @@ export default function Settings() {
         {/* Set once and then forgotten — but wrong by default until it is. */}
         <div className="mb-4 max-w-4xl">
           <TaxSettings />
+        </div>
+
+        {/* The same kind of setting, and the one that decides whether every
+            report on the next screen agrees with the shop's own day. */}
+        <div className="mb-4 max-w-4xl">
+          <ShopClock />
         </div>
 
         {/* Nothing at all until somebody from outside the shop has been in it. */}

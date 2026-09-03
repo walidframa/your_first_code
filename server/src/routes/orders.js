@@ -39,6 +39,7 @@ import { quote, describe as describeCredit } from '../lib/credit.js';
 import { creditCostBasis } from '../lib/wallets.js';
 import { orderMessage, sendable } from '../lib/whatsapp.js';
 import { takeTradeIn } from '../lib/repairs.js';
+import { dayEndUtc, dayStartUtc, shopZone } from '../lib/shopTime.js';
 import {
   CHANGE_MODES,
   round2,
@@ -1117,21 +1118,27 @@ router.get('/', requireAuth, (req, res) => {
     params.push(req.user.id);
   }
   /*
-   * A range is inclusive of both whole days.
+   * A range is inclusive of both whole days, in the shop's own day.
    *
    * `created_at` is a timestamp and these come in as dates, so comparing them
    * raw made `to` mean "up to midnight at the start of that day" — asking for
    * sales up to today returned everything except today, which is the one day
-   * anybody is actually looking at. The same reasoning, and the same fix, as
-   * periodBounds in lib/profit.js.
+   * anybody is actually looking at.
+   *
+   * And the day is the shop's, cut where the profit report cuts it — see
+   * lib/shopTime.js. This list is what somebody checks the report against, so
+   * the two agreeing about which day a sale belongs to is the whole point:
+   * before this, a sale rung up after midnight was in one of them and not the
+   * other.
    */
+  const zone = shopZone();
   if (from) {
     sql += ' AND o.created_at >= ?';
-    params.push(`${from} 00:00:00`);
+    params.push(dayStartUtc(from, zone));
   }
   if (to) {
     sql += ' AND o.created_at <= ?';
-    params.push(`${to} 23:59:59`);
+    params.push(dayEndUtc(to, zone));
   }
   /*
    * `?scope=sitting` — what has been sold on this till since it was opened.

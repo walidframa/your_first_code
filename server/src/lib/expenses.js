@@ -47,6 +47,78 @@ export function expenseTotal(row) {
 
 const withTotal = (row) => ({ ...row, total_usd: expenseTotal(row) });
 
+/**
+ * Every expense in a period, unpaged, for adding up.
+ *
+ * `spent_on` rather than `created_at`, because an expense is dated by the day
+ * the money went — a shopkeeper entering Friday's electricity bill on Monday
+ * means it to land on Friday, and the date box is there for exactly that.
+ */
+function allExpensesIn({ from = null, to = null, branchId = null } = {}) {
+  const where = [];
+  const params = [];
+  if (from) {
+    where.push('spent_on >= ?');
+    params.push(from);
+  }
+  if (to) {
+    where.push('spent_on <= ?');
+    params.push(to);
+  }
+  if (branchId) {
+    where.push('branch_id = ?');
+    params.push(branchId);
+  }
+  return db
+    .prepare(`SELECT * FROM expenses ${where.length ? `WHERE ${where.join(' AND ')}` : ''}`)
+    .all(...params)
+    .map(withTotal);
+}
+
+/**
+ * What was spent while the drawer was open, by when it was written down.
+ *
+ * A sitting is a stretch of hours, not a date, and the two are different every
+ * time somebody opens the till at nine having paid the water bill at eight.
+ * The register's own profit figure is about *this* sitting, so it counts what
+ * was recorded during it — the alternative, everything dated that day, put the
+ * morning's bill against the afternoon's cashier, and on a drawer still open
+ * it counted every expense from the day it opened onwards.
+ */
+export function expensesDuring({ from, to = null, branchId = null } = {}) {
+  const where = ['created_at >= ?'];
+  const params = [from];
+  if (to) {
+    where.push('created_at <= ?');
+    params.push(to);
+  }
+  if (branchId) {
+    where.push('branch_id = ?');
+    params.push(branchId);
+  }
+  const rows = db
+    .prepare(`SELECT * FROM expenses WHERE ${where.join(' AND ')}`)
+    .all(...params)
+    .map(withTotal);
+
+  return summarise(rows);
+}
+
+/** The shape both summaries answer in. */
+function summarise(rows) {
+  const byCategory = {};
+  for (const row of rows) {
+    const entry = (byCategory[row.category] ||= { category: row.category, count: 0, total: 0 });
+    entry.count += 1;
+    entry.total = round2(entry.total + row.total_usd);
+  }
+  return {
+    total: round2(rows.reduce((sum, r) => sum + r.total_usd, 0)),
+    count: rows.length,
+    byCategory: Object.values(byCategory).sort((a, b) => b.total - a.total),
+  };
+}
+
 export function listExpenses({ from = null, to = null, category = null, branchId = null, limit = 500 } = {}) {
   let sql = `
     SELECT e.*, u.name AS user_name, s.name AS supplier_name
@@ -219,18 +291,15 @@ export function deleteExpense(id, userId = null) {
 
 /** Spending in a period, per category and in total. */
 export function expenseSummary({ from = null, to = null, branchId = null } = {}) {
-  const rows = listExpenses({ from, to, branchId, limit: 1000 });
+  /*
+   * Every one of them, not the first thousand.
+   *
+   * This used to lean on `listExpenses`, which takes a limit because it draws
+   * a table — so a shop with more than a thousand expenses in the period had
+   * the rest quietly dropped, and the profit it was shown was too good. A
+   * summary has no page to fill, so it reads the lot.
+   */
+  const rows = allExpensesIn({ from, to, branchId });
 
-  const byCategory = {};
-  for (const row of rows) {
-    const entry = (byCategory[row.category] ||= { category: row.category, count: 0, total: 0 });
-    entry.count += 1;
-    entry.total = round2(entry.total + row.total_usd);
-  }
-
-  return {
-    total: round2(rows.reduce((sum, r) => sum + r.total_usd, 0)),
-    count: rows.length,
-    byCategory: Object.values(byCategory).sort((a, b) => b.total - a.total),
-  };
+  return summarise(rows);
 }

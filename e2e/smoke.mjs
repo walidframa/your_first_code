@@ -3650,6 +3650,44 @@ try {
   });
   await shot('profit');
 
+  /*
+   * Reported from the counter: "the register says $650 and the profit report
+   * says another number, and the date range is not accurate either."
+   *
+   * Part of that was a real bug — the day was cut at UTC midnight, which is
+   * three in the morning in Beirut — and part was that the report gave nobody
+   * any way to check it. Both are checked here: the period is named in dates
+   * rather than in words, and the days it is made of add up to it.
+   */
+  await step('the profit report shows its working, and says which dates it covers', async () => {
+    await goTo('Profit');
+    await page.waitForSelector('text=Day by day', { timeout: 15000 });
+
+    // The period, as two dates somebody can check against a calendar.
+    await page.waitForSelector('text=/\\d{4}-\\d{2}-\\d{2} to \\d{4}-\\d{2}-\\d{2}/', {
+      timeout: 15000,
+    });
+
+    /*
+     * The column has to add up to the headline. Read off the screen rather
+     * than out of the API, because the thing being checked is what a shop
+     * standing in front of it can verify.
+     */
+    const money = (text) => Number(String(text).replace(/[^0-9.-]/g, '')) || 0;
+    const rows = await page.locator('table tbody tr').filter({ hasText: /^\d{4}-/ }).all();
+    let summed = 0;
+    for (const row of rows) {
+      const cells = await row.locator('td').allInnerTexts();
+      summed += money(cells[2]);
+    }
+    const total = money(
+      await page.locator('table tfoot td').nth(2).innerText(),
+    );
+    if (Math.abs(summed - total) > 0.02) {
+      throw new Error(`the days add up to ${summed} under a total of ${total}`);
+    }
+  });
+
   await step('Shopify asks to be connected before it will sync anything', async () => {
     await goTo('Shopify');
     await page.waitForSelector('text=Connect your Shopify shop', { timeout: 15000 });
