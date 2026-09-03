@@ -28,6 +28,10 @@ jobs:
     name: Android APK
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    # Only this job writes, and only to publish the file as a release — see the
+    # steps at the end. The workflow's own default stays read-only.
+    permissions:
+      contents: write
 
     steps:
       - uses: actions/checkout@v4
@@ -87,6 +91,60 @@ jobs:
           path: client/android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 30
+
+      # ---------------------------------------------------------------- the link
+      #
+      # An artifact is not a download link. It expires after thirty days, it
+      # arrives as a zip, and GitHub asks whoever clicks it to sign in — so it
+      # cannot be sent to a shopkeeper, which is the whole reason somebody
+      # wants the file.
+      #
+      # A release asset can. It never expires, it downloads as the .apk itself,
+      # and on a public repository it needs no account.
+      #
+      # **One address, for ever.** The release lives under a fixed tag rather
+      # than a version, and the file always has the same name, so the link on
+      # the shop's own paperwork keeps working after the next build:
+      #
+      #     https://github.com/OWNER/REPO/releases/download/app/front-desk.apk
+      #
+      # Deleted and recreated rather than edited, so the release points at the
+      # commit it was actually built from. A rolling tag left where it was
+      # first cut is a release page that lies about what is in the file.
+      - name: Name the file after nothing, so the link never changes
+        run: |
+          cp client/android/app/build/outputs/apk/debug/app-debug.apk front-desk.apk
+          ls -l front-desk.apk
+
+      - name: Publish it as the current app
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          notes=$(printf 'The Android app, built from %s on %s.\n\nInstall it by opening this link on the phone:\nhttps://github.com/%s/releases/download/app/front-desk.apk\n\nAndroid will warn about installing outside the Play Store — that is expected for a build handed out directly. The app asks for the shop address the first time it opens.\n' \
+            "${{ steps.name.outputs.sha }}" "$(date -u '+%d %B %Y')" "$GITHUB_REPOSITORY")
+
+          # `|| true`: there is nothing to delete the first time.
+          gh release delete app --yes --cleanup-tag || true
+          gh release create app \
+            --target "$GITHUB_SHA" \
+            --title 'Front Desk — the phone app' \
+            --notes "$notes" \
+            front-desk.apk
+
+      # And a copy under the version's own tag, so a released version keeps the
+      # file it shipped with after `app` has moved on to the next build.
+      - name: And under this version's tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --notes "The Android app as it shipped in $GITHUB_REF_NAME." \
+            front-desk.apk \
+            || gh release upload "$GITHUB_REF_NAME" front-desk.apk --clobber
 
   # Not a build — a Mac runner and a paid Apple account are needed for that, and
   # neither belongs in a workflow that runs on a push. This checks the iOS
