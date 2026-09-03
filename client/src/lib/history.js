@@ -1,5 +1,6 @@
 import { matchesSearch } from './search';
 import { useState } from 'react';
+import { isoDay } from './when';
 
 /**
  * The bar above a list of things that already happened.
@@ -24,7 +25,9 @@ export const PRESETS = [
   ['custom', 'Between two dates'],
 ];
 
-const iso = (d) => d.toISOString().slice(0, 10);
+/* The device's own calendar date. `toISOString` is UTC's, which in Beirut is
+   yesterday until three in the morning — see when.js. */
+const iso = (d) => isoDay(d);
 
 /** The two dates a named period means, or nulls for "all of it". */
 export function rangeFor(preset) {

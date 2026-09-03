@@ -7,6 +7,7 @@ import CashBox from '../components/CashBox';
 import { useConfirm } from '../components/ConfirmProvider';
 import VoucherSlip from '../components/VoucherSlip';
 import { lbp, useSettings } from '../context/SettingsContext';
+import { isoDay } from '../lib/when';
 import {
   Badge,
   Button,
@@ -158,7 +159,8 @@ function VoucherDialog({ meta, onClose, onSaved, prefill = null }) {
   const [reason, setReason] = useState(prefill ? 'transfer_agency' : 'rent');
   const [reference, setReference] = useState('');
   const [note, setNote] = useState('');
-  const [issuedOn, setIssuedOn] = useState(new Date().toISOString().slice(0, 10));
+  /* Today on this device's calendar, not UTC's — see lib/when.js. */
+  const [issuedOn, setIssuedOn] = useState(isoDay());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 

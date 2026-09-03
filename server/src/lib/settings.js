@@ -10,6 +10,17 @@ export const SETTING_DEFAULTS = {
   secondary_currency: 'LBP',
 
   /*
+   * Where the shop keeps its day.
+   *
+   * Every timestamp is stored in UTC, which is right, and every *report* is
+   * read by somebody standing in a shop, which is why this exists: without it
+   * "today" ends at 03:00 in Beirut and a sale rung up at half past midnight
+   * is filed under yesterday. Empty means UTC — what every installation was
+   * already getting — so nothing moves until a shop says where it is.
+   */
+  time_zone: '',
+
+  /*
    * Who the shop is, as it appears on anything a customer keeps.
    *
    * A receipt with no name on it is a scrap of paper: it cannot be brought back

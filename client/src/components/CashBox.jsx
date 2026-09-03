@@ -961,6 +961,20 @@ export default function CashBox({
             {showProfit && profit && (
               <p className="tnum mb-2 flex items-center justify-between text-[11px] text-brand-700/70">
                 <span>
+                  {/*
+                    * What the figure is *of*, said before the figure.
+                    *
+                    * This is one sitting of this till — from the moment the
+                    * drawer was opened until now — and the Profit screen is a
+                    * calendar range across the whole shop. The two are
+                    * different questions with the same word on them, and a
+                    * shop comparing them found two numbers and no explanation.
+                    * A drawer left open overnight makes it worse: the sitting
+                    * is then two days and "today" is one.
+                    */}
+                  <span className="block text-brand-700/50">
+                    Since the drawer opened, at this till
+                  </span>
                   {money(profit.revenue)} sold · {money(profit.grossProfit)} gross ·{' '}
                   {money(profit.expenses)} spent
                   {/*

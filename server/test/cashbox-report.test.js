@@ -14,6 +14,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { DatabaseSync } from 'node:sqlite';
 import { knownZone } from '../src/lib/cashReport.js';
 
 const serverRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -158,6 +159,49 @@ test('the profit figure says which counter it came from', async () => {
     report.profit.revenue,
     'the two halves account for the whole figure, or the panel explains nothing',
   );
+});
+
+/*
+ * Reported as "the register says one thing and the profit report says another".
+ *
+ * Part of the answer was this: the sitting's profit took off every expense
+ * *dated* on the days the sitting touched, so the water bill paid at eight in
+ * the morning came off the cashier who opened the till at nine — and on a
+ * drawer still open, whose end date is 9999-12-31 until somebody closes it, it
+ * took off everything recorded from that day onwards.
+ *
+ * A sitting is a stretch of hours. What belongs to it is what was written down
+ * while it was open.
+ */
+test('a sitting carries the spending done while it was open, not the day’s', async () => {
+  const before = (await req('GET', `/cash/sessions/${sessionId}/report`, null, adminToken)).json
+    .report.profit;
+
+  // An expense recorded now — during the sitting — and then backdated to an
+  // hour before it opened, which is what the old code counted anyway.
+  await req(
+    'POST',
+    '/expenses',
+    { category: 'utilities', amountUsd: 40, paidWith: 'bank', note: 'water, paid this morning' },
+    adminToken,
+  );
+
+  const db = new DatabaseSync(path.join(workDir, 'report.sqlite'));
+  const opened = db.prepare('SELECT opened_at FROM cash_sessions WHERE id = ?').get(sessionId);
+  db.prepare(
+    "UPDATE expenses SET created_at = datetime(?, '-1 hour') WHERE note = 'water, paid this morning'",
+  ).run(opened.opened_at);
+  db.close();
+
+  const after = (await req('GET', `/cash/sessions/${sessionId}/report`, null, adminToken)).json
+    .report.profit;
+
+  assert.equal(
+    after.expenses,
+    before.expenses,
+    'money spent before the drawer opened is not this sitting’s',
+  );
+  assert.equal(after.netProfit, before.netProfit);
 });
 
 test('and is absent for a cashier, on the same report of their own sitting', async () => {

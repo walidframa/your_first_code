@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { PROVIDERS } from '../lib/productPhotos.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { serialiseLabelStyle } from '../lib/labelStyle.js';
+import { knownZone } from '../lib/shopTime.js';
 import {
   getSettings,
   publicSettings,
@@ -130,6 +131,22 @@ router.put('/', requireAuth, requirePermission('settings'), (req, res) => {
   if (req.body.tax_name !== undefined) {
     // Blank falls back rather than printing an unlabelled line on a receipt.
     setSetting('tax_name', String(req.body.tax_name || '').trim() || 'Tax', req.user.id);
+  }
+
+  /*
+   * Where the shop is, which is where its day begins and ends.
+   *
+   * Refused rather than stored when the machine cannot resolve it: a zone name
+   * with a typo in it would silently fall back to UTC, and the shop would go on
+   * reading reports cut three hours into its own morning with a setting on the
+   * screen insisting otherwise.
+   */
+  if (req.body.time_zone !== undefined) {
+    const zone = String(req.body.time_zone || '').trim();
+    if (zone && knownZone(zone) !== zone) {
+      return res.status(400).json({ error: `${zone} is not a time zone this machine knows` });
+    }
+    setSetting('time_zone', zone, req.user.id);
   }
 
   /*

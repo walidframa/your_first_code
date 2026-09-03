@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { db } from '../db.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { can } from '../lib/permissions.js';
+import { shopZone, sqlDayShift } from '../lib/shopTime.js';
 
 const router = Router();
 
@@ -45,13 +46,23 @@ router.get('/summary', requireAuth, requirePermission('reports'), (req, res) => 
     FROM orders ${where}
   `).get(...params);
 
+  /*
+   * Read in the shop's own time, not UTC's.
+   *
+   * Both of these bucket a timestamp — one into a day, one into an hour of the
+   * day — and both were doing it on the raw UTC value. Three hours east of
+   * Greenwich that puts the evening's takings on tomorrow's bar and reports a
+   * shop that is busiest at three in the afternoon when it is busiest at six.
+   */
+  const shift = sqlDayShift(shopZone());
+
   const byDay = db.prepare(`
-    SELECT date(created_at) AS day, COALESCE(SUM(total), 0) AS revenue, COUNT(*) AS orders
+    SELECT date(created_at, ?) AS day, COALESCE(SUM(total), 0) AS revenue, COUNT(*) AS orders
     FROM orders ${where}
-    GROUP BY date(created_at)
+    GROUP BY day
     ORDER BY day DESC
     LIMIT 90
-  `).all(...params);
+  `).all(shift, ...params);
 
   const topProducts = db.prepare(`
     SELECT oi.name, SUM(oi.quantity) AS unitsSold, SUM(oi.line_total) AS revenue
@@ -95,13 +106,13 @@ router.get('/summary', requireAuth, requirePermission('reports'), (req, res) => 
    */
   const byHour = db
     .prepare(
-      `SELECT CAST(strftime('%H', created_at) AS INTEGER) AS hour,
+      `SELECT CAST(strftime('%H', created_at, ?) AS INTEGER) AS hour,
               COUNT(*) AS orders,
               COALESCE(SUM(total), 0) AS revenue
        FROM orders ${where}
        GROUP BY hour ORDER BY hour`,
     )
-    .all(...params);
+    .all(shift, ...params);
 
   /*
    * Money asleep on the shelf.
