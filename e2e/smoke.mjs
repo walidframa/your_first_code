@@ -2345,6 +2345,68 @@ try {
   });
   await shot('purchase-invoice');
 
+  /*
+   * Asked for from the counter: "add an edit button beside each item when
+   * adding to a PI or sales invoice, so I can immediately edit an item if it
+   * has a wrong barcode or a wrong price."
+   *
+   * The moment a wrong number is found is the moment the delivery is being
+   * booked in, with the box in one hand. Fixing it used to mean abandoning the
+   * document and going to the catalogue — so this checks the correction lands
+   * in the catalogue *and* on the line it was made from.
+   */
+  await step('a product can be corrected from the line it is wrong on', async () => {
+    await goToDocuments();
+    const dialog = await openNewDocument();
+    await dialog.getByRole('button', { name: /Purchase invoice/ }).click();
+    await dialog.getByLabel('Search products to add').fill('Croissant');
+
+    /*
+     * The row for this SKU, rather than whatever Enter would have taken. More
+     * than one product can match a word by the time this runs — the run
+     * creates several — and adding the wrong one would fail this step for a
+     * reason that has nothing to do with what it is testing.
+     */
+    await dialog.locator('li button:has-text("BAK-001")').first().click();
+
+    // The pencil beside the line, and the product it belongs to.
+    const pencil = dialog.locator('tbody tr button[aria-label^="Edit "]').first();
+    await pencil.waitFor({ timeout: 10000 });
+    const named = (await pencil.getAttribute('aria-label')).replace(/^Edit /, '');
+    await pencil.click();
+    await page.waitForSelector('text=This changes the product in the catalogue', { timeout: 10000 });
+
+    const edit = page.locator('[role=dialog]').last();
+    await edit.locator('input[name=cost]').fill('1.75');
+    // A second barcode, which is the other half of the complaint.
+    await edit.locator('input[placeholder*="Scan or type"]').fill('7622300123456');
+    await edit.locator('input[placeholder*="Scan or type"]').press('Enter');
+    await page.click('button:has-text("Save the product")');
+    await page.waitForSelector(`text=/${named} updated/`, { timeout: 15000 });
+
+    /*
+     * The line was still at the old catalogue cost, so it follows the
+     * correction — which is the point: the delivery is being priced from it.
+     */
+    const cost = await page.getByLabel(new RegExp(`Unit price for ${named}`, 'i')).inputValue();
+    if (Number(cost) !== 1.75) throw new Error(`the line still says ${cost}`);
+
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(400);
+
+    // And the catalogue kept it: the new barcode finds the product.
+    const found = await page.evaluate(async () => {
+      const res = await fetch('/api/products/lookup?code=7622300123456', {
+        headers: { Authorization: `Bearer ${localStorage.getItem('pos_token')}` },
+      });
+      return res.ok ? (await res.json()).product : null;
+    });
+    if (found?.sku !== 'BAK-001') {
+      throw new Error('the barcode typed on the document did not reach the catalogue');
+    }
+    if (Number(found.cost) !== 1.75) throw new Error(`the catalogue cost is ${found?.cost}`);
+  });
+
   await step('a second delivery at a different price averages out the cost', async () => {
     /*
      * The question a shopkeeper actually asks: I bought these at one price and
@@ -3547,6 +3609,47 @@ try {
     await page.waitForSelector('text=Cashbox closed', { timeout: 15000 });
   });
   await shot('cashbox');
+
+  /*
+   * Asked for from the counter: "a way to check the profit by cashbox, so if I
+   * want to check the cashbox profit on a certain date I can, and it should
+   * show the profit of a cashbox no matter how many days it was open."
+   *
+   * The list is the answer, so the figures have to be *on* it rather than one
+   * dialog per sitting. Whether a sitting that spans three days is found on the
+   * middle one is arithmetic, and the server's tests own that; what is checked
+   * here is that the column and the total are on the screen and agree.
+   */
+  await step('the cashbox list prices each sitting, and the total adds up', async () => {
+    await goTo('Cashbox');
+    await page.waitForSelector('text=Every sitting of the till', { timeout: 15000 });
+    await page.waitForSelector('text=Each sitting counted from the moment its drawer was opened', {
+      timeout: 15000,
+    });
+
+    const cash = (text) => Number(String(text).replace(/[^0-9.-]/g, '')) || 0;
+
+    // Every sitting on screen carries its own net profit …
+    const rows = await page.locator('tbody tr').all();
+    let summed = 0;
+    for (const row of rows) {
+      const cells = await row.locator('td').allInnerTexts();
+      // Opened · by · closed · counted · profit · difference
+      summed += cash(cells[4].split('\n')[0]);
+    }
+
+    // … and the card above adds them up.
+    const shown = cash(await page.locator('[data-cashbox-total="net"]').innerText());
+    if (Math.abs(shown - summed) > 0.02) {
+      throw new Error(`the sittings add up to ${summed}, the card says ${shown}`);
+    }
+
+    // And the count is the rows, not a number of its own.
+    const sittings = cash(await page.locator('[data-cashbox-total="sittings"]').innerText());
+    if (sittings !== rows.length) {
+      throw new Error(`${sittings} on the card, ${rows.length} rows under it`);
+    }
+  });
 
   await step('the shift report shows every movement and what it was out by', async () => {
     await goTo('Cashbox');

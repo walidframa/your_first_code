@@ -798,7 +798,30 @@ export function closeSession({
   })();
 }
 
-export function listSessions(limit = 50, accountId = null) {
+export function listSessions(limit = 50, accountId = null, { from = null, to = null } = {}) {
+  /*
+   * A sitting is *in* a period if it was open during it — not if it happens to
+   * have been opened inside it.
+   *
+   * The shop asked for "the profit of a cashbox on a certain date, no matter
+   * how many days it was open", and that is the whole difference: a drawer
+   * opened on Friday and closed on Sunday belongs to Saturday as much as to
+   * Friday, and a list that matched on the opening date alone simply lost it
+   * on two days out of three.
+   *
+   * A sitting still open has no end, so it runs to now.
+   */
+  const where = ['(? IS NULL OR s.account_id = ?)'];
+  const params = [accountId, accountId];
+  if (from) {
+    where.push("COALESCE(s.closed_at, datetime('now')) >= ?");
+    params.push(from);
+  }
+  if (to) {
+    where.push('s.opened_at <= ?');
+    params.push(to);
+  }
+
   return db
     .prepare(
       `SELECT s.*, u.name AS opened_by_name, c.name AS closed_by_name, a.name AS account_name,
@@ -807,10 +830,10 @@ export function listSessions(limit = 50, accountId = null) {
        LEFT JOIN users u ON u.id = s.opened_by
        LEFT JOIN users c ON c.id = s.closed_by
        LEFT JOIN cash_accounts a ON a.id = s.account_id
-       WHERE (? IS NULL OR s.account_id = ?)
+       WHERE ${where.join(' AND ')}
        ORDER BY s.opened_at DESC, s.id DESC LIMIT ?`,
     )
-    .all(accountId, accountId, Math.min(Number(limit) || 50, 200));
+    .all(...params, Math.min(Number(limit) || 50, 500));
 }
 
 /** Total a count entered note by note, e.g. { "50000": 3, "10000": 2 }. */

@@ -173,7 +173,9 @@ export function buildCashReport(sessionId, { includeProfit = false } = {}) {
  * of its own and not what a report header or a panel above the drawer wants.
  */
 export function sessionProfit(sessionId, branchId = null) {
-  const report = profitForSession(sessionId, { branchId });
+  /* No best-sellers: this is the headline for a panel or a row in a list, and
+     working the table out for every sitting is most of the cost of it. */
+  const report = profitForSession(sessionId, { branchId, withProducts: false });
   if (!report) return null;
 
   /*

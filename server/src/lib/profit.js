@@ -440,8 +440,22 @@ export function profitReport({ from = null, to = null, includeExpenses = true, b
   };
 }
 
-/** The same report for one sitting of the till, from its own start and end. */
-export function profitForSession(sessionId, { includeExpenses = true, branchId = null } = {}) {
+/**
+ * The same report for one sitting of the till, from its own start and end.
+ *
+ * Its own start and end, note — not a calendar day. A drawer opened on Friday
+ * morning and closed on Sunday night is one sitting covering three days, and
+ * this is the figure for the whole of it, which is what "how did that cashbox
+ * do" means.
+ *
+ * `withProducts` is turned off when a whole list of sittings is being priced:
+ * the best and worst sellers are a page of their own, and working them out for
+ * forty rows nobody has opened is most of the cost of that screen.
+ */
+export function profitForSession(
+  sessionId,
+  { includeExpenses = true, branchId = null, withProducts = true } = {},
+) {
   const session = sessionById(sessionId);
   if (!session) return null;
 
@@ -488,7 +502,7 @@ export function profitForSession(sessionId, { includeExpenses = true, branchId =
     // Scoped like every other figure on this report — the sitting belongs to one
     // counter, and another branch's refunds are not part of it.
     refunds: refunds(bounds, branchId),
-    topProducts: byProduct(bounds, 10, branchId),
+    topProducts: withProducts ? byProduct(bounds, 10, branchId) : [],
     unknownCostLines: register.unknownCostLines + invoices.unknownCostLines,
   };
 }

@@ -42,25 +42,61 @@ export default function CashSessions() {
    * The sitting in progress is the softer of the two: not knowing it leaves one
    * panel out, so it is allowed to fail quietly. The list is the screen.
    */
+  /*
+   * The dates go to the server rather than being sifted here.
+   *
+   * Two reasons, and the shop hit both. A list capped at the most recent fifty
+   * sittings, filtered afterwards in the browser, silently shows nothing for a
+   * month that is fifty sittings ago. And "in this period" for a sitting means
+   * *open during it*, not opened inside it — a drawer opened on Friday and
+   * closed on Sunday belongs to Saturday as well, which the server now works
+   * out; see listSessions.
+   */
+  const { from, to } = history.range;
+
   const load = useCallback(() => {
     setFailed(null);
     api
-      .get('/cash/sessions')
+      .get('/cash/sessions', {
+        params: {
+          from: from || undefined,
+          to: to || undefined,
+          limit: 500,
+          /* What each sitting made. The server leaves it out for anyone
+             without the permission, so asking for it is harmless. */
+          withProfit: true,
+        },
+      })
       .then((res) => setSessions(res.data.sessions))
       .catch((err) => setFailed(err));
     api
       .get('/cash/current')
       .then((res) => setCurrent(res.data))
       .catch(() => setCurrent(null));
-  }, []);
+  }, [from, to]);
 
   useEffect(() => {
     load();
   }, [load]);
 
-  const shown = (sessions || []).filter(
-    (s) => history.within(s.opened_at) && history.matches(s.opened_by_name, s.account_name, s.closed_by_name),
+  /* The dates were applied by the server — see load. The typed search is the
+     only thing left to sift here. */
+  const shown = (sessions || []).filter((s) =>
+    history.matches(s.opened_by_name, s.account_name, s.closed_by_name),
   );
+
+  /* What the sittings on screen made between them, which is the question this
+     screen is opened with: "how did the cashbox do over these days?" */
+  const totals = shown.reduce(
+    (sum, s) => ({
+      sittings: sum.sittings + 1,
+      revenue: sum.revenue + (s.profit?.revenue ?? 0),
+      grossProfit: sum.grossProfit + (s.profit?.grossProfit ?? 0),
+      netProfit: sum.netProfit + (s.profit?.netProfit ?? 0),
+    }),
+    { sittings: 0, revenue: 0, grossProfit: 0, netProfit: 0 },
+  );
+  const showsProfit = shown.some((s) => s.profit);
 
   return (
     <div className="flex h-full flex-col">
@@ -154,6 +190,52 @@ export default function CashSessions() {
           placeholder="Search who opened it, or the till…"
         />
 
+        {/*
+          * What these sittings made between them.
+          *
+          * The screen's own question, asked from the counter: "how did the
+          * cashbox do over these days?" Each sitting's figure runs from when
+          * that drawer was opened to when it was closed — however many days
+          * that turns out to be — so this adds up whole sittings rather than
+          * slicing them at midnight.
+          */}
+        {showsProfit && (
+          <Card className="mb-4 px-5 py-4">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              {[
+                [
+                  'sittings',
+                  totals.sittings === 1 ? 'Sitting' : 'Sittings',
+                  String(totals.sittings),
+                  'text-slate-800',
+                ],
+                ['sold', 'Sold', money(totals.revenue), 'text-slate-800'],
+                ['gross', 'Gross profit', money(totals.grossProfit), 'text-slate-800'],
+                [
+                  'net',
+                  'Net profit',
+                  money(totals.netProfit),
+                  totals.netProfit < 0 ? 'text-red-600' : 'text-brand-700',
+                ],
+              ].map(([key, label, value, colour]) => (
+                <div key={key}>
+                  <p className="text-[11px] tracking-wide text-slate-500 uppercase">{label}</p>
+                  {/* Named, so the end-to-end suite can check the column adds
+                     up to it without guessing at the layout around it. */}
+                  <p data-cashbox-total={key} className={cx('tnum text-lg font-semibold', colour)}>
+                    {value}
+                  </p>
+                </div>
+              ))}
+            </div>
+            <p className="mt-2 text-xs text-slate-400">
+              Each sitting counted from the moment its drawer was opened to the moment it was
+              closed, whether that was an hour or three days. Expenses recorded during the sitting
+              are already off the net figure.
+            </p>
+          </Card>
+        )}
+
         <Card>
           {failed ? (
             <LoadError error={failed} onRetry={load} what="the till sittings" />
@@ -177,6 +259,9 @@ export default function CashSessions() {
                   <th className="px-3 py-2.5 font-medium">By</th>
                   <th className="px-3 py-2.5 font-medium">Closed</th>
                   <th className="px-3 py-2.5 text-right font-medium">Counted</th>
+                  {showsProfit && (
+                    <th className="px-3 py-2.5 text-right font-medium">Profit</th>
+                  )}
                   <th className="px-5 py-2.5 text-right font-medium">Difference</th>
                 </tr>
               </thead>
@@ -208,6 +293,29 @@ export default function CashSessions() {
                         </>
                       )}
                     </td>
+                    {showsProfit && (
+                      <td className="tnum px-3 py-2.5 text-right">
+                        {s.profit ? (
+                          <>
+                            <span
+                              className={cx(
+                                'font-semibold',
+                                s.profit.netProfit < 0 ? 'text-red-600' : 'text-brand-700',
+                              )}
+                            >
+                              {money(s.profit.netProfit)}
+                            </span>
+                            {/* What it is made of, small: sold, and the gross
+                                before what was spent during the sitting. */}
+                            <span className="block text-xs text-slate-400">
+                              {money(s.profit.revenue)} sold
+                            </span>
+                          </>
+                        ) : (
+                          <span className="text-slate-300">—</span>
+                        )}
+                      </td>
+                    )}
                     <td className="px-5 py-2.5 text-right">
                       <Difference usd={s.over_short_usd} lbpAmount={s.over_short_lbp} />
                     </td>
