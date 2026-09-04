@@ -79,7 +79,13 @@ jobs:
   e2e:
     name: End-to-end
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # Same reason as the job above, and the same evidence: a run was killed
+    # here with every one of its checks passing and a handful left to go. This
+    # job installs three package trees, downloads a browser, seeds a shop and
+    # then drives a couple of hundred checks through it, so the ceiling has to
+    # sit clear of a slow morning on the registry rather than just above a good
+    # one.
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v4
