@@ -303,7 +303,9 @@ test('rewriting one event leaves the other six alone', async () => {
   const sale = await sell();
   const sold = await telegram.waitForMatch(/^SOLD /);
   assert.ok(sold, 'no sale message arrived');
-  assert.match(sold.text, /^SOLD \$3\.50$/);
+  // The branch is added underneath because this wording does not place it
+  // itself — see "every message says which branch" below.
+  assert.match(sold.text, /^SOLD \$3\.50\n🏬 /);
 
   telegram.state.messages.length = 0;
   await req('POST', `/orders/${sale.json.order.id}/refund`, {});
@@ -325,7 +327,53 @@ test('a placeholder nobody recognises is left standing, not swallowed', async ()
    */
   const message = await telegram.waitForMatch(/Sold for/);
   assert.ok(message, 'no message arrived');
-  assert.equal(message.text, 'Sold for {totl}');
+  assert.match(message.text, /^Sold for \{totl\}/);
+});
+
+/* ------------------------------------------------------------- where it was */
+
+test('every message says which branch it happened at', async () => {
+  await configure();
+  await sell();
+
+  const message = await telegram.waitForMatch(/🧾/);
+  assert.ok(message, 'no message arrived');
+  /*
+   * Beside whoever rang it up rather than on a line of its own: the owner
+   * reading this on a phone wants "who, where" in one glance, and the message
+   * is short enough already.
+   *
+   * Named on a shop with one counter too. It used to be left off unless there
+   * were two, which meant the shop that opened its second branch carried on
+   * getting messages that did not say where — the branch was suppressed at the
+   * moment it started to matter.
+   */
+  assert.match(message.text, /🧑 Store Owner · 🏬 .+/, 'the branch sits beside the cashier');
+});
+
+test('a shop that rewrote its wording still gets the branch', async () => {
+  /*
+   * The reason this is a rule rather than a placeholder. The wording below was
+   * saved before the branch was on every message, so it names no branch — and
+   * a shop in that position would ask for this again and still see nothing.
+   */
+  await configure({ telegram_templates: JSON.stringify({ sale: 'بيع {total} — {reference}' }) });
+  await sell();
+
+  const message = await telegram.waitForMatch(/بيع/);
+  assert.ok(message, 'no message arrived');
+  assert.match(message.text, /^بيع \$3\.50 — ORD-\S+\n🏬 .+$/);
+});
+
+test('a shop that places the branch itself is left alone', async () => {
+  // Otherwise it would be said twice, which is worse than not saying it.
+  await configure({ telegram_templates: JSON.stringify({ sale: '{branch}: {total}' }) });
+  await sell();
+
+  const message = await telegram.waitForMatch(/\$3\.50/);
+  assert.ok(message, 'no message arrived');
+  assert.match(message.text, /^.+: \$3\.50$/);
+  assert.equal(message.text.match(/🏬/g), null, 'the branch is where the shop put it, once');
 });
 
 test('a customer’s name cannot smuggle markup into the message', async () => {
@@ -358,14 +406,16 @@ test('the preview is the same wording the message will use', async () => {
 
   const shown = await req('POST', '/settings/telegram/preview', { event: 'sale' });
   assert.equal(shown.status, 200, JSON.stringify(shown.json));
-  assert.match(shown.json.text, /^X \$27\.50 Y Store Owner$/);
+  // Including the branch line this wording does not place itself, because the
+  // real message will carry it and a preview that hid it would be a lie.
+  assert.match(shown.json.text, /^X \$27\.50 Y Store Owner\n🏬 .+$/);
 
   // An unsaved draft can be previewed too, which is the point of the box.
   const draft = await req('POST', '/settings/telegram/preview', {
     event: 'sale',
     template: 'draft {reference}',
   });
-  assert.equal(draft.json.text, 'draft ORD-2416');
+  assert.match(draft.json.text, /^draft ORD-2416\n🏬 .+$/);
 });
 
 test('a template that could not be read is refused rather than stored', async () => {
