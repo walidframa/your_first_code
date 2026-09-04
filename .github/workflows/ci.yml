@@ -17,7 +17,15 @@ jobs:
   test:
     name: Tests and build
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # Ten was enough when this job was a lint and a few hundred tests. It is
+    # not enough now: the server suite alone is over a thousand tests, each
+    # spawning a real server against a real database, and `npm ci` for three
+    # package trees can take most of ten minutes on its own when the registry
+    # is slow. Two runs in a row were killed part-way through a passing suite,
+    # which reads as a broken build and is not one. This is a ceiling to catch
+    # something genuinely hung, so it should sit well clear of how long the
+    # work actually takes.
+    timeout-minutes: 25
 
     steps:
       - uses: actions/checkout@v4
