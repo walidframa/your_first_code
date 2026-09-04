@@ -2217,7 +2217,7 @@ export default function Checkout() {
           )}
         </div>
 
-        <div className="border-t border-slate-100 bg-white px-5 py-4">
+        <div className="border-t border-slate-100 bg-white px-5 py-3">
           {/*
             * The discount, put away.
             *
@@ -2234,7 +2234,7 @@ export default function Checkout() {
             * the boxes keep what has been typed while it is shut — see .fold
             * in index.css, which also keeps them out of the tab order closed.
             */}
-          <div className="mb-3 flex items-center gap-2">
+          <div className="mb-2 flex items-center gap-2">
             <button
               type="button"
               onClick={() => setDiscountOpen((v) => !v)}
@@ -2338,7 +2338,7 @@ export default function Checkout() {
             </div>
           </div>
 
-          <dl className="space-y-1.5 text-sm">
+          <dl className="space-y-1 text-sm">
             <div className="flex justify-between">
               <dt className="text-slate-500">
                 {t('Subtotal')} <span className="text-slate-400">· {itemCount} item{itemCount === 1 ? '' : 's'}</span>
@@ -2362,7 +2362,7 @@ export default function Checkout() {
                 <dd className="tnum text-slate-700">{money(tax)}</dd>
               </div>
             )}
-            <div className="flex items-baseline justify-between border-t border-slate-100 pt-2">
+            <div className="flex items-baseline justify-between border-t border-slate-100 pt-1.5">
               <dt className="font-semibold text-slate-900">{t('Total')}</dt>
               {/*
                 * Keyed on the figure itself, so the emphasis replays whenever
@@ -2372,12 +2372,22 @@ export default function Checkout() {
                 * the customer is about to be asked for, it changes on every
                 * scan, and a total that silently becomes a different total is
                 * how the wrong amount gets read out.
+                *
+                * The pounds sit under the dollars rather than on a labelled row
+                * of their own. It is the same figure said again in the other
+                * currency, so a row saying "In LBP" spent a line of the panel
+                * on a label that "LL" already carries — and this panel is where
+                * vertical space is worth most.
                 */}
-              <dd
-                key={total}
-                className="animate-value-bump origin-right text-2xl font-semibold text-slate-900"
-              >
-                {money(total)}
+              <dd key={total} className="animate-value-bump origin-right text-end">
+                <span className="block text-2xl leading-none font-semibold text-slate-900">
+                  {money(total)}
+                </span>
+                {!tradeIn && rate > 0 && (
+                  <span className="tnum mt-0.5 block text-xs font-medium text-slate-500">
+                    {lbp(toLbp(total))}
+                  </span>
+                )}
               </dd>
             </div>
 
@@ -2411,26 +2421,24 @@ export default function Checkout() {
             )}
 
             {tradeIn && (
-              <div className="flex items-baseline justify-between border-t border-slate-100 pt-2">
+              <div className="flex items-baseline justify-between border-t border-slate-100 pt-1.5">
                 <dt className="font-semibold text-slate-900">
                   {owedToCustomer > 0 ? t('You pay the customer') : t('To pay')}
                 </dt>
-                <dd
-                  className={cx(
-                    'text-2xl font-semibold',
-                    owedToCustomer > 0 ? 'text-red-700' : 'text-slate-900',
+                <dd className="text-end">
+                  <span
+                    className={cx(
+                      'block text-2xl leading-none font-semibold',
+                      owedToCustomer > 0 ? 'text-red-700' : 'text-slate-900',
+                    )}
+                  >
+                    {money(owedToCustomer > 0 ? owedToCustomer : due)}
+                  </span>
+                  {rate > 0 && (
+                    <span className="tnum mt-0.5 block text-xs font-medium text-slate-500">
+                      {lbp(toLbp(owedToCustomer > 0 ? owedToCustomer : due))}
+                    </span>
                   )}
-                >
-                  {money(owedToCustomer > 0 ? owedToCustomer : due)}
-                </dd>
-              </div>
-            )}
-
-            {rate > 0 && (
-              <div className="flex items-baseline justify-between">
-                <dt className="text-xs text-slate-400">{t('In LBP')}</dt>
-                <dd className="tnum text-base font-medium text-slate-600">
-                  {lbp(toLbp(owedToCustomer > 0 ? owedToCustomer : due))}
                 </dd>
               </div>
             )}
@@ -2438,7 +2446,7 @@ export default function Checkout() {
 
           <Button
             size="xl"
-            className="mt-4 w-full"
+            className="mt-3 w-full"
             disabled={cart.length === 0}
             variant={owedToCustomer > 0 ? 'danger' : undefined}
             onClick={() => (owedToCustomer > 0 ? payTheCustomer() : setPaymentOpen(true))}
