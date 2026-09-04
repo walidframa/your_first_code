@@ -17,9 +17,11 @@
  *   before learning anything.
  * - **Who did it, always.** Half the value of knowing a sale was voided is
  *   knowing which till voided it.
- * - **The branch, only when there is more than one.** "Main branch" on every
- *   message for a shop with one counter is noise that trains people to stop
- *   reading.
+ * - **The branch, on every message.** A phone that buzzes with "$180 — sale"
+ *   and does not say where raises a question rather than answering one, and the
+ *   owner is usually standing in the other shop when it buzzes. It used to be
+ *   left off for shops with a single counter; that saved one short line and
+ *   cost the owner of every second branch the one fact they were reading for.
  */
 import { db } from '../db.js';
 import { getSettings } from './settings.js';
@@ -37,14 +39,23 @@ function usd(amount) {
   return `$${n.toFixed(2)}`;
 }
 
-/** Named only when the shop has more than one, for the reason above. */
+/**
+ * Which shop it happened at, always.
+ *
+ * A row with no branch on it belongs to the main one — that is what "main"
+ * means everywhere else in this app, and it is where the stock and the takings
+ * are counted — so it is named rather than left blank. A message that says
+ * nothing about the branch is indistinguishable from a branch called nothing.
+ */
 function branchName(branchId) {
-  if (!branchId) return '';
   try {
-    const count = db.prepare('SELECT COUNT(*) AS n FROM branches WHERE active = 1').get()?.n ?? 1;
-    if (count < 2) return '';
-    return db.prepare('SELECT name FROM branches WHERE id = ?').get(branchId)?.name || '';
+    const row = branchId
+      ? db.prepare('SELECT name FROM branches WHERE id = ?').get(branchId)
+      : db.prepare('SELECT name FROM branches WHERE is_main = 1').get();
+    return row?.name || '';
   } catch {
+    /* No branches table yet, or a database that will not answer. The message
+       still has to go: the branch is context, the money is the point. */
     return '';
   }
 }
@@ -68,20 +79,21 @@ const HOW_PAID = {
 /**
  * The wording a shop gets until it writes its own.
  *
- * Every line that depends on a fact which is often absent — a customer, a
- * second branch — is its own placeholder ending in `_line`, holding the whole
- * line including its newline. That is what lets a template leave it in
+ * Every line that depends on a fact which is sometimes absent — a customer, a
+ * reason for a void — is its own placeholder ending in `_line`, holding the
+ * whole line including its newline. That is what lets a template leave it in
  * unconditionally: on a sale to a walk-in it renders as nothing at all rather
- * than as a stray emoji with a blank after it.
+ * than as a stray emoji with a blank after it. The branch is one of these for
+ * shape rather than for doubt — it is always there.
  */
 export const DEFAULT_TEMPLATES = {
-  sale: '🧾 <b>{total}</b> — sale{paid_bracket}\n{reference} · {items}{customer_line}\n🧑 {user}{branch_line}\n<i>{shop}</i>',
-  refund: '↩️ <b>{total}</b> — sale voided\n{reference}{reason_line}\n🧑 {user}{branch_line}\n<i>{shop}</i>',
-  return: '↩️ <b>{total}</b> — returned\n{items} from {reference}\n🧑 {user}{branch_line}\n<i>{shop}</i>',
-  cash: '{icon} <b>{total}</b> — cash {direction}\n{reason}{note_suffix}\n🧑 {user}{branch_line}\n<i>{shop}</i>',
-  cashbox: '{icon} Cashbox {state} — {account}{count_line}\n🧑 {user}{branch_line}\n<i>{shop}</i>',
-  document: '📄 <b>{total}</b> — {kind} confirmed\n{reference}{party_suffix}\n🧑 {user}{branch_line}\n<i>{shop}</i>',
-  delete: '🗑️ <b>{what} deleted</b>{detail_line}\n🧑 {user}{branch_line}\n<i>{shop}</i>',
+  sale: '🧾 <b>{total}</b> — sale{paid_bracket}\n{reference} · {items}{customer_line}\n🧑 {user}{branch_suffix}\n<i>{shop}</i>',
+  refund: '↩️ <b>{total}</b> — sale voided\n{reference}{reason_line}\n🧑 {user}{branch_suffix}\n<i>{shop}</i>',
+  return: '↩️ <b>{total}</b> — returned\n{items} from {reference}\n🧑 {user}{branch_suffix}\n<i>{shop}</i>',
+  cash: '{icon} <b>{total}</b> — cash {direction}\n{reason}{note_suffix}\n🧑 {user}{branch_suffix}\n<i>{shop}</i>',
+  cashbox: '{icon} Cashbox {state} — {account}{count_line}\n🧑 {user}{branch_suffix}\n<i>{shop}</i>',
+  document: '📄 <b>{total}</b> — {kind} confirmed\n{reference}{party_suffix}\n🧑 {user}{branch_suffix}\n<i>{shop}</i>',
+  delete: '🗑️ <b>{what} deleted</b>{detail_line}\n🧑 {user}{branch_suffix}\n<i>{shop}</i>',
 };
 
 /**
@@ -101,47 +113,54 @@ export const PLACEHOLDERS = {
     customer: 'The customer’s name, if there is one',
     customer_line: 'A whole line naming the customer, or nothing',
     user: 'Who rang it up',
-    branch: 'Which branch, when there is more than one',
-    branch_line: 'A whole line naming the branch, or nothing',
+    branch: 'Which branch it happened at',
+    branch_suffix: 'The branch after a ·, to sit beside the cashier',
+    branch_line: 'A whole line naming the branch',
     shop: 'Your shop’s name',
   },
   refund: {
     total: 'What went back', reference: 'The order number',
     reason: 'The reason given, if any', reason_line: 'A whole line for it, or nothing',
-    user: 'Who voided it', branch: 'Which branch', branch_line: 'A whole line, or nothing',
+    user: 'Who voided it', branch: 'Which branch it happened at',
+    branch_suffix: 'The branch after a ·', branch_line: 'A whole line naming it',
     shop: 'Your shop’s name',
   },
   return: {
     total: 'What went back', reference: 'The order number',
     items: 'What came back, e.g. "2 × Charger"',
-    user: 'Who took it back', branch: 'Which branch', branch_line: 'A whole line, or nothing',
+    user: 'Who took it back', branch: 'Which branch it happened at',
+    branch_suffix: 'The branch after a ·', branch_line: 'A whole line naming it',
     shop: 'Your shop’s name',
   },
   cash: {
     total: 'The amount, both currencies if both moved', direction: 'in or out',
     icon: '📥 or 📤', reason: 'Why — supplier, wages, petty cash…',
     note: 'The note typed with it', note_suffix: 'The note after a ·, or nothing',
-    user: 'Who moved it', branch: 'Which branch', branch_line: 'A whole line, or nothing',
+    user: 'Who moved it', branch: 'Which branch it happened at',
+    branch_suffix: 'The branch after a ·', branch_line: 'A whole line naming it',
     shop: 'Your shop’s name',
   },
   cashbox: {
     state: 'opened or closed', icon: '🔓 or 🔒', account: 'Which till',
     counted: 'What was counted at close', verdict: 'square, $5.00 short, $5.00 over',
     count_line: 'A whole line with the count and the verdict, or nothing on open',
-    user: 'Who did it', branch: 'Which branch', branch_line: 'A whole line, or nothing',
+    user: 'Who did it', branch: 'Which branch it happened at',
+    branch_suffix: 'The branch after a ·', branch_line: 'A whole line naming it',
     shop: 'Your shop’s name',
   },
   document: {
     total: 'The document total', reference: 'The document number',
     kind: 'sales invoice, quotation…', party: 'The customer or supplier',
     party_suffix: 'The party after a ·, or nothing',
-    user: 'Who confirmed it', branch: 'Which branch', branch_line: 'A whole line, or nothing',
+    user: 'Who confirmed it', branch: 'Which branch it happened at',
+    branch_suffix: 'The branch after a ·', branch_line: 'A whole line naming it',
     shop: 'Your shop’s name',
   },
   delete: {
     what: 'What kind of thing it was', detail: 'Its number and amount',
     detail_line: 'A whole line for that, or nothing',
-    user: 'Who deleted it', branch: 'Which branch', branch_line: 'A whole line, or nothing',
+    user: 'Who deleted it', branch: 'Which branch it happened at',
+    branch_suffix: 'The branch after a ·', branch_line: 'A whole line naming it',
     shop: 'Your shop’s name',
   },
 };
@@ -185,13 +204,37 @@ function common({ user, branchId }) {
   return {
     user: esc(user),
     branch: esc(branch),
+    /* Two shapes of the same fact: beside whoever did it, which is where the
+       built-in wording puts it, and on a line of its own for a shop that would
+       rather have it there. */
+    branch_suffix: branch ? ` · 🏬 ${esc(branch)}` : '',
     branch_line: branch ? `\n🏬 ${esc(branch)}` : '',
     shop: esc(shopName()),
   };
 }
 
+/** Does this wording ask for the branch anywhere? */
+function namesBranch(template) {
+  return /\{branch(_line|_suffix)?\}/.test(String(template || ''));
+}
+
+/**
+ * Build one message, and make sure it says where it happened.
+ *
+ * The built-in wording carries `{branch_line}`, but a shop that rewrote its
+ * templates before this rule existed has wording that does not — and the shop
+ * that asked for this is exactly that shop. So the branch is *appended* when
+ * the template does not place it itself, rather than only being offered as a
+ * placeholder somebody has to remember to add.
+ *
+ * Which also gives a shop the way to move it: put `{branch}`, `{branch_suffix}`
+ * or `{branch_line}` where you want it and nothing is added at the end.
+ */
 function build(event, values, settings) {
-  return render(templateFor(event, settings), values);
+  const template = templateFor(event, settings);
+  const text = render(template, values);
+  if (namesBranch(template) || !values.branch_line) return text;
+  return text + values.branch_line;
 }
 
 export function saleText({ orderNumber, total, paymentMethod, itemCount, user, branchId, customer }, settings) {
