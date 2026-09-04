@@ -3,6 +3,7 @@ import { branchParams } from '../lib/branchScope.js';
 import crypto from 'crypto';
 import { db, transaction } from '../db.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
+import { can } from '../lib/permissions.js';
 import { getSettings, taxRate } from '../lib/settings.js';
 import { addEntry, balanceOf, creditCheck } from '../lib/accounts.js';
 import { dominantMethod, readTenders, recordTenders, tenderSplit, tendersFor } from '../lib/tenders.js';
@@ -1114,7 +1115,17 @@ router.get('/', requireAuth, (req, res) => {
   sql += ' AND (? IS NULL OR o.branch_id = ?)';
   params.push(...branchParams(req));
 
-  if (req.user.role !== 'admin') {
+  /*
+   * Whose sales, on top of whose shop.
+   *
+   * Normally your own: a cashier has no business reading what the others took.
+   * But whoever may *undo* a sale has to be able to find it — a customer comes
+   * back the next day, and the person on shift is not the person who sold it.
+   * Refusing to show them the sale they are allowed to refund is a rule that
+   * only ever stops the right thing happening, and it is what sent returns to
+   * the back office. Still their own branch, which the clause above pins.
+   */
+  if (req.user.role !== 'admin' && !can(req.user, 'refunds')) {
     sql += ' AND o.cashier_id = ?';
     params.push(req.user.id);
   }
@@ -1159,6 +1170,25 @@ router.get('/', requireAuth, (req, res) => {
     params.push(session.id);
   }
 
+  /*
+   * Finding the sale somebody has come back to.
+   *
+   * Two things get offered at a counter and they are not worth two boxes: the
+   * number on the receipt in the customer's hand, and the customer's name when
+   * the receipt is at home. Matched anywhere in either, because a receipt
+   * number is long — ORD-1757… and four characters — and what gets read out is
+   * the tail of it.
+   *
+   * Without this, returning something is limited to whatever the recent list
+   * still holds, which is a couple of days in a busy shop. That is what pushed
+   * returns off the register and into the back office.
+   */
+  const q = String(req.query.q || '').trim();
+  if (q) {
+    sql += ' AND (o.order_number LIKE ? OR c.name LIKE ? OR o.buyer_name LIKE ?)';
+    params.push(`%${q}%`, `%${q}%`, `%${q}%`);
+  }
+
   sql += ' ORDER BY o.created_at DESC LIMIT 500';
 
   const orders = db.prepare(sql).all(...params);
@@ -1172,7 +1202,14 @@ router.get('/:id', requireAuth, (req, res) => {
     LEFT JOIN customers c ON c.id = o.customer_id WHERE o.id = ?
   `).get(req.params.id);
   if (!order) return res.status(404).json({ error: 'Order not found' });
-  if (req.user.role !== 'admin' && order.cashier_id !== req.user.id) {
+  /*
+   * Your own, anybody's if you run the shop — or anybody's *at your own
+   * counter* if you are the one allowed to refund it. Same reason as the list
+   * above, and pinned to the branch the way that list is: reading another
+   * shop's sale is not something a refund needs.
+   */
+  const mayRefundHere = can(req.user, 'refunds') && order.branch_id === req.branchId;
+  if (req.user.role !== 'admin' && !mayRefundHere && order.cashier_id !== req.user.id) {
     return res.status(403).json({ error: 'Insufficient permissions' });
   }
   const items = itemsOfOrder(req.params.id);

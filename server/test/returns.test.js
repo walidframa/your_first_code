@@ -263,6 +263,95 @@ test('this sitting’s sales are the ones rung up since the drawer was opened', 
   await req('POST', '/cash/close', { countedUsd: 0, countedLbp: 0 }, adminToken);
 });
 
+/* --------------------------------------- finding the sale from the register */
+
+/**
+ * Returning something is not the hard part — finding the sale is.
+ *
+ * A customer comes back the next morning with a receipt, and the person on the
+ * counter is not the person who sold it. Until these rules, that cashier could
+ * neither see the sale in the list nor open it by id, so the return had to go
+ * to whoever runs the shop. Which is why the shop was doing returns in the back
+ * office instead of at the till.
+ */
+async function staff(username, permissions) {
+  const made = await req(
+    'POST',
+    '/users',
+    {
+      name: username,
+      username,
+      password: 'a-long-enough-password',
+      role: 'cashier',
+      permissions,
+    },
+    adminToken,
+  );
+  assert.equal(made.status, 201, JSON.stringify(made.json));
+  return (await req('POST', '/auth/login', { username, password: 'a-long-enough-password' })).json
+    .token;
+}
+
+test('whoever may refund a sale may find it, even if somebody else rang it up', async () => {
+  const seller = await staff('sold-it', ['register']);
+  const p = await product('BEV-001');
+  const sale = await req(
+    'POST',
+    '/orders',
+    { items: [{ productId: p.id, quantity: 1 }], paymentMethod: 'card' },
+    seller,
+  );
+  assert.equal(sale.status, 201, JSON.stringify(sale.json));
+  const id = sale.json.order.id;
+
+  // A cashier without the permission sees their own sales and no more.
+  const other = await staff('just-sells', ['register']);
+  const hidden = await req('GET', '/orders', null, other);
+  assert.ok(!hidden.json.orders.some((o) => o.id === id), 'somebody else’s sale is not theirs to read');
+  assert.equal((await req('GET', `/orders/${id}`, null, other)).status, 403);
+
+  // The one who may put the money back can find it and open it.
+  const returns = await staff('takes-it-back', ['register', 'refunds']);
+  const seen = await req('GET', '/orders', null, returns);
+  assert.ok(seen.json.orders.some((o) => o.id === id), 'the sale they may refund is visible');
+
+  const opened = await req('GET', `/orders/${id}`, null, returns);
+  assert.equal(opened.status, 200, JSON.stringify(opened.json));
+
+  // And can actually take the line back, which is the point of seeing it.
+  const back = await req(
+    'POST',
+    `/orders/${id}/return-line`,
+    { itemId: opened.json.items[0].id, quantity: 1 },
+    returns,
+  );
+  assert.equal(back.status, 200, JSON.stringify(back.json));
+});
+
+test('a sale is found by the tail of its receipt number, or by the customer', async () => {
+  const customer = (await req('POST', '/customers', { name: 'Rami Haddad' }, adminToken)).json.party;
+  const p = await product('BEV-001');
+  const sale = await req(
+    'POST',
+    '/orders',
+    { items: [{ productId: p.id, quantity: 1 }], paymentMethod: 'card', customerId: customer.id },
+    adminToken,
+  );
+  assert.equal(sale.status, 201, JSON.stringify(sale.json));
+  const number = sale.json.order.order_number;
+
+  // The tail, because that is the part somebody reads off a receipt.
+  const tail = number.slice(-4);
+  const byNumber = await req(`GET`, `/orders?q=${encodeURIComponent(tail)}`, null, adminToken);
+  assert.ok(byNumber.json.orders.some((o) => o.order_number === number), 'found by its number');
+
+  const byName = await req('GET', '/orders?q=Rami', null, adminToken);
+  assert.ok(byName.json.orders.some((o) => o.order_number === number), 'and by who bought it');
+
+  const nothing = await req('GET', '/orders?q=zzzz-no-such-sale', null, adminToken);
+  assert.equal(nothing.json.orders.length, 0, 'a search that matches nothing says so');
+});
+
 /* ------------------------------------------------------- sent again later */
 
 test('a sale sent twice under the same name is rung up once', async () => {
