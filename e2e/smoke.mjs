@@ -494,7 +494,9 @@ try {
   await shot('payment');
 
   await step('register shows the pound equivalent of the total', async () => {
-    await page.waitForSelector('text=In LBP');
+    // Under the dollars rather than on a row labelled "In LBP": the label was
+    // a line of the cart panel spent saying what "LL" already says.
+    await page.locator('aside').getByText(/^[\d,]+ LL$/).first().waitFor();
     await page.waitForSelector('text=/1 USD = [\\d,]+ LL/');
   });
 
