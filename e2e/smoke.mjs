@@ -1765,9 +1765,29 @@ try {
      * wants to correct is nearly always the last one, and the customer is still
      * at the counter.
      */
-    await page.click('aside button:has-text("Sales")');
-    await page.waitForSelector("[role=dialog] >> text=This register's sales", { timeout: 10000 });
-    await page.locator('[role=dialog] tbody tr').first().click();
+    await page.click('aside button:has-text("Returns")');
+    await page.waitForSelector('[role=dialog] >> text=Sales and returns', { timeout: 10000 });
+
+    /*
+     * Found by the number on the receipt, not by scrolling. The sitting is
+     * where the last sale is; a customer who comes back tomorrow is not on it,
+     * and the search is what stops that being a trip to the back office.
+     */
+    const receipt = (await page.locator('[role=dialog] tbody tr td').first().innerText()).trim();
+    const tail = receipt.slice(-4);
+    await page.fill('[role=dialog] input[name="findSale"]', tail);
+    /* The subtitle says what the list is answering, so it is the signal that
+       the search has actually landed — the sale being looked for is already on
+       screen before it does, and counting rows too early counts the sitting. */
+    await page.waitForSelector(`[role=dialog] >> text=matching “${tail}”`, { timeout: 10000 });
+
+    const refs = await page.locator('[role=dialog] tbody tr td:first-child').allInnerTexts();
+    if (!refs.length) throw new Error('the receipt number found nothing');
+    if (!refs.some((r) => r.trim() === receipt)) throw new Error(`${receipt} was not among the results`);
+    const stray = refs.find((r) => !r.includes(tail));
+    if (stray) throw new Error(`a search for ${tail} returned ${stray.trim()}`);
+
+    await page.locator(`[role=dialog] tbody tr:has-text("${receipt}")`).first().click();
     await page.waitForSelector('[role=dialog] >> text=Void the whole sale', { timeout: 10000 });
 
     await page.locator('[role=dialog]').last().getByRole('button', { name: 'Return' }).first().click();

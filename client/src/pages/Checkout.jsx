@@ -8,7 +8,7 @@ import {
   Minus,
   PauseCircle,
   Plus,
-  Receipt as ReceiptIcon,
+  RotateCcw,
   Rows3,
   Search,
   Send,
@@ -1834,12 +1834,21 @@ export default function Checkout() {
              * last one, so the way to it belongs here rather than three screens
              * into the back office.
              */}
+            {/*
+             * Named after the job it is pressed for.
+             *
+             * It said "Sales", which is what is behind it rather than what
+             * anybody comes to it wanting — and a shop looking for how to hand
+             * a customer their money back did not find it, then went to the
+             * back office to do something the register could already do. The
+             * takings are still one press away, and still in the subtitle.
+             */}
             <button
               onClick={() => setShowingSales(true)}
-              title="This register's sales, to void or return"
+              title="Find a sale to return an item or void it — and this sitting's takings"
               className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
             >
-              <ReceiptIcon size={13} /> {t('Sales')}
+              <RotateCcw size={13} /> {t('Returns')}
             </button>
             {/*
              * The shelf of parked sales, with its count on the face of it.

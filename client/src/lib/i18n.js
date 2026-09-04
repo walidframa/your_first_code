@@ -169,6 +169,7 @@ const AR = {
   'no credit': 'لا يوجد رصيد',
   card: 'بطاقة',
   Sales: 'المبيعات',
+  Returns: 'المرتجعات',
   'Buy in': 'شراء',
   Repair: 'تصليح',
   'Sell a SIM': 'بيع شريحة',

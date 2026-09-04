@@ -3,15 +3,15 @@ import { Printer, Receipt as ReceiptIcon, RotateCcw } from 'lucide-react';
 import api from '../api';
 import Receipt from './Receipt';
 import { useConfirm } from './ConfirmProvider';
+import ReturnLine from './ReturnLine';
+import { useNarrow } from '../lib/screen';
 import { when } from '../lib/when';
 import {
   Badge,
   Button,
   Card,
   EmptyState,
-  Input,
   Modal,
-  ModalActions,
   Skeleton,
   money,
   useToast,
@@ -42,6 +42,8 @@ export default function OrderTable({
   const [refunding, setRefunding] = useState(false);
   const [reprinting, setReprinting] = useState(null);
   const confirm = useConfirm();
+  /* One list or the other, never both in the DOM — see the rows below. */
+  const narrow = useNarrow();
   // The line whose return is being counted out.
   const [returning, setReturning] = useState(null);
 
@@ -105,6 +107,66 @@ export default function OrderTable({
         {rows.length === 0 ? (
           <EmptyState icon={ReceiptIcon} title="No sales yet" description="Completed sales will appear here." />
         ) : (
+          <>
+            {/*
+              * A phone gets rows, not a table.
+              *
+              * Six columns squeezed into 380px wrapped a receipt number over
+              * three lines and a date over four — unreadable at exactly the
+              * counter returns are done at. Same rows, same order, stacked:
+              * what it is and what it cost on the first line, when and who on
+              * the second.
+              *
+              * Chosen here rather than with `sm:hidden`, because a class only
+              * hides the second copy — both stay in the DOM. Every receipt
+              * number would then appear twice, which doubles a five-hundred-row
+              * list and makes "find the sale numbered X" ambiguous for anything
+              * reading the page, tests included.
+              */}
+            {narrow ? (
+              <ul className="divide-y divide-rule">
+                {rows.map((o) => (
+                  <li key={`${o.kind}-${o.id}`}>
+                    <button
+                      type="button"
+                      onClick={() => (o.kind === 'order' ? openOrder(o.id) : onOpenInvoice?.(o))}
+                      className="flex w-full flex-col gap-1 px-4 py-3 text-start transition hover:bg-slate-50/60"
+                    >
+                      <span className="flex w-full items-baseline justify-between gap-3">
+                        <span className="min-w-0 truncate text-sm font-medium text-slate-800">
+                          {o.ref}
+                          {o.kind === 'invoice' && (
+                            <span className="ms-1.5 text-xs font-normal text-slate-400">invoice</span>
+                          )}
+                        </span>
+                        <span className="tnum shrink-0 text-sm font-semibold text-slate-900">
+                          {money(o.total)}
+                        </span>
+                      </span>
+                      <span className="flex w-full items-center justify-between gap-3">
+                        <span className="min-w-0 truncate text-xs text-slate-500">
+                          {when(o.at)}
+                          {showCashier && (o.cashier_name || o.user_name)
+                            ? ` · ${o.kind === 'order' ? o.cashier_name : o.user_name}`
+                            : ''}
+                        </span>
+                        <span className="shrink-0">
+                          {o.kind === 'invoice' ? (
+                            <Badge tone={o.outstanding > 0 ? 'info' : 'good'}>
+                              {o.outstanding > 0 ? 'Owing' : 'Invoiced'}
+                            </Badge>
+                          ) : o.status === 'refunded' ? (
+                            <Badge tone="warning">Refunded</Badge>
+                          ) : (
+                            <Badge tone="good">Completed</Badge>
+                          )}
+                        </span>
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="border-b border-slate-100 text-left text-xs text-slate-500">
@@ -164,6 +226,8 @@ export default function OrderTable({
               </tbody>
             </table>
           </div>
+            )}
+          </>
         )}
       </Card>
 
@@ -279,76 +343,5 @@ export default function OrderTable({
         />
       )}
     </>
-  );
-}
-
-/**
- * How many of this line are coming back.
- *
- * Asked rather than assumed, because a customer returning two of five is the
- * ordinary case and a dialog that silently took all five would be handing over
- * money nobody asked for. What goes back is worked out on the server — it is
- * the line's share of what was actually paid, after the discount and with the
- * tax, which is not a figure to let the browser assert.
- */
-function ReturnLine({ order, item, onClose, onDone }) {
-  const toast = useToast();
-  const left = item.quantity - (item.returned_qty || 0);
-  const [quantity, setQuantity] = useState(String(left));
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-
-  async function submit() {
-    setBusy(true);
-    setError('');
-    try {
-      const res = await api.post(`/orders/${order.id}/return-line`, {
-        itemId: item.id,
-        quantity: Number(quantity),
-      });
-      toast(`${money(res.data.refunded)} back to the customer`);
-      onDone();
-    } catch (err) {
-      setError(err.response?.data?.error || 'Could not record that return');
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <Modal open onClose={onClose} size="sm" title={`Return ${item.name}`} subtitle={order.order_number}>
-      <Input
-        label="How many are coming back"
-        name="returnQuantity"
-        type="number"
-        min="1"
-        max={String(left)}
-        value={quantity}
-        onChange={(e) => setQuantity(e.target.value)}
-        hint={`${left} of ${item.quantity} still with the customer`}
-        autoFocus
-      />
-
-      <p className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-xs leading-relaxed text-slate-600">
-        What goes back is this line's share of what was paid — after the discount and with the tax —
-        not its price on the shelf. The stock, or the card's credit, comes back with it.
-      </p>
-
-      {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
-
-      <ModalActions>
-        <Button variant="secondary" className="flex-1" onClick={onClose}>
-          Cancel
-        </Button>
-        <Button
-          className="flex-1"
-          loading={busy}
-          disabled={!(Number(quantity) > 0) || Number(quantity) > left}
-          onClick={submit}
-        >
-          <RotateCcw size={15} /> Take it back
-        </Button>
-      </ModalActions>
-    </Modal>
   );
 }
