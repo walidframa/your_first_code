@@ -8,6 +8,7 @@ import { recordCostChange } from './costHistory.js';
 import { parseImeiList, isAvailable, receiveUnits, syncStockFromUnits } from './units.js';
 import { costOfLine } from './wallets.js';
 import { moveStock, stockAt } from './stock.js';
+import { componentsOf, movePartsStock } from './bundles.js';
 import { taxRate } from './settings.js';
 
 /*
@@ -275,6 +276,27 @@ function applyDocumentStock(doc, items, userId, direction, note) {
       continue;
     }
 
+    /*
+     * A pack is not stock — its parts are.
+     *
+     * Nothing sits on a shelf called "starter pack": selling one has to take a
+     * phone, a case and a protector off the shelves they really are on. The
+     * register has always known that; this did not, so an invoice for a pack
+     * checked the pack's own stock row, found the nought that is *supposed* to
+     * be there, and refused a sale the shop could perfectly well make — "not
+     * enough stock for fuse box (have 0, need 2)" with the fuse boxes on the
+     * shelf. And on the occasions it did go through, it moved that same
+     * meaningless row and left the parts uncounted.
+     *
+     * Symmetric with a delivery: receiving a pack from a supplier puts its
+     * parts on the shelf, because that is what arrived in the box.
+     */
+    const parts = componentsOf(product.id);
+    if (parts.length) {
+      movePackStock({ doc, item, product, parts, type, direction, userId, note, branchId, logMovement });
+      continue;
+    }
+
     const delta = Math.round(item.quantity) * type.stock * direction;
     const here = stockAt(branchId, product.id);
     const resulting = here + delta;
@@ -317,6 +339,62 @@ function applyDocumentStock(doc, items, userId, direction, note) {
   }
 }
 
+
+/**
+ * A pack's parts, on or off the shelves they actually sit on.
+ *
+ * `type.stock` is the document's own direction — +1 for a delivery, −1 for a
+ * sale — and `direction` flips it when the document is undone. Multiplied
+ * rather than branched on, so applying and cancelling cannot drift into two
+ * rules that disagree about what came off.
+ *
+ * The shortfall is named per part. "Not enough stock for fuse box" is unhelpful
+ * when the fuse boxes are on the shelf and it is the terminal blocks that ran
+ * out — the person reading it has to go and count three shelves to find out
+ * which one the message meant.
+ *
+ * What a pack is made of is read from the catalogue in both directions, so a
+ * definition changed between confirming an invoice and cancelling it would put
+ * back something other than what came off. The register avoids that by freezing
+ * each line's parts as it sells them; documents have no such table yet, and
+ * giving them one is its own change.
+ */
+function movePackStock({ item, product, parts, type, direction, userId, note, branchId, logMovement }) {
+  const packs = Math.round(item.quantity);
+  const sign = type.stock * direction;
+
+  if (sign < 0) {
+    for (const c of parts) {
+      const need = (Number(c.quantity) || 0) * packs;
+      const here = stockAt(branchId, c.productId);
+      if (here < need) {
+        throw new Error(
+          direction > 0
+            ? `Not enough ${c.name} for ${packs} × ${product.name} (have ${here}, need ${need})`
+            : `${c.name} would go below zero (have ${here}) — it has been sold on already`,
+        );
+      }
+    }
+  }
+
+  movePartsStock({ branchId, parts, quantity: packs, sign });
+
+  for (const c of parts) {
+    const delta = sign * (Number(c.quantity) || 0) * packs;
+    if (!delta) continue;
+    logMovement.run(
+      c.productId,
+      userId,
+      delta,
+      stockAt(branchId, c.productId),
+      sign > 0 ? 'received' : 'count_correction',
+      /* Named after the pack it moved for, or the history reads as somebody
+         adjusting three unrelated shelves at the same second. */
+      `${note} · in ${product.name}`,
+      branchId,
+    );
+  }
+}
 
 /**
  * Move a card line's credit instead of its stock.

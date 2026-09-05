@@ -1,4 +1,3 @@
-import { matchesSearch } from '../../lib/search';
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import {
@@ -6,6 +5,8 @@ import {
   ArrowUpRight,
   Banknote,
   Building2,
+  ChevronLeft,
+  ChevronRight,
   FileText,
   Pencil,
   Plus,
@@ -85,6 +86,15 @@ const CONFIG = {
     totalLabel: 'Total you owe',
   },
 };
+
+/*
+ * A page of the list.
+ *
+ * Fifty because that is about a screen and a half at a desk — enough that
+ * turning pages is rare, few enough that a shop with three thousand customers
+ * is not sending all three thousand down the wire to render forty of them.
+ */
+const PER_PAGE = 50;
 
 function BalanceBadge({ balance, config }) {
   if (Math.abs(balance) < 0.005) return <Badge tone="neutral">Settled</Badge>;
@@ -755,7 +765,18 @@ export default function Parties({ type }) {
    */
   const [params, setParams] = useSearchParams();
   const [parties, setParties] = useState(null);
+  /* What the whole filtered set comes to, and how many there are — read off
+     the server rather than added up from the page on screen, or the figure
+     would change every time somebody turned a page. */
+  const [summary, setSummary] = useState({ total: 0, owing: 0, credit: 0 });
   const [search, setSearch] = useState('');
+  /*
+   * Whose balance, which is the question this list is usually opened to answer:
+   * who owes money. Server-side, because the answer has to come from every
+   * customer rather than from the fifty currently loaded.
+   */
+  const [balance, setBalance] = useState('all');
+  const [page, setPage] = useState(0);
   const [editing, setEditing] = useState(undefined);
   const [viewing, setViewing] = useState(() => {
     const id = Number(params.get('id'));
@@ -796,8 +817,26 @@ export default function Parties({ type }) {
 
   const load = useCallback(() => {
     api
-      .get(`/${config.path}`, { params: showArchived ? { includeArchived: 'true' } : {} })
-      .then((res) => setParties(res.data.parties));
+      .get(`/${config.path}`, {
+        params: {
+          limit: PER_PAGE,
+          offset: page * PER_PAGE,
+          ...(search.trim() ? { search: search.trim() } : {}),
+          ...(balance === 'all' ? {} : { balance }),
+          /* Biggest debt at the top when that is what is being asked for; by
+             name otherwise, because that is how you look somebody up. */
+          ...(balance === 'owing' ? { sort: 'balance' } : {}),
+          ...(showArchived ? { includeArchived: 'true' } : {}),
+        },
+      })
+      .then((res) => {
+        setParties(res.data.parties);
+        setSummary({
+          total: res.data.total ?? res.data.parties.length,
+          owing: res.data.owing ?? 0,
+          credit: res.data.credit ?? 0,
+        });
+      });
 
     if (config.single !== 'customer') return;
     api
@@ -806,21 +845,31 @@ export default function Parties({ type }) {
       // list with no badges on it rather than a screen that will not load.
       .then((res) => setStaff(new Map(res.data.staff.map((e) => [e.customer_id, e]))))
       .catch(() => setStaff(new Map()));
-  }, [config.path, config.single, showArchived]);
+  }, [config.path, config.single, showArchived, page, search, balance]);
 
   useEffect(() => {
     setParties(null);
-    load();
-  }, [load]);
+    /* Debounced, or every keystroke is a query against a list of thousands.
+       Only the typing needs it — a filter or a page turn is one press. */
+    const timer = setTimeout(load, search.trim() ? 300 : 0);
+    return () => clearTimeout(timer);
+  }, [load, search]);
+
+  /*
+   * Page one, whenever the question changes.
+   *
+   * Staying on page four of a list that now has two pages shows an empty table
+   * over a count saying there are ninety of them, and the only way out is a
+   * button that says "previous".
+   */
+  useEffect(() => {
+    setPage(0);
+  }, [search, balance, showArchived]);
 
   const term = search.trim().toLowerCase();
-  /* Words in any order, so "ahmad halabi" finds HALABI AHMAD — see
-     lib/search.js. */
-  const visible = (parties || []).filter(
-    (p) => matchesSearch(term, p.name, p.phone, p.email),
-  );
-
-  const outstanding = (parties || []).reduce((sum, p) => sum + Math.max(0, p.balance), 0);
+  const visible = parties || [];
+  const pages = Math.max(1, Math.ceil(summary.total / PER_PAGE));
+  const outstanding = summary.owing;
 
   return (
     <div className="flex h-full flex-col">
@@ -839,19 +888,23 @@ export default function Parties({ type }) {
           <p className="text-xs text-slate-500">{config.totalLabel}</p>
           <p className="mt-1 text-3xl font-semibold text-slate-900">{money(outstanding)}</p>
           <p className="mt-0.5 text-xs text-slate-400">
-            {(() => {
-              const owing = (parties || []).filter((p) => p.balance > 0.005).length;
-              const all = (parties || []).length;
-              if (all === 0) return `No ${config.single}s yet`;
-              if (owing === 0) return `Every ${config.single} is square`;
-              return `across ${owing} of ${all} ${all === 1 ? config.single : `${config.single}s`}`;
-            })()}
+            {!parties
+              ? '\u00a0'
+              : summary.total === 0
+                ? term || balance !== 'all'
+                  ? `No ${config.single}s match that`
+                  : `No ${config.single}s yet`
+                : /* The count is of the set being looked at, so it agrees with
+                     the filter above it and with the pager below. */
+                  `${summary.total} ${summary.total === 1 ? config.single : `${config.single}s`}${
+                    summary.credit > 0.005 ? ` · ${money(summary.credit)} in credit` : ''
+                  }`}
           </p>
         </Card>
 
         <Card>
-          <div className="flex items-center gap-3 border-b border-slate-100 px-5 py-3">
-            <div className="relative flex-1">
+          <div className="flex flex-wrap items-center gap-3 border-b border-slate-100 px-5 py-3">
+            <div className="relative min-w-48 flex-1">
               <Search size={16} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-slate-400" />
               <input
                 value={search}
@@ -859,6 +912,38 @@ export default function Parties({ type }) {
                 placeholder="Search by name, phone or email…"
                 className="h-9 w-full rounded-lg bg-slate-100 pr-3 pl-9 text-sm ring-1 ring-transparent transition focus:bg-white focus:ring-brand-600 focus:outline-none"
               />
+            </div>
+            {/*
+              * Who owes, who is in credit, who is square.
+              *
+              * The question this screen is opened to answer is almost always
+              * the first of those — it is the list somebody works down with a
+              * phone in their hand — and until now it meant reading every row
+              * and doing the sorting by eye.
+              */}
+            <div className="flex shrink-0 items-center gap-1 rounded-lg bg-slate-100 p-0.5">
+              {[
+                ['all', 'All'],
+                ['owing', config.owesLabel],
+                ['credit', 'In credit'],
+                ['settled', 'Settled'],
+              ].map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setBalance(key)}
+                  aria-pressed={balance === key}
+                  data-balance-filter={key}
+                  className={cx(
+                    'rounded-md px-2.5 py-1 text-xs font-medium transition',
+                    balance === key
+                      ? 'bg-white text-slate-900 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-800',
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
             {/* Off by default: this list is the people you deal with, not
                 everyone who ever bought a charger. */}
@@ -974,6 +1059,37 @@ export default function Parties({ type }) {
                 ))}
               </tbody>
             </table>
+          )}
+
+          {/*
+            * Only when there is more than one, so a shop with forty customers
+            * never sees a control that does nothing.
+            */}
+          {parties && pages > 1 && (
+            <div className="flex items-center justify-between gap-3 border-t border-slate-100 px-5 py-3">
+              <p className="tnum text-xs text-slate-500">
+                {page * PER_PAGE + 1}–{Math.min((page + 1) * PER_PAGE, summary.total)} of{' '}
+                {summary.total}
+              </p>
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={page === 0}
+                  onClick={() => setPage((n) => Math.max(0, n - 1))}
+                >
+                  <ChevronLeft size={14} /> Previous
+                </Button>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={page + 1 >= pages}
+                  onClick={() => setPage((n) => n + 1)}
+                >
+                  Next <ChevronRight size={14} />
+                </Button>
+              </div>
+            </div>
           )}
         </Card>
       </div>

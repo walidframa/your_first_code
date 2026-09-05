@@ -193,6 +193,94 @@ test('refunding a bundle puts its parts back', async () => {
 
 /* ------------------------------------------------------ what it refuses */
 
+/* -------------------------------------------------- and on an invoice too */
+
+/**
+ * The same pack, sold on paper rather than at the till.
+ *
+ * Reported from the shop: an invoice for two fuse boxes was refused with "not
+ * enough stock for fuse box (have 0, need 2)" while the fuse boxes were on the
+ * shelf. The nought it found was the pack's own stock row, which is *supposed*
+ * to be nought — nothing sits on a shelf called "starter pack". The register
+ * had always known that; the invoice did not, so it both refused sales the shop
+ * could make and, when it did go through, moved that meaningless row and left
+ * the parts uncounted.
+ */
+async function invoiceFor(items, docType = 'sales_invoice') {
+  const party = (
+    await req('POST', docType === 'sales_invoice' ? '/customers' : '/suppliers', {
+      name: `Party ${Math.random().toString(36).slice(2, 8)}`,
+    })
+  ).json.party;
+  const { json } = await req('POST', '/documents', { docType, partyId: party.id, items });
+  return json.document;
+}
+
+const stockOf = async (id) => (await req('GET', `/products/${id}`)).json.product.stock;
+
+test('an invoice for a pack is not refused for the pack’s own empty shelf', async () => {
+  const phones = await stockOf(ids.phone);
+  const cases = await stockOf(ids.case);
+  const glasses = await stockOf(ids.glass);
+
+  const doc = await invoiceFor([{ productId: ids.pack, name: 'Starter pack', quantity: 2, price: 189 }]);
+  const confirmed = await req('POST', `/documents/${doc.id}/confirm`);
+  assert.equal(confirmed.status, 200, JSON.stringify(confirmed.json));
+
+  // And it came off the shelves the parts are really on: two packs is two
+  // phones, two cases and four glasses.
+  assert.equal(await stockOf(ids.phone), phones - 2, 'the phones came off');
+  assert.equal(await stockOf(ids.case), cases - 2, 'the cases came off');
+  assert.equal(await stockOf(ids.glass), glasses - 4, 'two glasses per pack');
+});
+
+test('cancelling that invoice puts the parts back, not the pack', async () => {
+  const phones = await stockOf(ids.phone);
+  const doc = await invoiceFor([{ productId: ids.pack, name: 'Starter pack', quantity: 1, price: 189 }]);
+  await req('POST', `/documents/${doc.id}/confirm`);
+  assert.equal(await stockOf(ids.phone), phones - 1);
+
+  const cancelled = await req('POST', `/documents/${doc.id}/cancel`);
+  assert.equal(cancelled.status, 200, JSON.stringify(cancelled.json));
+  assert.equal(await stockOf(ids.phone), phones, 'the phone went back on the shelf');
+  assert.equal(await stockOf(ids.pack), await stockOf(ids.pack), 'and the pack still has no shelf');
+});
+
+test('an invoice for more packs than the parts allow names the part that is short', async () => {
+  const phones = await stockOf(ids.phone);
+  const doc = await invoiceFor([
+    { productId: ids.pack, name: 'Starter pack', quantity: phones + 1, price: 189 },
+  ]);
+  const refused = await req('POST', `/documents/${doc.id}/confirm`);
+  assert.equal(refused.status, 400);
+  /* The part, not the pack: "not enough stock for Starter pack" sends somebody
+     to count a shelf that does not exist. */
+  assert.match(refused.json.error, /Galaxy A15/);
+  assert.equal(await stockOf(ids.phone), phones, 'and the refusal took nothing off');
+});
+
+test('a delivery of a pack puts its parts on the shelf', async () => {
+  const cases = await stockOf(ids.case);
+  const doc = await invoiceFor(
+    [{ productId: ids.pack, name: 'Starter pack', quantity: 3, price: 150, cost: 150 }],
+    'purchase_invoice',
+  );
+  const confirmed = await req('POST', `/documents/${doc.id}/confirm`);
+  assert.equal(confirmed.status, 200, JSON.stringify(confirmed.json));
+  assert.equal(await stockOf(ids.case), cases + 3, 'what arrived in the box is on the shelf');
+});
+
+test('the stock history says which pack moved the part', async () => {
+  const { json } = await req('GET', `/products/${ids.phone}/activity`);
+  assert.ok(
+    /* The pack's own document line names the pack, so a part that moved for it
+       has no document row of its own — the adjustment's note is the only trace
+       there is, which is exactly why it has to say what moved it. */
+    (json.activity || []).some((r) => String(r.detail || '').includes('in Starter pack')),
+    'a part that moved for a pack says so, or the history reads as an unexplained adjustment',
+  );
+});
+
 test('a bundle cannot contain itself', async () => {
   const { status, json } = await req('PUT', `/products/${ids.pack}/bundle`, {
     components: [{ productId: ids.pack, quantity: 1 }],
