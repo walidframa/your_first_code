@@ -218,6 +218,9 @@ export function sessionProfit(sessionId, branchId = null) {
      * that is too good.
      */
     unknownCostLines: report.register.unknownCostLines,
+    /* What that is worth. A count of lines does not tell somebody whether the
+       profit above is out by a dollar or is entirely made up. */
+    unknownCostValue: report.register.unknownCostValue,
   };
 }
 
@@ -439,8 +442,9 @@ export function renderCashReportPdf(report, { generatedBy = null, timeZone = 'UT
     if (p.unknownCostLines > 0) {
       doc.gap(2);
       doc.paragraph(
-        `${p.unknownCostLines} sold line${p.unknownCostLines === 1 ? '' : 's'} had no cost recorded, so ` +
-          'the profit above is overstated by whatever those goods cost.',
+        `${usd(p.unknownCostValue)} of this was sold with no cost recorded ` +
+          `(${p.unknownCostLines} line${p.unknownCostLines === 1 ? '' : 's'}), so that much of the ` +
+          'profit above is the selling price with nothing subtracted from it.',
         { size: 8, color: AMBER },
       );
     }

@@ -911,6 +911,22 @@ export default function CashBox({
               <span className="tnum text-sm font-semibold text-brand-700">
                 {money(profit.netProfit)}
               </span>
+              {/*
+                * Marked where it is read, not two presses away.
+                *
+                * A line sold with no cost recorded has its whole selling price
+                * counted as profit, which is how $21 in the drawer comes with
+                * $30 of profit beside it. The shop knew that figure was wrong
+                * and had nothing on screen saying why. The mark is the "why",
+                * and the panel below puts a number on it.
+                */}
+              {profit.unknownCostLines > 0 && (
+                <AlertTriangle
+                  size={12}
+                  className="shrink-0 text-amber-500"
+                  aria-label="Some of this has no cost recorded"
+                />
+              )}
               <span className={cx('text-[11px] text-brand-700/60', compact && 'hidden sm:inline')}>
                 {t('profit')}
               </span>
@@ -995,6 +1011,22 @@ export default function CashBox({
                     <span className="block text-brand-700/60">
                       {profit.refundedOrders} sale{profit.refundedOrders === 1 ? '' : 's'} refunded, and
                       already off these figures
+                    </span>
+                  )}
+                  {/*
+                    * Priced, not counted. "3 lines have no cost" leaves
+                    * somebody to work out whether that matters; "$30.00 of this
+                    * has no cost behind it", against a profit of $30.14, says
+                    * the figure is almost entirely unverified.
+                    */}
+                  {profit.unknownCostLines > 0 && (
+                    <span className="mt-1 block font-medium text-amber-700">
+                      {money(profit.unknownCostValue)} of this was sold with no cost recorded, so it
+                      is all counted as profit. Put the cost on{' '}
+                      {profit.unknownCostLines === 1
+                        ? 'that product'
+                        : `those ${profit.unknownCostLines} lines`}{' '}
+                      and this figure will be right.
                     </span>
                   )}
                 </span>

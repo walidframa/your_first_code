@@ -112,6 +112,35 @@ export function presetRange(preset, today = new Date(), zone = shopZone()) {
  * therefore built from the lines that are still sold, `quantity - returned_qty`,
  * and the order-level discount and tax are scaled by the share that stayed sold.
  */
+/*
+ * When a line's cost is not really known.
+ *
+ * A margin is the price minus what the thing cost, and a line with no cost
+ * behind it has no margin — it has a *selling price being reported as profit*.
+ * Which is how a shop comes to be shown $30.14 of profit on $21 in the drawer
+ * and knows, without being able to say why, that the figure is wrong.
+ *
+ * `cost IS NULL` was the only case counted, and it is the rare one:
+ * `products.cost` is `NOT NULL DEFAULT 0`, so a product priced in a hurry and
+ * never costed sells at a cost of **zero**, contributes nothing to subtract,
+ * and was counted as perfectly well known. The warning that exists for exactly
+ * this stayed silent.
+ *
+ * `price > 0` is what keeps a **gift** out of it: one is priced at nothing on
+ * purpose, so it never reaches the test. A **service** needs saying explicitly
+ * — an hour of somebody's labour has a price and no cost of goods, and without
+ * the clause a repair shop would carry a permanent false alarm about a figure
+ * that is perfectly right.
+ *
+ * Anything else sold for money with no cost recorded is a figure the shop
+ * should be told about rather than shown as profit.
+ */
+const UNKNOWN_ORDER_COST = `(oi.cost IS NULL
+   OR (oi.cost = 0 AND oi.price > 0 AND COALESCE(p.is_service, 0) = 0))`;
+
+const UNKNOWN_DOC_COST = `(di.cost IS NULL
+   OR (di.cost = 0 AND di.price > 0 AND COALESCE(p.is_service, 0) = 0))`;
+
 function registerSales(bounds, branchId = null) {
   /*
    * LEFT JOIN, and `kept` defaults to 1: an order carrying no lines at all is
@@ -145,10 +174,16 @@ function registerSales(bounds, branchId = null) {
   const cost = db
     .prepare(
       `SELECT COALESCE(SUM((oi.quantity - oi.returned_qty) * COALESCE(oi.cost, 0)), 0) AS cost,
-              SUM(CASE WHEN oi.cost IS NULL AND oi.quantity > oi.returned_qty THEN 1 ELSE 0 END)
-                AS unknown_lines
+              SUM(CASE WHEN ${UNKNOWN_ORDER_COST} AND oi.quantity > oi.returned_qty
+                       THEN 1 ELSE 0 END) AS unknown_lines,
+              /* And what it is worth, because a count of lines does not say
+                 whether the figure above is off by a dollar or by all of it. */
+              COALESCE(SUM(CASE WHEN ${UNKNOWN_ORDER_COST}
+                                THEN (oi.quantity - oi.returned_qty) * oi.price
+                                ELSE 0 END), 0) AS unknown_value
        FROM order_items oi
        JOIN orders o ON o.id = oi.order_id
+       LEFT JOIN products p ON p.id = oi.product_id
        WHERE o.status = 'completed' AND o.created_at BETWEEN ? AND ?
          AND (? IS NULL OR o.branch_id = ?)`,
     )
@@ -161,6 +196,7 @@ function registerSales(bounds, branchId = null) {
     discount: round2(row.discount),
     cost: round2(cost.cost),
     unknownCostLines: cost.unknown_lines || 0,
+    unknownCostValue: round2(cost.unknown_value || 0),
   };
 }
 
@@ -180,9 +216,12 @@ function invoiceSales(bounds, branchId = null) {
   const cost = db
     .prepare(
       `SELECT COALESCE(SUM(di.quantity * COALESCE(di.cost, 0)), 0) AS cost,
-              SUM(CASE WHEN di.cost IS NULL THEN 1 ELSE 0 END) AS unknown_lines
+              SUM(CASE WHEN ${UNKNOWN_DOC_COST} THEN 1 ELSE 0 END) AS unknown_lines,
+              COALESCE(SUM(CASE WHEN ${UNKNOWN_DOC_COST}
+                                THEN di.quantity * di.price ELSE 0 END), 0) AS unknown_value
        FROM document_items di
        JOIN documents d ON d.id = di.document_id
+       LEFT JOIN products p ON p.id = di.product_id
        WHERE d.doc_type = 'sales_invoice' AND d.status = 'confirmed'
          AND COALESCE(d.confirmed_at, d.created_at) BETWEEN ? AND ?
          AND (? IS NULL OR d.branch_id = ?)`,
@@ -195,6 +234,7 @@ function invoiceSales(bounds, branchId = null) {
     tax: round2(row.tax),
     cost: round2(cost.cost),
     unknownCostLines: cost.unknown_lines || 0,
+    unknownCostValue: round2(cost.unknown_value || 0),
   };
 }
 
@@ -437,6 +477,7 @@ export function profitReport({ from = null, to = null, includeExpenses = true, b
      * quietly reporting a number that is too good.
      */
     unknownCostLines: register.unknownCostLines + invoices.unknownCostLines,
+    unknownCostValue: round2(register.unknownCostValue + invoices.unknownCostValue),
   };
 }
 
@@ -504,5 +545,6 @@ export function profitForSession(
     refunds: refunds(bounds, branchId),
     topProducts: withProducts ? byProduct(bounds, 10, branchId) : [],
     unknownCostLines: register.unknownCostLines + invoices.unknownCostLines,
+    unknownCostValue: round2(register.unknownCostValue + invoices.unknownCostValue),
   };
 }
