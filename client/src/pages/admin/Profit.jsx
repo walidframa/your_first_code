@@ -176,8 +176,18 @@ export default function Profit() {
               <p className="flex items-start gap-2 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800 ring-1 ring-amber-200">
                 <AlertTriangle size={16} className="mt-0.5 shrink-0" />
                 <span>
-                  {report.unknownCostLines} sold line{report.unknownCostLines === 1 ? ' has' : 's have'} no
-                  cost recorded — sold before costs were kept on the line. Profit for those is overstated.
+                  {/*
+                    * Priced, because the count alone does not say whether this
+                    * matters. Against a profit of $30.14, "$30.00 of it" is the
+                    * difference between a rounding note and a figure that is
+                    * essentially made up.
+                    */}
+                  <strong className="font-semibold">{money(report.unknownCostValue)}</strong> of
+                  what was sold has no cost recorded, so its whole selling price is counted here as
+                  profit — {report.unknownCostLines} line
+                  {report.unknownCostLines === 1 ? '' : 's'} in all. Put the cost on{' '}
+                  {report.unknownCostLines === 1 ? 'that product' : 'those products'} and this figure
+                  will be right.
                 </span>
               </p>
             )}

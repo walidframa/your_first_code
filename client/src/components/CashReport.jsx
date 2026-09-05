@@ -166,8 +166,9 @@ export default function CashReport({ sessionId, onClose }) {
           ))}
           {profit.unknownCostLines > 0 && (
             <p className="col-span-full text-xs text-amber-700">
-              {profit.unknownCostLines} sold line{profit.unknownCostLines === 1 ? '' : 's'} had no cost
-              recorded, so this is overstated by whatever those goods cost.
+              {money(profit.unknownCostValue)} of this was sold with no cost recorded —{' '}
+              {profit.unknownCostLines} line{profit.unknownCostLines === 1 ? '' : 's'} — so that much
+              of it is counted as profit in full.
             </p>
           )}
         </div>

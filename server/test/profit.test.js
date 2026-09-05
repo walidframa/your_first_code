@@ -60,6 +60,9 @@ const today = new Date().toISOString().slice(0, 10);
 /** Money compares to the cent, not to the float. */
 const round = (n) => Math.round(n * 100) / 100;
 
+/** Today's figures, which is what the shop is looking at when it complains. */
+const day = async () => (await req('GET', '/expenses/profit?preset=today', null, adminToken)).json;
+
 before(async () => {
   workDir = mkdtempSync(path.join(tmpdir(), 'pos-profit-'));
   const env = {
@@ -285,6 +288,115 @@ test('what made the most counts invoiced sales, not only the register', async ()
    */
   assert.ok(report.invoices.invoices >= 1, 'the invoice is in the totals, not only in the table');
   assert.ok(report.invoices.revenue >= 80, `invoiced revenue reached the report: ${report.invoices.revenue}`);
+});
+
+/* ------------------------------------------- a profit with nothing behind it */
+
+/**
+ * The complaint, in the shop's own words: "the profit is not logical."
+ *
+ * $21 in the drawer and $30.14 of profit beside it. Not a sum going wrong — a
+ * product priced in a hurry and never costed. `products.cost` is NOT NULL
+ * DEFAULT 0, so such a line sells at a cost of nought, contributes nothing to
+ * subtract, and its whole selling price is reported as profit.
+ *
+ * The warning built for exactly this only counted `cost IS NULL`, which is the
+ * rare case — a line from before costs were kept. The ordinary case, a zero,
+ * sailed past it, so the shop was shown a wrong figure with nothing beside it
+ * saying why.
+ */
+test('a product sold with no cost is not silently all profit', async () => {
+  const made = await req(
+    'POST',
+    '/products',
+    { name: 'Fuse box', sku: 'NOCOST-1', price: 30, stock: 10 },
+    adminToken,
+  );
+  assert.equal(made.status, 201, JSON.stringify(made.json));
+  assert.equal(made.json.product.cost, 0, 'a cost nobody typed is stored as nought, not as null');
+
+  const before = await day();
+  await req(
+    'POST',
+    '/orders',
+    { items: [{ productId: made.json.product.id, quantity: 1 }], paymentMethod: 'card' },
+    adminToken,
+  );
+  const after = await day();
+
+  // The figure itself is unchanged — it is the shop's own data, and quietly
+  // dropping the sale would lose revenue as well.
+  // $30 plus this shop's 8%.
+  assert.equal(
+    round(after.grossProfit - before.grossProfit),
+    32.4,
+    'with no cost to subtract the whole price still lands in profit',
+  );
+
+  // What is new is that it says so, and says how much of the figure it is.
+  assert.equal(after.unknownCostLines, before.unknownCostLines + 1);
+  /* The goods, not the tax. What is unverified is the margin on the thing
+     sold; the tax was never anybody's profit. */
+  assert.equal(round(after.unknownCostValue - before.unknownCostValue), 30);
+});
+
+test('a properly costed sale raises no such warning', async () => {
+  const before = await day();
+  const item = await product('BEV-001'); // costs the shop 1.10
+  await req(
+    'POST',
+    '/orders',
+    { items: [{ productId: item.id, quantity: 2 }], paymentMethod: 'card' },
+    adminToken,
+  );
+  const after = await day();
+  assert.equal(after.unknownCostLines, before.unknownCostLines, 'a known cost is not a warning');
+  assert.equal(after.unknownCostValue, before.unknownCostValue);
+});
+
+test('an hour of labour is not a missing cost', async () => {
+  /*
+   * A service has no cost of goods and never will. Counting it would leave a
+   * repair shop with a permanent alarm about a figure that is perfectly right,
+   * which is the fastest way to teach somebody to ignore a warning.
+   */
+  const service = await req(
+    'POST',
+    '/products',
+    { name: 'Screen fitting', sku: 'SVC-FIT', price: 15, is_service: true },
+    adminToken,
+  );
+  assert.equal(service.status, 201, JSON.stringify(service.json));
+
+  const before = await day();
+  await req(
+    'POST',
+    '/orders',
+    { items: [{ productId: service.json.product.id, quantity: 1 }], paymentMethod: 'card' },
+    adminToken,
+  );
+  const after = await day();
+  assert.equal(round(after.grossProfit - before.grossProfit), 16.2, 'the labour is still profit');
+  assert.equal(after.unknownCostLines, before.unknownCostLines, 'and it is not a missing cost');
+});
+
+test('a gift given away is not a missing cost either', async () => {
+  /* It is priced at nothing on purpose, so the "sold for money" half of the
+     test never lets it through — no clause of its own is needed, and this is
+     here to keep it that way. */
+  const item = await product('BEV-001');
+  const before = await day();
+  await req(
+    'POST',
+    '/orders',
+    {
+      items: [{ productId: item.id, quantity: 1, isGift: true }],
+      paymentMethod: 'card',
+    },
+    adminToken,
+  );
+  const after = await day();
+  assert.equal(after.unknownCostLines, before.unknownCostLines, 'priced at nothing on purpose');
 });
 
 test('expenses turn gross profit into net profit', async () => {
