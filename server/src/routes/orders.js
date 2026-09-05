@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import { db, transaction } from '../db.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { can } from '../lib/permissions.js';
+import { productForCode } from '../lib/barcodes.js';
 import { getSettings, taxRate } from '../lib/settings.js';
 import { addEntry, balanceOf, creditCheck } from '../lib/accounts.js';
 import { dominantMethod, readTenders, recordTenders, tenderSplit, tendersFor } from '../lib/tenders.js';
@@ -1184,15 +1185,61 @@ router.get('/', requireAuth, (req, res) => {
    * returns off the register and into the back office.
    */
   const q = String(req.query.q || '').trim();
+
+  /*
+   * A scanned barcode is a different question, and the box is the same box.
+   *
+   * At a counter the thing in somebody's hand is usually the *product*, not the
+   * receipt — "this charger came back, when did we sell it?" — and until now
+   * the scanner going off in this box found nothing at all. So a code that
+   * belongs to a product resolves to that product, and the sales that contain
+   * it become the answer.
+   */
+  const scanned = q ? productForCode(q) : null;
+
   if (q) {
-    sql += ' AND (o.order_number LIKE ? OR c.name LIKE ? OR o.buyer_name LIKE ?)';
-    params.push(`%${q}%`, `%${q}%`, `%${q}%`);
+    sql += ` AND (o.order_number LIKE ? OR c.name LIKE ? OR o.buyer_name LIKE ?
+                  OR EXISTS (SELECT 1 FROM order_items oi
+                              WHERE oi.order_id = o.id
+                                AND (${scanned ? 'oi.product_id = ?' : 'lower(oi.name) LIKE ?'})))`;
+    params.push(`%${q}%`, `%${q}%`, `%${q}%`, scanned ? scanned.id : `%${q.toLowerCase()}%`);
   }
 
   sql += ' ORDER BY o.created_at DESC LIMIT 500';
 
   const orders = db.prepare(sql).all(...params);
-  res.json({ orders });
+
+  /*
+   * When the query was a product, each sale carries that product's line.
+   *
+   * Which is what makes this a *sales history for the thing being handed back*
+   * rather than a list of receipts: how many went out on each one, at what
+   * price, and how many have already come back — enough to return it from
+   * here, off a sale that had five other things on it.
+   */
+  let lines;
+  if (scanned && orders.length) {
+    const holes = orders.map(() => '?').join(',');
+    const rows = db
+      .prepare(
+        `SELECT id, order_id, name, quantity, returned_qty, price, unit_id
+           FROM order_items
+          WHERE product_id = ? AND order_id IN (${holes})`,
+      )
+      .all(scanned.id, ...orders.map((o) => o.id));
+    lines = new Map();
+    /* A product can appear twice on one sale — two lines at two prices, which
+       is what haggling over the second one looks like. Kept as a list. */
+    for (const row of rows) {
+      if (!lines.has(row.order_id)) lines.set(row.order_id, []);
+      lines.get(row.order_id).push(row);
+    }
+  }
+
+  res.json({
+    orders: lines ? orders.map((o) => ({ ...o, lines: lines.get(o.id) || [] })) : orders,
+    product: scanned || null,
+  });
 });
 
 router.get('/:id', requireAuth, (req, res) => {

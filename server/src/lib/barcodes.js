@@ -56,6 +56,31 @@ export function ownerOf(code) {
 }
 
 /**
+ * The product a scanned code or a typed SKU names, if any.
+ *
+ * Deliberately not limited to products still on sale. This answers "what is
+ * this thing in my hand" for a screen about *past* sales, and a charger the
+ * shop stopped stocking last year is exactly the sort of thing somebody brings
+ * back. Refusing to recognise it would send them away over a flag that has
+ * nothing to do with the question.
+ */
+export function productForCode(code) {
+  const typed = String(code ?? '').trim();
+  if (!typed) return null;
+  return (
+    db
+      .prepare(
+        `SELECT id, name, sku, price FROM products
+          WHERE lower(sku) = lower(?)
+             OR EXISTS (SELECT 1 FROM product_barcodes b
+                         WHERE b.product_id = products.id AND b.barcode = ?)
+          LIMIT 1`,
+      )
+      .get(typed, normaliseBarcode(typed)) || null
+  );
+}
+
+/**
  * Replace a product's barcodes with exactly this list.
  *
  * Order is meaning: the first is the primary. Duplicates within the list are
