@@ -352,6 +352,133 @@ test('a sale is found by the tail of its receipt number, or by the customer', as
   assert.equal(nothing.json.orders.length, 0, 'a search that matches nothing says so');
 });
 
+/* ------------------------------------ finding the sale from the thing itself */
+
+/**
+ * A customer with no receipt, and a charger in their hand.
+ *
+ * The ordinary case at a counter, and the one the search could not answer: a
+ * receipt number is on paper somebody has thrown away, but the product is right
+ * there. So a scanned code finds the sales it went out on, and each of those
+ * carries the line — which is what makes it a history of the thing rather than
+ * a list of receipts.
+ */
+test('scanning a product finds the sales it went out on', async () => {
+  const p = await product('BEV-001');
+  const before = await req('GET', '/orders?q=BEV-001', null, adminToken);
+  const already = before.json.orders.length;
+
+  const sale = await sell('BEV-001', 2);
+
+  const found = await req('GET', '/orders?q=BEV-001', null, adminToken);
+  assert.equal(found.status, 200);
+  assert.equal(found.json.product?.id, p.id, 'the code resolved to the product it names');
+  assert.equal(found.json.orders.length, already + 1);
+
+  const row = found.json.orders.find((o) => o.id === sale.order.id);
+  assert.ok(row, 'the sale just made is in the list');
+  assert.equal(row.lines.length, 1, 'and it carries that product’s line');
+  assert.equal(row.lines[0].quantity, 2);
+  assert.equal(row.lines[0].returned_qty, 0);
+});
+
+test('a barcode finds it, not only the SKU', async () => {
+  const p = await product('BEV-001');
+  const code = `RTN-${Date.now()}`;
+  const saved = await req(
+    'PUT',
+    `/products/${p.id}`,
+    { barcodes: [...(p.barcodes || []), code] },
+    adminToken,
+  );
+  assert.equal(saved.status, 200, JSON.stringify(saved.json));
+
+  const found = await req('GET', `/orders?q=${code}`, null, adminToken);
+  assert.equal(found.json.product?.id, p.id, 'the scanner’s number is the product’s number');
+  assert.ok(found.json.orders.length > 0);
+});
+
+test('the line comes back off a sale that had other things on it', async () => {
+  /*
+   * The whole point. Voiding a five-line sale to take one charger back loses
+   * the sale's own prices and its place in the day, and the shop will not do
+   * it — so it hands the money over and writes nothing down.
+   */
+  const bev = await product('BEV-001');
+  const other = await product('BAK-001');
+  const sale = await req(
+    'POST',
+    '/orders',
+    {
+      items: [
+        { productId: other.id, quantity: 1 },
+        { productId: bev.id, quantity: 3 },
+        { productId: other.id, quantity: 2 },
+      ],
+      paymentMethod: 'card',
+    },
+    adminToken,
+  );
+  assert.equal(sale.status, 201, JSON.stringify(sale.json));
+
+  const found = await req('GET', '/orders?q=BEV-001', null, adminToken);
+  const row = found.json.orders.find((o) => o.id === sale.json.order.id);
+  assert.equal(row.lines.length, 1, 'only the scanned product’s line, not the whole sale');
+
+  const back = await req(
+    'POST',
+    `/orders/${sale.json.order.id}/return-line`,
+    { itemId: row.lines[0].id, quantity: 1 },
+    adminToken,
+  );
+  assert.equal(back.status, 200, JSON.stringify(back.json));
+
+  const after = await req('GET', `/orders/${sale.json.order.id}`, null, adminToken);
+  assert.equal(after.json.order.status, 'completed', 'the rest of the sale still stands');
+  const line = after.json.items.find((i) => i.id === row.lines[0].id);
+  assert.equal(line.returned_qty, 1);
+  assert.equal(
+    after.json.items.filter((i) => i.product_id === other.id).every((i) => i.returned_qty === 0),
+    true,
+    'and nothing else on it moved',
+  );
+});
+
+test('what is still with the customer is what the row reports', async () => {
+  const bev = await product('BEV-001');
+  const sale = await sell('BEV-001', 4);
+  const first = await req('GET', '/orders?q=BEV-001', null, adminToken);
+  const line = first.json.orders.find((o) => o.id === sale.order.id).lines[0];
+
+  await req('POST', `/orders/${sale.order.id}/return-line`, { itemId: line.id, quantity: 3 }, adminToken);
+
+  const again = await req('GET', `/orders?q=${bev.sku}`, null, adminToken);
+  const row = again.json.orders.find((o) => o.id === sale.order.id);
+  assert.equal(row.lines[0].quantity, 4);
+  assert.equal(row.lines[0].returned_qty, 3, 'so one of the four is still out there');
+});
+
+test('a code nobody sells is a search, not a product', async () => {
+  const nothing = await req('GET', '/orders?q=NO-SUCH-CODE-9182', null, adminToken);
+  assert.equal(nothing.status, 200);
+  assert.equal(nothing.json.product, null, 'it did not invent a product');
+  assert.deepEqual(nothing.json.orders, []);
+});
+
+test('a receipt number still finds its sale, and carries no lines', async () => {
+  const sale = await sell('BEV-001', 1);
+  const found = await req(
+    'GET',
+    `/orders?q=${encodeURIComponent(sale.order.order_number.slice(-4))}`,
+    null,
+    adminToken,
+  );
+  const row = found.json.orders.find((o) => o.id === sale.order.id);
+  assert.ok(row, 'the receipt search is untouched');
+  assert.equal(found.json.product, null);
+  assert.equal(row.lines, undefined, 'and a receipt match is about the sale, not one product');
+});
+
 /* ------------------------------------------------------- sent again later */
 
 test('a sale sent twice under the same name is rung up once', async () => {

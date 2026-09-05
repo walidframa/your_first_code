@@ -1813,6 +1813,34 @@ try {
     if (state.status !== 'completed') throw new Error('one item back should not void the sale');
     if (state.returned !== 1) throw new Error(`the line says ${state.returned} came back, not 1`);
 
+    /*
+     * And the way a return actually starts: the customer has no receipt, but
+     * they are holding the thing. Scanning it into the same box asks a
+     * different question — where did *this* go — and the sales it went out on
+     * are the answer, each with its own line ready to come back.
+     */
+    const sku = await page.evaluate(async () => {
+      const h = { Authorization: `Bearer ${localStorage.getItem('pos_token')}` };
+      const list = await (await fetch('/api/orders?scope=sitting', { headers: h })).json();
+      const detail = await (await fetch(`/api/orders/${list.orders[0].id}`, { headers: h })).json();
+      const item = detail.items[0];
+      const product = await (await fetch(`/api/products/${item.product_id}`, { headers: h })).json();
+      return { sku: product.product.sku, name: item.name };
+    });
+
+    await page.fill('[role=dialog] input[name="findSale"]', sku.sku);
+    await page.waitForSelector(`[role=dialog] >> text=/${sku.name} · \\d+ sold across/`, {
+      timeout: 10000,
+    });
+    /* The list is the product's sales now, not a table of receipts. */
+    const backable = await page
+      .locator('[role=dialog] li:has-text("ORD-")')
+      .getByRole('button', { name: /^Return/ })
+      .count();
+    if (backable === 0) {
+      throw new Error('a scanned product offers no way to take it back');
+    }
+
     await closeDialog();
   });
 
