@@ -8,7 +8,6 @@ import {
   DEFAULT_CREDIT_LIMIT,
   PARTY_TABLES,
   addEntry,
-  balanceMap,
   balanceOf,
   listEntries,
   recordPayment,
@@ -27,27 +26,94 @@ export function partyRouter(partyType) {
   const table = PARTY_TABLES[partyType];
   const isCustomer = partyType === 'customer';
 
-  /** Cashiers need to pick a customer at the register; the rest is admin-only. */
+  /**
+   * Cashiers need to pick a customer at the register; the rest is admin-only.
+   *
+   * **Pagination is opt-in.** Without `limit` this answers with everybody, the
+   * way it always has — because the register's customer picker searches the
+   * list it holds, and a page of fifty would quietly become "this shop has
+   * fifty customers" at the counter. The screen that wants pages asks for
+   * them; nothing else has to change.
+   *
+   * Balance is a sum over the ledger rather than a column, so it is joined
+   * rather than computed in JavaScript afterwards: filtering and ordering by
+   * what somebody owes has to happen before the page is cut, or page two is a
+   * different question from page one.
+   */
   router.get('/', requireAuth, (req, res) => {
-    const { search, includeArchived } = req.query;
+    const { search, includeArchived, balance = 'all', sort = 'name' } = req.query;
+
+    const where = [];
+    const params = [];
+    if (includeArchived !== 'true') where.push('p.active = 1');
+
+    /*
+     * Words, in any order, each one somewhere among the fields — the same rule
+     * as lib/search.js on the client, which this replaces now that the list is
+     * paged. "ahmad halabi" has to find HALABI AHMAD, or a search that used to
+     * work stops working the day the list grows past one page.
+     */
+    for (const word of String(search || '').trim().toLowerCase().split(/\s+/).filter(Boolean)) {
+      where.push('(lower(p.name) LIKE ? OR p.phone LIKE ? OR lower(p.email) LIKE ?)');
+      params.push(`%${word}%`, `%${word}%`, `%${word}%`);
+    }
+
+    /*
+     * Half a cent, not zero. A balance is a sum of rounded figures, so an
+     * account that has been paid off exactly can land on 0.004 and would
+     * otherwise appear under "owing" for ever — which is precisely the list
+     * somebody works through to chase people.
+     */
+    if (balance === 'owing') where.push('bal.balance > 0.005');
+    else if (balance === 'credit') where.push('bal.balance < -0.005');
+    else if (balance === 'settled') where.push('ABS(COALESCE(bal.balance, 0)) <= 0.005');
+
+    const order =
+      {
+        /* Biggest debt first: the list is read to decide who to ring. */
+        balance: 'COALESCE(bal.balance, 0) DESC, p.name',
+        owed: 'COALESCE(bal.balance, 0) DESC, p.name',
+        credit: 'COALESCE(bal.balance, 0) ASC, p.name',
+        recent: 'p.id DESC',
+      }[sort] || 'p.name';
+
+    const from = `FROM ${table} p
+       LEFT JOIN (SELECT party_id, ROUND(COALESCE(SUM(amount_usd), 0), 2) AS balance
+                    FROM account_entries WHERE party_type = ? GROUP BY party_id) bal
+              ON bal.party_id = p.id
+      ${where.length ? `WHERE ${where.join(' AND ')}` : ''}`;
+
+    const total = db.prepare(`SELECT COUNT(*) AS n ${from}`).get(partyType, ...params).n;
+
+    /*
+     * What the whole filtered set adds up to, not just the page on screen. A
+     * total that changed when somebody turned to page two would be worse than
+     * no total at all.
+     */
+    const sums = db
+      .prepare(
+        `SELECT COALESCE(SUM(CASE WHEN bal.balance > 0 THEN bal.balance ELSE 0 END), 0) AS owing,
+                COALESCE(SUM(CASE WHEN bal.balance < 0 THEN -bal.balance ELSE 0 END), 0) AS credit
+         ${from}`,
+      )
+      .get(partyType, ...params);
+
+    const paged = req.query.limit !== undefined;
+    const limit = paged ? Math.min(Math.max(Number(req.query.limit) || 50, 1), 500) : -1;
+    const offset = Math.max(0, Number(req.query.offset) || 0);
+
     const rows = db
-      .prepare(`SELECT * FROM ${table} ${includeArchived === 'true' ? '' : 'WHERE active = 1'} ORDER BY name`)
-      .all();
+      .prepare(`SELECT p.*, COALESCE(bal.balance, 0) AS balance ${from} ORDER BY ${order} LIMIT ? OFFSET ?`)
+      .all(partyType, ...params, limit, paged ? offset : 0);
 
-    const balances = balanceMap(partyType);
-    const term = String(search || '').trim().toLowerCase();
-
-    const parties = rows
-      .map((r) => ({ ...r, active: !!r.active, balance: balances.get(r.id) ?? 0 }))
-      .filter(
-        (r) =>
-          !term ||
-          r.name.toLowerCase().includes(term) ||
-          (r.phone || '').includes(term) ||
-          (r.email || '').toLowerCase().includes(term),
-      );
-
-    res.json({ parties });
+    res.json({
+      parties: rows.map((r) => ({ ...r, active: !!r.active, balance: round2(r.balance) })),
+      total,
+      owing: round2(sums.owing),
+      credit: round2(sums.credit),
+      limit: paged ? limit : null,
+      offset: paged ? offset : 0,
+    });
   });
 
   /**
