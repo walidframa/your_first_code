@@ -5912,10 +5912,16 @@ try {
      * line, with the heading copied onto the cell by TableCards.jsx. What is
      * checked here is the thing that was actually wrong: that nothing on the
      * screen scrolls sideways.
+     *
+     * Checked on the customers list rather than the catalogue. The catalogue
+     * now opts out — see the step below — because eleven columns stacked is
+     * eleven lines per product, and a list nobody can scan is not an
+     * improvement on a list nobody can read. Everything else in the app is a
+     * document of a dozen rows, where the card is exactly right.
      */
     await page.setViewportSize({ width: 390, height: 844 });
     try {
-      await page.goto(`${BASE_URL}/admin/products`, { waitUntil: 'networkidle' });
+      await page.goto(`${BASE_URL}/admin/customers`, { waitUntil: 'networkidle' });
       await page.waitForSelector('table.cards', { timeout: 20000 });
 
       const measured = await page.evaluate(() => {
@@ -5945,6 +5951,72 @@ try {
       }
       if (!measured.rowStacked) {
         throw new Error('the row is still laid out as a row, not a card');
+      }
+    } finally {
+      await page.setViewportSize({ width: 1440, height: 900 });
+    }
+  });
+
+  await step('the catalogue on a phone is a list you can scan, not a wall of cards', async () => {
+    /*
+     * The complaint: "searching the products using my phone is so frustrating,
+     * specially when the keyboard is shown."
+     *
+     * Stacked as cards, one product was Category / Stock / Price / Wholesale /
+     * Average cost / Margin down the screen — so with a keyboard up there was
+     * room for a fraction of one result, and choosing between two of them meant
+     * scrolling. A catalogue is read by scanning down it, which needs rows.
+     *
+     * And while a search is running the page title steps aside, because that is
+     * the moment there is least room and the least use for it.
+     */
+    await page.setViewportSize({ width: 390, height: 500 });
+    try {
+      await page.goto(`${BASE_URL}/admin/products`, { waitUntil: 'networkidle' });
+      await page.waitForSelector('tbody tr', { timeout: 20000 });
+      await page.fill('input[placeholder*="Search"]', 'a');
+      await page.waitForTimeout(400);
+
+      const measured = await page.evaluate(() => {
+        const rows = [...document.querySelectorAll('tbody tr')].filter(
+          (r) => !r.hasAttribute('aria-hidden'),
+        );
+        const vh = window.innerHeight;
+        return {
+          rowHeight: rows[0] ? Math.round(rows[0].getBoundingClientRect().height) : -1,
+          whole: rows.filter((r) => {
+            const b = r.getBoundingClientRect();
+            return b.height > 0 && b.top >= 0 && b.bottom <= vh;
+          }).length,
+          header: document.querySelectorAll('[data-page-header]').length,
+          sideways: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+          focused: document.activeElement?.getAttribute('placeholder') || null,
+        };
+      });
+
+      if (measured.rowHeight > 90) {
+        throw new Error(`a product is ${measured.rowHeight}px tall — still stacked as a card`);
+      }
+      if (measured.whole < 4) {
+        throw new Error(`only ${measured.whole} products fit with the keyboard up`);
+      }
+      if (measured.header !== 0) {
+        throw new Error('the page title did not step aside while searching');
+      }
+      if (measured.sideways > 0) {
+        throw new Error(`the catalogue scrolls ${measured.sideways}px sideways`);
+      }
+      /* The header unmounts on the first letter, and if that took the focus
+         with it the shop would type one character and stop. */
+      if (!measured.focused) {
+        throw new Error('the search box lost focus when the title stepped aside');
+      }
+
+      // Clearing the box brings the title back, so nothing is hidden for good.
+      await page.fill('input[placeholder*="Search"]', '');
+      await page.waitForTimeout(300);
+      if ((await page.locator('[data-page-header]').count()) !== 1) {
+        throw new Error('the page title did not come back when the search was cleared');
       }
     } finally {
       await page.setViewportSize({ width: 1440, height: 900 });

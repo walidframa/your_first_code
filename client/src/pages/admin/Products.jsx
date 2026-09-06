@@ -19,6 +19,7 @@ import api from '../../api';
 import BarcodeField from '../../components/BarcodeField';
 import MoneyInput from '../../components/MoneyInput';
 import PageHeader from '../../components/PageHeader';
+import { useNarrow } from '../../lib/screen';
 import PhotoFinder from '../../components/PhotoFinder';
 import ItemActivity from '../../components/ItemActivity';
 import CategoryManager from '../../components/CategoryManager';
@@ -829,7 +830,72 @@ export default function Products() {
       ),
     },
   ];
+
+  /*
+   * The catalogue on a phone.
+   *
+   * Eleven columns is a table, and this app turns tables into cards on a narrow
+   * screen — one card, eleven lines of "label · value". For a document of a
+   * dozen rows that is exactly right. For a catalogue it is a disaster: one
+   * product filled the screen, so searching meant typing a word and then
+   * scrolling past a wall of Category / Stock / Price / Wholesale / Average
+   * cost to find out whether the second result was the one. With the keyboard
+   * up there was room for a *fraction* of one product, which is what the shop
+   * reported: "the items are not shown well, things are messy".
+   *
+   * So on a phone a product is two lines, and they are the two a shopkeeper is
+   * actually looking for: what it is called and what it sells for, then how to
+   * tell it apart and how many are left. Everything else is a tap away in the
+   * product itself, which is where it was going to be read properly anyway.
+   *
+   * Still a `<tr>`, so the windowing above keeps working — a catalogue is
+   * thousands of rows and rendering them all is how a phone locks up.
+   */
+  const PHONE_COLUMN = {
+    key: 'phone',
+    label: 'Product',
+    cell: (p) => (
+      <button
+        type="button"
+        onClick={() => setEditing(p)}
+        className="flex w-full items-start justify-between gap-3 text-start"
+      >
+        <span className="min-w-0 flex-1">
+          <span className="block truncate font-medium text-slate-800">{p.name}</span>
+          <span className="block truncate text-xs text-slate-500">
+            {[p.sku, p.category_name].filter(Boolean).join(' · ') || '—'}
+          </span>
+        </span>
+        <span className="shrink-0 text-end">
+          <span className="tnum block font-semibold text-slate-800">{money(p.price)}</span>
+          <span className="block text-xs">
+            {p.is_service ? (
+              <span className="text-slate-400">service</span>
+            ) : p.wallet_id ? (
+              <span className="text-brand-700">card</span>
+            ) : p.stock <= 0 ? (
+              <span className="font-medium text-red-600">out of stock</span>
+            ) : (
+              <span
+                className={cx(
+                  'tnum',
+                  p.stock <= (p.reorder_point ?? 0) ? 'font-medium text-amber-700' : 'text-slate-500',
+                )}
+              >
+                {p.stock} left
+              </span>
+            )}
+          </span>
+        </span>
+      </button>
+    ),
+  };
+
   const cols = useColumns('products', COLUMNS);
+  const narrow = useNarrow();
+  /* The reader's own column choices are a desk decision; on a phone there is
+     one column and the picker that sets them is hidden with it. */
+  const shown = narrow ? [PHONE_COLUMN] : cols.visible;
 
   /*
    * The heading bands, worked out from whichever columns are actually showing.
@@ -840,7 +906,7 @@ export default function Products() {
    * heading silently stops sitting over its own numbers.
    */
   const bands = [];
-  cols.visible.forEach((c, i) => {
+  (narrow ? [] : cols.visible).forEach((c, i) => {
     const previous = i > 0 ? cols.visible[i - 1].band ?? null : undefined;
     const band = c.band ?? null;
     if (band !== previous) {
@@ -890,32 +956,67 @@ export default function Products() {
 
   return (
     <div className="flex h-full flex-col">
+      {/*
+        * While a search is running on a phone, the title and the set-up buttons
+        * step aside.
+        *
+        * They are worth their space on a monitor and worth nothing at all in
+        * the moment somebody is typing a product name with the keyboard up —
+        * that is the moment the shop reported, and the moment the screen had
+        * least to give. Clearing the box brings them straight back, so nothing
+        * is hidden behind a gesture nobody would guess at.
+        */}
+      {!(narrow && search.trim()) && (
       <PageHeader
         title="Products"
-        subtitle="Your catalog"
+        /* "Your catalog" is a caption on a screen titled Products. At a desk it
+           costs nothing; on a phone it is a line of the screen that the
+           catalogue itself could have had. */
+        subtitle={narrow ? null : 'Your catalog'}
         actions={
           <>
-            {/* Beside Import, because a supplier's file is the other thing
-                that creates categories and this is where they get tidied. */}
-            <Button variant="secondary" onClick={() => setManagingCategories(true)}>
-              <Tags size={16} /> Categories
+            {/*
+              * On a phone these are icons, and the words go into the label a
+              * screen reader gets.
+              *
+              * Four buttons with words on them wrapped onto two rows and took
+              * a third of a handset's screen before the search box — which is
+              * the only thing anybody opens this page to use. They are set-up
+              * jobs done once a month; the catalogue underneath is read every
+              * day, and it was getting whatever was left.
+              */}
+            <Button
+              variant="secondary"
+              onClick={() => setManagingCategories(true)}
+              aria-label="Categories"
+              title="Categories"
+            >
+              <Tags size={16} /> <span className="hidden sm:inline">Categories</span>
             </Button>
             {/* Beside Import for the same reason Categories is: this is the
                 other way a catalogue gets filled in without typing. */}
-            <Button variant="secondary" onClick={() => setFindingPhotos(true)}>
-              <Images size={16} /> Find pictures
+            <Button
+              variant="secondary"
+              onClick={() => setFindingPhotos(true)}
+              aria-label="Find pictures"
+              title="Find pictures"
+            >
+              <Images size={16} /> <span className="hidden sm:inline">Find pictures</span>
             </Button>
             <Link to="/admin/import">
-              <Button variant="secondary">
-                <Upload size={16} /> Import
+              <Button variant="secondary" aria-label="Import" title="Import a catalogue">
+                <Upload size={16} /> <span className="hidden sm:inline">Import</span>
               </Button>
             </Link>
+            {/* The one that keeps its word, because it is the one that gets
+                pressed and an icon alone would be a guess. */}
             <Button onClick={() => setEditing(null)}>
-              <Plus size={16} /> New product
+              <Plus size={16} /> {narrow ? 'New' : 'New product'}
             </Button>
           </>
         }
       />
+      )}
 
       {/*
         * The table gets the window.
@@ -928,8 +1029,17 @@ export default function Products() {
         */}
       <div className="min-h-0 flex-1 p-4 sm:p-6">
         <Card className="flex h-full flex-col overflow-hidden">
-          <div className="flex flex-wrap items-center gap-3 border-b border-slate-100 px-4 py-3 sm:px-5">
-            <div className="relative min-w-[12rem] flex-1">
+          {/*
+            * One line on a phone. It wrapped onto two — the search box, then
+            * the scanner and "Show archived" underneath — which is fifty
+            * pixels of a screen that has already spent most of itself before
+            * the first product.
+            */}
+          <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-4 py-2.5 sm:gap-3 sm:px-5 sm:py-3">
+            {/* Free to shrink on a phone: a 12rem floor plus the scanner
+                plus the archived switch came to three pixels more than the
+                card is wide, so the switch dropped onto a line of its own. */}
+            <div className="relative min-w-0 flex-1 sm:min-w-[12rem]">
               <Search
                 size={16}
                 className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-slate-400"
@@ -945,24 +1055,29 @@ export default function Products() {
             {/* Walking the shelves with a phone: point it at the box rather
                 than typing thirteen digits off it. */}
             {canScan() && <ScanButton onClick={() => setScanning(true)} />}
-            <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-600">
+            {/* "Show archived" is four words for a switch that is off all but
+                twice a year. On a phone it is the word that matters. */}
+            <label className="flex shrink-0 cursor-pointer items-center gap-2 text-sm text-slate-600">
               <input
                 type="checkbox"
                 checked={showArchived}
                 onChange={(e) => setShowArchived(e.target.checked)}
                 className="h-4 w-4 rounded border-slate-300 accent-brand-600"
               />
-              Show archived
+              <span className="sm:hidden">Archived</span>
+              <span className="hidden sm:inline">Show archived</span>
             </label>
 
             {/* Beside the search rather than in the header: it is a choice
                 about the table underneath, made while looking at it. */}
-            <ColumnPicker
-              table="products"
-              columns={COLUMNS}
-              hidden={cols.hidden}
-              onChange={cols.setHidden}
-            />
+            {!narrow && (
+              <ColumnPicker
+                table="products"
+                columns={COLUMNS}
+                hidden={cols.hidden}
+                onChange={cols.setHidden}
+              />
+            )}
           </div>
 
           {/*
@@ -978,31 +1093,45 @@ export default function Products() {
             * A product with no cost recorded is counted in the quantity and
             * said out loud below, rather than quietly valued at nothing.
             */}
-          {products && search.trim() && visible.length > 0 && (
-            <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1 border-b border-slate-100 bg-slate-50 px-5 py-2.5 text-sm">
-              <span className="text-slate-500">
-                <span className="tnum font-semibold text-slate-800">{visible.length}</span>{' '}
-                {visible.length === 1 ? 'product' : 'products'} matching “{search.trim()}”
-              </span>
-              <span className="text-slate-500">
-                <span className="tnum font-semibold text-slate-800">{found.units}</span> in stock
-              </span>
-              <span className="text-slate-500">
-                worth <span className="tnum font-semibold text-slate-800">{money(found.cost)}</span> at
-                cost
-              </span>
-              {found.retail > 0 && (
-                <span className="text-slate-400">
-                  · {money(found.retail)} at the shelf price
+          {products &&
+            search.trim() &&
+            visible.length > 0 &&
+            /*
+              * Five phrases across the top of a monitor; on a phone they wrapped
+              * to four lines and pushed the results themselves off the screen.
+              * The same facts, said in the shortest form that still means them,
+              * on one line that does not wrap.
+              */
+            (narrow ? (
+              <div className="flex items-baseline gap-x-3 overflow-hidden border-b border-slate-100 bg-slate-50 px-4 py-1.5 text-xs whitespace-nowrap text-slate-500">
+                <span className="tnum font-semibold text-slate-800">{visible.length}</span>
+                <span className="tnum">{found.units} in stock</span>
+                <span className="tnum">{money(found.cost)} at cost</span>
+                {found.noCost > 0 && <span className="tnum text-amber-700">{found.noCost} uncosted</span>}
+              </div>
+            ) : (
+              <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1 border-b border-slate-100 bg-slate-50 px-5 py-2.5 text-sm">
+                <span className="text-slate-500">
+                  <span className="tnum font-semibold text-slate-800">{visible.length}</span>{' '}
+                  {visible.length === 1 ? 'product' : 'products'} matching “{search.trim()}”
                 </span>
-              )}
-              {found.noCost > 0 && (
-                <span className="text-amber-700">
-                  · {found.noCost} with no cost recorded, so the value is short
+                <span className="text-slate-500">
+                  <span className="tnum font-semibold text-slate-800">{found.units}</span> in stock
                 </span>
-              )}
-            </div>
-          )}
+                <span className="text-slate-500">
+                  worth <span className="tnum font-semibold text-slate-800">{money(found.cost)}</span>{' '}
+                  at cost
+                </span>
+                {found.retail > 0 && (
+                  <span className="text-slate-400">· {money(found.retail)} at the shelf price</span>
+                )}
+                {found.noCost > 0 && (
+                  <span className="text-amber-700">
+                    · {found.noCost} with no cost recorded, so the value is short
+                  </span>
+                )}
+              </div>
+            ))}
 
           {!products ? (
             <div className="space-y-2 p-5">
@@ -1025,7 +1154,9 @@ export default function Products() {
             />
           ) : (
             <div ref={rows.scrollRef} className="min-h-0 flex-1 overflow-auto">
-              <table className="w-full text-sm">
+              <table
+                className={cx('w-full text-sm', narrow && 'no-cards')}
+              >
                 {/*
                   * Two rows of heading, because the columns are three different
                   * kinds of fact about one product and reading them as one flat
@@ -1049,7 +1180,9 @@ export default function Products() {
                   * form that holds everywhere. The band row is a fixed height
                   * so the row beneath it knows exactly where to stop.
                   */}
-                <thead className="z-10 text-left text-xs text-slate-500">
+                {/* A heading row naming one column "Product" is a line of
+                    the screen spent saying what is obvious. */}
+                <thead className={cx('z-10 text-left text-xs text-slate-500', narrow && 'hidden')}>
                   <tr className="border-b border-slate-100">
                     {bands.map((b, i) => (
                       <th
@@ -1068,7 +1201,7 @@ export default function Products() {
                     ))}
                   </tr>
                   <tr className="border-b border-slate-200">
-                    {cols.visible.map((c) => (
+                    {shown.map((c) => (
                       <th
                         key={c.key}
                         className={cx(
@@ -1093,7 +1226,7 @@ export default function Products() {
                     */}
                   {rows.padTop > 0 && (
                     <tr aria-hidden="true" style={{ height: rows.padTop }}>
-                      <td colSpan={cols.visible.length} />
+                      <td colSpan={shown.length} />
                     </tr>
                   )}
                   {visible.slice(rows.start, rows.end).map((p, i) => (
@@ -1104,7 +1237,7 @@ export default function Products() {
                       ref={i === 0 ? rows.measureRow : undefined}
                       className={cx('group/row hover:bg-slate-50/60', !p.active && 'opacity-55')}
                     >
-                      {cols.visible.map((c) => (
+                      {shown.map((c) => (
                         <td
                           key={c.key}
                           /* Tighter than it was: a catalogue is read by
@@ -1131,7 +1264,7 @@ export default function Products() {
                   ))}
                   {rows.padBottom > 0 && (
                     <tr aria-hidden="true" style={{ height: rows.padBottom }}>
-                      <td colSpan={cols.visible.length} />
+                      <td colSpan={shown.length} />
                     </tr>
                   )}
                 </tbody>
