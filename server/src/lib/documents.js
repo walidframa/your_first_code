@@ -9,6 +9,7 @@ import { parseImeiList, isAvailable, receiveUnits, syncStockFromUnits } from './
 import { costOfLine } from './wallets.js';
 import { moveStock, stockAt } from './stock.js';
 import { componentsOf, movePartsStock } from './bundles.js';
+import { scratchPlan } from './validityCards.js';
 import { taxRate } from './settings.js';
 
 /*
@@ -271,6 +272,22 @@ function applyDocumentStock(doc, items, userId, direction, note) {
      * delivery tops the wallet up by what was paid and a sale spends it, which
      * is the same thing the register does, just arriving on an invoice.
      */
+    /*
+     * A validity card has no shelf either — see the register, which has always
+     * known this. Invoicing one was refused with "not enough stock (have 0)",
+     * the nought being the shelf it does not have. On an invoice it does what
+     * it does at the till: scratches the cards that deliver it and puts the
+     * recovered credit on the carrier's line.
+     *
+     * Before the wallet check, as at the register: the starter catalogue gives
+     * a validity card the recharge wallet too, and read as a card it would be
+     * charged its own price off that wallet instead of scratching anything.
+     */
+    if (product.validity_days) {
+      moveValidityCredit({ doc, item, product, direction, userId, note, sign: type.stock });
+      continue;
+    }
+
     if (product.wallet_id) {
       moveWalletCredit({ doc, item, product, direction, userId, note, sign: type.stock });
       continue;
@@ -435,6 +452,73 @@ function moveWalletCredit({ doc, item, product, direction, userId, note, sign })
     note,
     userId,
   );
+}
+
+/**
+ * A validity card on an invoice: the same three things as at the register.
+ *
+ * The customer pays for days; whole cards are scratched to deliver them, so
+ * their credit leaves the wallet behind each; and what the shop takes back
+ * lands on the carrier balance named on the card. Undoing the invoice puts
+ * all of it back. A *delivery* of a validity card is nothing at all — there is
+ * no shelf to receive onto — so it neither moves nor refuses.
+ *
+ * Every movement carries the document's id, so the wallet statement can say
+ * which invoice did it, and cancelling can find exactly what it did.
+ */
+function moveValidityCredit({ doc, item, product, direction, userId, note, sign }) {
+  if (sign > 0) return;
+  const packs = Math.round(item.quantity);
+  const movement = sign * direction; // −1 on a sale, +1 undoing one
+  const stamp = db.prepare(
+    `INSERT INTO wallet_movements
+       (wallet_id, kind, amount, amount_usd, cost_usd, exchange_rate, document_id, product_id, note, user_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  );
+
+  for (const card of scratchPlan(product)) {
+    const linked = db.prepare('SELECT * FROM products WHERE id = ?').get(card.cardId);
+    const each = packs * card.quantity;
+    if (linked.wallet_id) {
+      const wallet = db.prepare('SELECT * FROM wallets WHERE id = ?').get(linked.wallet_id);
+      if (!wallet) throw new Error(`${linked.name} is funded by a wallet that no longer exists`);
+      const { usd, amount } = costOfLine(wallet, linked.cost, each, doc.exchange_rate ?? null);
+      if (amount !== 0) {
+        stamp.run(
+          wallet.id,
+          direction < 0 ? 'adjustment' : 'sale',
+          movement * amount,
+          round2(movement * usd),
+          null,
+          doc.exchange_rate || null,
+          doc.id,
+          linked.id,
+          `${each} × ${linked.name} · ${note}`,
+          userId,
+        );
+      }
+    } else {
+      moveStock({ branchId: doc.branch_id ?? null, productId: linked.id, delta: movement * each });
+    }
+  }
+
+  if (product.credit_recovered > 0 && product.credit_wallet_id) {
+    const back = round2(product.credit_recovered * packs);
+    stamp.run(
+      product.credit_wallet_id,
+      direction > 0 ? 'top_up' : 'adjustment',
+      -movement * back,
+      -movement * back,
+      /* It cost nothing: the card it came off was already bought and sold at
+         a margin. See the register's own note on this. */
+      0,
+      doc.exchange_rate || null,
+      doc.id,
+      product.id,
+      `Back off ${packs} × ${product.name} · ${note}`,
+      userId,
+    );
+  }
 }
 
 /**

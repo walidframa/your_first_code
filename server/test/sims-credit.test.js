@@ -705,6 +705,97 @@ test('an unlinked validity card still sells — it just brings nothing back', as
   );
 });
 
+test('a card scratched with nothing coming back says so on the sale', async () => {
+  /*
+   * The report from the counter: "charging Touch validity is not adding
+   * credits to the Touch wallet." The sale had gone through, a whole card
+   * had been scratched off the recharge balance, and nothing had landed —
+   * because the card was linked to what it scratches but not to what comes
+   * back. The app allowed that, warned in small print on the cart line, and
+   * said nothing once the sale was made. Now the sale itself says it.
+   */
+  const products = (await req('GET', '/products', null, adminToken)).json.products;
+  const touch30 = products.find((p) => p.sku === 'CARD-VAL-TOUCH-30');
+  const touchCard = products.find((p) => p.sku === 'CARD-TOUCH-WHOLE-758');
+  const touchLine = (await req('GET', '/credit/carriers', null, adminToken)).json.carriers.find(
+    (c) => c.name === 'Touch',
+  );
+  await req(
+    'PUT',
+    `/products/${touch30.id}`,
+    {
+      ...touch30,
+      scratch_cards: [{ cardId: touchCard.id, quantity: 1 }],
+      credit_recovered: 0,
+      credit_wallet_id: touchLine.id,
+    },
+    adminToken,
+  );
+
+  const sale = await req(
+    'POST',
+    '/orders',
+    { items: [{ productId: touch30.id, quantity: 1 }], paymentMethod: 'card' },
+    adminToken,
+  );
+  assert.equal(sale.status, 201, 'the sale still goes through');
+  assert.ok(Array.isArray(sale.json.warnings) && sale.json.warnings.length === 1, 'and it says so');
+  assert.match(sale.json.warnings[0], /nothing came back/);
+  assert.match(sale.json.warnings[0], /Touch/);
+
+  // A properly linked card carries no such thing.
+  const fine = await req(
+    'POST',
+    '/orders',
+    { items: [{ productId: validity30.id, quantity: 1 }], paymentMethod: 'card' },
+    adminToken,
+  );
+  assert.equal(fine.json.warnings, undefined, 'nothing to warn about, nothing said');
+});
+
+test('a validity card sold on an invoice does what it does at the till', async () => {
+  /*
+   * It used to be refused outright — "not enough stock (have 0)" — for the
+   * shelf a validity card does not have. Same shape as the pack bug: the
+   * register knew, the invoice did not.
+   */
+  const balances = async () => ({
+    alfa: (await req('GET', '/credit/carriers', null, adminToken)).json.carriers.find(
+      (c) => c.id === alfa.id,
+    ).balance,
+    supplier: (await req('GET', '/wallets', null, adminToken)).json.wallets.find(
+      (w) => w.name === 'Mobile recharge',
+    ).balance,
+  });
+  const before = await balances();
+
+  const buyer = (await req('POST', '/customers', { name: 'Validity Buyer' }, adminToken)).json.party;
+  const doc = (
+    await req(
+      'POST',
+      '/documents',
+      {
+        docType: 'sales_invoice',
+        partyId: buyer.id,
+        items: [{ productId: validity30.id, name: validity30.name, quantity: 2, price: 3.11 }],
+      },
+      adminToken,
+    )
+  ).json.document;
+
+  const confirmed = await req('POST', `/documents/${doc.id}/confirm`, null, adminToken);
+  assert.equal(confirmed.status, 200, JSON.stringify(confirmed.json));
+
+  const after = await balances();
+  assert.equal(after.supplier, Math.round((before.supplier - 16) * 100) / 100, 'two cards scratched, $8 each');
+  assert.equal(after.alfa, Math.round((before.alfa + 12) * 100) / 100, 'and $6 back off each');
+
+  // Undone, it all goes back — the credit and the cards.
+  const cancelled = await req('POST', `/documents/${doc.id}/cancel`, null, adminToken);
+  assert.equal(cancelled.status, 200, JSON.stringify(cancelled.json));
+  assert.deepEqual(await balances(), before, 'exactly what went on comes back off');
+});
+
 test('a validity card whose card has been retired refuses the sale', async () => {
   const retired = (
     await req(
