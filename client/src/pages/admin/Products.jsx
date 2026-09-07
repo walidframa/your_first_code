@@ -1165,7 +1165,7 @@ export default function Products() {
             <select
               value={categoryFilter}
               onChange={(e) => setCategoryFilter(e.target.value)}
-              aria-label="Category"
+              aria-label="Filter by category"
               className="h-8 shrink-0 rounded-lg bg-slate-100 px-2 text-xs font-medium text-slate-700 ring-1 ring-transparent focus:bg-white focus:ring-brand-600 focus:outline-none"
             >
               <option value="">Every category</option>
