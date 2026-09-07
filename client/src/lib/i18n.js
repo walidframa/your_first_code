@@ -170,6 +170,7 @@ const AR = {
   card: 'بطاقة',
   Sales: 'المبيعات',
   Returns: 'المرتجعات',
+  'Sales & returns': 'المبيعات والمرتجعات',
   'Buy in': 'شراء',
   Repair: 'تصليح',
   'Sell a SIM': 'بيع شريحة',

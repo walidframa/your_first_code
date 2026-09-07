@@ -557,6 +557,17 @@ export default function Products() {
   const [findingPhotos, setFindingPhotos] = useState(false);
   const [search, setSearch] = useState('');
   const [showArchived, setShowArchived] = useState(false);
+  /*
+   * Which slice of the shelf.
+   *
+   * A catalogue is read for one of a few reasons — what is running out, what
+   * has run out, what a supplier's delivery should include, what is in one
+   * category — and each of them was a scroll down two thousand rows with the
+   * eye on one column. "No cost" is here because the profit figure now says
+   * when products were sold without one, and this is where those get fixed.
+   */
+  const [stockFilter, setStockFilter] = useState('all');
+  const [categoryFilter, setCategoryFilter] = useState('');
   const [editing, setEditing] = useState(undefined);
   const [activityFor, setActivityFor] = useState(null);
   const [scanning, setScanning] = useState(false);
@@ -920,12 +931,44 @@ export default function Products() {
     }
   });
 
+  const STOCK_FILTERS = [
+    ['all', 'All'],
+    ['in', 'In stock'],
+    ['low', 'Low'],
+    ['out', 'Out of stock'],
+    ['nocost', 'No cost'],
+  ];
+
+  /* Services and cards have no shelf, so a question about the shelf leaves
+     them out rather than filing them under "out of stock". */
+  const onShelf = (p) => !p.is_service && !p.wallet_id;
+  const passesStock = (p) => {
+    switch (stockFilter) {
+      case 'in':
+        return onShelf(p) && p.stock > 0;
+      case 'low':
+        return onShelf(p) && p.stock > 0 && p.stock <= (p.reorder_point ?? 0);
+      case 'out':
+        return onShelf(p) && p.stock <= 0;
+      case 'nocost':
+        return !p.is_service && !(Number(p.cost) > 0);
+      default:
+        return true;
+    }
+  };
+
   const visible = (products || []).filter((p) => {
     const term = search.trim().toLowerCase();
     /* Words in any order, across every code the product answers to — see
        lib/search.js. */
-    return matchesSearch(term, p.name, p.sku, p.barcodes) && (showArchived ? true : p.active);
+    return (
+      matchesSearch(term, p.name, p.sku, p.barcodes) &&
+      (showArchived ? true : p.active) &&
+      passesStock(p) &&
+      (!categoryFilter || String(p.category_id ?? '') === categoryFilter)
+    );
   });
+  const filtering = stockFilter !== 'all' || categoryFilter !== '';
 
   /*
    * Only the rows in the window get rendered. A catalogue this size is tens of
@@ -1093,6 +1136,59 @@ export default function Products() {
             * A product with no cost recorded is counted in the quantity and
             * said out loud below, rather than quietly valued at nothing.
             */}
+          <div className="flex items-center gap-2 overflow-x-auto border-b border-slate-100 px-4 py-2 sm:px-5">
+            {/*
+              * A strip that scrolls sideways on a phone rather than wrapping.
+              * Five chips and a category box wrapped to three rows on a
+              * handset, which is the screen this page has just been made to
+              * stop wasting.
+              */}
+            <div className="flex shrink-0 items-center gap-1 rounded-lg bg-slate-100 p-0.5">
+              {STOCK_FILTERS.map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setStockFilter(key)}
+                  aria-pressed={stockFilter === key}
+                  data-stock-filter={key}
+                  className={cx(
+                    'rounded-md px-2.5 py-1 text-xs font-medium whitespace-nowrap transition',
+                    stockFilter === key
+                      ? 'bg-white text-slate-900 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-800',
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <select
+              value={categoryFilter}
+              onChange={(e) => setCategoryFilter(e.target.value)}
+              aria-label="Category"
+              className="h-8 shrink-0 rounded-lg bg-slate-100 px-2 text-xs font-medium text-slate-700 ring-1 ring-transparent focus:bg-white focus:ring-brand-600 focus:outline-none"
+            >
+              <option value="">Every category</option>
+              {categories.map((c) => (
+                <option key={c.id} value={String(c.id)}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+            {filtering && (
+              <button
+                type="button"
+                onClick={() => {
+                  setStockFilter('all');
+                  setCategoryFilter('');
+                }}
+                className="shrink-0 text-xs font-medium text-brand-700 hover:underline"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+
           {products &&
             search.trim() &&
             visible.length > 0 &&
@@ -1143,7 +1239,11 @@ export default function Products() {
             <EmptyState
               icon={Package}
               title="No products"
-              description={search ? 'Nothing matches your search.' : 'Add a product or import your catalog.'}
+              description={
+                search || filtering
+                  ? 'Nothing matches your search and filters.'
+                  : 'Add a product or import your catalog.'
+              }
               action={
                 <Link to="/admin/import">
                   <Button variant="secondary">

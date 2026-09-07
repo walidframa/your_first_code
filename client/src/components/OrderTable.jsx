@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Printer, Receipt as ReceiptIcon, RotateCcw } from 'lucide-react';
+import { Banknote, CreditCard, Landmark, Printer, Receipt as ReceiptIcon, RotateCcw, Send } from 'lucide-react';
 import api from '../api';
 import Receipt from './Receipt';
 import { useConfirm } from './ConfirmProvider';
@@ -29,6 +29,32 @@ import {
  * sale, and an invoice is corrected on the Documents screen where it can be
  * edited, converted and reversed properly.
  */
+/**
+ * How a sale was paid, at a glance.
+ *
+ * "Cash" and "Card" in the same grey read as the same thing until somebody
+ * actually reads the word — and the owner going down the day's list is not
+ * reading words, they are looking for the card sales, because those are the
+ * ones that are not in the drawer. A colour and a mark does that at the speed
+ * the eye moves; the word is still there for anybody who wants it.
+ */
+const PAYMENT_LOOKS = {
+  cash: { tone: 'good', icon: Banknote, label: 'Cash' },
+  card: { tone: 'info', icon: CreditCard, label: 'Card' },
+  account: { tone: 'warning', icon: Landmark, label: 'On account' },
+  transfer: { tone: 'brand', icon: Send, label: 'Transfer' },
+  split: { tone: 'neutral', icon: null, label: 'Split' },
+};
+
+export function PaymentBadge({ method, className }) {
+  const look = PAYMENT_LOOKS[method] || { tone: 'neutral', icon: null, label: method || 'Paid' };
+  return (
+    <Badge tone={look.tone} icon={look.icon} className={className}>
+      {look.label}
+    </Badge>
+  );
+}
+
 export default function OrderTable({
   orders,
   invoices = [],
@@ -150,16 +176,17 @@ export default function OrderTable({
                             ? ` · ${o.kind === 'order' ? o.cashier_name : o.user_name}`
                             : ''}
                         </span>
-                        <span className="shrink-0">
+                        <span className="flex shrink-0 items-center gap-1">
+                          {o.kind === 'order' && o.status !== 'refunded' && (
+                            <PaymentBadge method={o.payment_method} />
+                          )}
                           {o.kind === 'invoice' ? (
                             <Badge tone={o.outstanding > 0 ? 'info' : 'good'}>
                               {o.outstanding > 0 ? 'Owing' : 'Invoiced'}
                             </Badge>
                           ) : o.status === 'refunded' ? (
                             <Badge tone="warning">Refunded</Badge>
-                          ) : (
-                            <Badge tone="good">Completed</Badge>
-                          )}
+                          ) : null}
                         </span>
                       </span>
                     </button>
@@ -200,12 +227,16 @@ export default function OrderTable({
                       </td>
                     )}
                     <td className="px-3 py-2.5 text-slate-500">{when(o.at)}</td>
-                    <td className="hidden px-3 py-2.5 text-slate-500 capitalize sm:table-cell">
-                      {o.kind === 'order'
-                        ? o.payment_method
-                        : o.outstanding > 0
-                          ? 'on account'
-                          : o.payment_method || 'paid'}
+                    <td className="hidden px-3 py-2.5 sm:table-cell">
+                      <PaymentBadge
+                        method={
+                          o.kind === 'order'
+                            ? o.payment_method
+                            : o.outstanding > 0
+                              ? 'account'
+                              : o.payment_method || 'paid'
+                        }
+                      />
                     </td>
                     <td className="px-3 py-2.5">
                       {o.kind === 'invoice' ? (
