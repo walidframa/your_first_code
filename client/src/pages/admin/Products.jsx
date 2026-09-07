@@ -990,8 +990,11 @@ export default function Products() {
       const stock = Number(p.stock) || 0;
       units += stock;
       retail += (Number(p.price) || 0) * stock;
-      if (p.cost === null || p.cost === undefined) noCost += 1;
-      else cost += Number(p.cost) * stock;
+      /* Nought is a blank, not a price — `products.cost` is NOT NULL DEFAULT 0,
+         so the null check alone never fired and every uncosted shelf was
+         quietly valued at nothing. Same rule as the profit report (#193). */
+      if (!(Number(p.cost) > 0) && !p.is_service && stock > 0) noCost += 1;
+      cost += (Number(p.cost) || 0) * stock;
     }
     const round2 = (n) => Math.round(n * 100) / 100;
     return { units, cost: round2(cost), retail: round2(retail), noCost };
