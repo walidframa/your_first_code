@@ -2505,7 +2505,7 @@ try {
 
     // And a column turned off goes away and stays away over a reload.
     await page.getByRole('button', { name: 'Columns' }).click();
-    await page.getByLabel('Category').uncheck();
+    await page.getByLabel('Category', { exact: true }).uncheck();
     await page.keyboard.press('Escape');
     if (await page.locator('th:has-text("Category")').count()) {
       throw new Error('the category column outstayed its unticking');
