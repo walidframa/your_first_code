@@ -733,6 +733,14 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
       `);
 
 
+      /*
+       * Things the sale did that the cashier should hear about, said back on
+       * the response. Not refusals — the sale is the shop's money and it goes
+       * through — but a card scratched with nothing coming back is a loss the
+       * shop would want to know about now, not at the end of the month.
+       */
+      const warnings = [];
+
       for (const li of lineItems) {
         /*
          * A serialised line carries the cost of the handset that left, not the
@@ -860,7 +868,15 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
            * if any of them has been retired since it was linked, rather than
            * scratching the rest and leaving the package half delivered.
            */
-          for (const card of scratchPlan(li.product)) {
+          const scratched = scratchPlan(li.product);
+          if (scratched.length && !(li.product.credit_recovered > 0 && li.product.credit_wallet_id)) {
+            warnings.push(
+              `${li.product.name} scratched ${scratched
+                .map((c) => `${c.quantity * li.quantity} × ${c.name}`)
+                .join(', ')} but nothing came back onto a carrier balance — set how much comes back, and onto which balance, under Cards`,
+            );
+          }
+          for (const card of scratched) {
             const linked = db.prepare('SELECT * FROM products WHERE id = ?').get(card.cardId);
             const each = li.quantity * card.quantity;
 
@@ -1041,6 +1057,7 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
         tradeInValue,
         due,
         owedToCustomer,
+        warnings,
       };
     })();
 
@@ -1075,7 +1092,14 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
     const withBalance = order.customer_id
       ? { ...order, customer_balance: balanceOf('customer', order.customer_id) }
       : order;
-    res.status(201).json({ order: withBalance, items: orderItems, tenders: tendersFor(order.id) });
+    res.status(201).json({
+      order: withBalance,
+      items: orderItems,
+      tenders: tendersFor(order.id),
+      /* Only when there is something to say: a sale with nothing to warn about
+         should not carry an empty list every caller has to know about. */
+      ...(result.warnings.length ? { warnings: result.warnings } : {}),
+    });
 
     /*
      * And the owner's phone, after the till already has its answer.

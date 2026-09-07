@@ -1198,6 +1198,13 @@ export default function Checkout() {
         toast('Saved on this till — it will be sent when the server is back', 'warning', 7000);
       }
       setReceipt({ order: res.order, items: res.items, tenders: res.tenders });
+      /*
+       * What the sale did that somebody should hear about. The cart line said
+       * it in small print before the sale; this is the same fact after it, at
+       * the moment the shop reported noticing — "I sold one, looked at the
+       * carrier balance, and it had not moved."
+       */
+      for (const warning of res.warnings || []) toast(warning, 'warning', 9000);
       /* The sale went through. On a phone held low at a counter this is often
          the only confirmation somebody actually notices. */
       buzzGood();
