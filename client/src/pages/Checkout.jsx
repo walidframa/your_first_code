@@ -302,6 +302,22 @@ export default function Checkout() {
    * box is a thing somebody does, not a thing the sale carries.
    */
   const [discountOpen, setDiscountOpen] = useState(false);
+  /*
+   * Whether the working under the total is showing — the discount chip, the
+   * subtotal, the tax. A shop that never discounts and pays no tax was looking
+   * at three lines that only ever restated the total, on the panel where
+   * height is worth most. Remembered on the device: it is a preference about
+   * this counter's screen, not about any sale.
+   */
+  const [breakdownOpen, setBreakdownOpen] = useState(
+    () => localStorage.getItem('pos_cart_breakdown') !== 'closed',
+  );
+  const toggleBreakdown = () => {
+    const next = !breakdownOpen;
+    setBreakdownOpen(next);
+    localStorage.setItem('pos_cart_breakdown', next ? 'open' : 'closed');
+    if (!next) setDiscountOpen(false);
+  };
 
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -1848,7 +1864,7 @@ export default function Checkout() {
               title="Find a sale to return an item or void it — and this sitting's takings"
               className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
             >
-              <RotateCcw size={13} /> {t('Returns')}
+              <RotateCcw size={13} /> {t('Sales & returns')}
             </button>
             {/*
              * The shelf of parked sales, with its count on the face of it.
@@ -2234,6 +2250,12 @@ export default function Checkout() {
             * the boxes keep what has been typed while it is shut — see .fold
             * in index.css, which also keeps them out of the tab order closed.
             */}
+          <div
+            id="cart-breakdown"
+            className={cx('fold', breakdownOpen && 'fold-open')}
+            inert={breakdownOpen ? undefined : true}
+          >
+          <div>
           <div className="mb-2 flex items-center gap-2">
             <button
               type="button"
@@ -2338,7 +2360,7 @@ export default function Checkout() {
             </div>
           </div>
 
-          <dl className="space-y-1 text-sm">
+          <dl className="space-y-1 pb-1.5 text-sm">
             <div className="flex justify-between">
               <dt className="text-slate-500">
                 {t('Subtotal')} <span className="text-slate-400">· {itemCount} item{itemCount === 1 ? '' : 's'}</span>
@@ -2362,8 +2384,48 @@ export default function Checkout() {
                 <dd className="tnum text-slate-700">{money(tax)}</dd>
               </div>
             )}
-            <div className="flex items-baseline justify-between border-t border-slate-100 pt-1.5">
-              <dt className="font-semibold text-slate-900">{t('Total')}</dt>
+          </dl>
+          </div>
+          </div>
+
+          <dl className="space-y-1 text-sm">
+            <div
+              className={cx(
+                'flex items-baseline justify-between',
+                breakdownOpen && 'border-t border-slate-100 pt-1.5',
+              )}
+            >
+              <dt className="flex items-baseline gap-1.5 font-semibold text-slate-900">
+                {/*
+                  * The handle is on the total, because the total is the line
+                  * that stays. Folded, a discount in force is still said here
+                  * — in the chip's own words — so nothing the customer is
+                  * getting can disappear from the screen along with the
+                  * working.
+                  */}
+                <button
+                  type="button"
+                  onClick={toggleBreakdown}
+                  aria-expanded={breakdownOpen}
+                  aria-controls="cart-breakdown"
+                  aria-label={breakdownOpen ? 'Hide the subtotal and discount' : 'Show the subtotal and discount'}
+                  className="-ms-1 rounded p-0.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                >
+                  <ChevronDown
+                    size={14}
+                    className={cx('transition-transform duration-200', !breakdownOpen && '-rotate-90')}
+                  />
+                </button>
+                {t('Total')}
+                {!breakdownOpen && discountAmount > 0 && (
+                  <span className="text-xs font-medium text-brand-700">· {discountLabel}</span>
+                )}
+                {!breakdownOpen && itemCount > 0 && (
+                  <span className="text-xs font-normal text-slate-400">
+                    · {itemCount} item{itemCount === 1 ? '' : 's'}
+                  </span>
+                )}
+              </dt>
               {/*
                 * Keyed on the figure itself, so the emphasis replays whenever
                 * the number changes and at no other time.
