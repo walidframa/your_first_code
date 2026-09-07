@@ -227,6 +227,36 @@ export default function Inventory() {
     return matchesFilter && matchesSearch(term, p.name, p.sku, p.supplier);
   });
 
+  /*
+   * The figures follow the search.
+   *
+   * The four cards were the whole shop, always — so typing "charger" narrowed
+   * the list to forty rows and left "Retail value $61,000" standing over them,
+   * which is the wrong answer to the question that had just been asked. What
+   * somebody searching wants is what *these* are worth: how many, and what
+   * they cost — the stocktake question, answered for the shelf they are
+   * looking at. Nothing typed, nothing filtered, and it is the whole shop as
+   * before.
+   *
+   * A product with no cost is counted in the units and named, rather than
+   * quietly valued at nothing — a nought here is not a price, it is a blank.
+   */
+  const narrowed = search.trim() !== '' || filter !== 'all';
+  const shown = products.reduce(
+    (acc, p) => {
+      const stock = Number(p.stock) || 0;
+      acc.units += stock;
+      acc.retailValue += stock * (Number(p.price) || 0);
+      acc.costValue += stock * (Number(p.cost) || 0);
+      if (stock > 0 && !(Number(p.cost) > 0) && !p.is_service) acc.uncosted += 1;
+      if (stock <= 0) acc.outOfStock += 1;
+      else if (stock <= p.reorder_point) acc.lowStock += 1;
+      return acc;
+    },
+    { units: 0, retailValue: 0, costValue: 0, outOfStock: 0, lowStock: 0, uncosted: 0 },
+  );
+  const round2 = (n) => Math.round(n * 100) / 100;
+
   return (
     <div className="flex h-full flex-col">
       <PageHeader title="Inventory" subtitle="Stock levels, adjustments and movement history" />
@@ -236,29 +266,50 @@ export default function Inventory() {
           <Skeleton className="h-64" />
         ) : (
           <>
-            <div className="mb-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
+            <div className="mb-4 grid grid-cols-2 gap-4 sm:grid-cols-4" data-inventory-totals={narrowed ? 'matching' : 'all'}>
               <Card className="px-4 py-3.5">
-                <p className="text-xs text-slate-500">SKUs tracked</p>
-                <p className="mt-1 text-2xl font-semibold text-slate-900">{data.totals.skuCount}</p>
+                <p className="text-xs text-slate-500">{narrowed ? 'Matching' : 'SKUs tracked'}</p>
+                <p className="mt-1 text-2xl font-semibold text-slate-900">{products.length}</p>
+                {narrowed && (
+                  <p className="mt-0.5 truncate text-xs text-slate-400">
+                    of {data.totals.skuCount}
+                    {search.trim() ? ` · “${search.trim()}”` : ''}
+                    {filter !== 'all' ? ` · ${filter === 'low' ? 'low' : 'out of stock'}` : ''}
+                  </p>
+                )}
               </Card>
               <Card className="px-4 py-3.5">
                 <p className="text-xs text-slate-500">Units on hand</p>
-                <p className="mt-1 text-2xl font-semibold text-slate-900">
-                  {data.totals.units.toLocaleString()}
-                </p>
+                <p className="mt-1 text-2xl font-semibold text-slate-900">{shown.units.toLocaleString()}</p>
               </Card>
               <Card className="px-4 py-3.5">
-                <p className="text-xs text-slate-500">Retail value</p>
-                <p className="mt-1 text-2xl font-semibold text-slate-900">{money(data.totals.retailValue)}</p>
-                <p className="mt-0.5 text-xs text-slate-400">{money(data.totals.costValue)} at cost</p>
+                {/*
+                  * Cost leads when a search is on. Somebody who has typed
+                  * "batteries" is asking what is tied up on that shelf, and that
+                  * is money spent, not money hoped for.
+                  */}
+                <p className="text-xs text-slate-500">{narrowed ? 'Worth at cost' : 'Retail value'}</p>
+                <p className="mt-1 text-2xl font-semibold text-slate-900" data-inventory-cost={round2(shown.costValue)}>
+                  {money(narrowed ? round2(shown.costValue) : round2(shown.retailValue))}
+                </p>
+                <p className="mt-0.5 text-xs text-slate-400">
+                  {narrowed
+                    ? `${money(round2(shown.retailValue))} at the shelf price`
+                    : `${money(round2(shown.costValue))} at cost`}
+                  {shown.uncosted > 0 && (
+                    <span className="block text-amber-700">
+                      {shown.uncosted} with no cost recorded, so this is short
+                    </span>
+                  )}
+                </p>
               </Card>
               <Card className="px-4 py-3.5">
                 <p className="text-xs text-slate-500">Needs attention</p>
                 <p className="mt-1 text-2xl font-semibold text-slate-900">
-                  {data.totals.lowStock + data.totals.outOfStock}
+                  {shown.lowStock + shown.outOfStock}
                 </p>
                 <p className="mt-0.5 text-xs text-slate-400">
-                  {data.totals.outOfStock} out · {data.totals.lowStock} low
+                  {shown.outOfStock} out · {shown.lowStock} low
                 </p>
               </Card>
             </div>
