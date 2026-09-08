@@ -13,7 +13,7 @@
  * to whoever closed the till would be a permission bypass with a filename.
  */
 import { combinedUsd, round2 } from './currency.js';
-import { sessionSummary } from './cash.js';
+import { branchOfSession, sessionSummary } from './cash.js';
 import { getSettings } from './settings.js';
 import { profitForSession } from './profit.js';
 import { createDocument } from './pdf.js';
@@ -45,6 +45,7 @@ const REASON_LABELS = {
   expense: 'expense',
   wages: 'wages',
   refund: 'refund',
+  return_undone: 'return undone',
   correction: 'correction',
   short: 'short',
   over: 'over',
@@ -161,7 +162,10 @@ export function buildCashReport(sessionId, { includeProfit = false } = {}) {
       label: KIND_LABELS[m.kind] || m.kind,
       reasonLabel: m.reason ? REASON_LABELS[m.reason] || m.reason : null,
     })),
-    profit: includeProfit ? sessionProfit(sessionId) : null,
+    /* The same branch as the takings above it, or the two figures on one page
+       disagree — and with the panel on the register, which was always this
+       branch's. */
+    profit: includeProfit ? sessionProfit(sessionId, branchOfSession(session)) : null,
     generatedAt: new Date().toISOString(),
   };
 }

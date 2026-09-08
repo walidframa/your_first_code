@@ -2167,6 +2167,17 @@ addColumn('order_items', 'returned_qty', 'INTEGER NOT NULL DEFAULT 0');
 addColumn('orders', 'cash_session_id', 'INTEGER REFERENCES cash_sessions(id)');
 
 /*
+ * Which line of a sale a movement was for, when it was for one line.
+ *
+ * A return hands money back per line, and undoing that return has to hand
+ * exactly the same money back in — in the currency it went out in, which is
+ * not something the line's share of the total can say. So the movement is
+ * tagged with the line, and undoing reverses that movement rather than
+ * recomputing it.
+ */
+addColumn('cash_movements', 'order_item_id', 'INTEGER REFERENCES order_items(id)');
+
+/*
  * Paying for a phone over months — تقسيط.
  *
  * A plan is a **schedule over a debt the customer already owes**, not a second

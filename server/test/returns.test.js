@@ -479,6 +479,173 @@ test('a receipt number still finds its sale, and carries no lines', async () => 
   assert.equal(row.lines, undefined, 'and a receipt match is about the sale, not one product');
 });
 
+/* --------------------------------------------- the money a refund hands back */
+
+/**
+ * "I refunded an item priced $15, but the cashbox report shows a $50 refund."
+ *
+ * The refund reversed the tender legs — a $50 note in, 3,150,000 LL of change
+ * out — as "−$50 and +3,150,000 LL", which is fifteen dollars by arithmetic
+ * and nothing like what the cashier did, which was hand over $15.
+ */
+const drawer = async () => {
+  const cur = (await req('GET', '/cash/current', null, adminToken)).json;
+  const res = (await req('GET', `/cash/sessions/${cur.session.id}/report`, null, adminToken)).json;
+  return (res.report ?? res).movements;
+};
+
+test('a refund is the amount handed back, not the tender turned inside out', async () => {
+  await req('POST', '/cash/open', { openingUsd: 500, openingLbp: 50_000_000 }, adminToken);
+  const p = await product('BEV-001'); // $3.50
+  // Paid with a big dollar note, change given in pounds.
+  const sale = await req(
+    'POST',
+    '/orders',
+    {
+      items: [{ productId: p.id, quantity: 2 }],
+      paymentMethod: 'cash',
+      payments: [{ currency: 'USD', amount: 50 }],
+      changeCurrency: 'LBP',
+    },
+    adminToken,
+  );
+  assert.equal(sale.status, 201, JSON.stringify(sale.json));
+  const order = sale.json.order;
+  const detail = await req('GET', `/orders/${order.id}`, null, adminToken);
+
+  const back = await req(
+    'POST',
+    `/orders/${order.id}/return-line`,
+    { itemId: detail.json.items[0].id, quantity: 1 },
+    adminToken,
+  );
+  assert.equal(back.status, 200, JSON.stringify(back.json));
+
+  const refund = (await drawer()).filter((m) => m.order_id === order.id && m.kind === 'refund');
+  assert.equal(refund.length, 1);
+  assert.equal(refund[0].amount_usd, -back.json.refunded, 'the refund, in dollars');
+  assert.equal(refund[0].amount_lbp, 0, 'and nothing at all in pounds');
+  assert.ok(Math.abs(refund[0].amount_usd) < 10, `not the $50 note (${refund[0].amount_usd})`);
+});
+
+test('and it can be handed back in pounds when the counter says so', async () => {
+  const p = await product('BEV-001');
+  const sale = await req(
+    'POST',
+    '/orders',
+    { items: [{ productId: p.id, quantity: 1 }], paymentMethod: 'cash', payments: [{ currency: 'USD', amount: 10 }] },
+    adminToken,
+  );
+  const order = sale.json.order;
+  const item = (await req('GET', `/orders/${order.id}`, null, adminToken)).json.items[0];
+  const back = await req(
+    'POST',
+    `/orders/${order.id}/return-line`,
+    { itemId: item.id, quantity: 1, currency: 'LBP' },
+    adminToken,
+  );
+  assert.equal(back.status, 200, JSON.stringify(back.json));
+  const refund = (await drawer()).find((m) => m.order_id === order.id && m.kind === 'refund');
+  assert.equal(refund.amount_usd, 0);
+  assert.equal(refund.amount_lbp, -Math.round(back.json.refunded * order.exchange_rate));
+});
+
+/* ------------------------------------------------- a return taken back */
+
+test('a return made by mistake can be undone, and everything goes back the way it came', async () => {
+  const p = await product('BEV-001');
+  const stockBefore = p.stock;
+  const sale = await req(
+    'POST',
+    '/orders',
+    { items: [{ productId: p.id, quantity: 3 }], paymentMethod: 'cash', payments: [{ currency: 'USD', amount: 20 }] },
+    adminToken,
+  );
+  assert.equal(sale.status, 201, JSON.stringify(sale.json));
+  const order = sale.json.order;
+  const item = (await req('GET', `/orders/${order.id}`, null, adminToken)).json.items[0];
+
+  const back = await req('POST', `/orders/${order.id}/return-line`, { itemId: item.id, quantity: 2 }, adminToken);
+  assert.equal(back.status, 200);
+  assert.equal((await product('BEV-001')).stock, stockBefore - 1, 'two of three came back');
+
+  const undone = await req('POST', `/orders/${order.id}/return-line/undo`, { itemId: item.id }, adminToken);
+  assert.equal(undone.status, 200, JSON.stringify(undone.json));
+  assert.equal(undone.json.items[0].returned_qty, 0, 'the line is whole again');
+  assert.equal(undone.json.order.status, 'completed');
+  assert.equal((await product('BEV-001')).stock, stockBefore - 3, 'and the goods are off the shelf again');
+
+  // The drawer: the refund went out, and exactly the same came back in.
+  const moves = (await drawer()).filter((m) => m.order_id === order.id && m.order_item_id === item.id);
+  const out = moves.find((m) => m.kind === 'refund');
+  const backIn = moves.find((m) => m.reason === 'return_undone');
+  assert.ok(out && backIn, 'both movements are on the drawer');
+  /* Added rather than negated and compared: a zero leg negated is −0, and
+     strict equality can tell −0 from 0. The sum is the claim anyway. */
+  assert.equal(backIn.amount_usd + out.amount_usd, 0);
+  assert.equal(backIn.amount_lbp + out.amount_lbp, 0);
+
+  // Undoing twice is refused rather than paid twice.
+  const again = await req('POST', `/orders/${order.id}/return-line/undo`, { itemId: item.id }, adminToken);
+  assert.equal(again.status, 400);
+  assert.match(again.json.error, /Nothing .* has been returned/);
+});
+
+test('a voided sale can be restored whole', async () => {
+  const p = await product('BEV-001');
+  const stockBefore = p.stock;
+  const sale = await req(
+    'POST',
+    '/orders',
+    { items: [{ productId: p.id, quantity: 2 }], paymentMethod: 'cash', payments: [{ currency: 'USD', amount: 7 }] },
+    adminToken,
+  );
+  const order = sale.json.order;
+  assert.equal((await req('POST', `/orders/${order.id}/refund`, {}, adminToken)).status, 200);
+  assert.equal((await product('BEV-001')).stock, stockBefore, 'voided: back on the shelf');
+
+  const restored = await req('POST', `/orders/${order.id}/unrefund`, null, adminToken);
+  assert.equal(restored.status, 200, JSON.stringify(restored.json));
+  assert.equal(restored.json.order.status, 'completed');
+  assert.ok(restored.json.items.every((i) => i.returned_qty === 0));
+  assert.equal((await product('BEV-001')).stock, stockBefore - 2, 'sold again');
+
+  const moves = (await drawer()).filter((m) => m.order_id === order.id);
+  const net = moves.reduce((n, m) => Math.round((n + m.amount_usd) * 100) / 100, 0);
+  assert.equal(net, order.total, 'the drawer holds the sale and nothing else');
+});
+
+test('a return cannot be undone once the goods have been sold on', async () => {
+  // A product with exactly one on the shelf, sold, returned, then sold to
+  // somebody else: the first sale's return has nothing left to take back.
+  const made = await req(
+    'POST',
+    '/products',
+    { name: 'Last one', sku: 'LAST-1', price: 9, cost: 4, stock: 1 },
+    adminToken,
+  );
+  const only = made.json.product;
+  const first = await req(
+    'POST',
+    '/orders',
+    { items: [{ productId: only.id, quantity: 1 }], paymentMethod: 'card' },
+    adminToken,
+  );
+  const item = (await req('GET', `/orders/${first.json.order.id}`, null, adminToken)).json.items[0];
+  await req('POST', `/orders/${first.json.order.id}/return-line`, { itemId: item.id, quantity: 1 }, adminToken);
+  const second = await req(
+    'POST',
+    '/orders',
+    { items: [{ productId: only.id, quantity: 1 }], paymentMethod: 'card' },
+    adminToken,
+  );
+  assert.equal(second.status, 201, 'the returned one sold again');
+
+  const undone = await req('POST', `/orders/${first.json.order.id}/return-line/undo`, { itemId: item.id }, adminToken);
+  assert.equal(undone.status, 400);
+  assert.match(undone.json.error, /below zero/);
+});
+
 /* ------------------------------------------------------- sent again later */
 
 test('a sale sent twice under the same name is rung up once', async () => {
