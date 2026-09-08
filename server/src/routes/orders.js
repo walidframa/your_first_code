@@ -1752,7 +1752,7 @@ function undoReturnsOnLine({ order, item, userId, branchId }) {
     });
   }
 
-  return refunded;
+  return { refunded, cashReversed: out.length };
 }
 
 router.post('/:id/return-line/undo', requireAuth, requirePermission('refunds'), (req, res) => {
@@ -1765,13 +1765,41 @@ router.post('/:id/return-line/undo', requireAuth, requirePermission('refunds'), 
 
   try {
     const restored = transaction(() => {
-      const amount = undoReturnsOnLine({ order, item, userId: req.user.id, branchId: req.branchId });
+      const { refunded, cashReversed } = undoReturnsOnLine({
+        order,
+        item,
+        userId: req.user.id,
+        branchId: req.branchId,
+      });
+      /*
+       * A return made before movements were tagged with their line.
+       *
+       * Its money left the drawer under the old rule — the tender turned
+       * inside out — with nothing to say which line it was for, so there is
+       * no movement to reverse by identity. The goods and the line were
+       * still being put right, and the drawer was not, which is what the
+       * shop saw: "I undo the refund but no changes in the cash on hand."
+       * So what the line was refunded goes back in, in dollars, which is
+       * what the drawer is counted in.
+       */
+      if (cashReversed === 0 && order.payment_method === 'cash' && refunded > 0) {
+        recordMovement({
+          accountId: registerAccountId(order.branch_id),
+          kind: 'sale',
+          amountUsd: refunded,
+          orderId: order.id,
+          orderItemId: item.id,
+          reason: 'return_undone',
+          note: `Return of ${item.name} undone on ${order.order_number}`,
+          userId: req.user.id,
+        });
+      }
       /* A sale that was only "refunded" because every line had come back is a
          sale again the moment one of them has not. */
       if (order.status === 'refunded') {
         db.prepare("UPDATE orders SET status = 'completed' WHERE id = ?").run(order.id);
       }
-      return amount;
+      return refunded;
     })();
     res.json({
       order: db.prepare('SELECT * FROM orders WHERE id = ?').get(order.id),

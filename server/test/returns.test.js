@@ -14,6 +14,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { DatabaseSync } from 'node:sqlite';
 
 const serverRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const PORT = 4601;
@@ -613,6 +614,39 @@ test('a voided sale can be restored whole', async () => {
   const moves = (await drawer()).filter((m) => m.order_id === order.id);
   const net = moves.reduce((n, m) => Math.round((n + m.amount_usd) * 100) / 100, 0);
   assert.equal(net, order.total, 'the drawer holds the sale and nothing else');
+});
+
+test('a return made before movements were tagged is still undone in the drawer', async () => {
+  /*
+   * From the counter, the morning after the deploy: "I undo the refund but
+   * no changes in the cash on hand." Returns made under the old code hand
+   * money back with no line on the movement, so there was nothing to
+   * reverse by identity — the goods came back, the line came back, the
+   * drawer stayed short.
+   */
+  const p = await product('BEV-001');
+  const sale = await req(
+    'POST',
+    '/orders',
+    { items: [{ productId: p.id, quantity: 2 }], paymentMethod: 'cash', payments: [{ currency: 'USD', amount: 20 }] },
+    adminToken,
+  );
+  const order = sale.json.order;
+  const item = (await req('GET', `/orders/${order.id}`, null, adminToken)).json.items[0];
+  const cashBefore = (await req('GET', '/cash/current', null, adminToken)).json.expected.usd;
+
+  const back = await req('POST', `/orders/${order.id}/return-line`, { itemId: item.id, quantity: 1 }, adminToken);
+  assert.equal(back.status, 200);
+
+  // The return as the old code left it: no line on the drawer movement.
+  const db = new DatabaseSync(path.join(workDir, 'returns.sqlite'));
+  db.prepare('UPDATE cash_movements SET order_item_id = NULL WHERE order_id = ?').run(order.id);
+  db.close();
+
+  const undone = await req('POST', `/orders/${order.id}/return-line/undo`, { itemId: item.id }, adminToken);
+  assert.equal(undone.status, 200, JSON.stringify(undone.json));
+  const cashAfter = (await req('GET', '/cash/current', null, adminToken)).json.expected.usd;
+  assert.equal(cashAfter, cashBefore, 'the drawer holds what it held before the return');
 });
 
 test('a return cannot be undone once the goods have been sold on', async () => {
