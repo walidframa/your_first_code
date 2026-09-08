@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { parseImeiList } from '../lib/units.js';
 import { branchParams } from '../lib/branchScope.js';
 import { db, transaction } from '../db.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
@@ -311,10 +312,20 @@ router.put('/:id', requireAuth, requirePermission('documents'), (req, res) => {
       });
     }
 
+    /*
+     * The handsets the edited version still carries, so a price correction on
+     * a delivery of ten phones is not ten phones deleted and ten booked in
+     * again — see moveUnits. Every IMEI on the new lines; the mover only
+     * consults it for handsets this document brought in.
+     */
+    const keepUnits = new Set(
+      lines.flatMap((l) => parseImeiList(l.imeis).flatMap((h) => [h.imei, h.imei2].filter(Boolean))),
+    );
+
     transaction(() => {
       // Undo the old version first, using the lines as they stand now.
       if (doc.status === 'confirmed') {
-        reverseEffects(doc, itemsOf(doc.id), req.user.id, `Edited ${doc.doc_number}`);
+        reverseEffects(doc, itemsOf(doc.id), req.user.id, `Edited ${doc.doc_number}`, null, { keepUnits });
       }
 
       db.prepare(
@@ -371,6 +382,7 @@ router.put('/:id', requireAuth, requirePermission('documents'), (req, res) => {
           // reason: an edit re-applies the payment, and it must land where the
           // original did rather than in whichever drawer the fallback found.
           req.body?.accountId ?? settlementAccountId(req.branchId),
+          { keepUnits },
         );
       }
     })();

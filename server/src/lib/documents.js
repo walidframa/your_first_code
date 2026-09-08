@@ -224,7 +224,7 @@ export function itemsOf(documentId) {
  * Move stock for a document's lines. `direction` is +1 to apply the document's
  * own effect and -1 to undo it.
  */
-function applyDocumentStock(doc, items, userId, direction, note) {
+function applyDocumentStock(doc, items, userId, direction, note, { keepUnits = null } = {}) {
   const type = DOC_TYPES[doc.doc_type];
   if (type.stock === 0) return;
 
@@ -263,7 +263,7 @@ function applyDocumentStock(doc, items, userId, direction, note) {
      * recounted from the units rather than added to, so the two cannot drift.
      */
     if (product.tracks_units) {
-      moveUnits({ doc, item, product, direction, userId, note, branchId });
+      moveUnits({ doc, item, product, direction, userId, note, branchId, keepUnits });
       continue;
     }
 
@@ -529,7 +529,36 @@ function moveValidityCredit({ doc, item, product, direction, userId, note, sign 
  * a handset the shop has no record of receiving — better to refuse and make
  * someone decide what actually happened.
  */
-function moveUnits({ doc, item, product, direction, userId, note, branchId = null }) {
+/*
+ * Why a handset that came in on this document cannot simply be deleted.
+ *
+ * A row in `product_units` is an identity, and the rest of the app points at
+ * it: the sale it went out on, the sale it came back from, the transfer that
+ * moved it, the repair it was booked in for, the instalment plan it is being
+ * paid off on. Deleting it under any of those is what the database refused
+ * with "FOREIGN KEY constraint failed" — true, and useless to somebody who
+ * only changed a price. Asked first, so the refusal can name the handset and
+ * say what still holds it.
+ */
+function whatHolds(unitId) {
+  const checks = [
+    ['SELECT 1 FROM order_items WHERE unit_id = ? LIMIT 1', 'a sale (it has been sold, or sold and returned)'],
+    ['SELECT 1 FROM stock_transfer_items WHERE unit_id = ? LIMIT 1', 'a stock transfer'],
+    ['SELECT 1 FROM repair_tickets WHERE unit_id = ? LIMIT 1', 'a repair'],
+    ['SELECT 1 FROM trade_ins WHERE unit_id = ? LIMIT 1', 'a trade-in'],
+    ['SELECT 1 FROM order_accounts WHERE unit_id = ? LIMIT 1', 'an instalment plan'],
+  ];
+  for (const [sql, what] of checks) {
+    try {
+      if (db.prepare(sql).get(unitId)) return what;
+    } catch {
+      /* A table this shop's schema does not have yet holds nothing. */
+    }
+  }
+  return null;
+}
+
+function moveUnits({ doc, item, product, direction, userId, note, branchId = null, keepUnits = null }) {
   const wanted = Math.round(item.quantity);
 
   if (direction < 0) {
@@ -537,20 +566,48 @@ function moveUnits({ doc, item, product, direction, userId, note, branchId = nul
       .prepare('SELECT * FROM product_units WHERE received_document_id = ? AND product_id = ?')
       .all(doc.id, product.id);
 
-    const gone = received.filter((u) => !isAvailable(u.status));
-    if (gone.length > 0) {
-      throw new Error(
-        `${gone[0].imei} came in on this document and has already been ${gone[0].status.replace('_', ' ')}`,
-      );
+    /*
+     * On an edit, the handsets still on the line stay exactly as they are.
+     *
+     * Undoing a delivery used to delete every handset it brought in and
+     * confirming the edit booked them in again — new rows, new ids — so
+     * correcting the *price* of ten phones recreated ten phones. Any of them
+     * that had been sold and returned, moved between branches, or put on a
+     * plan was pointed at by something else, and the delete failed with a
+     * database error that named nothing.
+     *
+     * So the edit says which IMEIs it keeps, and those are left alone: same
+     * row, same history, cost updated on the way back in. Only what the edit
+     * actually took off the line is removed — and refused, by name, if it is
+     * held.
+     */
+    const leaving = keepUnits
+      ? received.filter((u) => !keepUnits.has(u.imei) && !(u.imei2 && keepUnits.has(u.imei2)))
+      : received;
+
+    for (const u of leaving) {
+      if (!isAvailable(u.status)) {
+        throw new Error(
+          `${u.imei} came in on this document and has already been ${u.status.replace('_', ' ')}`,
+        );
+      }
+      const held = whatHolds(u.id);
+      if (held) {
+        throw new Error(
+          `${u.imei} came in on this document and is still on ${held} — it cannot be taken off the delivery`,
+        );
+      }
     }
-    for (const u of received) {
+    for (const u of leaving) {
       db.prepare('DELETE FROM product_units WHERE id = ?').run(u.id);
     }
-    const left = syncStockFromUnits(product.id);
-    db.prepare(
-      `INSERT INTO stock_adjustments (product_id, user_id, delta, resulting_stock, reason, note, branch_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    ).run(product.id, userId, -received.length, left, 'count_correction', note, branchId);
+    if (leaving.length) {
+      const left = syncStockFromUnits(product.id);
+      db.prepare(
+        `INSERT INTO stock_adjustments (product_id, user_id, delta, resulting_stock, reason, note, branch_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      ).run(product.id, userId, -leaving.length, left, 'count_correction', note, branchId);
+    }
     return;
   }
 
@@ -580,11 +637,36 @@ function moveUnits({ doc, item, product, direction, userId, note, branchId = nul
   }
 
   const cost = item.cost ?? product.cost;
-  receiveUnits(product.id, handsets.map((h) => ({ ...h, cost })), {
-    documentId: doc.id,
-    // The handsets are on the counter of the branch that took the delivery.
-    branchId: doc.branch_id ?? null,
-  });
+
+  /*
+   * The other half of the edit: handsets already here from this document are
+   * not booked in twice. They get the line's new cost — that is usually the
+   * whole reason the delivery was reopened — and only the IMEIs the edit
+   * added are received.
+   */
+  const already = new Set(
+    db
+      .prepare('SELECT imei, imei2 FROM product_units WHERE received_document_id = ? AND product_id = ?')
+      .all(doc.id, product.id)
+      .flatMap((u) => [u.imei, u.imei2].filter(Boolean)),
+  );
+  const staying = handsets.filter((h) => already.has(h.imei));
+  const arriving = handsets.filter((h) => !already.has(h.imei));
+
+  if (staying.length && cost !== null && cost !== undefined) {
+    const recost = db.prepare(
+      'UPDATE product_units SET cost = ? WHERE received_document_id = ? AND product_id = ? AND imei = ?',
+    );
+    for (const h of staying) recost.run(cost, doc.id, product.id, h.imei);
+  }
+
+  if (arriving.length) {
+    receiveUnits(product.id, arriving.map((h) => ({ ...h, cost })), {
+      documentId: doc.id,
+      // The handsets are on the counter of the branch that took the delivery.
+      branchId: doc.branch_id ?? null,
+    });
+  }
 
   if (cost !== null && cost !== undefined) {
     db.prepare('UPDATE products SET cost = ? WHERE id = ?').run(cost, product.id);
@@ -600,10 +682,12 @@ function moveUnits({ doc, item, product, direction, userId, note, branchId = nul
   }
 
   const resulting = syncStockFromUnits(product.id);
-  db.prepare(
-    `INSERT INTO stock_adjustments (product_id, user_id, delta, resulting_stock, reason, note)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-  ).run(product.id, userId, handsets.length, resulting, 'received', note);
+  if (arriving.length) {
+    db.prepare(
+      `INSERT INTO stock_adjustments (product_id, user_id, delta, resulting_stock, reason, note)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    ).run(product.id, userId, arriving.length, resulting, 'received', note);
+  }
 }
 
 /** Does this document belong on somebody's account at all? */
@@ -636,10 +720,10 @@ function tillOf(documentId) {
   return row?.account_id ?? null;
 }
 
-export function applyEffects(doc, items, userId, note = doc.doc_number, accountId = null) {
+export function applyEffects(doc, items, userId, note = doc.doc_number, accountId = null, options = {}) {
   if (items.length === 0) throw new Error('A document needs at least one line');
 
-  applyDocumentStock(doc, items, userId, 1, note);
+  applyDocumentStock(doc, items, userId, 1, note, options);
   if (!postsToLedger(doc)) return;
 
   // Only the unpaid remainder is credit, so that is what the limit applies to.
@@ -727,8 +811,8 @@ export function applyEffects(doc, items, userId, note = doc.doc_number, accountI
  * entries rather than by deleting the originals, so the party's statement still
  * shows what happened and when.
  */
-export function reverseEffects(doc, items, userId, note = `Cancelled ${doc.doc_number}`, accountId = null) {
-  applyDocumentStock(doc, items, userId, -1, note);
+export function reverseEffects(doc, items, userId, note = `Cancelled ${doc.doc_number}`, accountId = null, options = {}) {
+  applyDocumentStock(doc, items, userId, -1, note, options);
   if (!postsToLedger(doc)) return;
 
   addEntry({
