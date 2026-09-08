@@ -775,3 +775,140 @@ test('a saved delivery hands its IMEIs back, so an edit can keep them', async ()
   const confirmed = await req('POST', `/documents/${id}/confirm`, null, adminToken);
   assert.equal(confirmed.status, 200, JSON.stringify(confirmed.json));
 });
+
+/* --------------------------------------- editing a delivery of handsets */
+
+/*
+ * "Editing a phone price in a PI is showing FOREIGN KEY constraint failed."
+ *
+ * Undoing a confirmed delivery deleted every handset it brought in, and
+ * confirming the edit booked them in again as new rows. Any handset that
+ * anything else pointed at by then — the sale it went out on and came back
+ * from, a transfer, a repair, a plan — could not be deleted, and the database
+ * said so in its own words. The shop had changed a price.
+ */
+async function deliveryOfPhones(tag, imeis, price = 300) {
+  const supplier = (await req('POST', '/suppliers', { name: `Handsets ${tag}` }, adminToken)).json.party;
+  const phone = (
+    await req(
+      'POST',
+      '/products',
+      { name: `Phone ${tag}`, sku: `PH-${tag}`, price: 400, cost: price, tracks_units: true },
+      adminToken,
+    )
+  ).json.product;
+  const doc = (
+    await req(
+      'POST',
+      '/documents',
+      {
+        docType: 'purchase_invoice',
+        partyId: supplier.id,
+        items: [{ productId: phone.id, quantity: imeis.length, price, imeis: imeis.join('\n') }],
+      },
+      adminToken,
+    )
+  ).json.document;
+  const confirmed = await req('POST', `/documents/${doc.id}/confirm`, null, adminToken);
+  assert.equal(confirmed.status, 200, JSON.stringify(confirmed.json));
+  const units = (await req('GET', `/units/product/${phone.id}`, null, adminToken)).json.units;
+  return { supplier, phone, doc, units };
+}
+
+const unitsOf = async (phoneId) =>
+  (await req('GET', `/units/product/${phoneId}`, null, adminToken)).json.units;
+
+test('correcting the price on a delivery leaves its handsets exactly where they were', async () => {
+  const imeis = ['356003000100017', '356003000100025', '356003000100033'];
+  const { phone, doc, units } = await deliveryOfPhones('EDIT', imeis);
+  const before = new Map(units.map((u) => [u.imei, u.id]));
+
+  // One of them went out at the register and came back — its sale line still
+  // points at it, which is what the old delete tripped over.
+  await req('POST', '/cash/open', { openingUsd: 100 }, adminToken);
+  const sold = await req(
+    'POST',
+    '/orders',
+    { items: [{ productId: phone.id, quantity: 1, unitId: before.get(imeis[0]) }], paymentMethod: 'card' },
+    adminToken,
+  );
+  assert.equal(sold.status, 201, JSON.stringify(sold.json));
+  await req('POST', `/orders/${sold.json.order.id}/refund`, {}, adminToken);
+
+  const edited = await req(
+    'PUT',
+    `/documents/${doc.id}`,
+    { items: [{ productId: phone.id, quantity: 3, price: 310, imeis: imeis.join('\n') }] },
+    adminToken,
+  );
+  assert.equal(edited.status, 200, JSON.stringify(edited.json));
+  assert.equal(edited.json.document.subtotal, 930);
+
+  const after = await unitsOf(phone.id);
+  for (const imei of imeis) {
+    const unit = after.find((u) => u.imei === imei);
+    assert.ok(unit, `${imei} is still here`);
+    assert.equal(unit.id, before.get(imei), `${imei} is the same handset, not a copy`);
+    assert.equal(unit.cost, 310, 'with the corrected cost on it');
+  }
+  assert.equal(
+    after.find((u) => u.imei === imeis[0]).status,
+    'returned',
+    'and the one that came back still says so',
+  );
+});
+
+test('taking a handset off a delivery is refused by name when something still holds it', async () => {
+  const imeis = ['356003000100041', '356003000100058'];
+  const { phone, doc, units } = await deliveryOfPhones('HOLD', imeis);
+  const first = units.find((u) => u.imei === imeis[0]);
+
+  const sold = await req(
+    'POST',
+    '/orders',
+    { items: [{ productId: phone.id, quantity: 1, unitId: first.id }], paymentMethod: 'card' },
+    adminToken,
+  );
+  await req('POST', `/orders/${sold.json.order.id}/refund`, {}, adminToken);
+
+  // The edit drops the one that was sold and returned.
+  const edited = await req(
+    'PUT',
+    `/documents/${doc.id}`,
+    { items: [{ productId: phone.id, quantity: 1, price: 300, imeis: imeis[1] }] },
+    adminToken,
+  );
+  assert.equal(edited.status, 400);
+  assert.match(edited.json.error, new RegExp(imeis[0]), 'it names the handset');
+  assert.match(edited.json.error, /a sale/, 'and what holds it');
+  assert.doesNotMatch(edited.json.error, /FOREIGN KEY/);
+
+  // And so is cancelling the whole delivery, for the same reason in the same words.
+  const cancelled = await req('POST', `/documents/${doc.id}/cancel`, null, adminToken);
+  assert.equal(cancelled.status, 400);
+  assert.match(cancelled.json.error, new RegExp(imeis[0]));
+  assert.doesNotMatch(cancelled.json.error, /FOREIGN KEY/);
+
+  // Nothing moved on either refusal.
+  assert.equal((await unitsOf(phone.id)).length, 2);
+});
+
+test('an edit that adds a handset books in only the new one', async () => {
+  const imeis = ['356003000100066'];
+  const { phone, doc, units } = await deliveryOfPhones('ADD', imeis);
+  const keptId = units[0].id;
+
+  const edited = await req(
+    'PUT',
+    `/documents/${doc.id}`,
+    { items: [{ productId: phone.id, quantity: 2, price: 300, imeis: `${imeis[0]}\n356003000100074` }] },
+    adminToken,
+  );
+  assert.equal(edited.status, 200, JSON.stringify(edited.json));
+
+  const after = await unitsOf(phone.id);
+  assert.equal(after.length, 2);
+  assert.equal(after.find((u) => u.imei === imeis[0]).id, keptId, 'the first is untouched');
+  assert.ok(after.find((u) => u.imei === '356003000100074'), 'the second arrived');
+  assert.equal((await req('GET', `/products/${phone.id}`, null, adminToken)).json.product.stock, 2);
+});
