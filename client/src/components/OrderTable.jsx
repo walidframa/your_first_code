@@ -78,6 +78,60 @@ export default function OrderTable({
     setSelected(res.data);
   }
 
+  /*
+   * The way back from a return, and from a void.
+   *
+   * Both were final, and the only correction was ringing the thing up again
+   * — a second sale on the day's list for something sold once. Refused by
+   * the server where it cannot be true any more: a handset sold to somebody
+   * else since, a shelf the goods have already left again.
+   */
+  async function undoReturn(item) {
+    const order = selected?.order;
+    const agreed = await confirm({
+      title: `Undo the return of ${item.name}?`,
+      body: (
+        <>
+          The goods go back off the shelf and the money comes back into the drawer — exactly what
+          went out. {order?.order_number} is a sale again.
+        </>
+      ),
+      confirmLabel: 'Undo the return',
+    });
+    if (!agreed) return;
+    try {
+      await api.post(`/orders/${order.id}/return-line/undo`, { itemId: item.id });
+      toast('Return undone');
+      await openOrder(order.id);
+      onChanged?.();
+    } catch (err) {
+      toast(err.response?.data?.error || 'Could not undo that return', 'error');
+    }
+  }
+
+  async function unrefund(id) {
+    const order = selected?.order;
+    const agreed = await confirm({
+      title: `Restore ${order?.order_number || 'this sale'}?`,
+      body: (
+        <>
+          Everything that came back goes out again and <strong>{money(order?.total || 0)}</strong>{' '}
+          comes back into the drawer. The sale is counted again.
+        </>
+      ),
+      confirmLabel: 'Restore the sale',
+    });
+    if (!agreed) return;
+    try {
+      await api.post(`/orders/${id}/unrefund`);
+      toast('Sale restored');
+      await openOrder(id);
+      onChanged?.();
+    } catch (err) {
+      toast(err.response?.data?.error || 'Could not restore that sale', 'error');
+    }
+  }
+
   async function refund(id) {
     const order = selected?.order;
     const agreed = await confirm({
@@ -285,6 +339,20 @@ export default function OrderTable({
                     {item.returned_qty > 0 && (
                       <span className="ml-1.5 text-xs text-amber-700">
                         {left === 0 ? 'returned' : `${item.returned_qty} returned`}
+                        {/*
+                          * A return made by mistake is undone here, on the
+                          * line it was made on — goods back off the shelf,
+                          * the money back into the drawer.
+                          */}
+                        {canRefund && (
+                          <button
+                            type="button"
+                            onClick={() => undoReturn(item)}
+                            className="ml-1.5 rounded px-1 font-medium text-brand-700 underline-offset-2 hover:underline"
+                          >
+                            undo
+                          </button>
+                        )}
                       </span>
                     )}
                   </span>
@@ -348,9 +416,18 @@ export default function OrderTable({
             </Button>
           )}
           {selected.order.status === 'refunded' && (
-            <p className="rounded-lg bg-amber-50 px-3 py-2 text-center text-sm text-amber-800">
-              This order was refunded and stock was restored.
-            </p>
+            <div className="mt-3 flex items-center justify-between gap-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              <span>This order was refunded and stock was restored.</span>
+              {canRefund && (
+                <button
+                  type="button"
+                  onClick={() => unrefund(selected.order.id)}
+                  className="shrink-0 rounded px-1.5 py-0.5 font-medium text-amber-900 underline-offset-2 hover:underline"
+                >
+                  Undo the refund
+                </button>
+              )}
+            </div>
           )}
         </Modal>
       )}

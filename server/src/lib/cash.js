@@ -464,6 +464,7 @@ export function recordMovement({
   reason = null,
   note = null,
   orderId = null,
+  orderItemId = null,
   documentId = null,
   userId = null,
   sessionId = null,
@@ -511,10 +512,10 @@ export function recordMovement({
   const info = db
     .prepare(
       `INSERT INTO cash_movements
-         (session_id, account_id, kind, amount_usd, amount_lbp, reason, note, order_id, document_id, user_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (session_id, account_id, kind, amount_usd, amount_lbp, reason, note, order_id, order_item_id, document_id, user_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
-    .run(session.id, session.account_id ?? account, kind, usd, lbp, reason, note, orderId, documentId, userId);
+    .run(session.id, session.account_id ?? account, kind, usd, lbp, reason, note, orderId, orderItemId, documentId, userId);
 
   return info.lastInsertRowid;
 }
@@ -581,12 +582,34 @@ export const SHORT_DRAWER_WARNING =
  *
  * This is the Z-report every till produces at the end of a shift.
  */
+/**
+ * Whose shop a sitting belongs to: the branch of the till it was opened on.
+ *
+ * Null for a till with no branch, which reads below as "every branch" — the
+ * only honest answer for a shop that predates branches.
+ */
+export function branchOfSession(session) {
+  if (!session?.account_id) return null;
+  return db.prepare('SELECT branch_id FROM cash_accounts WHERE id = ?').get(session.account_id)
+    ?.branch_id ?? null;
+}
+
 export function sessionSummary(sessionId) {
   const session = sessionById(sessionId);
   if (!session) return null;
 
   const movements = movementsFor(sessionId);
   const expected = expectedIn(sessionId);
+  /*
+   * This till's shop, not the company.
+   *
+   * The sales and refunds below were every sale in the time the drawer was
+   * open, wherever it was rung up — so the report for one counter counted the
+   * other branch's trade, and disagreed with the panel above the drawer, which
+   * had always been this branch's. "34 cash sales" over a drawer with 22 cash
+   * movements in it was the shop's own way of noticing.
+   */
+  const branchId = branchOfSession(session);
 
   const byKind = {};
   for (const m of movements) {
@@ -603,17 +626,19 @@ export function sessionSummary(sessionId) {
       `SELECT payment_method, COUNT(*) AS orders, COALESCE(SUM(total), 0) AS total
        FROM orders
        WHERE status = 'completed' AND created_at >= ? AND created_at <= COALESCE(?, datetime('now'))
+         AND (? IS NULL OR branch_id = ?)
        GROUP BY payment_method`,
     )
-    .all(session.opened_at, session.closed_at);
+    .all(session.opened_at, session.closed_at, branchId, branchId);
 
   const refunds = db
     .prepare(
       `SELECT COUNT(*) AS orders, COALESCE(SUM(total), 0) AS total
        FROM orders
-       WHERE status = 'refunded' AND created_at >= ? AND created_at <= COALESCE(?, datetime('now'))`,
+       WHERE status = 'refunded' AND created_at >= ? AND created_at <= COALESCE(?, datetime('now'))
+         AND (? IS NULL OR branch_id = ?)`,
     )
-    .get(session.opened_at, session.closed_at);
+    .get(session.opened_at, session.closed_at, branchId, branchId);
 
   return {
     session,

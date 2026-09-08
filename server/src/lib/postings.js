@@ -313,8 +313,8 @@ export function postSale({ order, items = [], tillAccountId = null, userId = nul
 }
 
 /** A sale handed back: the same entry, the other way round. */
-export function postRefund({ order, items = [], amount = null, tillAccountId = null, userId = null }) {
-  return guarded(`refund ${order.order_number}`, () => {
+export function postRefund({ order, items = [], amount = null, tillAccountId = null, userId = null, undo = false }) {
+  return guarded(`${undo ? 'unrefund' : 'refund'} ${order.order_number}`, () => {
     const sale = postSale({ order, items, tillAccountId, userId: null });
     if (!sale) return null;
 
@@ -325,10 +325,12 @@ export function postRefund({ order, items = [], amount = null, tillAccountId = n
      * the entry nobody checks.
      */
     const share = amount === null ? 1 : Math.min(1, Math.abs(amount) / (round2(order.total) || 1));
+    /* An undo is the sale's shape the right way up again, for the same share:
+       what the refund turned over is turned back. */
     const lines = sale.lines.map((l) => ({
       accountId: l.account_id,
-      debit: round2(l.credit_usd * share),
-      credit: round2(l.debit_usd * share),
+      debit: round2((undo ? l.debit_usd : l.credit_usd) * share),
+      credit: round2((undo ? l.credit_usd : l.debit_usd) * share),
     }));
 
     // The sale's entry was only ever a way to work out the shape; it is not
@@ -338,7 +340,11 @@ export function postRefund({ order, items = [], amount = null, tillAccountId = n
 
     return write({
       lines,
-      memo: amount === null ? `Voided ${order.order_number}` : `Returned against ${order.order_number}`,
+      memo: undo
+        ? `${amount === null ? 'Void' : 'Return'} undone on ${order.order_number}`
+        : amount === null
+          ? `Voided ${order.order_number}`
+          : `Returned against ${order.order_number}`,
       branchId: order.branch_id,
       userId,
     });

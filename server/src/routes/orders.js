@@ -1308,6 +1308,37 @@ router.get('/:id/whatsapp', requireAuth, (req, res) => {
   res.json(sendable(orderMessage(order.id), req.query.phone || null));
 });
 
+/*
+ * What goes back across the counter, and in which currency.
+ *
+ * A refund used to reverse the *tender legs*: what was paid in dollars less
+ * the change in dollars, what was paid in pounds less the change in pounds.
+ * For a $15 sale paid with a $50 note and 3,150,000 LL of change that is
+ * "−$50 and +3,150,000 LL" — arithmetically the same fifteen dollars, and
+ * nothing like what happened, which was a cashier handing over $15. The
+ * drawer then said it was $50 down and three million pounds up, and the
+ * report said the refund was fifty dollars.
+ *
+ * So a refund is one amount in one currency: the one the cashier hands
+ * back. Chosen at the counter when it matters; defaulting to pounds only
+ * when the customer paid in pounds and nothing else, because that is what
+ * the drawer will have to give them.
+ */
+function refundLegs(order, refundUsd, currency = null) {
+  const netUsd = round2((order.paid_usd || 0) - (order.change_usd || 0));
+  const netLbp = Math.round((order.paid_lbp || 0) - (order.change_lbp || 0));
+  const inPounds =
+    currency === 'LBP' || (currency !== 'USD' && netLbp > 0 && netUsd <= 0);
+  const rate = Number(order.exchange_rate) || 0;
+  if (inPounds && rate > 0) return { amountUsd: 0, amountLbp: -Math.round(refundUsd * rate) };
+  return { amountUsd: -round2(refundUsd), amountLbp: 0 };
+}
+
+function refundCurrencyFrom(body) {
+  const c = String(body?.currency || '').toUpperCase();
+  return c === 'LBP' || c === 'USD' ? c : null;
+}
+
 router.post('/:id/refund', requireAuth, requirePermission('refunds'), (req, res) => {
   const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(req.params.id);
   if (!order) return res.status(404).json({ error: 'Order not found' });
@@ -1400,14 +1431,14 @@ router.post('/:id/refund', requireAuth, requirePermission('refunds'), (req, res)
       userId: req.user.id,
     });
 
-    // Refunding a cash sale hands money back across the counter.
-    if (order.payment_method === 'cash') {
+    // Refunding a cash sale hands money back across the counter — the sale's
+    // total, in one currency, not the tender turned inside out.
+    if (order.payment_method === 'cash' && order.total > 0) {
       recordMovement({
         // Handed back over the counter it was taken at.
         accountId: registerAccountId(order.branch_id),
         kind: 'refund',
-        amountUsd: -round2(order.paid_usd - order.change_usd),
-        amountLbp: -(order.paid_lbp - order.change_lbp),
+        ...refundLegs(order, order.total, refundCurrencyFrom(req.body)),
         orderId: order.id,
         reason: 'refund',
         note: `Refund of ${order.order_number}`,
@@ -1562,13 +1593,14 @@ router.post('/:id/return-line', requireAuth, requirePermission('refunds'), (req,
      * actually tendered rather than converted into dollars on the way out.
      */
     if (order.payment_method === 'cash' && order.total > 0) {
-      const share = refund / order.total;
       recordMovement({
         accountId: registerAccountId(order.branch_id),
         kind: 'refund',
-        amountUsd: -round2((order.paid_usd - order.change_usd) * share),
-        amountLbp: -Math.round((order.paid_lbp - order.change_lbp) * share),
+        ...refundLegs(order, refund, refundCurrencyFrom(req.body)),
         orderId: order.id,
+        /* Tagged with the line, so undoing this return can reverse exactly
+           this movement — see the column's note in db.js. */
+        orderItemId: item.id,
         reason: 'refund',
         note: `Returned ${returning} × ${item.name} from ${order.order_number}`,
         userId: req.user.id,
@@ -1592,6 +1624,216 @@ router.post('/:id/return-line', requireAuth, requirePermission('refunds'), (req,
       branchId: order.branch_id,
     }),
   );
+});
+
+/*
+ * A return taken back.
+ *
+ * "I should be able to cancel a refund if I did it by mistake." Until now a
+ * return was final: the line said returned, the money had left the drawer,
+ * and the only way back was to ring the same thing up again as a new sale —
+ * which is a second sale on the day's list for a thing that was sold once.
+ *
+ * So a return is undone the way it was done, in reverse: the goods go back
+ * off the shelf (or the handset is sold again, or the card's credit spent
+ * again), the money comes back into the drawer — exactly the movement that
+ * went out, in the currency it went out in — and the books are turned back.
+ *
+ * Refused where it cannot be true any more: a returned handset already sold
+ * to somebody else, a returned charger that has since been sold on and would
+ * take the shelf below zero. Those are a new sale, not an undo.
+ */
+function lineShareOfTotal(order, item) {
+  const subtotal = Number(order.subtotal) || 0;
+  if (subtotal <= 0) return 0;
+  return round2((Number(order.total) || 0) * ((Number(item.line_total) || 0) / subtotal));
+}
+
+function undoReturnsOnLine({ order, item, userId, branchId }) {
+  const back = Number(item.returned_qty) || 0;
+  if (!(back > 0)) throw new Error(`Nothing on ${item.name} has been returned`);
+
+  const fromWallet = db
+    .prepare(
+      "SELECT 1 FROM wallet_movements WHERE order_id = ? AND kind = 'sale' AND product_id = ? LIMIT 1",
+    )
+    .get(order.id, item.product_id);
+
+  if (item.unit_id) {
+    const unit = db.prepare('SELECT * FROM product_units WHERE id = ?').get(item.unit_id);
+    if (!unit) throw new Error(`${item.name} is no longer in the catalogue`);
+    if (unit.status !== 'returned' || unit.sold_order_id) {
+      throw new Error(`${unit.imei} has been ${unit.status.replace('_', ' ')} since — sell it again instead`);
+    }
+    db.prepare(
+      `UPDATE product_units SET status = 'sold', sold_order_id = ?, sold_at = datetime('now') WHERE id = ?`,
+    ).run(order.id, unit.id);
+    syncStockFromUnits(unit.product_id);
+  } else if (fromWallet) {
+    /* Spend the card's credit again: every refund movement this line put
+       back, turned over. */
+    const refunds = db
+      .prepare(
+        "SELECT * FROM wallet_movements WHERE order_id = ? AND kind = 'refund' AND product_id = ?",
+      )
+      .all(order.id, item.product_id);
+    for (const m of refunds) {
+      db.prepare(
+        `INSERT INTO wallet_movements
+           (wallet_id, kind, amount, amount_usd, exchange_rate, order_id, product_id, note, user_id)
+         VALUES (?, 'sale', ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(m.wallet_id, -m.amount, -m.amount_usd, m.exchange_rate, order.id, m.product_id, 'Return undone', userId);
+    }
+  } else if (item.product_id) {
+    const parts = partsUsedOn(item.id, item.product_id);
+    if (parts.length) {
+      movePartsStock({ branchId: order.branch_id, parts, quantity: back, sign: -1 });
+    } else {
+      // Throws if the shelf would go below zero: the returned goods were sold on.
+      moveStock({ branchId: order.branch_id, productId: item.product_id, delta: -back });
+    }
+  }
+
+  db.prepare('UPDATE order_items SET returned_qty = 0 WHERE id = ?').run(item.id);
+
+  const refunded = round2(lineShareOfTotal(order, item) * (back / (Number(item.quantity) || 1)));
+
+  if (order.payment_method === 'account' && order.customer_id && refunded > 0) {
+    addEntry({
+      partyType: 'customer',
+      partyId: order.customer_id,
+      kind: 'sale',
+      amountUsd: refunded,
+      orderId: order.id,
+      note: `Return of ${back} × ${item.name} undone on ${order.order_number}`,
+      userId,
+      branchId,
+    });
+  }
+
+  if (refunded > 0) {
+    postRefund({
+      order,
+      items: itemsOfOrder(order.id),
+      amount: refunded,
+      tillAccountId: registerAccountId(order.branch_id),
+      userId,
+      undo: true,
+    });
+  }
+
+  /*
+   * The money, exactly as it went out. Only movements since the last undo on
+   * this line, so a line returned, undone, returned again and undone again
+   * gives back each refund once.
+   */
+  const since =
+    db
+      .prepare(
+        "SELECT MAX(id) AS id FROM cash_movements WHERE order_id = ? AND order_item_id = ? AND reason = 'return_undone'",
+      )
+      .get(order.id, item.id)?.id ?? 0;
+  const out = db
+    .prepare(
+      "SELECT * FROM cash_movements WHERE order_id = ? AND order_item_id = ? AND kind = 'refund' AND id > ?",
+    )
+    .all(order.id, item.id, since);
+  for (const m of out) {
+    recordMovement({
+      accountId: m.account_id,
+      kind: 'sale',
+      amountUsd: -m.amount_usd,
+      amountLbp: -m.amount_lbp,
+      orderId: order.id,
+      orderItemId: item.id,
+      reason: 'return_undone',
+      note: `Return of ${back} × ${item.name} undone on ${order.order_number}`,
+      userId,
+    });
+  }
+
+  return refunded;
+}
+
+router.post('/:id/return-line/undo', requireAuth, requirePermission('refunds'), (req, res) => {
+  const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(req.params.id);
+  if (!order) return res.status(404).json({ error: 'Order not found' });
+  const item = db
+    .prepare('SELECT * FROM order_items WHERE id = ? AND order_id = ?')
+    .get(Number(req.body?.itemId), order.id);
+  if (!item) return res.status(404).json({ error: 'That line is not on this sale' });
+
+  try {
+    const restored = transaction(() => {
+      const amount = undoReturnsOnLine({ order, item, userId: req.user.id, branchId: req.branchId });
+      /* A sale that was only "refunded" because every line had come back is a
+         sale again the moment one of them has not. */
+      if (order.status === 'refunded') {
+        db.prepare("UPDATE orders SET status = 'completed' WHERE id = ?").run(order.id);
+      }
+      return amount;
+    })();
+    res.json({
+      order: db.prepare('SELECT * FROM orders WHERE id = ?').get(order.id),
+      items: itemsOfOrder(order.id),
+      restored,
+    });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+/**
+ * A void taken back: every returned line undone, and the sale a sale again.
+ *
+ * The same routine, line by line, so the two cannot disagree about what
+ * undoing means — and the void's own drawer movement, which is tagged with no
+ * line, reversed with them.
+ */
+router.post('/:id/unrefund', requireAuth, requirePermission('refunds'), (req, res) => {
+  const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(req.params.id);
+  if (!order) return res.status(404).json({ error: 'Order not found' });
+  if (order.status !== 'refunded') return res.status(400).json({ error: 'This sale was not refunded' });
+
+  try {
+    transaction(() => {
+      for (const item of db.prepare('SELECT * FROM order_items WHERE order_id = ? AND returned_qty > 0').all(order.id)) {
+        undoReturnsOnLine({ order, item, userId: req.user.id, branchId: req.branchId });
+      }
+      const since =
+        db
+          .prepare(
+            "SELECT MAX(id) AS id FROM cash_movements WHERE order_id = ? AND order_item_id IS NULL AND reason = 'return_undone'",
+          )
+          .get(order.id)?.id ?? 0;
+      const voids = db
+        .prepare(
+          "SELECT * FROM cash_movements WHERE order_id = ? AND order_item_id IS NULL AND kind = 'refund' AND id > ?",
+        )
+        .all(order.id, since);
+      for (const m of voids) {
+        recordMovement({
+          accountId: m.account_id,
+          kind: 'sale',
+          amountUsd: -m.amount_usd,
+          amountLbp: -m.amount_lbp,
+          orderId: order.id,
+          reason: 'return_undone',
+          note: `Void of ${order.order_number} undone`,
+          userId: req.user.id,
+        });
+      }
+      /* The void's account entry and its books were the whole sale; a line
+         undo covered each line's share above, so nothing more to turn. */
+      db.prepare("UPDATE orders SET status = 'completed' WHERE id = ?").run(order.id);
+    })();
+    res.json({
+      order: db.prepare('SELECT * FROM orders WHERE id = ?').get(order.id),
+      items: itemsOfOrder(order.id),
+    });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
 });
 
 export default router;
