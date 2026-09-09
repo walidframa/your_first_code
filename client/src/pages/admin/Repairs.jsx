@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router';
+import { Link, useSearchParams } from 'react-router';
 import { Eye, Plus, Trash2, Wrench } from 'lucide-react';
 import api from '../../api';
 import PageHeader from '../../components/PageHeader';
@@ -745,6 +745,14 @@ export default function Repairs() {
                 no cost recorded, so the profit is flattered by whatever they cost
               </p>
             )}
+
+            {/* The same figure cut into days, weeks or months, and printable. */}
+            <Link
+              to="/admin/repairs/profit"
+              className="ml-auto text-sm font-medium text-brand-700 hover:underline"
+            >
+              Daily, weekly and monthly report
+            </Link>
           </Card>
         )}
 

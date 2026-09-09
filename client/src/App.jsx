@@ -39,6 +39,7 @@ import AdminShopify from './pages/admin/Shopify';
 import AdminCashSessions from './pages/admin/CashSessions';
 import AdminExpenses from './pages/admin/Expenses';
 import AdminRepairs from './pages/admin/Repairs';
+import AdminRepairProfit from './pages/admin/RepairProfit';
 import AdminTradeIns from './pages/admin/TradeIns';
 import HeldAccounts from './pages/admin/HeldAccounts';
 import AdminProfit from './pages/admin/Profit';
@@ -304,6 +305,16 @@ export default function App() {
           element={
             <ProtectedRoute permission="repairs">
               <AdminRepairs />
+            </ProtectedRoute>
+          }
+        />
+        {/* The bench's profit by day, week or month — the owner's figure, so
+            behind `reports` like every other profit screen. */}
+        <Route
+          path="/admin/repairs/profit"
+          element={
+            <ProtectedRoute permission="reports">
+              <AdminRepairProfit />
             </ProtectedRoute>
           }
         />

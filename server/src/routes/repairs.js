@@ -12,6 +12,7 @@ import {
   openTicket,
   removePart,
   repairProfit,
+  repairProfitByPeriod,
   setOutsideCost,
   setStatus,
   takePayment,
@@ -20,6 +21,7 @@ import {
   warrantyOf,
 } from '../lib/repairs.js';
 import { repairMessage, sendable } from '../lib/whatsapp.js';
+import { presetRange } from '../lib/profit.js';
 import { getIdPhoto, removeIdPhoto, setIdPhoto } from '../lib/idPhotos.js';
 
 const router = Router();
@@ -39,8 +41,23 @@ router.get('/statuses', requireAuth, (req, res) => {
  * perfectly good id as far as a route pattern is concerned.
  */
 router.get('/profit', requireAuth, requirePermission('reports'), (req, res) => {
-  const { from = null, to = null } = req.query;
-  res.json(repairProfit({ from: from || null, to: to || null, branchId: req.branchId }));
+  const { preset, groupBy } = req.query;
+  /* A named period — "this week", "last month" — on the shop's own calendar,
+     the same names the Profit page answers to. */
+  const range = preset
+    ? presetRange(preset)
+    : { from: req.query.from || null, to: req.query.to || null };
+  const scope = { ...range, branchId: req.branchId };
+
+  try {
+    const report = repairProfit(scope);
+    /* Cut by day, week or month when asked: the rows add up to the figures
+       above them, which is what makes them worth having. */
+    if (groupBy) report.byPeriod = repairProfitByPeriod({ ...scope, groupBy });
+    res.json(report);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
 });
 
 /** The workshop board: what is in, and what is waiting on whom. */

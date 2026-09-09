@@ -938,3 +938,76 @@ test('a repair handed back is in the shop’s profit, and on the register’s ba
   assert.equal(round(tillAfter.profit.fromRepairs - tillBefore.profit.fromRepairs), 60);
   assert.equal(round(tillAfter.profit.repairCost - tillBefore.profit.repairCost), 35);
 });
+
+/* ------------------------------------------------- the profit, cut by period */
+
+test('the bench’s profit can be read by day, week and month, and the rows add up', async () => {
+  const today = new Date().toISOString().slice(0, 10);
+
+  const byDay = await req('GET', '/repairs/profit?preset=month&groupBy=day', null, adminToken);
+  assert.equal(byDay.status, 200, JSON.stringify(byDay.json));
+  assert.ok(byDay.json.from && byDay.json.to, 'the named period comes back as dates');
+  assert.ok(byDay.json.byPeriod.length >= 1);
+  const todayRow = byDay.json.byPeriod.find((r) => r.period === today);
+  assert.ok(todayRow, 'today has a row, because jobs went home today');
+  assert.ok(todayRow.jobs >= 3);
+  assert.equal(round(todayRow.revenue - todayRow.partsCost - todayRow.outsideCost), todayRow.profit);
+
+  const sum = (rows, key) => rows.reduce((n, r) => round(n + r[key]), 0);
+  for (const groupBy of ['day', 'week', 'month']) {
+    const res = await req('GET', `/repairs/profit?preset=month&groupBy=${groupBy}`, null, adminToken);
+    assert.equal(res.status, 200);
+    assert.equal(sum(res.json.byPeriod, 'profit'), res.json.profit, `${groupBy}: profit adds up`);
+    assert.equal(sum(res.json.byPeriod, 'revenue'), res.json.revenue, `${groupBy}: revenue adds up`);
+    assert.equal(sum(res.json.byPeriod, 'outsideCost'), res.json.outsideCost, `${groupBy}: outside cost adds up`);
+    assert.equal(
+      res.json.byPeriod.reduce((n, r) => n + r.jobs, 0),
+      res.json.jobs,
+      `${groupBy}: every job is in exactly one row`,
+    );
+  }
+
+  const byWeek = (await req('GET', '/repairs/profit?preset=month&groupBy=week', null, adminToken)).json;
+  for (const r of byWeek.byPeriod) {
+    assert.equal(new Date(`${r.period}T00:00:00Z`).getUTCDay(), 1, `${r.period} is a Monday`);
+  }
+  const byMonth = (await req('GET', '/repairs/profit?preset=year&groupBy=month', null, adminToken)).json;
+  assert.ok(byMonth.byPeriod.every((r) => r.period.endsWith('-01')), 'a month is named by its first day');
+
+  const nonsense = await req('GET', '/repairs/profit?groupBy=fortnight', null, adminToken);
+  assert.equal(nonsense.status, 400);
+  assert.match(nonsense.json.error, /day, week, month/);
+});
+
+test('the cost is not taken out of the drawer — only the money in goes through it', async () => {
+  const opened = await req('POST', '/cash/open', { openingUsd: 100 }, adminToken);
+  assert.ok([201, 400].includes(opened.status));
+
+  const before = (await req('GET', '/cash/current', null, adminToken)).json;
+  const ticket = (
+    await req(
+      'POST',
+      '/repairs',
+      { customerName: 'Paid From The Safe', device: 'Huawei P30', fault: 'Glass' },
+      adminToken,
+    )
+  ).json.ticket;
+  await req(
+    'POST',
+    `/repairs/${ticket.id}/collect`,
+    { charged: 80, outsideCost: 45, payments: [{ currency: 'USD', amount: 80 }] },
+    adminToken,
+  );
+  const after = (await req('GET', '/cash/current', null, adminToken)).json;
+
+  // The whole 80 is in the drawer; the 45 was paid from the shop's own cash,
+  // not out of this till, so it is not a movement here.
+  assert.equal(round(after.expected.usd - before.expected.usd), 80);
+  // And the bar rose by what was made: 80 charged less the 45 it cost.
+  assert.equal(round(after.profit.grossProfit - before.profit.grossProfit), 35);
+  const moves = (await req('GET', '/cash/current', null, adminToken)).json.movements || [];
+  assert.ok(
+    !moves.some((m) => Number(m.amount_usd) === -45),
+    'nothing went out of the drawer for the cost',
+  );
+});
