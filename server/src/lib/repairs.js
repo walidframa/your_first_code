@@ -11,7 +11,7 @@ import { encryptSecret } from './secrets.js';
 import { normaliseImei, receiveUnits, syncStockFromUnits } from './units.js';
 import { setIdPhoto } from './idPhotos.js';
 import { getSettings } from './settings.js';
-import { dayEndUtc, dayStartUtc } from './shopTime.js';
+import { dayEndUtc, dayStartUtc, sqlDayShift } from './shopTime.js';
 
 export const REPAIR_STATUSES = [
   'received',
@@ -459,6 +459,75 @@ export function repairProfit({ from = null, to = null, branchId = null } = {}) {
       total: round2(Number(taken.usd) + (rate > 0 ? Number(taken.lbp) / rate : 0)),
     },
   };
+}
+
+/** How the report can be cut. */
+export const PROFIT_GROUPINGS = ['day', 'week', 'month'];
+
+/**
+ * The same profit, period by period.
+ *
+ * One figure for a month is a figure nobody can check. Cut into the days,
+ * weeks or months it is made of, a total that looks wrong can be traced to
+ * the day it went wrong, and the owner's real question — "what does the bench
+ * make in a week?" — has an answer that is not a division sum.
+ *
+ * Built from exactly the expressions the total uses, so the rows add up to
+ * it: a job is dated by the day the phone went home, in the shop's own day
+ * rather than UTC's, and costed by the parts fitted to it plus what was paid
+ * outside. A week runs Monday to Sunday and is named by its Monday.
+ */
+export function repairProfitByPeriod({ from = null, to = null, branchId = null, groupBy = 'day' } = {}) {
+  if (!PROFIT_GROUPINGS.includes(groupBy)) {
+    throw new Error(`groupBy must be one of: ${PROFIT_GROUPINGS.join(', ')}`);
+  }
+  const lo = from ? dayStartUtc(from) : '0000-01-01';
+  const hi = to ? dayEndUtc(to) : '9999-12-31';
+  const shift = sqlDayShift();
+  const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+
+  /*
+   * `'-6 days', 'weekday 1'` is SQLite for "the Monday on or before this
+   * date": step back six days, then forward to the next Monday, which lands
+   * on the same Monday whichever day of that week you started from.
+   */
+  const period = {
+    day: `date(t.collected_at, ?)`,
+    week: `date(t.collected_at, ?, '-6 days', 'weekday 1')`,
+    month: `strftime('%Y-%m-01', t.collected_at, ?)`,
+  }[groupBy];
+
+  const rows = db
+    .prepare(
+      `SELECT ${period} AS period,
+              COUNT(*) AS jobs,
+              SUM(CASE WHEN t.under_warranty = 1 THEN 1 ELSE 0 END) AS warranty_jobs,
+              COALESCE(SUM(t.charged), 0) AS revenue,
+              COALESCE(SUM(t.outside_cost), 0) AS outside_cost,
+              COALESCE(SUM((SELECT COALESCE(SUM(p.cost * p.quantity), 0)
+                              FROM repair_parts p WHERE p.ticket_id = t.id)), 0) AS parts_cost
+         FROM repair_tickets t
+        WHERE t.status = 'collected' AND t.collected_at BETWEEN ? AND ?
+          AND (? IS NULL OR t.branch_id = ?)
+        GROUP BY period
+        ORDER BY period DESC`,
+    )
+    .all(shift, lo, hi, branchId, branchId);
+
+  return rows.map((r) => {
+    const revenue = round2(r.revenue);
+    const partsCost = round2(r.parts_cost);
+    const outsideCost = round2(r.outside_cost);
+    return {
+      period: r.period,
+      jobs: r.jobs,
+      warrantyJobs: r.warranty_jobs || 0,
+      revenue,
+      partsCost,
+      outsideCost,
+      profit: round2(revenue - partsCost - outsideCost),
+    };
+  });
 }
 
 /**
