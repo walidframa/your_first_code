@@ -2365,6 +2365,17 @@ addColumn('repair_tickets', 'paid_usd', 'REAL NOT NULL DEFAULT 0');
 addColumn('repair_tickets', 'paid_lbp', 'REAL NOT NULL DEFAULT 0');
 addColumn('repair_tickets', 'paid_at', 'TEXT');
 
+/*
+ * What a repair cost the shop that did not come off its own shelf.
+ *
+ * Most of this bench's jobs are not done at this bench: the phone goes to a
+ * technician across the road, or the screen is bought in for this one job and
+ * never enters stock. Parts fitted from the shelf were always costed; the
+ * money paid outside was nowhere, so a job charged at $50 that cost $30 to
+ * have done showed as $50 of profit. This is that $30.
+ */
+addColumn('repair_tickets', 'outside_cost', 'REAL NOT NULL DEFAULT 0');
+
 /**
  * What actually went in the bag.
  *

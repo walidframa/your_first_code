@@ -81,6 +81,45 @@ export function warrantyOf(unit) {
 
 /* ------------------------------------------------------------------- repairs */
 
+/**
+ * What the shop paid outside for a job, read off a request.
+ *
+ * Undefined means "not said", which leaves the figure alone; null, an empty
+ * string or a number all mean "this". A job that cost nothing outside is a
+ * perfectly ordinary job, so zero is welcome; less than nothing is not.
+ */
+export function outsideCostFrom(value) {
+  if (value === undefined) return undefined;
+  if (value === null || value === '') return 0;
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0) {
+    throw new Error('What the repair cost you cannot be less than nothing');
+  }
+  return Math.round(n * 100) / 100;
+}
+
+/**
+ * Write down what a job cost the shop outside.
+ *
+ * Allowed on a closed job too, and deliberately: the technician's bill turns
+ * up after the phone has gone home more often than before, and the figure is
+ * there to make the profit right rather than to gate anything.
+ */
+export function setOutsideCost(ticketId, value, userId) {
+  const ticket = db.prepare('SELECT * FROM repair_tickets WHERE id = ?').get(ticketId);
+  if (!ticket) throw new Error('Ticket not found');
+  const cost = outsideCostFrom(value);
+  if (cost === undefined || cost === Number(ticket.outside_cost || 0)) return ticket;
+
+  db.prepare(
+    `UPDATE repair_tickets SET outside_cost = ?, updated_at = datetime('now') WHERE id = ?`,
+  ).run(cost, ticketId);
+  db.prepare(
+    'INSERT INTO repair_events (ticket_id, status, note, user_id) VALUES (?, ?, ?, ?)',
+  ).run(ticketId, 'cost', `Cost the shop $${cost.toFixed(2)} outside`, userId);
+  return { ...ticket, outside_cost: cost };
+}
+
 function nextTicketNumber() {
   const { n } = db.prepare('SELECT COUNT(*) AS n FROM repair_tickets').get();
   return `REP-${String(n + 1).padStart(5, '0')}`;
@@ -173,8 +212,9 @@ export function openTicket(input, userId, branchId = null) {
     .prepare(
       `INSERT INTO repair_tickets
          (ticket_number, unit_id, customer_id, customer_name, customer_phone, device, imei,
-          fault, condition_note, passcode_enc, under_warranty, quoted, taken_by, branch_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          fault, condition_note, passcode_enc, under_warranty, quoted, taken_by, branch_id,
+          outside_cost)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       ticketNumber,
@@ -193,6 +233,8 @@ export function openTicket(input, userId, branchId = null) {
       // Which shop has the phone. Parts fitted to it come off that branch's
       // shelf, and a ticket with no branch would draw them from the main one.
       branchId,
+      // Known at intake when the job is going straight to somebody else.
+      outsideCostFrom(input.outsideCost) ?? 0,
     );
 
   db.prepare(
@@ -279,9 +321,14 @@ export function outstandingOn(ticket, rate = 0) {
  * job is being charged. The caller moves the drawer — this only writes down what
  * the ticket now says, so the two cannot be recorded in different transactions.
  */
-export function takePayment(ticketId, { charged = null, paidUsd = 0, paidLbp = 0, note = null }, userId) {
+export function takePayment(
+  ticketId,
+  { charged = null, paidUsd = 0, paidLbp = 0, note = null, outsideCost = undefined },
+  userId,
+) {
   const ticket = db.prepare('SELECT * FROM repair_tickets WHERE id = ?').get(ticketId);
   if (!ticket) throw new Error('Ticket not found');
+  setOutsideCost(ticketId, outsideCost, userId);
 
   const usd = Math.round((Number(paidUsd) || 0) * 100) / 100;
   const lbp = Math.round(Number(paidLbp) || 0);
@@ -334,6 +381,10 @@ export function takePayment(ticketId, { charged = null, paidUsd = 0, paidLbp = 0
  * A warranty job is charged nothing and its parts cost real money, so it shows
  * as a loss. That is what a warranty is, and a report that hid it would be
  * hiding the cost of the promise.
+ *
+ * What was paid *outside* — the technician across the road, a screen bought in
+ * for the one job — comes off as well, from the figure written on the ticket.
+ * Without it a job charged at $50 that cost $30 to have done was $50 of profit.
  */
 export function repairProfit({ from = null, to = null, branchId = null } = {}) {
   /*
@@ -350,6 +401,7 @@ export function repairProfit({ from = null, to = null, branchId = null } = {}) {
     .prepare(
       `SELECT COUNT(*) AS jobs,
               COALESCE(SUM(t.charged), 0) AS revenue,
+              COALESCE(SUM(t.outside_cost), 0) AS outside_cost,
               SUM(CASE WHEN t.under_warranty = 1 THEN 1 ELSE 0 END) AS warranty_jobs
          FROM repair_tickets t
         WHERE t.status = 'collected' AND t.collected_at BETWEEN ? AND ?
@@ -387,6 +439,7 @@ export function repairProfit({ from = null, to = null, branchId = null } = {}) {
 
   const revenue = round2(collected.revenue);
   const partsCost = round2(parts.cost);
+  const outsideCost = round2(collected.outside_cost);
 
   return {
     from,
@@ -395,7 +448,8 @@ export function repairProfit({ from = null, to = null, branchId = null } = {}) {
     warrantyJobs: collected.warranty_jobs || 0,
     revenue,
     partsCost,
-    profit: round2(revenue - partsCost),
+    outsideCost,
+    profit: round2(revenue - partsCost - outsideCost),
     // So a screen can say the figure is short rather than pretending.
     unknownCostParts: parts.unknown_lines || 0,
     taken: {

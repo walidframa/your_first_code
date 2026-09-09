@@ -1007,6 +1007,19 @@ export default function CashBox({
                       {money(profit.fromInvoices)} of it on invoices, not at this counter
                     </span>
                   )}
+                  {/*
+                    * The bench's share, so the figure can be checked against
+                    * the repairs board. Repairs handed back at this counter are
+                    * in the profit above — their cash is in this drawer, and
+                    * what they cost comes off like a sold phone's cost does.
+                    */}
+                  {profit.fromRepairs > 0 && (
+                    <span className="block text-brand-700/60" data-profit-repairs>
+                      {money(profit.fromRepairs)} of it on {profit.repairJobs} repair
+                      {profit.repairJobs === 1 ? '' : 's'} handed back
+                      {profit.repairCost > 0 ? `, which cost ${money(profit.repairCost)}` : ''}
+                    </span>
+                  )}
                   {profit.refundedOrders > 0 && (
                     <span className="block text-brand-700/60">
                       {profit.refundedOrders} sale{profit.refundedOrders === 1 ? '' : 's'} refunded, and

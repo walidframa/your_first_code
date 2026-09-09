@@ -197,9 +197,14 @@ export function sessionProfit(sessionId, branchId = null) {
    * this counter's result whatever it was for, and leaving it out would make
    * the figure flattering rather than useful. The invoices are still reported
    * beside it, so nothing has gone missing — it has stopped being added in.
+   *
+   * Repairs handed back at this counter *are* in it, because they are this
+   * counter's trade: the money for them went into this drawer, at this till,
+   * and what they cost — parts off the shelf and whatever was paid outside —
+   * comes off the same way a sold phone's cost does.
    */
-  const revenue = report.register.revenue;
-  const cost = report.register.cost;
+  const revenue = round2(report.register.revenue + report.repairs.revenue);
+  const cost = round2(report.register.cost + report.repairs.cost);
   const grossProfit = round2(revenue - cost);
   const netProfit = round2(grossProfit - report.expenses.total);
 
@@ -212,6 +217,11 @@ export function sessionProfit(sessionId, branchId = null) {
     expenseCount: report.expenses.count,
     netProfit,
     fromRegister: report.register.revenue,
+    /* The bench's share of what is counted, so the figure can be checked
+       against the repairs board. */
+    fromRepairs: report.repairs.revenue,
+    repairJobs: report.repairs.jobs,
+    repairCost: report.repairs.cost,
     /* Counted elsewhere, and said so — the panel names it rather than hiding
        trade the shop really did. */
     fromInvoices: report.invoices.revenue,
@@ -221,10 +231,10 @@ export function sessionProfit(sessionId, branchId = null) {
      * their profit is overstated. Saying so beats quietly reporting a number
      * that is too good.
      */
-    unknownCostLines: report.register.unknownCostLines,
+    unknownCostLines: report.register.unknownCostLines + report.repairs.unknownCostLines,
     /* What that is worth. A count of lines does not tell somebody whether the
        profit above is out by a dollar or is entirely made up. */
-    unknownCostValue: report.register.unknownCostValue,
+    unknownCostValue: round2(report.register.unknownCostValue + report.repairs.unknownCostValue),
   };
 }
 
