@@ -12,6 +12,7 @@ import {
   openTicket,
   removePart,
   repairProfit,
+  setOutsideCost,
   setStatus,
   takePayment,
   takeTradeIn,
@@ -144,9 +145,12 @@ router.post('/', requireAuth, (req, res) => {
 });
 
 router.patch('/:id', requireAuth, (req, res) => {
-  const { status, note, quoted } = req.body || {};
+  const { status, note, quoted, outsideCost } = req.body || {};
   try {
     transaction(() => {
+      // What the job cost the shop outside. Settable on its own, and on a
+      // closed job, because the technician's bill arrives when it arrives.
+      if (outsideCost !== undefined) setOutsideCost(req.params.id, outsideCost, req.user.id);
       if (quoted !== undefined) {
         db.prepare(`UPDATE repair_tickets SET quoted = ?, updated_at = datetime('now') WHERE id = ?`).run(
           quoted === null ? null : Number(quoted),
@@ -199,7 +203,7 @@ function tally(payments) {
  * is in the drawer, and the ticket carries on being a ticket.
  */
 router.post('/:id/payment', requireAuth, (req, res) => {
-  const { charged = null, payments = [], note } = req.body || {};
+  const { charged = null, payments = [], note, outsideCost } = req.body || {};
 
   try {
     const detail = transaction(() => {
@@ -221,7 +225,7 @@ router.post('/:id/payment', requireAuth, (req, res) => {
         accountId: registerAccountId(ticket.branch_id),
       });
 
-      return takePayment(ticket.id, { charged, paidUsd, paidLbp, note }, req.user.id);
+      return takePayment(ticket.id, { charged, paidUsd, paidLbp, note, outsideCost }, req.user.id);
     })();
 
     res.status(201).json(detail);
@@ -243,7 +247,7 @@ router.post('/:id/payment', requireAuth, (req, res) => {
  * could reach its last status. Now it is only the handing back.
  */
 router.post('/:id/collect', requireAuth, (req, res) => {
-  const { charged = null, payments = [], note } = req.body || {};
+  const { charged = null, payments = [], note, outsideCost } = req.body || {};
 
   try {
     const detail = transaction(() => {
@@ -264,6 +268,10 @@ router.post('/:id/collect', requireAuth, (req, res) => {
       }
 
       const { paidUsd, paidLbp } = tally(payments);
+
+      // What it cost the shop, written down in the same breath as what it was
+      // charged: this is the moment the profit on the job becomes real.
+      setOutsideCost(ticket.id, outsideCost, req.user.id);
 
       if (paidUsd > 0 || paidLbp > 0) {
         if (requiresSession() && !registerSession(ticket.branch_id)) {

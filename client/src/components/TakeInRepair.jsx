@@ -28,6 +28,7 @@ export default function TakeInRepair({ onClose, onTaken }) {
     fault: '',
     passcode: '',
     quoted: '',
+    outsideCost: '',
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -44,6 +45,7 @@ export default function TakeInRepair({ onClose, onTaken }) {
       const res = await api.post('/repairs', {
         ...form,
         quoted: form.quoted === '' ? null : Number(form.quoted),
+        outsideCost: form.outsideCost === '' ? 0 : Number(form.outsideCost),
       });
       setDetail(res.data);
       toast(`${res.data.ticket.ticket_number} taken in`);
@@ -133,15 +135,21 @@ export default function TakeInRepair({ onClose, onTaken }) {
           />
         </div>
 
+        <Input
+          label="Passcode / PIN"
+          name="passcode"
+          value={form.passcode}
+          onChange={set('passcode')}
+          placeholder="e.g. 1234, or a pattern"
+          hint="Encrypted, and never printed on the ticket"
+        />
+
+        {/*
+          * Price and cost side by side, because at intake they are decided
+          * together: the job that is going to somebody else is quoted from
+          * what they charge. The cost can be filled in or corrected later.
+          */}
         <div className="grid grid-cols-2 gap-3">
-          <Input
-            label="Passcode / PIN"
-            name="passcode"
-            value={form.passcode}
-            onChange={set('passcode')}
-            placeholder="e.g. 1234, or a pattern"
-            hint="Encrypted, and never printed on the ticket"
-          />
           <Input
             label="Repair price"
             name="quoted"
@@ -152,6 +160,17 @@ export default function TakeInRepair({ onClose, onTaken }) {
             onChange={set('quoted')}
             placeholder="0.00"
             hint="Leave empty to quote after looking at it"
+          />
+          <Input
+            label="What it costs you"
+            name="outsideCost"
+            type="number"
+            min="0"
+            step="0.01"
+            value={form.outsideCost}
+            onChange={set('outsideCost')}
+            placeholder="0.00"
+            hint="Paid outside — a technician, or a part bought in"
           />
         </div>
 

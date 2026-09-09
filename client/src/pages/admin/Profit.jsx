@@ -28,7 +28,7 @@ const PRESETS = [
 function Waterfall({ report }) {
   const rows = [
     ['Revenue', report.revenue, 'text-slate-900', 'What was sold for'],
-    ['Cost of goods', -report.cost, 'text-slate-600', 'What those goods cost to buy'],
+    ['Cost of goods', -report.cost, 'text-slate-600', 'What the goods cost to buy, and what repairs cost'],
     ['Gross profit', report.grossProfit, 'text-slate-900', `${Math.round(report.grossMargin)}% margin`],
   ];
   if (report.includeExpenses) {
@@ -210,6 +210,15 @@ export default function Profit() {
                     </dt>
                     <dd className="tnum text-slate-800">{money(report.invoices.revenue)}</dd>
                   </div>
+                  {/* Jobs handed back in the period, at what they were charged. */}
+                  {report.repairs && (
+                    <div className="flex justify-between">
+                      <dt className="text-slate-600">
+                        Repairs<span className="ml-1 text-xs text-slate-400">×{report.repairs.jobs}</span>
+                      </dt>
+                      <dd className="tnum text-slate-800">{money(report.repairs.revenue)}</dd>
+                    </div>
+                  )}
                   <div className="flex justify-between border-t border-slate-100 pt-1.5 font-semibold">
                     <dt className="text-slate-900">Revenue</dt>
                     <dd className="tnum text-slate-900">{money(report.revenue)}</dd>

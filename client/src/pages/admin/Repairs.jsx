@@ -35,7 +35,7 @@ const STATUS_LABEL = {
 };
 
 /* Not a status — a payment, filed in the same history column. */
-const EVENT_LABEL = { ...STATUS_LABEL, payment: 'Paid' };
+const EVENT_LABEL = { ...STATUS_LABEL, payment: 'Paid', cost: 'Cost' };
 
 const STATUS_STYLE = {
   received: 'bg-slate-100 text-slate-700',
@@ -209,6 +209,8 @@ function TicketModal({ id, onClose, onChanged }) {
   const [partId, setPartId] = useState('');
   const [charged, setCharged] = useState('');
   const [payNow, setPayNow] = useState('');
+  /* What the shop paid outside for the job — as typed, so it can be edited. */
+  const [outsideCost, setOutsideCost] = useState('');
   const [passcode, setPasscode] = useState(null);
 
   const load = useCallback(async () => {
@@ -217,7 +219,29 @@ function TicketModal({ id, onClose, onChanged }) {
     setProducts(p.data.products.filter((x) => !x.tracks_units));
     setCharged(String(d.data.ticket.charged ?? d.data.ticket.quoted ?? d.data.partsTotal ?? ''));
     setPayNow(d.data.outstanding > 0 ? String(d.data.outstanding) : '');
+    setOutsideCost(Number(d.data.ticket.outside_cost) > 0 ? String(d.data.ticket.outside_cost) : '');
   }, [id]);
+
+  /** The typed cost as a number: blank is nothing paid outside. */
+  const outsideCostValue = Math.max(0, Number(outsideCost) || 0);
+
+  /*
+   * Write the cost down on its own.
+   *
+   * The technician's bill arrives when it arrives — often after the phone has
+   * gone home — so the figure is saveable without taking money or moving the
+   * job, and on a closed ticket too. It exists to make the profit right.
+   */
+  async function saveCost() {
+    try {
+      await api.patch(`/repairs/${id}`, { outsideCost: outsideCostValue });
+      toast('Cost saved');
+      await load();
+      onChanged();
+    } catch (err) {
+      toast(err.response?.data?.error || 'Could not save that cost', 'error');
+    }
+  }
 
   useEffect(() => {
     load();
@@ -258,6 +282,7 @@ function TicketModal({ id, onClose, onChanged }) {
     try {
       await api.post(`/repairs/${id}/payment`, {
         charged: Number(charged) || null,
+        outsideCost: outsideCostValue,
         payments: [{ currency: 'USD', amount }],
       });
       toast(`${money(amount)} taken`);
@@ -275,6 +300,9 @@ function TicketModal({ id, onClose, onChanged }) {
     try {
       await api.post(`/repairs/${id}/collect`, {
         charged: amount,
+        // What it cost the shop, saved in the same breath as what it was
+        // charged: this is the moment the profit on the job becomes real.
+        outsideCost: outsideCostValue,
         // Only what is actually still owed — a job paid for at intake is handed
         // back at nothing to pay, and charging it again would put the money in
         // the drawer twice.
@@ -299,6 +327,12 @@ function TicketModal({ id, onClose, onChanged }) {
   const { ticket, parts, events, partsTotal, outstanding } = detail;
   const closed = ['collected', 'cancelled'].includes(ticket.status);
   const paid = Number(ticket.paid_usd || 0) > 0 || Number(ticket.paid_lbp || 0) > 0;
+  /* What the parts fitted cost the shop — the price they went out at is a
+     different figure, and it is the cost that decides what the job makes. */
+  const partsCost = parts.reduce((sum, p) => sum + (Number(p.cost) || 0) * p.quantity, 0);
+  const agreed = ticket.under_warranty === 1 ? 0 : Number(charged) || 0;
+  const makes = Math.round((agreed - partsCost - outsideCostValue) * 100) / 100;
+  const costDirty = outsideCostValue !== Math.round((Number(ticket.outside_cost) || 0) * 100) / 100;
 
   return (
     <Modal open onClose={onClose} title={ticket.ticket_number} subtitle={ticket.device} size="full">
@@ -467,6 +501,55 @@ function TicketModal({ id, onClose, onChanged }) {
             </Card>
           )}
 
+          {/*
+            * What the job cost the shop, beyond the parts off its own shelf.
+            *
+            * Most of this bench's work is not done at this bench: the phone
+            * goes to a technician across the road, or a screen is bought in
+            * for the one job and never enters stock. Without a place to write
+            * that down, a job charged at $50 that cost $30 to have done was $50
+            * of profit — on this screen, on the register's profit bar, and in
+            * the month's report. Editable after the phone has gone home too,
+            * because that is when the bill usually turns up.
+            */}
+          <Card className="p-4" data-repair-cost>
+            <p className="mb-2 text-xs font-medium tracking-wide text-slate-500 uppercase">
+              What it cost you
+            </p>
+            <div className="flex gap-2">
+              <Input
+                label="Paid outside for this repair"
+                name="outsideCost"
+                type="number"
+                step="0.01"
+                min="0"
+                value={outsideCost}
+                onChange={(e) => setOutsideCost(e.target.value)}
+                placeholder="0.00"
+                hint="A technician's fee, or a part bought in for this job"
+              />
+              <div className="flex items-start pt-6">
+                <Button variant="secondary" onClick={saveCost} disabled={!costDirty}>
+                  Save
+                </Button>
+              </div>
+            </div>
+            {agreed > 0 && (
+              <p className="tnum text-sm text-slate-600" data-repair-makes>
+                {makes < 0 ? 'Loses' : 'Makes'}{' '}
+                <span className={cx('font-semibold', makes < 0 ? 'text-red-600' : 'text-brand-700')}>
+                  {money(Math.abs(makes))}
+                </span>
+                <span className="text-slate-400">
+                  {' '}
+                  · {money(agreed)} charged
+                  {partsCost > 0 ? ` less ${money(partsCost)} of parts` : ''}
+                  {outsideCostValue > 0 ? ` less ${money(outsideCostValue)} paid outside` : ''}
+                </span>
+              </p>
+            )}
+          </Card>
+
           <Card className="p-4">
             <p className="mb-2 text-xs font-medium tracking-wide text-slate-500 uppercase">History</p>
             <ul className="space-y-1.5 text-sm">
@@ -629,7 +712,8 @@ export default function Repairs() {
                 {money(profit.profit)}
               </p>
               <p className="mt-0.5 text-xs text-slate-400">
-                {money(profit.revenue)} charged less {money(profit.partsCost)} of parts ·{' '}
+                {money(profit.revenue)} charged less {money(profit.partsCost)} of parts
+                {profit.outsideCost > 0 ? ` and ${money(profit.outsideCost)} paid outside` : ''} ·{' '}
                 {profit.jobs} {profit.jobs === 1 ? 'job' : 'jobs'}
               </p>
             </div>

@@ -830,3 +830,111 @@ test('the board is dated by the server, not by the browser', async () => {
   const everything = await req('GET', '/repairs?status=', null, adminToken);
   assert.ok(everything.json.tickets.length > 0, 'and without a period, the board is the board');
 });
+
+/* ------------------------------------------------- what the job cost outside */
+
+/*
+ * Most of this bench's work is not done at this bench: the phone goes to a
+ * technician across the road, or a screen is bought in for the one job. That
+ * money was nowhere, so a job charged at $50 that cost $30 to have done was $50
+ * of profit — here, on the register's profit bar, and in the month's report.
+ */
+test('what the shop paid outside comes off the bench’s profit', async () => {
+  const opened = await req('POST', '/cash/open', { openingUsd: 100 }, adminToken);
+  assert.ok([201, 400].includes(opened.status));
+
+  const taken = await req(
+    'POST',
+    '/repairs',
+    { customerName: 'Sent Across The Road', device: 'Oppo A54', fault: 'Board', outsideCost: 12 },
+    adminToken,
+  );
+  assert.equal(taken.status, 201, JSON.stringify(taken.json));
+  assert.equal(taken.json.ticket.outside_cost, 12, 'known at intake, kept at intake');
+
+  const before = (await req('GET', '/repairs/profit', null, adminToken)).json;
+  const handed = await req(
+    'POST',
+    `/repairs/${taken.json.ticket.id}/collect`,
+    { charged: 50, outsideCost: 30, payments: [{ currency: 'USD', amount: 50 }] },
+    adminToken,
+  );
+  assert.equal(handed.status, 200, JSON.stringify(handed.json));
+  assert.equal(handed.json.ticket.outside_cost, 30, 'corrected when the phone came back');
+  assert.ok(
+    handed.json.events.some((e) => e.status === 'cost' && /30\.00/.test(e.note)),
+    'and the correction is on the record',
+  );
+
+  const after = (await req('GET', '/repairs/profit', null, adminToken)).json;
+  assert.equal(round(after.revenue - before.revenue), 50);
+  assert.equal(round(after.outsideCost - before.outsideCost), 30);
+  assert.equal(round(after.profit - before.profit), 20, '50 charged less the 30 it cost');
+});
+
+test('the cost can be written down after the phone has gone home', async () => {
+  const ticket = (
+    await req(
+      'POST',
+      '/repairs',
+      { customerName: 'Bill Came Later', device: 'Vivo Y21', fault: 'Charging' },
+      adminToken,
+    )
+  ).json.ticket;
+  await req('POST', `/repairs/${ticket.id}/collect`, { charged: 40, payments: [{ currency: 'USD', amount: 40 }] }, adminToken);
+
+  const before = (await req('GET', '/repairs/profit', null, adminToken)).json;
+  const later = await req('PATCH', `/repairs/${ticket.id}`, { outsideCost: 25 }, adminToken);
+  assert.equal(later.status, 200, JSON.stringify(later.json));
+  assert.equal(later.json.ticket.outside_cost, 25);
+  assert.equal(later.json.ticket.status, 'collected', 'writing the cost down did not move the job');
+
+  const after = (await req('GET', '/repairs/profit', null, adminToken)).json;
+  assert.equal(round(after.profit - before.profit), -25);
+
+  const nonsense = await req('PATCH', `/repairs/${ticket.id}`, { outsideCost: -5 }, adminToken);
+  assert.equal(nonsense.status, 400);
+  assert.match(nonsense.json.error, /less than nothing/);
+});
+
+test('a repair handed back is in the shop’s profit, and on the register’s bar', async () => {
+  const opened = await req('POST', '/cash/open', { openingUsd: 100 }, adminToken);
+  assert.ok([201, 400].includes(opened.status));
+
+  const shopBefore = (await req('GET', '/expenses/profit?branch=all', null, adminToken)).json;
+  const tillBefore = (await req('GET', '/cash/current', null, adminToken)).json;
+
+  const ticket = (
+    await req(
+      'POST',
+      '/repairs',
+      { customerName: 'On The Bar', device: 'Realme C55', fault: 'Screen' },
+      adminToken,
+    )
+  ).json.ticket;
+  const handed = await req(
+    'POST',
+    `/repairs/${ticket.id}/collect`,
+    { charged: 60, outsideCost: 35, payments: [{ currency: 'USD', amount: 60 }] },
+    adminToken,
+  );
+  assert.equal(handed.status, 200, JSON.stringify(handed.json));
+
+  // The month's report: revenue, cost and the day-by-day column all carry it.
+  const shopAfter = (await req('GET', '/expenses/profit?branch=all', null, adminToken)).json;
+  assert.equal(round(shopAfter.revenue - shopBefore.revenue), 60);
+  assert.equal(round(shopAfter.cost - shopBefore.cost), 35);
+  assert.equal(round(shopAfter.grossProfit - shopBefore.grossProfit), 25);
+  assert.equal(shopAfter.repairs.jobs - shopBefore.repairs.jobs, 1);
+  const days = shopAfter.byDay.reduce((n, d) => round(n + d.revenue), 0);
+  assert.equal(days, shopAfter.revenue, 'the days still add up to the total');
+  const dayCost = shopAfter.byDay.reduce((n, d) => round(n + d.cost), 0);
+  assert.equal(dayCost, shopAfter.cost, 'and so does the cost');
+
+  // The register's own bar: the cash is in this drawer, so the profit is here.
+  const tillAfter = (await req('GET', '/cash/current', null, adminToken)).json;
+  assert.equal(round(tillAfter.expected.usd - tillBefore.expected.usd), 60, 'cash on hand');
+  assert.equal(round(tillAfter.profit.grossProfit - tillBefore.profit.grossProfit), 25);
+  assert.equal(round(tillAfter.profit.fromRepairs - tillBefore.profit.fromRepairs), 60);
+  assert.equal(round(tillAfter.profit.repairCost - tillBefore.profit.repairCost), 35);
+});

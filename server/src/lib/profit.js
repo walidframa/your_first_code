@@ -141,6 +141,9 @@ const UNKNOWN_ORDER_COST = `(oi.cost IS NULL
 const UNKNOWN_DOC_COST = `(di.cost IS NULL
    OR (di.cost = 0 AND di.price > 0 AND COALESCE(p.is_service, 0) = 0))`;
 
+/* A part fitted to a repair with a price and no cost behind it. */
+const UNKNOWN_PART_COST = `((rp.cost IS NULL OR rp.cost = 0) AND rp.price > 0)`;
+
 function registerSales(bounds, branchId = null) {
   /*
    * LEFT JOIN, and `kept` defaults to 1: an order carrying no lines at all is
@@ -235,6 +238,62 @@ function invoiceSales(bounds, branchId = null) {
     cost: round2(cost.cost),
     unknownCostLines: cost.unknown_lines || 0,
     unknownCostValue: round2(cost.unknown_value || 0),
+  };
+}
+
+/**
+ * Repairs handed back — the bench's trade, beside the two counters'.
+ *
+ * A job earns on the day the phone goes home, which is when it is charged;
+ * that is the same rule the Repairs page uses (`repairProfit`), so the two
+ * screens agree. What it cost is two things added together: the parts fitted
+ * off the shelf, costed at what they cost when fitted, and what the shop paid
+ * outside for it — the technician across the road, the screen bought in for
+ * this job — from the figure written on the ticket.
+ *
+ * Left out entirely until now, which meant a shop whose bench did half its
+ * trade was shown a profit that never mentioned it, while the cash from those
+ * jobs sat in the same drawer as everything else.
+ *
+ * A part fitted with no cost recorded is flagged the way a sold line is: its
+ * price is what the profit is flattered by. A job with no parts and nothing
+ * paid outside is labour, and labour is not a missing cost.
+ */
+function repairSales(bounds, branchId = null) {
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS jobs,
+              COALESCE(SUM(t.charged), 0) AS revenue,
+              COALESCE(SUM(t.outside_cost), 0) AS outside_cost
+       FROM repair_tickets t
+       WHERE t.status = 'collected' AND t.collected_at BETWEEN ? AND ?
+         AND (? IS NULL OR t.branch_id = ?)`,
+    )
+    .get(bounds.from, bounds.to, branchId, branchId);
+
+  const parts = db
+    .prepare(
+      `SELECT COALESCE(SUM(rp.quantity * COALESCE(rp.cost, 0)), 0) AS cost,
+              SUM(CASE WHEN ${UNKNOWN_PART_COST} THEN 1 ELSE 0 END) AS unknown_lines,
+              COALESCE(SUM(CASE WHEN ${UNKNOWN_PART_COST}
+                                THEN rp.quantity * rp.price ELSE 0 END), 0) AS unknown_value
+       FROM repair_parts rp
+       JOIN repair_tickets t ON t.id = rp.ticket_id
+       WHERE t.status = 'collected' AND t.collected_at BETWEEN ? AND ?
+         AND (? IS NULL OR t.branch_id = ?)`,
+    )
+    .get(bounds.from, bounds.to, branchId, branchId);
+
+  const partsCost = round2(parts.cost);
+  const outsideCost = round2(row.outside_cost);
+  return {
+    jobs: row.jobs,
+    revenue: round2(row.revenue),
+    partsCost,
+    outsideCost,
+    cost: round2(partsCost + outsideCost),
+    unknownCostLines: parts.unknown_lines || 0,
+    unknownCostValue: round2(parts.unknown_value || 0),
   };
 }
 
@@ -410,12 +469,31 @@ function byDay(bounds, branchId = null, limit = 400) {
          WHERE d.doc_type = 'sales_invoice' AND d.status = 'confirmed'
            AND COALESCE(d.confirmed_at, d.created_at) BETWEEN ? AND ?
            AND (? IS NULL OR d.branch_id = ?)
+
+         UNION ALL
+
+         /* Repairs: charged and paid-outside on the day the phone went home,
+            the parts fitted to it costed on the same day. */
+         SELECT date(t.collected_at, ?), COALESCE(t.charged, 0), t.outside_cost, 1
+         FROM repair_tickets t
+         WHERE t.status = 'collected' AND t.collected_at BETWEEN ? AND ?
+           AND (? IS NULL OR t.branch_id = ?)
+
+         UNION ALL
+
+         SELECT date(t.collected_at, ?), 0, rp.quantity * COALESCE(rp.cost, 0), 0
+         FROM repair_parts rp
+         JOIN repair_tickets t ON t.id = rp.ticket_id
+         WHERE t.status = 'collected' AND t.collected_at BETWEEN ? AND ?
+           AND (? IS NULL OR t.branch_id = ?)
        ) s
        GROUP BY s.day
        ORDER BY s.day DESC
        LIMIT ?`,
     )
     .all(
+      shift, bounds.from, bounds.to, branchId, branchId,
+      shift, bounds.from, bounds.to, branchId, branchId,
       shift, bounds.from, bounds.to, branchId, branchId,
       shift, bounds.from, bounds.to, branchId, branchId,
       shift, bounds.from, bounds.to, branchId, branchId,
@@ -441,10 +519,11 @@ export function profitReport({ from = null, to = null, includeExpenses = true, b
 
   const register = registerSales(bounds, branchId);
   const invoices = invoiceSales(bounds, branchId);
+  const repairs = repairSales(bounds, branchId);
   const refunded = refunds(bounds, branchId);
 
-  const revenue = round2(register.revenue + invoices.revenue);
-  const cost = round2(register.cost + invoices.cost);
+  const revenue = round2(register.revenue + invoices.revenue + repairs.revenue);
+  const cost = round2(register.cost + invoices.cost + repairs.cost);
   const grossProfit = round2(revenue - cost);
 
   const expenses = includeExpenses
@@ -469,6 +548,7 @@ export function profitReport({ from = null, to = null, includeExpenses = true, b
     netMargin: revenue > 0 ? round2((netProfit / revenue) * 100) : 0,
     register,
     invoices,
+    repairs,
     refunds: refunded,
     topProducts: byProduct(bounds, 10, branchId),
     /*
@@ -476,8 +556,10 @@ export function profitReport({ from = null, to = null, includeExpenses = true, b
      * subtract, so their profit is overstated. Saying so is better than
      * quietly reporting a number that is too good.
      */
-    unknownCostLines: register.unknownCostLines + invoices.unknownCostLines,
-    unknownCostValue: round2(register.unknownCostValue + invoices.unknownCostValue),
+    unknownCostLines: register.unknownCostLines + invoices.unknownCostLines + repairs.unknownCostLines,
+    unknownCostValue: round2(
+      register.unknownCostValue + invoices.unknownCostValue + repairs.unknownCostValue,
+    ),
   };
 }
 
@@ -510,8 +592,9 @@ export function profitForSession(
 
   const register = registerSales(bounds, branchId);
   const invoices = invoiceSales(bounds, branchId);
-  const revenue = round2(register.revenue + invoices.revenue);
-  const cost = round2(register.cost + invoices.cost);
+  const repairs = repairSales(bounds, branchId);
+  const revenue = round2(register.revenue + invoices.revenue + repairs.revenue);
+  const cost = round2(register.cost + invoices.cost + repairs.cost);
   const grossProfit = round2(revenue - cost);
 
   /*
@@ -540,11 +623,14 @@ export function profitForSession(
     netProfit: round2(grossProfit - expenses.total),
     register,
     invoices,
+    repairs,
     // Scoped like every other figure on this report — the sitting belongs to one
     // counter, and another branch's refunds are not part of it.
     refunds: refunds(bounds, branchId),
     topProducts: withProducts ? byProduct(bounds, 10, branchId) : [],
-    unknownCostLines: register.unknownCostLines + invoices.unknownCostLines,
-    unknownCostValue: round2(register.unknownCostValue + invoices.unknownCostValue),
+    unknownCostLines: register.unknownCostLines + invoices.unknownCostLines + repairs.unknownCostLines,
+    unknownCostValue: round2(
+      register.unknownCostValue + invoices.unknownCostValue + repairs.unknownCostValue,
+    ),
   };
 }
