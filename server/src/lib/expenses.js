@@ -10,7 +10,7 @@
 import { db, transaction } from '../db.js';
 import { round2 } from './currency.js';
 import { getSettings } from './settings.js';
-import { currentSession, recordMovement, tillFor } from './cash.js';
+import { currentSession, recordMovement, requiresSession, tillFor } from './cash.js';
 import { postExpense } from './postings.js';
 
 /**
@@ -193,6 +193,7 @@ export function addExpense({
   note = null,
   userId = null,
   atRegister = false,
+  accountId = null,
 }) {
   const { usd, lbp } = validate({ category, paidWith, amountUsd, amountLbp });
   const { exchange_rate: rate } = getSettings();
@@ -211,7 +212,24 @@ export function addExpense({
     let account = null;
     let session = null;
     if (paidWith === 'cash') {
-      account = tillFor({ atRegister, branchId });
+      /*
+       * A till named outright wins — the transfer desk pays its small
+       * expenses out of its own float, and says so. A drawer picked by name
+       * is held to the drawer rule: it has to be open, because that money is
+       * counted against a float somebody signed for.
+       */
+      if (accountId) {
+        const till = db
+          .prepare('SELECT id, name, kind FROM cash_accounts WHERE id = ? AND active = 1')
+          .get(Number(accountId));
+        if (!till) throw new Error('That cash account does not exist');
+        if (till.kind === 'drawer' && requiresSession() && !currentSession(till.id)) {
+          throw new Error(`${till.name} is closed — open it before paying from it`);
+        }
+        account = till.id;
+      } else {
+        account = tillFor({ atRegister, branchId });
+      }
       session = currentSession(account);
     }
 

@@ -251,3 +251,30 @@ test('typed by name, one match is the product and several are offered to choose 
   );
   assert.ok(several.orders.length > 0, 'and the sales that name either are still listed');
 });
+
+test('an expense can name the till it came out of, and a shut drawer named is refused', async () => {
+  const { registry } = (await req('GET', '/accounts/registry')).json;
+  const drawer = registry.cash.find((a) => a.kind === 'drawer');
+  const before = await drawerUsd();
+  assert.ok(before !== null, 'the drawer is open');
+
+  // Named outright — the transfer desk paying out of its own float.
+  const spent = await req('POST', '/expenses', {
+    category: 'supplies',
+    amountUsd: 4,
+    paidWith: 'cash',
+    accountId: drawer.id,
+  });
+  assert.equal(spent.status, 201, JSON.stringify(spent.json));
+  assert.equal(await drawerUsd(), round(before - 4), 'out of the drawer it named');
+
+  await req('POST', '/cash/close', { countedUsd: await drawerUsd(), carriedUsd: 0 });
+  const refused = await req('POST', '/expenses', {
+    category: 'supplies',
+    amountUsd: 4,
+    paidWith: 'cash',
+    accountId: drawer.id,
+  });
+  assert.equal(refused.status, 400);
+  assert.match(refused.json.error, /closed/);
+});

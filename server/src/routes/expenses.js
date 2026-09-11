@@ -42,9 +42,11 @@ router.get('/', ...spending, (req, res) => {
 });
 
 router.post('/', ...spending, (req, res) => {
-  const { spentOn, category, amountUsd, amountLbp, paidWith, supplierId, note } = req.body || {};
+  const { spentOn, category, amountUsd, amountLbp, paidWith, supplierId, note, accountId } =
+    req.body || {};
   try {
     const expense = addExpense({
+      accountId: accountId ?? null,
       spentOn,
       category,
       amountUsd,
