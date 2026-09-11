@@ -10,13 +10,7 @@
 import { db, transaction } from '../db.js';
 import { round2 } from './currency.js';
 import { getSettings } from './settings.js';
-import {
-  currentSession,
-  needsOfficeCash,
-  openingOfficeCash,
-  recordMovement,
-  settlementAccountId,
-} from './cash.js';
+import { currentSession, recordMovement, tillFor } from './cash.js';
 import { postExpense } from './postings.js';
 
 /**
@@ -198,23 +192,27 @@ export function addExpense({
   supplierId = null,
   note = null,
   userId = null,
+  atRegister = false,
 }) {
   const { usd, lbp } = validate({ category, paidWith, amountUsd, amountLbp });
   const { exchange_rate: rate } = getSettings();
 
   return transaction(() => {
     let movementId = null;
-    // This branch's drawer, not the company's first one — an expense paid at
-    // the second shop comes out of the till standing in front of the person
-    // paying it.
-    const session = paidWith === 'cash' ? currentSession(null, branchId) : null;
+    /*
+     * Which pile the note came out of.
+     *
+     * The shop's main cash, unless this was paid across the counter at the
+     * register with the till open. It used to be the open drawer whenever
+     * there was one — so a bill paid at the desk while a cashier was on shift
+     * came out of that cashier's count. The drawer is the register's; the
+     * expenses screen is not the register. See `tillFor`.
+     */
     let account = null;
+    let session = null;
     if (paidWith === 'cash') {
-      // The open drawer if there is one, because that is the till the note came
-      // out of. Otherwise the office's own cash, which is where a bill paid at a
-      // desk with the shop shut comes from — named on the spot if it has to be.
-      account = session?.account_id ?? settlementAccountId(branchId);
-      if (needsOfficeCash(account)) account = openingOfficeCash(branchId);
+      account = tillFor({ atRegister, branchId });
+      session = currentSession(account);
     }
 
     if (account) {

@@ -182,29 +182,53 @@ export function officeCashId(branchId = null) {
  * a till nobody is going to use — then counting and closing it again — to get
  * past the message is a ritual, not a control.
  *
- * The order below is deliberately conservative: it changes the answer only in
- * the case that used to have no answer at all.
+ * It is **never the drawer**, open or shut. That used to be the answer while a
+ * cashier happened to have the till open — a purchase invoice paid at the desk
+ * at eleven came out of the counter's count — and the shop's rule is the
+ * opposite: the drawer is the register's, and everything done away from the
+ * register moves through the main cash. So:
  *
  * 1. **The shop's standing account, if it is not a drawer.** A shop that keeps
- *    its money in a safe and said so is already served correctly, and moving
- *    that would rewrite where a live shop's cash has been going.
- * 2. **A drawer somebody has opened.** The notes really are in it, and taking
- *    them out is exactly what happened. Unchanged.
- * 3. **The office's own cash**, for the case this exists for: nobody has opened
- *    anything, so the money did not come from the register. It came from the
- *    safe, the office envelope, the owner's pocket.
- * 4. **The shut drawer**, when the shop keeps nothing else — and then the
- *    open-drawer rule applies as it always did, until `openingOfficeCash` is
- *    called to name the pile the money is actually coming from.
+ *    its money in a safe and said so is believed.
+ * 2. **The office's own cash** — the safe, the desk float — named on the spot
+ *    the first time it is needed (see `openingOfficeCash`), for a shop whose
+ *    only account was the drawer it started with.
  *
- * The register is deliberately *not* routed here — see `registerAccountId`. A
- * sale taken at the counter belongs in the counter's drawer and in the count
- * the cashier signs for.
+ * The register is deliberately *not* routed here — see `registerAccountId` and
+ * `tillFor`. A sale taken at the counter belongs in the counter's drawer and in
+ * the count the cashier signs for.
  */
 export function settlementAccountId(branchId = null) {
   const standing = defaultAccountId(branchId);
-  if (!needsOfficeCash(standing)) return standing;
-  return officeCashId(branchId) ?? standing;
+  if (!isDrawer(standing)) return standing;
+  return officeCashId(branchId) ?? openingOfficeCash(branchId);
+}
+
+/** Is this account a drawer — a shift somebody opens and counts? */
+function isDrawer(accountId) {
+  if (!accountId) return false;
+  return db.prepare('SELECT kind FROM cash_accounts WHERE id = ?').get(accountId)?.kind === 'drawer';
+}
+
+/**
+ * Where money moves for something that *may* be happening at the register.
+ *
+ * The shop's rule, in one place: the drawer is the register's, and the
+ * register's only. A refund handed over at the counter with the till open
+ * comes out of the till; the same refund done from the Sales screen in the
+ * back office, or from the counter after the drawer has been counted and
+ * closed, comes out of the shop's main cash — because that is where the
+ * notes actually came from, and a drawer that has been closed must not move
+ * again until it is opened.
+ *
+ * `atRegister` is what the register page says about itself with every
+ * request (see `resolveBranch`); nothing else claims it.
+ */
+export function tillFor({ atRegister = false, branchId = null } = {}) {
+  if (atRegister && (!requiresSession() || registerSession(branchId))) {
+    return registerAccountId(branchId);
+  }
+  return settlementAccountId(branchId);
 }
 
 /**
@@ -236,12 +260,13 @@ export function needsOfficeCash(accountId) {
  * nothing is created by looking at it.
  */
 export function plannedSettlement(branchId = null) {
-  const accountId = settlementAccountId(branchId);
-  if (!needsOfficeCash(accountId)) {
+  const standing = defaultAccountId(branchId);
+  const accountId = isDrawer(standing) ? officeCashId(branchId) : standing;
+  if (accountId) {
     const till = db.prepare('SELECT name FROM cash_accounts WHERE id = ?').get(accountId);
     return { accountId, name: till?.name ?? null, willCreate: false };
   }
-  // Nothing open and nowhere else to go: confirming will name the office's cash.
+  // Nowhere but the drawer to pay from: confirming will name the office's cash.
   return { accountId: null, name: OFFICE_CASH_NAME, willCreate: true };
 }
 

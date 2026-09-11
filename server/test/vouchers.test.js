@@ -536,6 +536,8 @@ test('the desk is its own permission', async () => {
  */
 test('an invoice paid in cash writes its own receipt', async () => {
   const before = (await tillBalance(mainTill.id)).balance;
+  const safeName = 'Back safe';
+  const safeBefore = (await registry()).registry.cash.find((a) => a.name === safeName).balance;
 
   const product = (
     await req('POST', '/products', { name: 'Charger', sku: 'CHG-1', price: 12, cost: 5, stock: 10 }, adminToken)
@@ -562,11 +564,15 @@ test('an invoice paid in cash writes its own receipt', async () => {
   assert.equal(found.length, 1, 'one slip for one payment');
   assert.equal(found[0].kind, 'receipt', 'money coming in');
   assert.equal(found[0].amount_usd, 12);
-  assert.equal(found[0].to_name, mainTill.name, 'into the till it was paid into');
+  /* Into the shop's own cash — the safe this file opened earlier — because an
+     invoice is settled at a desk, and the drawer is the register's. */
+  assert.equal(found[0].to_name, safeName, 'into the till it was paid into');
   assert.equal(found[0].from_name, 'Rami Haddad');
 
-  // Written, not applied: the drawer moved once, when the invoice was confirmed.
-  assert.equal((await tillBalance(mainTill.id)).balance, before + 12);
+  // Written, not applied: the cash moved once, when the invoice was confirmed.
+  assert.equal((await tillBalance(mainTill.id)).balance, before, 'the drawer is untouched');
+  const safeAfter = (await registry()).registry.cash.find((a) => a.name === safeName).balance;
+  assert.equal(safeAfter, safeBefore + 12, 'the safe holds it');
 
   // And it cannot be undone here, which would hand the money back a second time.
   const refused = await req('POST', `/vouchers/${found[0].id}/cancel`, null, adminToken);

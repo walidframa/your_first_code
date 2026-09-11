@@ -9,7 +9,8 @@ import {
   getExpense,
   listExpenses,
 } from '../lib/expenses.js';
-import { currentSession, drawerShort, SHORT_DRAWER_WARNING } from '../lib/cash.js';
+import { drawerShort, SHORT_DRAWER_WARNING } from '../lib/cash.js';
+import { db } from '../db.js';
 import { presetRange, profitForSession, profitReport } from '../lib/profit.js';
 import { capitalHistory, stockAtCost } from '../lib/capital.js';
 import { can } from '../lib/permissions.js';
@@ -53,16 +54,25 @@ router.post('/', ...spending, (req, res) => {
       note,
       userId: req.user.id,
       branchId: req.branchId,
+      atRegister: req.atRegister,
     });
     /*
      * Paying more out of the till than it holds is recorded and reported, not
-     * refused — the reasoning is with SHORT_DRAWER_WARNING. Only worth checking
-     * when the money is claimed to have come from the drawer at all.
+     * refused — the reasoning is with SHORT_DRAWER_WARNING. Only a drawer is
+     * counted against a float, so only a drawer can be short: the main cash
+     * is a standing balance and simply goes down.
      */
-    const session = paidWith === 'cash' ? currentSession(null, req.branchId) : null;
+    const moved = expense.cash_movement_id
+      ? db
+          .prepare(
+            `SELECT m.session_id, a.kind FROM cash_movements m
+               JOIN cash_accounts a ON a.id = m.account_id WHERE m.id = ?`,
+          )
+          .get(expense.cash_movement_id)
+      : null;
     res.status(201).json({
       expense,
-      warning: session && drawerShort(session.id) ? SHORT_DRAWER_WARNING : null,
+      warning: moved?.kind === 'drawer' && drawerShort(moved.session_id) ? SHORT_DRAWER_WARNING : null,
     });
   } catch (err) {
     res.status(400).json({ error: err.message });

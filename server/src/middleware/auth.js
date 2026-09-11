@@ -112,6 +112,13 @@ export function resolveBranch(req, res, next) {
   const asked = req.get('X-Branch-Id') || req.query.branchId || null;
   req.branchId = branchFor(user, asked, { canSwitch: can(req.user, 'branches') });
   req.user.branch_id = user.branch_id;
+  /*
+   * Whether this request comes from the register page — the one screen whose
+   * money belongs in the drawer. Everything else the shop does moves through
+   * its main cash, so the same refund lands in a different account depending
+   * on where it was done, and the server has to be told. See `tillFor`.
+   */
+  req.atRegister = req.get('X-At-Register') === '1';
   next();
 }
 

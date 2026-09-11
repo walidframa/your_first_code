@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
-import { RotateCcw } from 'lucide-react';
 import api from '../api';
 import OrderTable from './OrderTable';
 import ReturnLine from './ReturnLine';
 import BarcodeScanner, { ScanButton, canScan } from './BarcodeScanner';
+import { ProductSalesList } from './ProductSales';
+import { historyOf } from '../lib/productHistory';
 import { lbp, useSettings } from '../context/SettingsContext';
-import { Badge, Card, EmptyState, Input, Modal, money } from './ui';
-import { when } from '../lib/when';
+import { Input, Modal, money } from './ui';
 
 /**
  * The sales this register can still do something about.
@@ -72,9 +72,7 @@ export default function SittingSales({ onClose, onChanged }) {
   const takings = live.reduce((sum, o) => sum + o.total, 0);
 
   /* Every line of the scanned product, newest sale first. */
-  const history = (orders || []).flatMap((o) =>
-    (o.lines || []).map((line) => ({ order: o, line })),
-  );
+  const history = historyOf(orders);
   const soldTotal = history.reduce((n, h) => n + h.line.quantity, 0);
   const backTotal = history.reduce((n, h) => n + (h.line.returned_qty || 0), 0);
 
@@ -134,7 +132,7 @@ export default function SittingSales({ onClose, onChanged }) {
         </div>
 
         {product ? (
-          <ProductSales history={history} onReturn={setReturning} />
+          <ProductSalesList history={history} onReturn={setReturning} />
         ) : (
           /*
            * Refunding is offered here whatever the role: the server decides,
@@ -177,77 +175,5 @@ export default function SittingSales({ onClose, onChanged }) {
         />
       )}
     </>
-  );
-}
-
-/**
- * Where one product went, and the way back.
- *
- * A list of receipts is the wrong shape for this question. What somebody wants
- * to know, holding a charger with no receipt, is which sales it went out on and
- * how many are still with the customer — so that is what each row says, and the
- * button that takes it back is on the row rather than two screens further in.
- *
- * The line is returned off its own sale whatever else was on it. That has
- * always been true of the server; it was the finding that was missing.
- */
-function ProductSales({ history, onReturn }) {
-  if (!history.length) {
-    return (
-      <EmptyState
-        icon={RotateCcw}
-        title="Not sold yet"
-        description="This product has not gone out on any sale, so there is nothing to take back."
-      />
-    );
-  }
-
-  return (
-    <Card>
-      <ul className="divide-y divide-rule">
-        {history.map(({ order, line }) => {
-          const left = line.quantity - (line.returned_qty || 0);
-          return (
-            <li
-              key={line.id}
-              className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 py-3"
-            >
-              <div className="min-w-0">
-                <p className="truncate text-sm font-medium text-slate-800">{order.order_number}</p>
-                <p className="truncate text-xs text-slate-500">
-                  {when(order.created_at)}
-                  {order.customer_name ? ` · ${order.customer_name}` : ''}
-                  {order.cashier_name ? ` · ${order.cashier_name}` : ''}
-                </p>
-              </div>
-
-              <div className="flex items-center gap-3">
-                <span className="tnum text-end text-sm text-slate-700">
-                  <span className="text-slate-400">{line.quantity} ×</span> {money(line.price)}
-                </span>
-
-                {/*
-                  * What is still with the customer, which is the only number
-                  * that decides whether anything can come back.
-                  */}
-                {order.status === 'refunded' ? (
-                  <Badge tone="warning">Voided</Badge>
-                ) : left === 0 ? (
-                  <Badge tone="neutral">All back</Badge>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => onReturn({ order, line })}
-                    className="pressable rounded-lg bg-brand-50 px-3 py-1.5 text-xs font-semibold text-brand-800 ring-1 ring-brand-200 transition ring-inset hover:bg-brand-100"
-                  >
-                    Return {left > 1 ? `up to ${left}` : ''}
-                  </button>
-                )}
-              </div>
-            </li>
-          );
-        })}
-      </ul>
-    </Card>
   );
 }

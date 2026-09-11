@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { db } from '../db.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { balanceOf, recordPayment } from '../lib/accounts.js';
-import { recordMovement } from '../lib/cash.js';
+import { recordMovement, tillFor } from '../lib/cash.js';
 import {
   allocate,
   createPlan,
@@ -81,6 +81,9 @@ router.post('/:id/payments', requireAuth, requirePermission('parties'), (req, re
         reason: 'customer_payment',
         note: `Instalment — ${plan.customer_name}`,
         userId: req.user.id,
+        /* The main cash, unless taken at the register with the till open —
+           the instalments screen is a desk, not a counter. See `tillFor`. */
+        accountId: tillFor({ atRegister: req.atRegister, branchId: req.branchId }),
       });
     }
 

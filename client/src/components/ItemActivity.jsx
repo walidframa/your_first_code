@@ -3,6 +3,7 @@ import { ArrowDown, ArrowUp, History, Tag, TrendingDown, TrendingUp } from 'luci
 import api from '../api';
 import { Badge, Modal, Skeleton, cx, money } from './ui';
 import Receipt from './Receipt';
+import { ProductSalesHistory } from './ProductSales';
 import { onDate } from '../lib/when';
 
 /** What each kind of thing that can happen to a product looks like. */
@@ -25,6 +26,8 @@ const KINDS = {
  */
 export default function ItemActivity({ productId, onClose, onOpenDocument, onOpenSale }) {
   const [data, setData] = useState(null);
+  /* Bumped when a line is taken back below, so the feed above it agrees. */
+  const [version, setVersion] = useState(0);
   /* The sale behind a row, fetched only when somebody asks for it. */
   const [showing, setShowing] = useState(null);
   const [sale, setSale] = useState(null);
@@ -36,7 +39,7 @@ export default function ItemActivity({ productId, onClose, onOpenDocument, onOpe
 
   useEffect(() => {
     api.get(`/products/${productId}/activity`).then((res) => setData(res.data));
-  }, [productId]);
+  }, [productId, version]);
 
   if (!data) {
     return (
@@ -155,6 +158,23 @@ export default function ItemActivity({ productId, onClose, onOpenDocument, onOpe
           </div>
         </>
       )}
+
+      {/*
+        * The sales it went out on, with the way back on each row.
+        *
+        * The feed below says what happened; this says what can still be done
+        * about it. A customer holding one of these with no receipt is the
+        * ordinary case, and until now the answer lived on the register — which
+        * is no use once the drawer has been counted and closed for the night.
+        * Returned from here, the money comes out of the shop's main cash; the
+        * server decides that, and the drawer is left alone.
+        */}
+      <p className="mb-1.5 text-xs font-medium tracking-wide text-slate-500 uppercase">
+        Sales, and the way back
+      </p>
+      <div className="mb-4">
+        <ProductSalesHistory productId={productId} onChanged={() => setVersion((v) => v + 1)} />
+      </div>
 
       <p className="mb-1.5 text-xs font-medium tracking-wide text-slate-500 uppercase">Everything it did</p>
       {activity.length === 0 ? (

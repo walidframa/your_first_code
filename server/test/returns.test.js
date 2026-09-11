@@ -24,12 +24,13 @@ let child;
 let workDir;
 let adminToken;
 
-async function req(method, route, body, token) {
+async function req(method, route, body, token, headers = {}) {
   const res = await fetch(BASE + route, {
     method,
     headers: {
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...headers,
     },
     body: body ? JSON.stringify(body) : undefined,
   });
@@ -489,6 +490,9 @@ test('a receipt number still finds its sale, and carries no lines', async () => 
  * out — as "−$50 and +3,150,000 LL", which is fifteen dollars by arithmetic
  * and nothing like what the cashier did, which was hand over $15.
  */
+/** What the register page says with every request — see api.js. */
+const AT_REGISTER = { 'X-At-Register': '1' };
+
 const drawer = async () => {
   const cur = (await req('GET', '/cash/current', null, adminToken)).json;
   const res = (await req('GET', `/cash/sessions/${cur.session.id}/report`, null, adminToken)).json;
@@ -519,6 +523,7 @@ test('a refund is the amount handed back, not the tender turned inside out', asy
     `/orders/${order.id}/return-line`,
     { itemId: detail.json.items[0].id, quantity: 1 },
     adminToken,
+    AT_REGISTER,
   );
   assert.equal(back.status, 200, JSON.stringify(back.json));
 
@@ -544,6 +549,7 @@ test('and it can be handed back in pounds when the counter says so', async () =>
     `/orders/${order.id}/return-line`,
     { itemId: item.id, quantity: 1, currency: 'LBP' },
     adminToken,
+    AT_REGISTER,
   );
   assert.equal(back.status, 200, JSON.stringify(back.json));
   const refund = (await drawer()).find((m) => m.order_id === order.id && m.kind === 'refund');
@@ -566,11 +572,23 @@ test('a return made by mistake can be undone, and everything goes back the way i
   const order = sale.json.order;
   const item = (await req('GET', `/orders/${order.id}`, null, adminToken)).json.items[0];
 
-  const back = await req('POST', `/orders/${order.id}/return-line`, { itemId: item.id, quantity: 2 }, adminToken);
+  const back = await req(
+    'POST',
+    `/orders/${order.id}/return-line`,
+    { itemId: item.id, quantity: 2 },
+    adminToken,
+    AT_REGISTER,
+  );
   assert.equal(back.status, 200);
   assert.equal((await product('BEV-001')).stock, stockBefore - 1, 'two of three came back');
 
-  const undone = await req('POST', `/orders/${order.id}/return-line/undo`, { itemId: item.id }, adminToken);
+  const undone = await req(
+    'POST',
+    `/orders/${order.id}/return-line/undo`,
+    { itemId: item.id },
+    adminToken,
+    AT_REGISTER,
+  );
   assert.equal(undone.status, 200, JSON.stringify(undone.json));
   assert.equal(undone.json.items[0].returned_qty, 0, 'the line is whole again');
   assert.equal(undone.json.order.status, 'completed');

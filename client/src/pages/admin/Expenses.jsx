@@ -39,7 +39,7 @@ export default function Expenses() {
   async function remove(expense) {
     const agreed = await confirm({
       title: 'Delete this expense?',
-      body: `${money(expense.amount_usd)} on ${expense.spent_on}${expense.note ? ` — ${expense.note}` : ''}. If it was paid out of the till, the money goes back into the drawer.`,
+      body: `${money(expense.amount_usd)} on ${expense.spent_on}${expense.note ? ` — ${expense.note}` : ''}. If it was paid in cash, the money goes back where it came from.`,
       confirmLabel: 'Delete it',
     });
     if (!agreed) return;
