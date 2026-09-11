@@ -22,12 +22,13 @@ let workDir;
 let adminToken;
 let cashierToken;
 
-async function req(method, route, body, token) {
+async function req(method, route, body, token, headers = {}) {
   const res = await fetch(BASE + route, {
     method,
     headers: {
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...headers,
     },
     body: body ? JSON.stringify(body) : undefined,
   });
@@ -220,6 +221,15 @@ test('change split across currencies comes out of both piles', async () => {
   assert.equal(expected.lbp, opening.lbp - sale.change_lbp, 'and so did the pounds half');
 });
 
+/** What the register page says with every request — see api.js. */
+const AT_REGISTER = { 'X-At-Register': '1' };
+
+/** The shop's main cash, as the Accounts screen reads it: null until it exists. */
+async function mainCash() {
+  const { registry } = (await req('GET', '/accounts/registry', null, adminToken)).json;
+  return registry.cash.find((a) => a.name === 'Main cash') ?? null;
+}
+
 test('refunding a cash sale takes the money back out', async () => {
   await req('POST', '/cash/open', { openingUsd: 100 }, adminToken);
   const item = await product('SNK-001');
@@ -239,7 +249,8 @@ test('refunding a cash sale takes the money back out', async () => {
   ).json.order;
 
   const afterSale = (await req('GET', '/cash/current', null, adminToken)).json.expected.usd;
-  await req('POST', `/orders/${order.id}/refund`, null, adminToken);
+  // Refunded at the register, with the till open — so it comes out of the till.
+  await req('POST', `/orders/${order.id}/refund`, null, adminToken, AT_REGISTER);
 
   const afterRefund = (await req('GET', '/cash/current', null, adminToken)).json.expected.usd;
   assert.equal(afterRefund, 100, 'the drawer is back where it started');
@@ -452,8 +463,14 @@ test('a payment that never touched the till is left out of it', async () => {
   assert.equal((await req('GET', '/cash/current', null, adminToken)).json.expected.usd, 300);
 });
 
-test('a purchase invoice paid in cash comes out of the drawer', async () => {
+test('a purchase invoice paid in cash comes out of the main cash, not the drawer', async () => {
+  /*
+   * The drawer is the register's. A supplier paid from the documents screen
+   * is paid from the shop's own cash, whether or not a cashier happens to
+   * have the till open at the time.
+   */
   await req('POST', '/cash/open', { openingUsd: 500 }, adminToken);
+  const officeBefore = (await mainCash())?.balance ?? 0;
   const supplier = (await req('POST', '/suppliers', { name: 'Cash Delivery' }, adminToken)).json.party;
   const item = await product('SNK-001');
 
@@ -476,11 +493,13 @@ test('a purchase invoice paid in cash comes out of the drawer', async () => {
   assert.equal((await req('GET', '/cash/current', null, adminToken)).json.expected.usd, 500);
 
   await req('POST', `/documents/${doc.id}/confirm`, null, adminToken);
-  assert.equal((await req('GET', '/cash/current', null, adminToken)).json.expected.usd, 489.2);
+  assert.equal((await req('GET', '/cash/current', null, adminToken)).json.expected.usd, 500, 'the drawer is untouched');
+  assert.equal((await mainCash()).balance, Math.round((officeBefore - 10.8) * 100) / 100, 'the main cash paid it');
 });
 
 test('deleting a cash-paid document keeps the money it moved on the record', async () => {
   await req('POST', '/cash/open', { openingUsd: 500 }, adminToken);
+  const officeBefore = (await mainCash())?.balance ?? 0;
   const supplier = (await req('POST', '/suppliers', { name: 'Then Deleted' }, adminToken)).json.party;
   const item = await product('SNK-001');
 
@@ -499,18 +518,15 @@ test('deleting a cash-paid document keeps the money it moved on the record', asy
     )
   ).json.document;
   await req('POST', `/documents/${doc.id}/confirm`, null, adminToken);
-  assert.equal((await req('GET', '/cash/current', null, adminToken)).json.expected.usd, 489.2);
+  const office = await mainCash();
+  assert.equal(office.balance, Math.round((officeBefore - 10.8) * 100) / 100);
 
-  // The document can go; the drawer's history of it cannot.
+  // The document can go; the cash's history of it cannot.
   const deleted = await req('DELETE', `/documents/${doc.id}`, null, adminToken);
   assert.equal(deleted.status, 200, JSON.stringify(deleted.json));
-  assert.equal(
-    (await req('GET', '/cash/current', null, adminToken)).json.expected.usd,
-    500,
-    'the cash comes back with the document',
-  );
+  assert.equal((await mainCash()).balance, officeBefore, 'the cash comes back with the document');
 
-  const { movements } = (await req('GET', '/cash/current', null, adminToken)).json;
+  const { movements } = (await req('GET', `/cash/current?accountId=${office.id}`, null, adminToken)).json;
   const forDoc = movements.filter((m) => (m.note || '').includes(doc.doc_number));
   assert.equal(forDoc.length, 2, 'both the payment and its reversal are still listed');
 });

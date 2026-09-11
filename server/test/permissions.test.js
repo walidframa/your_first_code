@@ -325,8 +325,13 @@ test('a transfer is found by its reference', async () => {
   assert.equal(found.transfers[0].customer_name, 'Hassan Aoun');
 });
 
-test('the operator can put an expense through the same drawer', async () => {
+test('the operator can record an expense, and it comes out of the main cash', async () => {
+  const mainCash = async () =>
+    (await req('GET', '/accounts/registry', null, adminToken)).json.registry.cash.find(
+      (a) => a.name === 'Main cash',
+    )?.balance ?? 0;
   const before = await drawer();
+  const cashBefore = await mainCash();
   const res = await req(
     'POST',
     '/expenses',
@@ -335,8 +340,10 @@ test('the operator can put an expense through the same drawer', async () => {
   );
   assert.equal(res.status, 201, JSON.stringify(res.json));
 
+  // The expenses screen is not the register, so the drawer's count is not touched.
   const after = await drawer();
-  assert.equal(Math.round((after.expected.usd - before.expected.usd) * 100) / 100, -12);
+  assert.equal(after.expected.usd, before.expected.usd, 'the drawer is untouched');
+  assert.equal(Math.round((await mainCash() - cashBefore) * 100) / 100, -12);
 });
 
 test('somebody without the desk cannot use it', async () => {

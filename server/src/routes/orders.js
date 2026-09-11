@@ -8,7 +8,7 @@ import { productForCode } from '../lib/barcodes.js';
 import { getSettings, taxRate } from '../lib/settings.js';
 import { addEntry, balanceOf, creditCheck } from '../lib/accounts.js';
 import { dominantMethod, readTenders, recordTenders, tenderSplit, tendersFor } from '../lib/tenders.js';
-import { recordMovement, registerAccountId, registerSession, requiresSession } from '../lib/cash.js';
+import { recordMovement, registerAccountId, registerSession, requiresSession, tillFor } from '../lib/cash.js';
 import { notify } from '../lib/telegram.js';
 import { refundText, returnText, saleText } from '../lib/notifyText.js';
 import { postRefund, postSale } from '../lib/postings.js';
@@ -1219,9 +1219,39 @@ router.get('/', requireAuth, (req, res) => {
    * belongs to a product resolves to that product, and the sales that contain
    * it become the answer.
    */
-  const scanned = q ? productForCode(q) : null;
+  let scanned = q ? productForCode(q) : null;
 
-  if (q) {
+  /*
+   * Named outright, or by name.
+   *
+   * From an item's own history the product is already known, so it is given
+   * by id and the sales are the answer. From a search box, a name is what
+   * gets typed — "charger", "A15 screen" — and a name that fits exactly one
+   * product is as good as its barcode. One that fits several is offered back
+   * as a short list to choose from rather than guessed at.
+   */
+  let candidates = [];
+  if (req.query.productId) {
+    scanned = db
+      .prepare('SELECT id, name, sku, barcode FROM products WHERE id = ?')
+      .get(Number(req.query.productId)) || null;
+  } else if (q && !scanned) {
+    candidates = db
+      .prepare(
+        `SELECT id, name, sku, barcode FROM products
+          WHERE lower(name) LIKE ? ORDER BY active DESC, name LIMIT 8`,
+      )
+      .all(`%${q.toLowerCase()}%`);
+    if (candidates.length === 1) {
+      scanned = candidates[0];
+      candidates = [];
+    }
+  }
+
+  if (scanned && !q) {
+    sql += ' AND EXISTS (SELECT 1 FROM order_items oi WHERE oi.order_id = o.id AND oi.product_id = ?)';
+    params.push(scanned.id);
+  } else if (q) {
     sql += ` AND (o.order_number LIKE ? OR c.name LIKE ? OR o.buyer_name LIKE ?
                   OR EXISTS (SELECT 1 FROM order_items oi
                               WHERE oi.order_id = o.id
@@ -1263,6 +1293,8 @@ router.get('/', requireAuth, (req, res) => {
   res.json({
     orders: lines ? orders.map((o) => ({ ...o, lines: lines.get(o.id) || [] })) : orders,
     product: scanned || null,
+    /* Several products fit the name typed: the screen offers them to pick. */
+    products: candidates,
   });
 });
 
@@ -1424,10 +1456,17 @@ router.post('/:id/refund', requireAuth, requirePermission('refunds'), (req, res)
       });
     }
 
+    /*
+     * Which pile the money comes back out of: the drawer when this is the
+     * register with its till open, the shop's main cash otherwise — a void
+     * done from the Sales screen, or after the drawer was counted and closed,
+     * is paid from the safe, not from a count somebody has already signed.
+     */
+    const till = tillFor({ atRegister: req.atRegister, branchId: order.branch_id });
     postRefund({
       order,
       items: itemsOfOrder(order.id),
-      tillAccountId: registerAccountId(order.branch_id),
+      tillAccountId: till,
       userId: req.user.id,
     });
 
@@ -1435,8 +1474,7 @@ router.post('/:id/refund', requireAuth, requirePermission('refunds'), (req, res)
     // total, in one currency, not the tender turned inside out.
     if (order.payment_method === 'cash' && order.total > 0) {
       recordMovement({
-        // Handed back over the counter it was taken at.
-        accountId: registerAccountId(order.branch_id),
+        accountId: till,
         kind: 'refund',
         ...refundLegs(order, order.total, refundCurrencyFrom(req.body)),
         orderId: order.id,
@@ -1578,23 +1616,26 @@ router.post('/:id/return-line', requireAuth, requirePermission('refunds'), (req,
       });
     }
 
+    /* The drawer at the register with the till open; the main cash anywhere
+       else, including a return taken after the drawer was closed. */
+    const till = tillFor({ atRegister: req.atRegister, branchId: order.branch_id });
     postRefund({
       order,
       items: itemsOfOrder(order.id),
       amount: refund,
-      tillAccountId: registerAccountId(order.branch_id),
+      tillAccountId: till,
       userId: req.user.id,
     });
 
     /*
-     * Money handed back across the counter comes out of the drawer — in the
-     * currency it came in. A customer who paid in pounds is given pounds back,
-     * so the share of the sale being returned is taken off each leg of what was
-     * actually tendered rather than converted into dollars on the way out.
+     * Money handed back comes out of that till — in the currency it came in.
+     * A customer who paid in pounds is given pounds back, so the share of the
+     * sale being returned is taken off each leg of what was actually tendered
+     * rather than converted into dollars on the way out.
      */
     if (order.payment_method === 'cash' && order.total > 0) {
       recordMovement({
-        accountId: registerAccountId(order.branch_id),
+        accountId: till,
         kind: 'refund',
         ...refundLegs(order, refund, refundCurrencyFrom(req.body)),
         orderId: order.id,
@@ -1649,7 +1690,7 @@ function lineShareOfTotal(order, item) {
   return round2((Number(order.total) || 0) * ((Number(item.line_total) || 0) / subtotal));
 }
 
-function undoReturnsOnLine({ order, item, userId, branchId }) {
+function undoReturnsOnLine({ order, item, userId, branchId, atRegister = false }) {
   const back = Number(item.returned_qty) || 0;
   if (!(back > 0)) throw new Error(`Nothing on ${item.name} has been returned`);
 
@@ -1716,7 +1757,7 @@ function undoReturnsOnLine({ order, item, userId, branchId }) {
       order,
       items: itemsOfOrder(order.id),
       amount: refunded,
-      tillAccountId: registerAccountId(order.branch_id),
+      tillAccountId: tillFor({ atRegister, branchId: order.branch_id }),
       userId,
       undo: true,
     });
@@ -1770,6 +1811,7 @@ router.post('/:id/return-line/undo', requireAuth, requirePermission('refunds'), 
         item,
         userId: req.user.id,
         branchId: req.branchId,
+        atRegister: req.atRegister,
       });
       /*
        * A return made before movements were tagged with their line.
@@ -1784,7 +1826,7 @@ router.post('/:id/return-line/undo', requireAuth, requirePermission('refunds'), 
        */
       if (cashReversed === 0 && order.payment_method === 'cash' && refunded > 0) {
         recordMovement({
-          accountId: registerAccountId(order.branch_id),
+          accountId: tillFor({ atRegister: req.atRegister, branchId: order.branch_id }),
           kind: 'sale',
           amountUsd: refunded,
           orderId: order.id,
@@ -1826,7 +1868,7 @@ router.post('/:id/unrefund', requireAuth, requirePermission('refunds'), (req, re
   try {
     transaction(() => {
       for (const item of db.prepare('SELECT * FROM order_items WHERE order_id = ? AND returned_qty > 0').all(order.id)) {
-        undoReturnsOnLine({ order, item, userId: req.user.id, branchId: req.branchId });
+        undoReturnsOnLine({ order, item, userId: req.user.id, branchId: req.branchId, atRegister: req.atRegister });
       }
       const since =
         db

@@ -213,12 +213,12 @@ test('the shop is told which till it is paying from, and can say otherwise', asy
   assert.match(refused.json.error, /closed/);
 });
 
-test('with the register open, the notes come out of the register', async () => {
+test('with the register open, the notes still come out of the main cash', async () => {
   /*
-   * The line that keeps this from being a licence to route every payment away
-   * from the till. A shop with one drawer, open and trading, pays its suppliers
-   * across the counter — that is where the money is — and nothing about that
-   * changed.
+   * The drawer is the register's, and only the register's. A supplier paid
+   * from the documents screen while a cashier happens to have the till open
+   * is paid from the shop's own cash — the alternative was a cashier's count
+   * carrying a bill somebody else paid at the desk.
    */
   await req('POST', '/cash/open', { openingUsd: 100 });
 
@@ -226,8 +226,8 @@ test('with the register open, the notes come out of the register', async () => {
   const doc = await draftPaidInCash('purchase_invoice', supplier.id, 30);
   assert.equal((await req('POST', `/documents/${doc.id}/confirm`)).status, 200);
 
-  assert.equal(await balanceOf(drawer.id), 70, 'the drawer paid for it');
-  assert.equal((await tillNamed('Main cash')).balance, officeBefore, 'the office cash is untouched');
+  assert.equal(await balanceOf(drawer.id), 100, 'the drawer is untouched');
+  assert.equal((await tillNamed('Main cash')).balance, officeBefore - 30, 'the main cash paid for it');
 });
 
 test('an expense paid with everything shut is money that left somewhere', async () => {

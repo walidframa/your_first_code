@@ -21,7 +21,7 @@ import {
   Wrench,
   X,
 } from 'lucide-react';
-import api from '../api';
+import api, { setAtRegister } from '../api';
 import Receipt from '../components/Receipt';
 import { HeldSalesDialog, HoldSaleDialog, ResumeIssues } from '../components/HeldSales';
 import TakeInRepair from '../components/TakeInRepair';
@@ -167,6 +167,16 @@ function LinePrice({ item, onClose, onSet }) {
 }
 
 export default function Checkout() {
+  /*
+   * While this page is on screen, every request says it is the register's —
+   * which is what sends a refund out of the drawer rather than out of the
+   * shop's main cash. Cleared the moment it is left. See api.js.
+   */
+  useEffect(() => {
+    setAtRegister(true);
+    return () => setAtRegister(false);
+  }, []);
+
   const toast = useToast();
   const confirm = useConfirm();
   const searchRef = useRef(null);

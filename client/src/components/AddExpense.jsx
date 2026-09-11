@@ -33,7 +33,13 @@ export const PAID_WITH = [
  * to have counted right at closing. Recorded here it comes off the till like
  * anything else; recorded nowhere it becomes a shortfall somebody is blamed for.
  */
-export default function AddExpense({ onClose, onSaved }) {
+/**
+ * `accountId` names the till the cash comes out of, for a counter that has
+ * one — the transfer desk pays for the water out of its own float. Left
+ * unsaid, the server decides: the shop's main cash, unless this is the
+ * register with its drawer open.
+ */
+export default function AddExpense({ onClose, onSaved, accountId = null }) {
   const toast = useToast();
   const [category, setCategory] = useState('supplies');
   const [usd, setUsd] = useState('');
@@ -58,6 +64,7 @@ export default function AddExpense({ onClose, onSaved }) {
         amountLbp: Number(lbpAmount) || 0,
         paidWith,
         note: note || null,
+        accountId: paidWith === 'cash' && accountId ? accountId : undefined,
       });
       // Paying out more than the till holds goes through; it is said out loud
       // instead, and given long enough to be worth going and looking into.

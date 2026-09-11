@@ -97,8 +97,10 @@ before(async () => {
 });
 
 /** What the drawer says it holds. */
-async function drawerUsd() {
-  return (await req('GET', '/cash/current', null, adminToken)).json.expected.usd;
+/** The shop's main cash: instalments are taken at a desk, not at the register. */
+async function mainCashUsd() {
+  const { registry } = (await req('GET', '/accounts/registry', null, adminToken)).json;
+  return registry.cash.find((a) => a.name === 'Main cash')?.balance ?? 0;
 }
 
 after(() => {
@@ -162,6 +164,7 @@ test('a plan schedules a debt the customer already has', async () => {
 
 test('a payment settles the earliest month and comes off the account', async () => {
   const plan = (await req('GET', '/installments', null, adminToken)).json.plans[0];
+  const cashBefore = await mainCashUsd();
 
   const res = await req(
     'POST',
@@ -179,11 +182,12 @@ test('a payment settles the earliest month and comes off the account', async () 
   assert.equal(res.json.plan.outstandingUsd, 300);
 
   /*
-   * And so did the drawer. A hundred dollars was handed over a counter; the
-   * customer being credited for it is only half of what happened, and the half
-   * that used to go missing.
+   * And so did the cash. A hundred dollars was handed over; the customer being
+   * credited for it is only half of what happened, and the half that used to
+   * go missing. Into the main cash: the instalments screen is a desk, and the
+   * drawer is the register's.
    */
-  assert.equal(await drawerUsd(), 100, 'the cash reached the drawer');
+  assert.equal(await mainCashUsd(), cashBefore + 100, 'the cash reached the main cash');
 });
 
 test('a payment bigger than one month spills into the next', async () => {

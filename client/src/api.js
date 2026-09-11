@@ -46,6 +46,24 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+/*
+ * Whether the register page is the one talking.
+ *
+ * The drawer is the register's and nobody else's: a refund handed over at the
+ * counter with the till open comes out of the till, and the same refund done
+ * from the Sales screen — or after the drawer has been counted and closed —
+ * comes out of the shop's main cash. The server cannot tell the two apart
+ * from the request alone, so the register says so with every call while it is
+ * on screen (see Checkout), and the server routes the money by it.
+ */
+export function setAtRegister(on) {
+  if (on) {
+    api.defaults.headers.common['X-At-Register'] = '1';
+  } else {
+    delete api.defaults.headers.common['X-At-Register'];
+  }
+}
+
 export function setAuthToken(token) {
   if (token) {
     api.defaults.headers.common.Authorization = `Bearer ${token}`;

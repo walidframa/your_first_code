@@ -5,7 +5,7 @@ import { decryptSecret } from '../lib/secrets.js';
 import { normaliseImei } from '../lib/units.js';
 import { getSettings } from '../lib/settings.js';
 import { dayEndUtc, dayStartUtc } from '../lib/shopTime.js';
-import { recordMovement, registerAccountId, registerSession, requiresSession } from '../lib/cash.js';
+import { recordMovement, registerAccountId, registerSession, requiresSession, tillFor } from '../lib/cash.js';
 import {
   REPAIR_STATUSES,
   addPart,
@@ -335,18 +335,15 @@ router.post('/trade-ins', requireAuth, (req, res) => {
       const taken = takeTradeIn({ ...req.body, exchangeRate }, req.user.id, req.branchId);
 
       /*
-       * Buying a phone empties the till. Recorded as cash out so the drawer
-       * count at close matches what is actually in it — a trade-in paid from
-       * the register and not recorded is a shortfall nobody can explain.
+       * Buying a phone is money out, recorded so the pile it came from agrees
+       * with what is actually in it. Out of the drawer when the phone is
+       * bought at the register with the till open; out of the shop's main
+       * cash when it is bought from the trade-ins screen, or with the drawer
+       * closed — see `tillFor`.
        */
       const paidUsd = Number(req.body.paidUsd) || 0;
       const paidLbp = Number(req.body.paidLbp) || 0;
       if (paidUsd > 0 || paidLbp > 0) {
-        // This branch's till, not the company's first one — the money comes out
-        // of the drawer standing in front of whoever is paying for the phone.
-        if (requiresSession() && !registerSession(req.branchId)) {
-          throw new Error('The cashbox is closed — open it before paying for a trade-in');
-        }
         recordMovement({
           kind: 'cash_out',
           amountUsd: -paidUsd,
@@ -354,7 +351,7 @@ router.post('/trade-ins', requireAuth, (req, res) => {
           reason: 'supplier',
           note: `Traded in ${taken.unit.imei}`,
           userId: req.user.id,
-          accountId: registerAccountId(req.branchId),
+          accountId: tillFor({ atRegister: req.atRegister, branchId: req.branchId }),
         });
       }
 

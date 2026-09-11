@@ -442,8 +442,15 @@ test('a made-up category is refused', async () => {
   assert.match(res.json.error, /category/i);
 });
 
-test('an expense paid in cash comes out of the drawer', async () => {
-  const before = (await req('GET', '/cash/current', null, adminToken)).json.expected.usd;
+/** The shop's main cash, which is what the expenses screen pays from. */
+async function mainCashUsd() {
+  const { registry } = (await req('GET', '/accounts/registry', null, adminToken)).json;
+  return registry.cash.find((a) => a.name === 'Main cash')?.balance ?? 0;
+}
+
+test('an expense paid in cash comes out of the main cash, not the drawer', async () => {
+  const drawerBefore = (await req('GET', '/cash/current', null, adminToken)).json.expected.usd;
+  const before = await mainCashUsd();
 
   const expense = (
     await req(
@@ -454,13 +461,18 @@ test('an expense paid in cash comes out of the drawer', async () => {
     )
   ).json.expense;
 
-  const after = (await req('GET', '/cash/current', null, adminToken)).json.expected.usd;
-  assert.equal(after, Math.round((before - 25) * 100) / 100, 'the till is lighter by the expense');
+  const after = await mainCashUsd();
+  assert.equal(after, Math.round((before - 25) * 100) / 100, 'the main cash is lighter by the expense');
+  assert.equal(
+    (await req('GET', '/cash/current', null, adminToken)).json.expected.usd,
+    drawerBefore,
+    'the drawer is the register’s, and the expenses screen is not the register',
+  );
   assert.ok(expense.cash_movement_id, 'and the two are linked');
 });
 
-test('a cash expense larger than the drawer is recorded, and warned about', async () => {
-  const held = (await req('GET', '/cash/current', null, adminToken)).json.expected.usd;
+test('a cash expense larger than the cash on hand is recorded, not refused', async () => {
+  const held = await mainCashUsd();
 
   const res = await req(
     'POST',
@@ -469,12 +481,10 @@ test('a cash expense larger than the drawer is recorded, and warned about', asyn
     adminToken,
   );
   assert.equal(res.status, 201);
-  assert.match(res.json.warning, /more than the drawer holds/i);
-  assert.equal(
-    (await req('GET', '/cash/current', null, adminToken)).json.expected.usd,
-    -500,
-    'the money really left, so the till shows it gone',
-  );
+  /* Only a drawer is counted against a float, so only a drawer is "short";
+     the main cash is a standing balance and simply goes below zero. */
+  assert.equal(res.json.warning, null);
+  assert.equal(await mainCashUsd(), -500, 'the money really left, so the cash shows it gone');
 
   // Paid from somewhere else, the drawer is not involved and nothing is amiss.
   const byBank = await req(
@@ -498,8 +508,8 @@ test('an expense paid by bank leaves the drawer alone', async () => {
   assert.equal(after, before);
 });
 
-test('deleting a cash expense puts the money back in the drawer', async () => {
-  const before = (await req('GET', '/cash/current', null, adminToken)).json.expected.usd;
+test('deleting a cash expense puts the money back where it came from', async () => {
+  const before = await mainCashUsd();
 
   const expense = (
     await req(
@@ -509,13 +519,13 @@ test('deleting a cash expense puts the money back in the drawer', async () => {
       adminToken,
     )
   ).json.expense;
-  assert.equal((await req('GET', '/cash/current', null, adminToken)).json.expected.usd, before - 40);
+  assert.equal(await mainCashUsd(), Math.round((before - 40) * 100) / 100);
 
   await req('DELETE', `/expenses/${expense.id}`, null, adminToken);
   assert.equal(
-    (await req('GET', '/cash/current', null, adminToken)).json.expected.usd,
+    await mainCashUsd(),
     before,
-    'the drawer is not left short by an expense the books no longer believe in',
+    'the cash is not left short by an expense the books no longer believe in',
   );
 });
 

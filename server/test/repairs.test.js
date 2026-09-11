@@ -24,12 +24,13 @@ let cashierToken;
 let phone;
 let part;
 
-async function req(method, route, body, token) {
+async function req(method, route, body, token, headers = {}) {
   const res = await fetch(BASE + route, {
     method,
     headers: {
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...headers,
     },
     body: body ? JSON.stringify(body) : undefined,
   });
@@ -461,8 +462,19 @@ test('a paid repair puts the money in the drawer', async () => {
 
 /* ------------------------------------------------------------- trade-ins */
 
-test('buying a phone puts it on the shelf and takes cash out of the drawer', async () => {
+/** The shop's main cash, as the Accounts screen reads it. */
+async function mainCashUsd() {
+  const { registry } = (await req('GET', '/accounts/registry', null, adminToken)).json;
+  return registry.cash.find((a) => a.name === 'Main cash')?.balance ?? 0;
+}
+
+test('buying a phone puts it on the shelf and takes cash out of the main cash', async () => {
+  /*
+   * Bought from the trade-ins screen, which is a desk: the money comes out of
+   * the shop's own cash, and the drawer's count is left to the register.
+   */
   const before = (await req('GET', '/cash/current', null, adminToken)).json.expected;
+  const cashBefore = await mainCashUsd();
 
   const res = await req(
     'POST',
@@ -483,10 +495,25 @@ test('buying a phone puts it on the shelf and takes cash out of the drawer', asy
   assert.equal(res.json.unit.condition, 'used');
 
   const after = (await req('GET', '/cash/current', null, adminToken)).json.expected;
-  assert.equal(after.usd, before.usd - 120, 'the money left the till');
+  assert.equal(after.usd, before.usd, 'the drawer is untouched');
+  assert.equal(await mainCashUsd(), cashBefore - 120, 'the money left the main cash');
 
   const found = await req('GET', '/units/lookup?imei=358800111122221', null, adminToken);
   assert.equal(found.json.available, true, 'and it can be sold on');
+});
+
+test('bought at the register with the till open, the money comes out of the drawer', async () => {
+  const before = (await req('GET', '/cash/current', null, adminToken)).json.expected;
+  const res = await req(
+    'POST',
+    '/repairs/trade-ins',
+    { productId: phone.id, imei: '35 8800 1111 2222 9', condition: 'used', paidUsd: 90, sellerName: 'Hadi' },
+    adminToken,
+    { 'X-At-Register': '1' },
+  );
+  assert.equal(res.status, 201, JSON.stringify(res.json));
+  const after = (await req('GET', '/cash/current', null, adminToken)).json.expected;
+  assert.equal(after.usd, before.usd - 90, 'the money left the till');
 });
 
 test('a traded-in phone sells like any other, at its own cost', async () => {

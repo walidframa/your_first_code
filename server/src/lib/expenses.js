@@ -10,13 +10,7 @@
 import { db, transaction } from '../db.js';
 import { round2 } from './currency.js';
 import { getSettings } from './settings.js';
-import {
-  currentSession,
-  needsOfficeCash,
-  openingOfficeCash,
-  recordMovement,
-  settlementAccountId,
-} from './cash.js';
+import { currentSession, recordMovement, requiresSession, tillFor } from './cash.js';
 import { postExpense } from './postings.js';
 
 /**
@@ -198,23 +192,45 @@ export function addExpense({
   supplierId = null,
   note = null,
   userId = null,
+  atRegister = false,
+  accountId = null,
 }) {
   const { usd, lbp } = validate({ category, paidWith, amountUsd, amountLbp });
   const { exchange_rate: rate } = getSettings();
 
   return transaction(() => {
     let movementId = null;
-    // This branch's drawer, not the company's first one — an expense paid at
-    // the second shop comes out of the till standing in front of the person
-    // paying it.
-    const session = paidWith === 'cash' ? currentSession(null, branchId) : null;
+    /*
+     * Which pile the note came out of.
+     *
+     * The shop's main cash, unless this was paid across the counter at the
+     * register with the till open. It used to be the open drawer whenever
+     * there was one — so a bill paid at the desk while a cashier was on shift
+     * came out of that cashier's count. The drawer is the register's; the
+     * expenses screen is not the register. See `tillFor`.
+     */
     let account = null;
+    let session = null;
     if (paidWith === 'cash') {
-      // The open drawer if there is one, because that is the till the note came
-      // out of. Otherwise the office's own cash, which is where a bill paid at a
-      // desk with the shop shut comes from — named on the spot if it has to be.
-      account = session?.account_id ?? settlementAccountId(branchId);
-      if (needsOfficeCash(account)) account = openingOfficeCash(branchId);
+      /*
+       * A till named outright wins — the transfer desk pays its small
+       * expenses out of its own float, and says so. A drawer picked by name
+       * is held to the drawer rule: it has to be open, because that money is
+       * counted against a float somebody signed for.
+       */
+      if (accountId) {
+        const till = db
+          .prepare('SELECT id, name, kind FROM cash_accounts WHERE id = ? AND active = 1')
+          .get(Number(accountId));
+        if (!till) throw new Error('That cash account does not exist');
+        if (till.kind === 'drawer' && requiresSession() && !currentSession(till.id)) {
+          throw new Error(`${till.name} is closed — open it before paying from it`);
+        }
+        account = till.id;
+      } else {
+        account = tillFor({ atRegister, branchId });
+      }
+      session = currentSession(account);
     }
 
     if (account) {

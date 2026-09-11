@@ -815,6 +815,9 @@ export default function Transfers() {
 
       {spending && (
         <AddExpense
+          /* Out of the desk's own float, which is the till in front of the
+             operator — not the shop's main cash and not the register's. */
+          accountId={tillId}
           onClose={() => setSpending(false)}
           onSaved={() => {
             setSpending(false);
