@@ -342,7 +342,14 @@ export function recordVoucher({
  * receipt against one would make the cashbox disagree with the money in it.
  */
 export function recordDocumentVoucher({ doc, movementId = null, entryId = null, userId = null }) {
-  const buying = doc.doc_type === 'purchase_invoice';
+  /*
+   * Which way the money went. Out of the till for a delivery and for a
+   * customer's return; into it for an invoice and for goods a supplier took
+   * back. Spelled out here rather than imported from the documents module,
+   * which imports this one.
+   */
+  const returning = String(doc.doc_type).endsWith('_return');
+  const buying = doc.doc_type === 'purchase_invoice' || doc.doc_type === 'sales_return';
   const till = db.prepare('SELECT * FROM cash_accounts WHERE id = ?').get(
     db.prepare('SELECT account_id FROM cash_movements WHERE id = ?').get(movementId)?.account_id ?? null,
   );
@@ -377,9 +384,9 @@ export function recordDocumentVoucher({ doc, movementId = null, entryId = null, 
       round2(doc.paid_usd || 0),
       Math.round(doc.paid_lbp || 0),
       doc.exchange_rate || null,
-      buying ? 'supplier' : 'customer',
+      doc.party_type === 'supplier' ? 'supplier' : 'customer',
       doc.doc_number,
-      `Paid on ${doc.doc_number}`,
+      `${returning ? 'Refunded' : 'Paid'} on ${doc.doc_number}`,
       userId,
       movementId,
       entryId,

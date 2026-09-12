@@ -238,9 +238,18 @@ export default function Profit() {
                     * afterwards. So this is context for a quiet month, not a
                     * line in the sum.
                     */}
-                  {(report.refunds.orders > 0 || report.refunds.partial > 0) && (
+                  {(report.refunds.orders > 0 || report.refunds.partial > 0 || report.invoices.returns > 0) && (
                     <div className="mt-1.5 space-y-1 border-t border-slate-100 pt-1.5 text-xs">
                       <p className="text-slate-400">Already taken off the figures above</p>
+                      {/* Goods back on a sales return — off the invoices' takings. */}
+                      {report.invoices.returns > 0 && (
+                        <div className="flex justify-between">
+                          <dt className="text-slate-400">
+                            {report.invoices.returns} sales return{report.invoices.returns === 1 ? '' : 's'}
+                          </dt>
+                          <dd className="tnum text-slate-400">{money(report.invoices.returned)}</dd>
+                        </div>
+                      )}
                       {report.refunds.orders > 0 && (
                         <div className="flex justify-between">
                           <dt className="text-slate-400">

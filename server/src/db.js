@@ -2778,6 +2778,54 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_book_closings_end ON book_closings(period_end);
 `);
 
+/*
+ * Two more kinds of document: goods going back.
+ *
+ * A sales return is a customer bringing back what an invoice sold them; a
+ * purchase return is the shop sending back what a delivery brought in. They
+ * are the invoices run backwards — stock the other way, the account the other
+ * way, the money the other way — and they live in the same table, so the
+ * CHECK on `doc_type` has to be widened. SQLite cannot alter a CHECK in place,
+ * so the table is rebuilt from its own stored definition with the two names
+ * added: a copy, not a rewrite, and every column it has grown since is kept
+ * because the definition is read back rather than retyped.
+ */
+function widenDocumentTypes() {
+  const row = db
+    .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'documents'")
+    .get();
+  if (!row?.sql || row.sql.includes('sales_return')) return;
+
+  const create = row.sql
+    .replace(/CREATE TABLE (IF NOT EXISTS )?"?documents"?/i, 'CREATE TABLE documents_new')
+    .replace("'purchase_invoice')", "'purchase_invoice', 'sales_return', 'purchase_return')");
+  if (!create.includes('sales_return') || !create.startsWith('CREATE TABLE documents_new')) {
+    throw new Error('Could not widen documents.doc_type — the table is not shaped as expected');
+  }
+
+  db.exec('PRAGMA foreign_keys = OFF');
+  db.exec('BEGIN');
+  try {
+    db.exec(create);
+    const columns = db
+      .prepare('PRAGMA table_info(documents)')
+      .all()
+      .map((c) => `"${c.name}"`)
+      .join(', ');
+    db.exec(`INSERT INTO documents_new (${columns}) SELECT ${columns} FROM documents`);
+    db.exec('DROP TABLE documents');
+    db.exec('ALTER TABLE documents_new RENAME TO documents');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_documents_type ON documents(doc_type, created_at)');
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  } finally {
+    db.exec('PRAGMA foreign_keys = ON');
+  }
+}
+widenDocumentTypes();
+
 export const ADJUSTMENT_REASONS = [
   'received',
   'damaged',

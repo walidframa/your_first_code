@@ -24,6 +24,14 @@ import { taxRate } from './settings.js';
  * `stock` is the direction stock moves on confirm; `posts` is the sign of the
  * ledger entry. A quotation and a sales order are commitments only — neither
  * touches stock or the books until they become an invoice.
+ *
+ * A **return** is an invoice run backwards. Goods a customer brings back come
+ * onto the shelf and off their account; goods sent back to a supplier leave
+ * the shelf and come off what the shop owes. `posts` is −1 for both, and every
+ * sign below — the stock, the ledger entry, the cash — is derived from the
+ * type rather than tested by name, so the two directions cannot drift apart.
+ * A return raised from an invoice (`converted_from_id`) is capped at what that
+ * invoice carried, less what has already come back on other returns.
  */
 export const DOC_TYPES = {
   quotation: {
@@ -48,7 +56,7 @@ export const DOC_TYPES = {
     party: 'customer',
     stock: -1,
     posts: 1,
-    convertsTo: [],
+    convertsTo: ['sales_return'],
   },
   purchase_invoice: {
     label: 'Purchase invoice',
@@ -56,9 +64,41 @@ export const DOC_TYPES = {
     party: 'supplier',
     stock: 1,
     posts: 1,
+    convertsTo: ['purchase_return'],
+  },
+  sales_return: {
+    label: 'Sales return',
+    prefix: 'SR',
+    party: 'customer',
+    stock: 1,
+    posts: -1,
     convertsTo: [],
+    returns: true,
+  },
+  purchase_return: {
+    label: 'Purchase return',
+    prefix: 'PR',
+    party: 'supplier',
+    stock: -1,
+    posts: -1,
+    convertsTo: [],
+    returns: true,
   },
 };
+
+/**
+ * Which way cash moves when a document is settled: +1 into the till, −1 out.
+ *
+ * A customer pays for an invoice and is paid for a return; a supplier is paid
+ * for a delivery and pays for what goes back. Read off the type rather than
+ * the name so a fifth kind of paper cannot be added with the money going the
+ * wrong way.
+ */
+export function cashDirection(docType) {
+  const type = DOC_TYPES[docType];
+  if (!type || type.posts === 0) return 0;
+  return type.posts * (type.party === 'customer' ? 1 : -1);
+}
 
 export const PARTY_TABLE = { customer: 'customers', supplier: 'suppliers' };
 
@@ -108,7 +148,10 @@ export function buildLines(items, docType) {
     const name = item.name || product?.name;
     if (!name) throw new Error('Every line needs a product or a description');
 
-    const fallbackPrice = docType === 'purchase_invoice' ? product?.cost : product?.price;
+    /* Priced at what the shop pays on the supplier's side of the counter,
+       and at what it charges on the customer's — returns included. */
+    const buying = DOC_TYPES[docType]?.party === 'supplier';
+    const fallbackPrice = buying ? product?.cost : product?.price;
     const price = item.price !== undefined && item.price !== null ? Number(item.price) : Number(fallbackPrice);
     if (!Number.isFinite(price) || price < 0) {
       throw new Error(`Line "${name}" needs a price of zero or more`);
@@ -126,7 +169,7 @@ export function buildLines(items, docType) {
        * paid; on a sale it is the product's cost at the time, kept on the line
        * so profit is computed from what was true then.
        */
-      cost: docType === 'purchase_invoice' ? round2(price) : (product?.cost ?? null),
+      cost: buying ? round2(price) : (product?.cost ?? null),
       // The IMEIs off the boxes, kept as typed so the delivery can be undone
       // against exactly the handsets it created.
       imeis: item.imeis ? String(item.imeis) : null,
@@ -263,6 +306,22 @@ function applyDocumentStock(doc, items, userId, direction, note, { keepUnits = n
      * recounted from the units rather than added to, so the two cannot drift.
      */
     if (product.tracks_units) {
+      /*
+       * A handset has an identity, and a return document has no way to name
+       * which one. One coming back from a customer is taken back off the sale
+       * it went out on, which puts that very unit back; one going back to a
+       * supplier is a unit to scrap or move by its IMEI. Refused by name
+       * rather than booked in as a new phone that never existed.
+       */
+      if (type.returns) {
+        throw new Error(
+          `${product.name} is tracked by IMEI — ${
+            type.party === 'customer'
+              ? 'take it back from the sale it went out on, from the Sales screen'
+              : 'send handsets back one by one, by IMEI, from Stock → Handsets'
+          }`,
+        );
+      }
       moveUnits({ doc, item, product, direction, userId, note, branchId, keepUnits });
       continue;
     }
@@ -330,7 +389,7 @@ function applyDocumentStock(doc, items, userId, direction, note, { keepUnits = n
      * the product's cost to what was just paid, and keep the old figure on the
      * record so the margin's movement can be explained later.
      */
-    if (direction > 0 && type.stock > 0 && item.cost !== null && item.cost !== undefined) {
+    if (direction > 0 && type.stock > 0 && !type.returns && item.cost !== null && item.cost !== undefined) {
       db.prepare('UPDATE products SET cost = ? WHERE id = ?').run(item.cost, product.id);
       recordCostChange({
         productId: product.id,
@@ -349,7 +408,7 @@ function applyDocumentStock(doc, items, userId, direction, note, { keepUnits = n
       userId,
       delta,
       resulting,
-      direction > 0 && type.stock > 0 ? 'received' : 'count_correction',
+      type.returns ? 'return' : direction > 0 && type.stock > 0 ? 'received' : 'count_correction',
       note,
       branchId,
     );
@@ -720,14 +779,64 @@ function tillOf(documentId) {
   return row?.account_id ?? null;
 }
 
+/**
+ * A return raised from an invoice cannot bring back more than went out on it.
+ *
+ * Counted per product across every other confirmed return against the same
+ * invoice, so two part-returns of five cannot add up to eleven. A return
+ * raised on its own, with no invoice behind it, is not capped: it is the
+ * shop writing down what came through the door.
+ */
+function checkReturnAgainstSource(doc, items) {
+  const type = DOC_TYPES[doc.doc_type];
+  if (!type.returns || !doc.converted_from_id) return;
+  const source = db.prepare('SELECT * FROM documents WHERE id = ?').get(doc.converted_from_id);
+  if (!source) return;
+
+  const wentOut = db.prepare(
+    'SELECT COALESCE(SUM(quantity), 0) AS n FROM document_items WHERE document_id = ? AND product_id = ?',
+  );
+  const cameBack = db.prepare(
+    `SELECT COALESCE(SUM(di.quantity), 0) AS n
+       FROM document_items di JOIN documents d ON d.id = di.document_id
+      WHERE d.converted_from_id = ? AND d.status = 'confirmed' AND d.id != ? AND di.product_id = ?`,
+  );
+  const perProduct = new Map();
+  for (const item of items) {
+    if (!item.product_id) continue;
+    perProduct.set(item.product_id, (perProduct.get(item.product_id) || 0) + Number(item.quantity));
+  }
+  for (const [productId, quantity] of perProduct) {
+    const out = wentOut.get(source.id, productId).n;
+    const back = cameBack.get(source.id, doc.id, productId).n;
+    if (quantity + back > out + 1e-9) {
+      const name = items.find((i) => i.product_id === productId)?.name || 'that product';
+      throw new Error(
+        out === 0
+          ? `${name} was not on ${source.doc_number}`
+          : `${source.doc_number} only had ${out} × ${name}${
+              back ? `, and ${back} already came back` : ''
+            } — ${quantity} cannot be returned against it`,
+      );
+    }
+  }
+}
+
 export function applyEffects(doc, items, userId, note = doc.doc_number, accountId = null, options = {}) {
   if (items.length === 0) throw new Error('A document needs at least one line');
 
+  checkReturnAgainstSource(doc, items);
   applyDocumentStock(doc, items, userId, 1, note, options);
   if (!postsToLedger(doc)) return;
 
+  const type = DOC_TYPES[doc.doc_type];
+  /* +1 bills the party, −1 credits them: the whole difference between an
+     invoice and a return, on the account. */
+  const posts = type.posts;
+
   // Only the unpaid remainder is credit, so that is what the limit applies to.
-  if (doc.party_type === 'customer') {
+  // A return owes the customer, so there is no credit to check.
+  if (doc.party_type === 'customer' && posts > 0) {
     const check = creditCheck(doc.party_id, outstandingOf(doc));
     if (!check.ok) throw new Error(check.error);
   }
@@ -735,8 +844,8 @@ export function applyEffects(doc, items, userId, note = doc.doc_number, accountI
   addEntry({
     partyType: doc.party_type,
     partyId: doc.party_id,
-    kind: doc.doc_type === 'purchase_invoice' ? 'bill' : 'sale',
-    amountUsd: doc.total,
+    kind: posts < 0 ? 'refund' : type.party === 'supplier' ? 'bill' : 'sale',
+    amountUsd: posts * doc.total,
     exchangeRate: doc.exchange_rate,
     note,
     userId,
@@ -750,11 +859,11 @@ export function applyEffects(doc, items, userId, note = doc.doc_number, accountI
       partyType: doc.party_type,
       partyId: doc.party_id,
       kind: 'payment',
-      amountUsd: -paid,
+      amountUsd: -posts * paid,
       paidUsd: doc.paid_usd,
       paidLbp: doc.paid_lbp,
       exchangeRate: doc.exchange_rate,
-      note: `${note} — paid ${doc.payment_method}`,
+      note: `${note} — ${posts < 0 ? 'refunded' : 'paid'} ${doc.payment_method}`,
       userId,
     
       // The branch that raised the paperwork, not whoever opened it later.
@@ -762,11 +871,12 @@ export function applyEffects(doc, items, userId, note = doc.doc_number, accountI
 
     /*
      * Paid from the till, so the till has to know. A purchase settled in cash
-     * empties the drawer; an invoice a customer pays on the spot fills it.
+     * empties the drawer; an invoice a customer pays on the spot fills it; a
+     * return refunded in cash is the same money going back the other way.
      * Card and transfer never reach the drawer.
      */
     if (doc.payment_method === 'cash') {
-      const sign = doc.doc_type === 'purchase_invoice' ? -1 : 1;
+      const sign = cashDirection(doc.doc_type);
       const movementId = recordMovement({
         /*
          * Into the till it was actually taken at.
@@ -782,7 +892,8 @@ export function applyEffects(doc, items, userId, note = doc.doc_number, accountI
         kind: 'document',
         amountUsd: sign * doc.paid_usd,
         amountLbp: sign * doc.paid_lbp,
-        reason: doc.doc_type === 'purchase_invoice' ? 'supplier' : 'customer_payment',
+        reason:
+          type.party === 'supplier' ? 'supplier' : posts < 0 ? 'refund' : 'customer_payment',
         documentId: doc.id,
         note,
         userId,
@@ -815,11 +926,14 @@ export function reverseEffects(doc, items, userId, note = `Cancelled ${doc.doc_n
   applyDocumentStock(doc, items, userId, -1, note, options);
   if (!postsToLedger(doc)) return;
 
+  const posts = DOC_TYPES[doc.doc_type].posts;
+
   addEntry({
     partyType: doc.party_type,
     partyId: doc.party_id,
-    kind: 'refund',
-    amountUsd: -doc.total,
+    /* Undoing an invoice is a refund; undoing a return is the charge put back. */
+    kind: posts < 0 ? 'adjustment' : 'refund',
+    amountUsd: -posts * doc.total,
     exchangeRate: doc.exchange_rate,
     note,
     userId,
@@ -834,16 +948,16 @@ export function reverseEffects(doc, items, userId, note = `Cancelled ${doc.doc_n
       partyType: doc.party_type,
       partyId: doc.party_id,
       kind: 'adjustment',
-      amountUsd: paid,
+      amountUsd: posts * paid,
       exchangeRate: doc.exchange_rate,
-      note: `${note} — ${doc.payment_method} payment returned`,
+      note: `${note} — ${doc.payment_method} ${posts < 0 ? 'refund' : 'payment'} returned`,
       userId,
     
       // The branch that raised the paperwork, not whoever opened it later.
       branchId: doc.branch_id ?? null,});
 
     if (doc.payment_method === 'cash') {
-      const sign = doc.doc_type === 'purchase_invoice' ? 1 : -1;
+      const sign = -cashDirection(doc.doc_type);
       recordMovement({
         // Back out of the same drawer it went into.
         accountId: accountId ?? tillOf(doc.id),

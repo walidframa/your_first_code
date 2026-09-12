@@ -14,6 +14,8 @@ const KINDS = {
   invoice: { label: 'Invoiced', tone: 'text-emerald-600', icon: ArrowDown },
   adjustment: { label: 'Adjusted', tone: 'text-slate-500', icon: History },
   cost: { label: 'Cost', tone: 'text-violet-600', icon: Tag },
+  /* Sent back to a supplier on a purchase return. */
+  returned: { label: 'Sent back', tone: 'text-orange-600', icon: ArrowDown },
 };
 
 /**

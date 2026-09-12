@@ -43,6 +43,8 @@ import {
   Wallet,
   Warehouse,
   Wrench,
+  Undo2,
+  PackageMinus,
 } from 'lucide-react';
 
 /*
@@ -128,6 +130,10 @@ export const ADMIN_NAV = [
       /* Made by converting a quotation rather than from scratch, but they
          exist, and a kind with no way to reach it is a kind that is lost. */
       { to: '/admin/documents/sales-orders', label: 'Sales orders', icon: FileText, permission: 'documents', module: 'documents' },
+      /* Goods going back, both ways. Usually raised from the invoice they
+         undo, but a kind with no way to reach it is a kind that is lost. */
+      { to: '/admin/documents/sales-returns', label: 'Sales returns', icon: Undo2, permission: 'documents', module: 'documents' },
+      { to: '/admin/documents/purchase-returns', label: 'Purchase returns', icon: PackageMinus, permission: 'documents', module: 'documents' },
     ],
   },
   {

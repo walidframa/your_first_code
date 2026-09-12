@@ -519,7 +519,18 @@ router.post('/:id/convert', requireAuth, requirePermission('documents'), (req, r
     });
   }
 
-  const existing = liveSuccessorOf(doc.id);
+  /*
+   * A return is raised *against* an invoice rather than made from it: the
+   * invoice stands, and there can be several — a customer who brings one
+   * thing back on Monday and another on Thursday. So the one-successor rule
+   * that keeps a quotation from becoming two invoices does not apply, and a
+   * return needs the invoice to be real before anything can come back on it.
+   */
+  const returning = Boolean(DOC_TYPES[target].returns);
+  if (returning && doc.status !== 'confirmed') {
+    return res.status(400).json({ error: `${doc.doc_number} has to be confirmed before goods come back on it` });
+  }
+  const existing = returning ? null : liveSuccessorOf(doc.id);
   if (existing) {
     return res.status(400).json({ error: `Already converted to ${existing.doc_number}` });
   }
@@ -548,8 +559,10 @@ router.post('/:id/convert', requireAuth, requirePermission('documents'), (req, r
           doc.tax,
           doc.total,
           rate,
-          doc.on_account,
-          doc.notes,
+          // A return starts as credit on the account; refunding it is its own
+          // decision, made on the return itself.
+          returning ? 1 : doc.on_account,
+          returning ? `Return against ${doc.doc_number}` : doc.notes,
           doc.id,
           req.user.id,
           // The quotation's own branch, not whoever happens to be converting it.
