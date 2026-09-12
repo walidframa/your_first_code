@@ -2932,6 +2932,9 @@ try {
     await page.waitForSelector('text=New product', { timeout: 15000 });
     await page.fill('[role=dialog] #sku', 'BAK-999');
     await page.fill('[role=dialog] #price', '6.50');
+    // The trade price, from the same dialog — the product made mid-delivery is
+    // the one most likely to be sold to another shop next week.
+    await page.fill('[role=dialog] #wholesale_price', '5');
     await page.fill('[role=dialog] #cost', '2.25');
 
     /*
@@ -2971,10 +2974,14 @@ try {
         headers: { Authorization: `Bearer ${token}` },
       });
       const { products = [] } = await r.json();
-      return products.find((x) => x.name === 'Pistachio Baklava')?.category_name || null;
+      const made = products.find((x) => x.name === 'Pistachio Baklava');
+      return { shelf: made?.category_name || null, trade: made?.wholesale_price ?? null };
     });
-    if (shelved !== 'Sweets') {
-      throw new Error(`the product was created on the wrong shelf: ${shelved}`);
+    if (shelved.shelf !== 'Sweets') {
+      throw new Error(`the product was created on the wrong shelf: ${shelved.shelf}`);
+    }
+    if (Number(shelved.trade) !== 5) {
+      throw new Error(`the wholesale price did not come with it: ${shelved.trade}`);
     }
   });
   await shot('inline-product');

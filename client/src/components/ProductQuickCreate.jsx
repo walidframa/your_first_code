@@ -49,6 +49,7 @@ export default function ProductQuickCreate({
     sku: '',
     barcodes: [],
     price: '',
+    wholesale_price: '',
     cost: '',
     category_id: '',
     reorder_point: 5,
@@ -129,6 +130,9 @@ export default function ProductQuickCreate({
       const res = await api.post('/products', {
         ...form,
         price: Number(form.price) || 0,
+        /* Empty means there is no trade price, which is what most of a
+           catalogue looks like — not a trade price of nothing. */
+        wholesale_price: form.wholesale_price === '' ? null : Number(form.wholesale_price),
         cost: Number(form.cost) || 0,
         stock: 0,
         reorder_point: Number(form.reorder_point) || 0,
@@ -138,7 +142,7 @@ export default function ProductQuickCreate({
       toast(`${res.data.product.name} created`);
       onCreated(res.data.product);
       setForm({
-        name: '', sku: '', barcodes: [], price: '', cost: '',
+        name: '', sku: '', barcodes: [], price: '', wholesale_price: '', cost: '',
         category_id: '', reorder_point: 5, tracks_units: trackUnits,
       });
     } catch (err) {
@@ -173,8 +177,47 @@ export default function ProductQuickCreate({
               onChange={(barcodes) => setForm((f) => ({ ...f, barcodes }))}
             />
           </div>
-          <Input label="Sell price (USD)" name="price" type="number" min="0" step="0.01" value={form.price} onChange={set('price')} required />
-          <Input label="Cost (USD)" name="cost" type="number" min="0" step="0.01" value={form.cost} onChange={set('cost')} />
+          {/*
+            * Both selling prices, side by side with what it costs.
+            *
+            * A shop here has a price for the public and a price for the man
+            * who runs the repair place two streets over, and a product made in
+            * the middle of typing a delivery is the one most likely to be sold
+            * to him next week. Without a place for it here, the trade price had
+            * to be added afterwards from the catalogue — which is how it came
+            * to be missing on the day it was needed.
+            */}
+          <div className="col-span-2 grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <Input
+              label="Sell price (USD)"
+              name="price"
+              type="number"
+              min="0"
+              step="0.01"
+              value={form.price}
+              onChange={set('price')}
+              required
+            />
+            <Input
+              label="Wholesale price (USD)"
+              name="wholesale_price"
+              type="number"
+              min="0"
+              step="0.01"
+              value={form.wholesale_price}
+              onChange={set('wholesale_price')}
+              hint="What another shop pays — leave empty if none"
+            />
+            <Input
+              label="Cost (USD)"
+              name="cost"
+              type="number"
+              min="0"
+              step="0.01"
+              value={form.cost}
+              onChange={set('cost')}
+            />
+          </div>
           <div>
             <Select
               label="Category"
