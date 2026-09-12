@@ -52,6 +52,7 @@ export const TRADING_TABLES = [
   'cash_sessions',
   'cash_movements',
   'transfers',
+  'document_charges',
   'documents',
   'document_items',
   'repair_tickets',

@@ -9,8 +9,11 @@ import {
   PARTY_TABLE,
   PAYMENT_METHODS,
   applyEffects,
+  buildCharges,
   buildLines,
+  chargesOf,
   getDocument,
+  saveCharges,
   itemsOf,
   liveSuccessorOf,
   nextDocNumber,
@@ -168,6 +171,7 @@ router.post('/', requireAuth, requirePermission('documents'), (req, res) => {
     validUntil,
     payments = [],
     paymentMethod = null,
+    charges: chargesInput,
   } = req.body || {};
 
   const type = DOC_TYPES[docType];
@@ -182,7 +186,8 @@ router.post('/', requireAuth, requirePermission('documents'), (req, res) => {
 
   try {
     const lines = buildLines(items, docType);
-    const totals = totalsFor(lines, discountPercent);
+    const charges = buildCharges(chargesInput, docType);
+    const totals = totalsFor(lines, discountPercent, charges);
     const { exchange_rate: rate } = getSettings();
     const paid = settlement(payments, paymentMethod, totals.total, rate);
 
@@ -192,8 +197,8 @@ router.post('/', requireAuth, requirePermission('documents'), (req, res) => {
           `INSERT INTO documents
              (doc_type, doc_number, party_type, party_id, status, valid_until, subtotal,
               discount_percent, discount, tax, total, exchange_rate, on_account, notes, user_id,
-              paid_usd, paid_lbp, payment_method, branch_id)
-           VALUES (?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              paid_usd, paid_lbp, payment_method, branch_id, charges)
+           VALUES (?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           docType,
@@ -226,6 +231,7 @@ router.post('/', requireAuth, requirePermission('documents'), (req, res) => {
            * see only what went across the register.
            */
           req.branchId,
+          totals.charges,
         );
 
       const insertItem = db.prepare(
@@ -238,6 +244,7 @@ router.post('/', requireAuth, requirePermission('documents'), (req, res) => {
           l.imeis ?? null,
         );
       }
+      saveCharges(info.lastInsertRowid, charges);
       return info.lastInsertRowid;
     })();
 
@@ -264,7 +271,8 @@ router.put('/:id', requireAuth, requirePermission('documents'), (req, res) => {
   const doc = db.prepare('SELECT * FROM documents WHERE id = ?').get(req.params.id);
   if (!doc) return res.status(404).json({ error: 'Document not found' });
 
-  const { partyId, items, discountPercent, notes, validUntil, payments, paymentMethod } = req.body || {};
+  const { partyId, items, discountPercent, notes, validUntil, payments, paymentMethod, charges: chargesInput } =
+    req.body || {};
 
   const type = DOC_TYPES[doc.doc_type];
   const nextPartyId = partyId === undefined ? doc.party_id : partyId || null;
@@ -287,7 +295,12 @@ router.put('/:id', requireAuth, requirePermission('documents'), (req, res) => {
           lineTotal: i.line_total,
           cost: i.cost,
         }));
-    const totals = totalsFor(lines, discountPercent ?? doc.discount_percent);
+    /* Replaced when sent, kept when not — the same rule as the payment below. */
+    const charges =
+      chargesInput === undefined
+        ? chargesOf(doc.id).map((c) => ({ ...c, amountUsd: c.amount_usd, paidWith: c.paid_with }))
+        : buildCharges(chargesInput, doc.doc_type);
+    const totals = totalsFor(lines, discountPercent ?? doc.discount_percent, charges);
 
     /*
      * A payment is replaced wholesale when one is sent, and left alone when the
@@ -331,7 +344,7 @@ router.put('/:id', requireAuth, requirePermission('documents'), (req, res) => {
       db.prepare(
         `UPDATE documents SET party_id = ?, valid_until = ?, subtotal = ?, discount_percent = ?,
            discount = ?, tax = ?, total = ?, on_account = ?, notes = ?,
-           paid_usd = ?, paid_lbp = ?, payment_method = ? WHERE id = ?`,
+           paid_usd = ?, paid_lbp = ?, payment_method = ?, charges = ? WHERE id = ?`,
       ).run(
         nextPartyId,
         validUntil === undefined ? doc.valid_until : validUntil || null,
@@ -345,8 +358,12 @@ router.put('/:id', requireAuth, requirePermission('documents'), (req, res) => {
         paid.paidUsd,
         paid.paidLbp,
         paid.method,
+        totals.charges,
         doc.id,
       );
+      /* The old version's charges were reversed above with everything else, so
+         the list can be rewritten whole; the new version is applied below. */
+      if (chargesInput !== undefined) saveCharges(doc.id, charges);
 
       db.prepare('DELETE FROM document_items WHERE document_id = ?').run(doc.id);
       const insertItem = db.prepare(
@@ -557,7 +574,8 @@ router.post('/:id/convert', requireAuth, requirePermission('documents'), (req, r
           doc.discount_percent,
           doc.discount,
           doc.tax,
-          doc.total,
+          /* A return carries no freight bill: what comes back is the goods. */
+          returning ? round2(doc.total - (doc.charges || 0)) : doc.total,
           rate,
           // A return starts as credit on the account; refunding it is its own
           // decision, made on the return itself.
@@ -635,6 +653,7 @@ router.delete('/:id', requireAuth, requirePermission('documents'), (req, res) =>
       // Likewise the cost the delivery arrived at: the price really did change,
       // and the note says which document brought it in.
       db.prepare('UPDATE product_cost_history SET document_id = NULL WHERE document_id = ?').run(doc.id);
+      db.prepare('DELETE FROM document_charges WHERE document_id = ?').run(doc.id);
       db.prepare('DELETE FROM document_items WHERE document_id = ?').run(doc.id);
       db.prepare('DELETE FROM documents WHERE id = ?').run(doc.id);
     })();

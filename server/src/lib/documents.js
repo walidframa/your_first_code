@@ -11,6 +11,7 @@ import { moveStock, stockAt } from './stock.js';
 import { componentsOf, movePartsStock } from './bundles.js';
 import { scratchPlan } from './validityCards.js';
 import { taxRate } from './settings.js';
+import { addExpense, deleteExpense } from './expenses.js';
 
 /*
  * The shop's own rate, read when a document is priced rather than at boot —
@@ -178,8 +179,85 @@ export function buildLines(items, docType) {
   return lines;
 }
 
-/** Subtotal, discount, tax and total for a set of lines. */
-export function totalsFor(lines, discountPercent = 0) {
+/* ----------------------------------------------------------------- charges */
+
+/**
+ * The kinds of cost an invoice carries beyond its lines, and where each one
+ * lands in the books when the shop pays it itself.
+ */
+export const CHARGE_KINDS = {
+  shipping: { label: 'Shipping', category: 'transport' },
+  customs: { label: 'Customs', category: 'tax' },
+  commission: { label: 'Commission', category: 'fees' },
+  other: { label: 'Other cost', category: 'other' },
+};
+
+/**
+ * Validate the extra charges sent with a document.
+ *
+ * `billed` means on this invoice, to the party: in the total, on their
+ * account, paid with the goods. Otherwise the shop paid somebody else for it
+ * — the courier, the customs broker, the agent — and that is an expense of
+ * its own, written when the document is confirmed. A return carries none:
+ * nothing is shipped back with a freight bill on this paper.
+ */
+export function buildCharges(input, docType) {
+  if (input === undefined || input === null) return [];
+  if (!Array.isArray(input)) throw new Error('Charges must be a list');
+  const type = DOC_TYPES[docType];
+  if (input.length && type?.returns) throw new Error('A return carries no extra charges');
+
+  return input.map((c) => {
+    const kind = CHARGE_KINDS[c.kind] ? c.kind : 'other';
+    const amount = Number(c.amount ?? c.amountUsd);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new Error(`${c.label || CHARGE_KINDS[kind].label}: the amount has to be more than nothing`);
+    }
+    const billed = c.billed === undefined ? true : Boolean(c.billed);
+    const paidWith = billed ? null : ['cash', 'bank', 'card', 'other'].includes(c.paidWith) ? c.paidWith : 'cash';
+    return {
+      kind,
+      label: String(c.label || CHARGE_KINDS[kind].label).trim() || CHARGE_KINDS[kind].label,
+      amountUsd: round2(amount),
+      billed,
+      paidWith,
+      payee: c.payee ? String(c.payee).trim() || null : null,
+    };
+  });
+}
+
+export function chargesOf(documentId) {
+  return db
+    .prepare('SELECT * FROM document_charges WHERE document_id = ? ORDER BY id')
+    .all(documentId)
+    .map((c) => ({ ...c, billed: !!c.billed }));
+}
+
+/** Replace a document's charges with the list given. Only for a draft or a reversed document. */
+export function saveCharges(documentId, charges) {
+  db.prepare('DELETE FROM document_charges WHERE document_id = ?').run(documentId);
+  const insert = db.prepare(
+    `INSERT INTO document_charges (document_id, kind, label, amount_usd, billed, paid_with, payee)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  );
+  for (const c of charges) {
+    insert.run(documentId, c.kind, c.label, c.amountUsd, c.billed ? 1 : 0, c.paidWith, c.payee);
+  }
+}
+
+/** What the charges on this invoice add to its total: the billed ones. */
+export function billedCharges(charges) {
+  return round2(charges.filter((c) => c.billed).reduce((sum, c) => sum + Number(c.amountUsd ?? c.amount_usd), 0));
+}
+
+/**
+ * Subtotal, discount, tax and total for a set of lines.
+ *
+ * Charges billed on the invoice go on after the discount and outside the tax:
+ * a freight bill is not discounted with the goods and is passed through at
+ * what it cost. The shop's own tax setting is on the goods, as it always was.
+ */
+export function totalsFor(lines, discountPercent = 0, charges = []) {
   const pct = Number(discountPercent) || 0;
   if (pct < 0 || pct > 100) throw new Error('Discount must be between 0 and 100 percent');
 
@@ -187,8 +265,9 @@ export function totalsFor(lines, discountPercent = 0) {
   const discount = round2(subtotal * (pct / 100));
   const taxable = round2(subtotal - discount);
   const tax = round2(taxable * taxRate());
+  const extra = billedCharges(charges);
 
-  return { subtotal, discountPercent: pct, discount, tax, total: round2(taxable + tax) };
+  return { subtotal, discountPercent: pct, discount, tax, charges: extra, total: round2(taxable + tax + extra) };
 }
 
 /* ----------------------------------------------------------------- payment */
@@ -822,11 +901,86 @@ function checkReturnAgainstSource(doc, items) {
   }
 }
 
+/**
+ * Spread a delivery's extra costs into the unit cost of what it brought.
+ *
+ * Freight, customs and the agent's cut are part of what the goods cost to
+ * put on the shelf, whoever was paid for them. Shared out by value across the
+ * product lines — a $100 freight bill on $900 of phones and $100 of cases is
+ * $90 on the phones — so each line's `cost`, which is what every margin and
+ * every handset's own cost is read from, is the landed figure.
+ *
+ * Written onto the rows and onto the objects in hand, because the stock move
+ * that follows reads `item.cost` from the objects.
+ */
+function landCharges(doc, items) {
+  if (doc.doc_type !== 'purchase_invoice') return;
+  const charges = chargesOf(doc.id);
+  const extra = round2(charges.reduce((sum, c) => sum + Number(c.amount_usd), 0));
+  const goods = items.filter((i) => i.product_id && Number(i.quantity) > 0);
+  const value = goods.reduce((sum, i) => sum + Number(i.line_total), 0);
+  const units = goods.reduce((sum, i) => sum + Number(i.quantity), 0);
+  const update = db.prepare('UPDATE document_items SET cost = ? WHERE id = ?');
+
+  for (const item of goods) {
+    /* By value; by count when the goods were free — samples, a warranty
+       replacement — because a freight bill on them is still a cost of theirs. */
+    const share =
+      extra <= 0 || !goods.length
+        ? 0
+        : value > 0
+          ? (extra * Number(item.line_total)) / value
+          : (extra * Number(item.quantity)) / units;
+    const cost = round2(Number(item.price) + share / Number(item.quantity));
+    item.cost = cost;
+    update.run(cost, item.id);
+  }
+}
+
+/**
+ * Pay for what the shop paid somebody else for, and take it back again.
+ *
+ * A charge the shop settled itself — the courier, the broker — is an expense
+ * of the shop's, dated and categorised like any other, written the moment
+ * the document becomes real and removed if it stops being. Linked by id so a
+ * document edited three times does not leave three couriers on the books.
+ */
+function payCharges(doc, userId) {
+  const link = db.prepare('UPDATE document_charges SET expense_id = ? WHERE id = ?');
+  for (const c of chargesOf(doc.id)) {
+    if (c.billed || c.expense_id) continue;
+    const kind = CHARGE_KINDS[c.kind] || CHARGE_KINDS.other;
+    const expense = addExpense({
+      category: kind.category,
+      amountUsd: c.amount_usd,
+      paidWith: c.paid_with || 'cash',
+      note: `${c.label} on ${doc.doc_number}${c.payee ? ` — ${c.payee}` : ''}`,
+      userId,
+      branchId: doc.branch_id ?? null,
+      /* A supplier's document names the supplier the charge belongs with. */
+      supplierId: doc.party_type === 'supplier' ? doc.party_id : null,
+    });
+    link.run(expense.id, c.id);
+  }
+}
+
+function unpayCharges(doc, userId) {
+  const unlink = db.prepare('UPDATE document_charges SET expense_id = NULL WHERE id = ?');
+  for (const c of chargesOf(doc.id)) {
+    if (!c.expense_id) continue;
+    /* Unlinked first: the expense row cannot go while this one points at it. */
+    unlink.run(c.id);
+    deleteExpense(c.expense_id, userId);
+  }
+}
+
 export function applyEffects(doc, items, userId, note = doc.doc_number, accountId = null, options = {}) {
   if (items.length === 0) throw new Error('A document needs at least one line');
 
   checkReturnAgainstSource(doc, items);
+  landCharges(doc, items);
   applyDocumentStock(doc, items, userId, 1, note, options);
+  payCharges(doc, userId);
   if (!postsToLedger(doc)) return;
 
   const type = DOC_TYPES[doc.doc_type];
@@ -924,6 +1078,7 @@ export function applyEffects(doc, items, userId, note = doc.doc_number, accountI
  */
 export function reverseEffects(doc, items, userId, note = `Cancelled ${doc.doc_number}`, accountId = null, options = {}) {
   applyDocumentStock(doc, items, userId, -1, note, options);
+  unpayCharges(doc, userId);
   if (!postsToLedger(doc)) return;
 
   const posts = DOC_TYPES[doc.doc_type].posts;
@@ -1024,6 +1179,7 @@ export function getDocument(id) {
       outstanding: outstandingOf(doc),
     },
     items,
+    charges: chargesOf(id),
     convertedTo,
   };
 }

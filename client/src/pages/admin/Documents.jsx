@@ -207,6 +207,25 @@ function DocumentForm({ existing, startAs = null, page = false, onClose, onSaved
     return String(doc.paid_lbp > 0 ? doc.paid_lbp : doc.paid_usd);
   });
   const [notes, setNotes] = useState(draft?.notes ?? doc?.notes ?? '');
+  /*
+   * What the invoice costs or charges beyond its lines — shipping, customs, a
+   * commission. Each row says whether it is on this invoice (in the total, to
+   * the party) or paid separately by the shop (an expense written on confirm).
+   * On a delivery both kinds are spread into the unit cost of the goods.
+   */
+  const [charges, setCharges] = useState(
+    () =>
+      draft?.charges ??
+      (existing?.charges || []).map((c, i) => ({
+        key: `c${i}`,
+        kind: c.kind,
+        label: c.label,
+        amount: String(c.amount_usd),
+        billed: !!c.billed,
+        paidWith: c.paid_with || 'cash',
+        payee: c.payee || '',
+      })),
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [quickCreate, setQuickCreate] = useState(null);
@@ -368,6 +387,7 @@ function DocumentForm({ existing, startAs = null, page = false, onClose, onSaved
       discountPercent,
       notes,
       trade,
+      charges,
       lines: lines.map((l) => ({
         key: l.key,
         productId: l.product?.id ?? null,
@@ -597,7 +617,10 @@ function DocumentForm({ existing, startAs = null, page = false, onClose, onSaved
   const subtotal = priced.reduce((sum, l) => sum + l.lineTotal, 0);
   const discount = subtotal * ((Number(discountPercent) || 0) / 100);
   const tax = (subtotal - discount) * taxRate;
-  const total = subtotal - discount + tax;
+  /* On the invoice, to the party: after the discount and outside the tax. */
+  const billedCharges = charges.filter((c) => c.billed).reduce((sum, c) => sum + (Number(c.amount) || 0), 0);
+  const separateCharges = charges.filter((c) => !c.billed).reduce((sum, c) => sum + (Number(c.amount) || 0), 0);
+  const total = subtotal - discount + tax + billedCharges;
 
   /*
    * What the shop makes on this document, while it is still being written.
@@ -644,7 +667,8 @@ function DocumentForm({ existing, startAs = null, page = false, onClose, onSaved
     lines.length > 0 &&
     lines.every((l) => (l.product || l.name.trim()) && Number(l.quantity) > 0 && Number(l.price) >= 0);
   const paymentValid = settleAs !== 'part' || (partAmountUsd > 0 && !overpaid);
-  const valid = partyId && linesValid && paymentValid;
+  const chargesValid = charges.every((c) => Number(c.amount) > 0);
+  const valid = partyId && linesValid && paymentValid && chargesValid;
 
   async function submit(e) {
     e.preventDefault();
@@ -672,6 +696,14 @@ function DocumentForm({ existing, startAs = null, page = false, onClose, onSaved
         quantity: Number(l.quantity),
         price: Number(l.price),
         imeis: l.imeis || null,
+      })),
+      charges: charges.map((c) => ({
+        kind: c.kind,
+        label: c.label,
+        amount: Number(c.amount),
+        billed: c.billed,
+        paidWith: c.billed ? null : c.paidWith,
+        payee: c.billed ? null : c.payee || null,
       })),
     };
 
@@ -1129,6 +1161,24 @@ function DocumentForm({ existing, startAs = null, page = false, onClose, onSaved
             </div>
           </div>
 
+          {/*
+            * Shipping, customs, a commission — on the paper that caused them.
+            *
+            * A delivery of fifty phones with a $100 freight bill is fifty
+            * phones that each cost two dollars more, and an invoice that only
+            * carried the supplier's price had every one of those margins
+            * reading two dollars too high. Each row says who was paid: the
+            * party, on this invoice, or somebody else, by the shop.
+            */}
+          {!isReturn && (
+            <ExtraCharges
+              charges={charges}
+              onChange={setCharges}
+              buying={partyType === 'supplier'}
+              separateTotal={separateCharges}
+            />
+          )}
+
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-3">
               <Input
@@ -1158,6 +1208,12 @@ function DocumentForm({ existing, startAs = null, page = false, onClose, onSaved
                 <div className="flex justify-between">
                   <dt className="text-slate-500">Tax</dt>
                   <dd className="tnum text-slate-700">{money(tax)}</dd>
+                </div>
+              )}
+              {billedCharges > 0 && (
+                <div className="flex justify-between">
+                  <dt className="text-slate-500">{partyType === 'supplier' ? 'Extra costs on the invoice' : 'Extra charges'}</dt>
+                  <dd className="tnum text-slate-700">{money(billedCharges)}</dd>
                 </div>
               )}
               <div className="flex justify-between border-t border-slate-200 pt-1 font-semibold">
@@ -1431,6 +1487,161 @@ function DocumentForm({ existing, startAs = null, page = false, onClose, onSaved
   );
 }
 
+/* ----------------------------------------------------------------- charges */
+
+const CHARGE_KINDS = [
+  ['shipping', 'Shipping'],
+  ['customs', 'Customs'],
+  ['commission', 'Commission'],
+  ['other', 'Other cost'],
+];
+
+/**
+ * The costs and charges an invoice carries beyond its lines.
+ *
+ * `buying` decides the wording: on a delivery the party is the supplier and
+ * the alternative is the shop paying a courier or an agent itself; on a sale
+ * the party is the customer being charged for delivery, and the alternative
+ * is a cost the shop swallows. The server does the rest — the total, the
+ * landed cost on a delivery, the expense for what the shop paid.
+ */
+function ExtraCharges({ charges, onChange, buying, separateTotal }) {
+  const update = (key, patch) => onChange(charges.map((c) => (c.key === key ? { ...c, ...patch } : c)));
+  const remove = (key) => onChange(charges.filter((c) => c.key !== key));
+  const add = () =>
+    onChange([
+      ...charges,
+      {
+        key: `c${Date.now()}`,
+        kind: 'shipping',
+        label: 'Shipping',
+        amount: '',
+        billed: true,
+        paidWith: 'cash',
+        payee: '',
+      },
+    ]);
+
+  return (
+    <div className="rounded-xl ring-1 ring-slate-200" data-extra-charges>
+      <div className="flex items-center justify-between px-3 pt-2.5">
+        <p className="text-sm font-medium text-slate-700">
+          {buying ? 'Extra costs' : 'Extra charges'}
+          <span className="ml-2 text-xs font-normal text-slate-400">shipping, customs, commission</span>
+        </p>
+        <button
+          type="button"
+          onClick={add}
+          className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-brand-700 transition hover:bg-brand-50"
+        >
+          <Plus size={13} /> Add a cost
+        </button>
+      </div>
+
+      {charges.length === 0 ? (
+        <p className="px-3 pt-1 pb-2.5 text-xs text-slate-400">
+          {buying
+            ? 'None. A freight or customs bill added here is spread into the unit cost of the goods.'
+            : 'None. A delivery charge added here goes on the invoice to the customer.'}
+        </p>
+      ) : (
+        <div className="space-y-2 px-3 pt-2 pb-3">
+          {charges.map((c) => (
+            <div key={c.key} className="grid grid-cols-2 gap-2 sm:grid-cols-12 sm:items-end">
+              <div className="sm:col-span-2">
+                <Select
+                  label="What"
+                  value={c.kind}
+                  onChange={(e) => {
+                    const kind = e.target.value;
+                    const wasDefault = CHARGE_KINDS.some(([, l]) => l === c.label) || !c.label;
+                    update(c.key, { kind, label: wasDefault ? CHARGE_KINDS.find(([k]) => k === kind)[1] : c.label });
+                  }}
+                >
+                  {CHARGE_KINDS.map(([k, l]) => (
+                    <option key={k} value={k}>
+                      {l}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              <div className="sm:col-span-3">
+                <Input label="Description" value={c.label} onChange={(e) => update(c.key, { label: e.target.value })} />
+              </div>
+              <div className="sm:col-span-2">
+                <Input
+                  label="Amount (USD)"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={c.amount}
+                  onChange={(e) => update(c.key, { amount: e.target.value })}
+                />
+              </div>
+              <div className="sm:col-span-4">
+                <Select
+                  label="Who is paid"
+                  value={c.billed ? 'billed' : 'separate'}
+                  onChange={(e) => update(c.key, { billed: e.target.value === 'billed' })}
+                >
+                  <option value="billed">
+                    {buying ? 'The supplier, on this invoice' : 'Charged to the customer, on this invoice'}
+                  </option>
+                  <option value="separate">
+                    {buying ? 'Somebody else, paid by you' : 'Somebody else, paid by the shop'}
+                  </option>
+                </Select>
+              </div>
+              <div className="flex items-end justify-end sm:col-span-1">
+                <button
+                  type="button"
+                  onClick={() => remove(c.key)}
+                  aria-label={`Remove ${c.label || 'this cost'}`}
+                  className="rounded-lg p-2 text-slate-400 transition hover:bg-red-50 hover:text-red-600"
+                >
+                  <Trash2 size={15} />
+                </button>
+              </div>
+              {!c.billed && (
+                <>
+                  <div className="sm:col-span-4">
+                    <Select
+                      label="Paid with"
+                      value={c.paidWith}
+                      onChange={(e) => update(c.key, { paidWith: e.target.value })}
+                    >
+                      <option value="cash">Cash, from the main cash</option>
+                      <option value="bank">Bank</option>
+                      <option value="card">Card</option>
+                    </Select>
+                  </div>
+                  <div className="sm:col-span-7">
+                    <Input
+                      label="Who was paid"
+                      value={c.payee}
+                      onChange={(e) => update(c.key, { payee: e.target.value })}
+                      placeholder="The courier, the broker, the agent…"
+                    />
+                  </div>
+                </>
+              )}
+            </div>
+          ))}
+          <p className="text-xs text-slate-400">
+            {buying
+              ? `Both kinds are spread into the unit cost of the goods when the invoice is confirmed${
+                  separateTotal > 0 ? `; ${money(separateTotal)} paid separately is written as an expense` : ''
+                }.`
+              : separateTotal > 0
+                ? `${money(separateTotal)} paid by the shop is written as an expense when the invoice is confirmed.`
+                : 'Charged to the customer: in the total, on their account.'}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ------------------------------------------------------------------ detail */
 
 function DocumentDetail({ id, onClose, onChanged, onDeleted, onConverted }) {
@@ -1538,8 +1749,10 @@ function DocumentDetail({ id, onClose, onChanged, onDeleted, onConverted }) {
     );
   }
 
-  const { document: doc, items, convertedTo } = data;
+  const { document: doc, items, convertedTo, charges = [] } = data;
   const meta = TYPE_META[doc.doc_type];
+  const billed = charges.filter((c) => c.billed);
+  const separate = charges.filter((c) => !c.billed);
   const canConvert = doc.doc_type === 'quotation' || doc.doc_type === 'sales_order';
   /* A confirmed invoice can have goods come back on it — as many times as
      they do; a return does not use the invoice up. */
@@ -1751,6 +1964,13 @@ function DocumentDetail({ id, onClose, onChanged, onDeleted, onConverted }) {
             <dd className="tnum text-slate-700">{money(doc.tax)}</dd>
           </div>
         )}
+        {/* On the paper: what the party was charged beyond the lines. */}
+        {billed.map((c) => (
+          <div key={c.id} className="flex justify-between">
+            <dt className="text-slate-500">{c.label}</dt>
+            <dd className="tnum text-slate-700">{money(c.amount_usd)}</dd>
+          </div>
+        ))}
         <div className="mt-1 flex justify-between border-t-2 border-slate-800 pt-1.5 text-base font-semibold">
           <dt className="text-slate-900">Total</dt>
           <dd className="tnum text-slate-900">{money(doc.total)}</dd>
@@ -1782,6 +2002,25 @@ function DocumentDetail({ id, onClose, onChanged, onDeleted, onConverted }) {
           </>
         )}
       </dl>
+
+      {/*
+        * What the shop paid on its own account for this document. Not on the
+        * printed paper — a customer's invoice does not carry the agent's cut —
+        * and said here so the profit on this document can be read.
+        */}
+      {separate.length > 0 && (
+        <div className="no-print mt-5 rounded-md border border-edge bg-slate-50 px-3 py-2 text-xs text-slate-600">
+          <p className="font-medium text-slate-700">Paid separately by the shop</p>
+          {separate.map((c) => (
+            <p key={c.id} className="tnum">
+              {c.label} · {money(c.amount_usd)}
+              {c.payee ? ` · ${c.payee}` : ''}
+              {c.paid_with ? ` · ${c.paid_with}` : ''}
+              {doc.status === 'confirmed' ? ' · written as an expense' : ''}
+            </p>
+          ))}
+        </div>
+      )}
 
       {doc.notes && (
         <div className="mt-5 border-t border-slate-200 pt-3">
