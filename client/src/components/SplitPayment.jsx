@@ -40,7 +40,7 @@ const KINDS = [
 ];
 
 export default function SplitPayment({ total, customer, submitting, onConfirm, onCustomer, onBack }) {
-  const { rate } = useSettings();
+  const { rate, toLbp } = useSettings();
   /*
    * Whose account the credit half lands on. Starts as whoever the sale already
    * names, and a change here is handed back up: the receipt, the balance and
@@ -56,7 +56,9 @@ export default function SplitPayment({ total, customer, submitting, onConfirm, o
 
   const paid = Math.round(rows.reduce((sum, r) => sum + worth(r), 0) * 100) / 100;
   const left = Math.round((total - paid) * 100) / 100;
-  const covered = left <= 0.009;
+  /* Nothing giveable still due — to the cent, or to the pounds the shop
+     rounds to. See the same rule on the cash sheet. */
+  const covered = left <= 0.009 || (rate > 0 && toLbp(left) <= 0);
   /* An account row is a promise, not a payment, so it cannot be over-paid into
      change — the shop would be handing out notes against a debt. */
   const owing = rows.filter((r) => r.method === 'account').reduce((sum, r) => sum + worth(r), 0);

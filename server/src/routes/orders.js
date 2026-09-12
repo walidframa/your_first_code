@@ -45,6 +45,7 @@ import { dayEndUtc, dayStartUtc, shopZone } from '../lib/shopTime.js';
 import {
   CHANGE_MODES,
   round2,
+  roundLbp,
   changeBreakdown,
   combinedUsd,
   tenderTotals,
@@ -621,7 +622,18 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
         if (invalid) throw new Error(invalid);
 
         const totals = tenderTotals(tender, exchangeRate);
-        if (totals.totalUsdEquivalent + 1e-9 < due) {
+        /*
+         * Short by less than the shop can be paid in is not short.
+         *
+         * The pounds a customer is asked for are rounded to the shop's step,
+         * so paying exactly what the screen said can come to a fraction of a
+         * cent under the dollar total. Refusing that is refusing the money the
+         * shop itself asked for; the shortfall is forgiven when, rounded the
+         * way the shop rounds pounds, it comes to nothing.
+         */
+        const short = round2(due - totals.totalUsdEquivalent);
+        const forgivable = short > 0 && roundLbp(short * exchangeRate, lbpRounding) <= 0;
+        if (short > 0 && !forgivable) {
           throw new Error(
             `Tendered ${totals.totalUsdEquivalent.toFixed(2)} USD is less than the ${due.toFixed(2)} USD due`,
           );
@@ -630,7 +642,7 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
         paidUsd = totals.paidUsd;
         paidLbp = totals.paidLbp;
         amountTenderedValue = totals.totalUsdEquivalent;
-        changeDue = round2(totals.totalUsdEquivalent - due);
+        changeDue = Math.max(0, round2(totals.totalUsdEquivalent - due));
 
         const breakdown = changeBreakdown(
           changeDue,

@@ -59,8 +59,18 @@ export default function PaymentSheet({
   const paidLbp = Number(lbpEntry || 0);
   const tenderedUsd = paidUsd + (rate ? paidLbp / rate : 0);
   const remaining = total - tenderedUsd;
-  const covered = remaining <= 0.0001;
-  const changeUsd = Math.max(0, tenderedUsd - total);
+  /*
+   * Covered when nothing giveable is still due.
+   *
+   * The pounds asked for are rounded to the shop's step — $7.78 is shown as
+   * 700,000 LL — and 700,000 LL at the rate is $7.7778, which left this
+   * fraction of a cent short and the button grey while the screen said
+   * "$0.00 still due". So the test is the one the customer can see: what is
+   * still owed, as dollars to the cent or as pounds the shop rounds to, is
+   * nothing. The server agrees, see the register's tender check.
+   */
+  const covered = remaining <= 0.0001 || Math.round(remaining * 100) <= 0 || (rate > 0 && toLbp(remaining) <= 0);
+  const changeUsd = covered ? Math.max(0, tenderedUsd - total) : 0;
 
   /*
    * Backspacing the tender until the sale is short hides the change section, and
