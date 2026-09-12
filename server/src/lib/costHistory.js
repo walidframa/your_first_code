@@ -85,6 +85,18 @@ export function salesSummaryFor(productId) {
     )
     .get(productId);
 
+  /* Brought back on a sales return: eleven invoiced and three back is eight. */
+  const returned = db
+    .prepare(
+      `SELECT COALESCE(SUM(di.quantity), 0) AS units, COALESCE(SUM(di.line_total), 0) AS revenue
+       FROM document_items di
+       JOIN documents d ON d.id = di.document_id
+       WHERE di.product_id = ? AND d.doc_type = 'sales_return' AND d.status = 'confirmed'`,
+    )
+    .get(productId);
+  invoiced.units -= returned.units;
+  invoiced.revenue -= returned.revenue;
+
   const earliest = [counter.first_at, invoiced.first_at].filter(Boolean).sort()[0] || null;
   const latest = [counter.last_at, invoiced.last_at].filter(Boolean).sort().pop() || null;
 
@@ -139,17 +151,25 @@ export function activityFor(productId, limit = 200) {
        ORDER BY d.confirmed_at DESC LIMIT ?`,
     )
     .all(productId, cap)
-    .map((r) => ({
-      at: r.confirmed_at || r.created_at,
-      kind: r.doc_type === 'purchase_invoice' ? 'purchase' : 'invoice',
-      quantity: r.doc_type === 'purchase_invoice' ? r.quantity : -r.quantity,
-      price: r.price,
-      cost: r.cost,
-      reference: r.reference,
-      documentId: r.document_id,
-      who: r.party_name,
-      detail: r.doc_type === 'purchase_invoice' ? 'Received from supplier' : 'Invoiced to customer',
-    }));
+    .map((r) => {
+      const how = {
+        purchase_invoice: ['purchase', r.quantity, 'Received from supplier'],
+        sales_invoice: ['invoice', -r.quantity, 'Invoiced to customer'],
+        sales_return: ['refund', r.quantity, 'Returned by customer'],
+        purchase_return: ['returned', -r.quantity, 'Sent back to supplier'],
+      }[r.doc_type] || ['adjustment', 0, r.doc_type];
+      return {
+        at: r.confirmed_at || r.created_at,
+        kind: how[0],
+        quantity: how[1],
+        price: r.price,
+        cost: r.cost,
+        reference: r.reference,
+        documentId: r.document_id,
+        who: r.party_name,
+        detail: how[2],
+      };
+    });
 
   const adjustments = db
     .prepare(

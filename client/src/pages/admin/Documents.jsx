@@ -10,6 +10,7 @@ import {
   FileText,
   History,
   LayoutGrid,
+  PackageMinus,
   Pencil,
   Plus,
   Printer,
@@ -18,6 +19,7 @@ import {
   Trash2,
   TrendingUp,
   Truck,
+  Undo2,
 } from 'lucide-react';
 import api from '../../api';
 import PageHeader from '../../components/PageHeader';
@@ -85,6 +87,30 @@ export const TYPE_META = {
     active: 'bg-amber-600 text-white ring-amber-600',
     effect: 'Stock in, supplier owed',
     party: 'supplier',
+  },
+  /*
+   * The invoices run backwards. Goods a customer brings back come onto the
+   * shelf and off their account; goods sent back to a supplier leave the shelf
+   * and come off what the shop owes. Raised from the invoice they undo, or on
+   * their own for something that simply came through the door.
+   */
+  sales_return: {
+    label: 'Sales return',
+    icon: Undo2,
+    tint: 'bg-rose-50 text-rose-700 ring-rose-200',
+    active: 'bg-rose-600 text-white ring-rose-600',
+    effect: 'Stock back, customer credited',
+    party: 'customer',
+    returns: true,
+  },
+  purchase_return: {
+    label: 'Purchase return',
+    icon: PackageMinus,
+    tint: 'bg-orange-50 text-orange-700 ring-orange-200',
+    active: 'bg-orange-600 text-white ring-orange-600',
+    effect: 'Stock out, supplier owes you',
+    party: 'supplier',
+    returns: true,
   },
 };
 
@@ -215,8 +241,11 @@ function DocumentForm({ existing, startAs = null, page = false, onClose, onSaved
 
   const meta = TYPE_META[docType];
   const partyType = meta.party;
-  const isInvoice = docType.endsWith('invoice');
-  const sells = docType !== 'purchase_invoice';
+  const isReturn = Boolean(meta.returns);
+  /* Settled at the counter, one way or the other: invoices and returns both. */
+  const isInvoice = docType.endsWith('invoice') || isReturn;
+  /* Priced for the customer's side of the counter, returns included. */
+  const sells = partyType === 'customer';
   /*
    * Which figure off the product a new line starts at.
    *
@@ -714,7 +743,7 @@ function DocumentForm({ existing, startAs = null, page = false, onClose, onSaved
           {!editing && (
             <div
               className={cx(
-                compactTypes ? 'flex flex-wrap gap-1.5' : 'grid grid-cols-2 gap-2 sm:grid-cols-4',
+                compactTypes ? 'flex flex-wrap gap-1.5' : 'grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6',
               )}
             >
               {Object.entries(TYPE_META).map(([key, m]) => {
@@ -1147,7 +1176,7 @@ function DocumentForm({ existing, startAs = null, page = false, onClose, onSaved
                 * app, and not on a purchase invoice — what you make on your own
                 * buying is not a number that exists.
                 */}
-              {canSeeProfit && docType !== 'purchase_invoice' && lines.length > 0 && (
+              {canSeeProfit && sells && !isReturn && lines.length > 0 && (
                 <div className="mt-2 border-t border-slate-200 pt-2">
                   <div className="flex justify-between">
                     <dt className="text-slate-500">Cost</dt>
@@ -1175,12 +1204,12 @@ function DocumentForm({ existing, startAs = null, page = false, onClose, onSaved
               {isInvoice && settleAs !== 'account' && (
                 <>
                   <div className="flex justify-between border-t border-slate-200 pt-1">
-                    <dt className="text-slate-500">Paid</dt>
+                    <dt className="text-slate-500">{isReturn ? 'Refunded' : 'Paid'}</dt>
                     <dd className="tnum text-slate-700">−{money(paidUsd)}</dd>
                   </div>
                   <div className="flex justify-between font-semibold">
                     <dt className={outstanding > 0 ? 'text-slate-900' : 'text-brand-700'}>
-                      {outstanding > 0 ? 'Still owing' : 'Settled'}
+                      {outstanding > 0 ? (isReturn ? 'Still to refund' : 'Still owing') : isReturn ? 'Refunded' : 'Settled'}
                     </dt>
                     <dd className={cx('tnum', outstanding > 0 ? 'text-slate-900' : 'text-brand-700')}>
                       {money(outstanding)}
@@ -1199,16 +1228,33 @@ function DocumentForm({ existing, startAs = null, page = false, onClose, onSaved
           {isInvoice && (
             <fieldset className="rounded-xl ring-1 ring-slate-200">
               <legend className="ml-3 px-1 text-sm font-medium text-slate-700">
-                {docType === 'purchase_invoice' ? 'How you paid the supplier' : 'How the customer paid'}
+                {isReturn
+                  ? partyType === 'supplier'
+                    ? 'How the supplier refunded you'
+                    : 'How you refunded the customer'
+                  : partyType === 'supplier'
+                    ? 'How you paid the supplier'
+                    : 'How the customer paid'}
               </legend>
 
               <div className="space-y-3 px-3 pt-1 pb-3">
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                  {[
-                    ['account', 'On account', partyType === 'supplier' ? 'Pay later' : 'They pay later'],
-                    ['full', 'Paid in full', 'Nothing left owing'],
-                    ['part', 'Part paid', 'Some now, rest later'],
-                  ].map(([key, label, hint]) => (
+                  {(isReturn
+                    ? [
+                        [
+                          'account',
+                          'Credit on account',
+                          partyType === 'supplier' ? 'Comes off what you owe them' : 'Comes off what they owe you',
+                        ],
+                        ['full', 'Refunded in full', 'The money handed back now'],
+                        ['part', 'Part refunded', 'Some now, the rest as credit'],
+                      ]
+                    : [
+                        ['account', 'On account', partyType === 'supplier' ? 'Pay later' : 'They pay later'],
+                        ['full', 'Paid in full', 'Nothing left owing'],
+                        ['part', 'Part paid', 'Some now, rest later'],
+                      ]
+                  ).map(([key, label, hint]) => (
                     <button
                       key={key}
                       type="button"
@@ -1245,7 +1291,7 @@ function DocumentForm({ existing, startAs = null, page = false, onClose, onSaved
                     {settleAs === 'part' && (
                       <>
                         <Input
-                          label="Amount paid now"
+                          label={isReturn ? 'Amount refunded now' : 'Amount paid now'}
                           name="payAmount"
                           type="number"
                           min="0"
@@ -1387,7 +1433,7 @@ function DocumentForm({ existing, startAs = null, page = false, onClose, onSaved
 
 /* ------------------------------------------------------------------ detail */
 
-function DocumentDetail({ id, onClose, onChanged, onDeleted }) {
+function DocumentDetail({ id, onClose, onChanged, onDeleted, onConverted }) {
   const toast = useToast();
   const navigate = useNavigate();
   const { rate, toLbp } = useSettings();
@@ -1465,11 +1511,14 @@ function DocumentDetail({ id, onClose, onChanged, onDeleted }) {
     setError('');
     setBusy(true);
     try {
-      await api.post(`/documents/${id}/${path}`, body);
+      const res = await api.post(`/documents/${id}/${path}`, body);
       toast(successMessage);
       if (path === 'convert') {
         onChanged();
-        onClose();
+        /* Straight to the paper just raised, where its lines get trimmed to
+           what actually came back — rather than back to a list to find it. */
+        if (onConverted) onConverted(res.data.document.id);
+        else onClose();
         return;
       }
       load();
@@ -1492,6 +1541,11 @@ function DocumentDetail({ id, onClose, onChanged, onDeleted }) {
   const { document: doc, items, convertedTo } = data;
   const meta = TYPE_META[doc.doc_type];
   const canConvert = doc.doc_type === 'quotation' || doc.doc_type === 'sales_order';
+  /* A confirmed invoice can have goods come back on it — as many times as
+     they do; a return does not use the invoice up. */
+  const returnType =
+    doc.doc_type === 'sales_invoice' ? 'sales_return' : doc.doc_type === 'purchase_invoice' ? 'purchase_return' : null;
+  const canReturn = returnType && doc.status === 'confirmed';
   const liveSuccessor = convertedTo.find((c) => c.status !== 'cancelled');
 
   if (editing) {
@@ -1512,7 +1566,7 @@ function DocumentDetail({ id, onClose, onChanged, onDeleted }) {
     return (
       <Modal open onClose={() => setConfirmingDelete(false)} title={`Delete ${doc.doc_number}?`}>
         <p className="text-sm text-slate-600">
-          {doc.status === 'confirmed' && doc.doc_type.endsWith('invoice')
+          {doc.status === 'confirmed' && (doc.doc_type.endsWith('invoice') || meta.returns)
             ? `This ${meta.label.toLowerCase()} is confirmed, so it is reversed first — stock goes back and
                the balance is cleared — and then the paperwork is deleted. The reversal stays in the stock
                history and on the account.`
@@ -1603,13 +1657,13 @@ function DocumentDetail({ id, onClose, onChanged, onDeleted }) {
           <TypeIcon type={doc.doc_type} size={15} />
         </span>
         <Badge tone={STATUS_TONES[doc.status]}>{doc.status}</Badge>
-        {doc.doc_type.endsWith('invoice') &&
+        {(doc.doc_type.endsWith('invoice') || meta.returns) &&
           (doc.outstanding <= 0 ? (
-            <Badge tone="good">Paid {doc.payment_method}</Badge>
+            <Badge tone="good">{meta.returns ? 'Refunded' : 'Paid'} {doc.payment_method}</Badge>
           ) : doc.paid_total > 0 ? (
-            <Badge tone="warning">Part paid</Badge>
+            <Badge tone="warning">{meta.returns ? 'Part refunded' : 'Part paid'}</Badge>
           ) : (
-            <Badge tone="info">On account</Badge>
+            <Badge tone="info">{meta.returns ? 'Credit on account' : 'On account'}</Badge>
           ))}
         {doc.converted_from_number && (
           <span className="text-xs text-slate-400">from {doc.converted_from_number}</span>
@@ -1745,7 +1799,9 @@ function DocumentDetail({ id, onClose, onChanged, onDeleted }) {
         */}
       <div className="doc-signature mt-10 hidden justify-between gap-10 text-xs text-slate-500 print:flex">
         <div className="flex-1 border-t border-slate-400 pt-1">
-          {doc.doc_type === 'purchase_invoice' ? 'Received by' : 'For ' + (doc.party_name || 'the customer')}
+          {doc.party_type === 'supplier' || doc.doc_type === 'sales_return'
+            ? 'Received by'
+            : 'For ' + (doc.party_name || 'the customer')}
         </div>
         <div className="flex-1 border-t border-slate-400 pt-1">For the shop</div>
       </div>
@@ -1838,6 +1894,23 @@ function DocumentDetail({ id, onClose, onChanged, onDeleted }) {
           </Button>
         )}
 
+        {/*
+          * Goods coming back on this invoice. Raised as a draft carrying the
+          * invoice's lines, to be trimmed to what actually came back, and
+          * capped by the server at what went out.
+          */}
+        {canReturn && (
+          <Button
+            variant="secondary"
+            loading={busy}
+            onClick={() =>
+              act('convert', { docType: returnType }, `${TYPE_META[returnType].label} raised as a draft`)
+            }
+          >
+            <Undo2 size={15} /> Return items
+          </Button>
+        )}
+
         {/* Labelling stock is the usual next step after receiving it. */}
         {doc.doc_type === 'purchase_invoice' && doc.status === 'confirmed' && (
           <Button variant="secondary" onClick={() => navigate(`/admin/labels?fromDocument=${doc.id}`)}>
@@ -1898,6 +1971,8 @@ const KIND_PATHS = {
   'sales-invoices': 'sales_invoice',
   quotations: 'quotation',
   'sales-orders': 'sales_order',
+  'sales-returns': 'sales_return',
+  'purchase-returns': 'purchase_return',
 };
 
 export default function Documents() {
@@ -1971,7 +2046,7 @@ export default function Documents() {
     <div className="flex h-full flex-col">
       <PageHeader
         title={only ? `${TYPE_META[only].label}s` : 'Documents'}
-        subtitle={only ? TYPE_META[only].effect : 'Quotations, sales orders, sales invoices and purchase invoices'}
+        subtitle={only ? TYPE_META[only].effect : 'Quotations, orders, invoices and returns'}
         actions={
           /* On a screen that is one kind, the button already knows which —
              the type tiles on the form were a third choice for a job the shop
@@ -1988,7 +2063,7 @@ export default function Documents() {
             On one kind's own screen the rail is already the switcher, and a
             second one that disagreed with the address would be worse than
             none. */}
-        <div className={cx('mb-4 grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5', only ? 'hidden' : 'grid')}>
+        <div className={cx('mb-4 grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7', only ? 'hidden' : 'grid')}>
           <button
             onClick={() => setFilter('all')}
             className={cx(
@@ -2078,14 +2153,18 @@ export default function Documents() {
                     <td className="tnum px-5 py-2.5 text-right font-semibold text-slate-900">
                       {money(d.total)}
                       {/* What is still owed matters more than what it cost. */}
-                      {d.doc_type.endsWith('invoice') && d.paid_total > 0 && (
+                      {(d.doc_type.endsWith('invoice') || TYPE_META[d.doc_type]?.returns) && d.paid_total > 0 && (
                         <span
                           className={cx(
                             'block text-xs font-normal',
                             d.outstanding > 0 ? 'text-amber-600' : 'text-brand-600',
                           )}
                         >
-                          {d.outstanding > 0 ? `${money(d.outstanding)} owing` : 'paid'}
+                          {d.outstanding > 0
+                            ? `${money(d.outstanding)} ${TYPE_META[d.doc_type]?.returns ? 'to refund' : 'owing'}`
+                            : TYPE_META[d.doc_type]?.returns
+                              ? 'refunded'
+                              : 'paid'}
                         </span>
                       )}
                     </td>
@@ -2103,6 +2182,7 @@ export default function Documents() {
           id={viewing}
           onClose={() => setViewing(null)}
           onChanged={load}
+          onConverted={(id) => setViewing(id)}
           onDeleted={() => {
             setViewing(null);
             load();

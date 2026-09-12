@@ -203,7 +203,13 @@ function registerSales(bounds, branchId = null) {
   };
 }
 
-/** Sales invoiced rather than rung up — the same trade, a different counter. */
+/**
+ * Sales invoiced rather than rung up — the same trade, a different counter.
+ *
+ * Less what came back on a sales return: goods a customer brought back were
+ * not sold, and the cost of them is back on the shelf, so both halves come
+ * off in the period the return was confirmed.
+ */
 function invoiceSales(bounds, branchId = null) {
   const row = db
     .prepare(
@@ -215,6 +221,22 @@ function invoiceSales(bounds, branchId = null) {
          AND (? IS NULL OR d.branch_id = ?)`,
     )
     .get(bounds.from, bounds.to, branchId, branchId);
+
+  const returned = db
+    .prepare(
+      `SELECT COUNT(DISTINCT d.id) AS returns, COALESCE(SUM(d.total), 0) AS revenue,
+              COALESCE(SUM(d.tax), 0) AS tax,
+              COALESCE((SELECT SUM(di.quantity * COALESCE(di.cost, 0))
+                          FROM document_items di JOIN documents r ON r.id = di.document_id
+                         WHERE r.doc_type = 'sales_return' AND r.status = 'confirmed'
+                           AND COALESCE(r.confirmed_at, r.created_at) BETWEEN ? AND ?
+                           AND (? IS NULL OR r.branch_id = ?)), 0) AS cost
+       FROM documents d
+       WHERE d.doc_type = 'sales_return' AND d.status = 'confirmed'
+         AND COALESCE(d.confirmed_at, d.created_at) BETWEEN ? AND ?
+         AND (? IS NULL OR d.branch_id = ?)`,
+    )
+    .get(bounds.from, bounds.to, branchId, branchId, bounds.from, bounds.to, branchId, branchId);
 
   const cost = db
     .prepare(
@@ -233,9 +255,12 @@ function invoiceSales(bounds, branchId = null) {
 
   return {
     invoices: row.invoices,
-    revenue: round2(row.revenue),
-    tax: round2(row.tax),
-    cost: round2(cost.cost),
+    revenue: round2(row.revenue - returned.revenue),
+    tax: round2(row.tax - returned.tax),
+    cost: round2(cost.cost - returned.cost),
+    /* Said separately too, so a quiet month can be explained. */
+    returns: returned.returns,
+    returned: round2(returned.revenue),
     unknownCostLines: cost.unknown_lines || 0,
     unknownCostValue: round2(cost.unknown_value || 0),
   };
@@ -385,6 +410,19 @@ function byProduct(bounds, limit = 10, branchId = null) {
          WHERE d.doc_type = 'sales_invoice' AND d.status = 'confirmed'
            AND COALESCE(d.confirmed_at, d.created_at) BETWEEN ? AND ?
            AND (? IS NULL OR d.branch_id = ?)
+
+         UNION ALL
+
+         /* Brought back on a sales return: off the count, the takings and the cost. */
+         SELECT di.product_id,
+                -di.quantity AS quantity,
+                -di.line_total AS revenue,
+                -di.quantity * COALESCE(di.cost, 0) AS cost
+         FROM document_items di
+         JOIN documents d ON d.id = di.document_id
+         WHERE d.doc_type = 'sales_return' AND d.status = 'confirmed'
+           AND COALESCE(d.confirmed_at, d.created_at) BETWEEN ? AND ?
+           AND (? IS NULL OR d.branch_id = ?)
        ) s
        JOIN products p ON p.id = s.product_id
        GROUP BY p.id
@@ -393,6 +431,7 @@ function byProduct(bounds, limit = 10, branchId = null) {
        LIMIT ?`,
     )
     .all(
+      bounds.from, bounds.to, branchId, branchId,
       bounds.from, bounds.to, branchId, branchId,
       bounds.from, bounds.to, branchId, branchId,
       limit,
@@ -472,6 +511,25 @@ function byDay(bounds, branchId = null, limit = 400) {
 
          UNION ALL
 
+         /* Sales returns: what came back, off the day it came back. */
+         SELECT date(COALESCE(d.confirmed_at, d.created_at), ?), -d.total, 0, 0
+         FROM documents d
+         WHERE d.doc_type = 'sales_return' AND d.status = 'confirmed'
+           AND COALESCE(d.confirmed_at, d.created_at) BETWEEN ? AND ?
+           AND (? IS NULL OR d.branch_id = ?)
+
+         UNION ALL
+
+         SELECT date(COALESCE(d.confirmed_at, d.created_at), ?), 0,
+                -di.quantity * COALESCE(di.cost, 0), 0
+         FROM document_items di
+         JOIN documents d ON d.id = di.document_id
+         WHERE d.doc_type = 'sales_return' AND d.status = 'confirmed'
+           AND COALESCE(d.confirmed_at, d.created_at) BETWEEN ? AND ?
+           AND (? IS NULL OR d.branch_id = ?)
+
+         UNION ALL
+
          /* Repairs: charged and paid-outside on the day the phone went home,
             the parts fitted to it costed on the same day. */
          SELECT date(t.collected_at, ?), COALESCE(t.charged, 0), t.outside_cost, 1
@@ -492,6 +550,8 @@ function byDay(bounds, branchId = null, limit = 400) {
        LIMIT ?`,
     )
     .all(
+      shift, bounds.from, bounds.to, branchId, branchId,
+      shift, bounds.from, bounds.to, branchId, branchId,
       shift, bounds.from, bounds.to, branchId, branchId,
       shift, bounds.from, bounds.to, branchId, branchId,
       shift, bounds.from, bounds.to, branchId, branchId,

@@ -396,7 +396,9 @@ export function postDocument({ doc, tillAccountId = null, userId = null }) {
 
     const rate = Number(doc.exchange_rate) || 0;
     const paid = round2((doc.paid_usd || 0) + (rate > 0 ? (doc.paid_lbp || 0) / rate : 0));
-    const buying = doc.doc_type === 'purchase_invoice';
+    const buying = doc.party_type === 'supplier';
+    /* A return is the invoice's entry with every side swapped. */
+    const returning = String(doc.doc_type).endsWith('_return');
     const till = doc.payment_method === 'cash' ? accountForTill(tillAccountId) : accountFor('bank');
 
     /*
@@ -414,7 +416,7 @@ export function postDocument({ doc, tillAccountId = null, userId = null }) {
     const tax = round2(doc.tax || 0);
     const net = round2(total - tax);
 
-    const lines = buying
+    const posted = buying
       ? [
           { accountId: accountFor('stock'), debit: net, memo: doc.doc_number },
           ...(tax > 0 ? [{ accountId: accountFor('vatIn'), debit: tax, memo: 'Tax paid on this' }] : []),
@@ -427,6 +429,9 @@ export function postDocument({ doc, tillAccountId = null, userId = null }) {
           ...(paid > 0 ? [{ accountId: till, debit: Math.min(paid, total) }] : []),
           ...(total > paid ? [{ accountId: accountFor('customers'), debit: round2(total - paid) }] : []),
         ];
+    const lines = returning
+      ? posted.map(({ debit, credit, ...rest }) => ({ ...rest, debit: credit, credit: debit }))
+      : posted;
 
     return write({
       lines,
