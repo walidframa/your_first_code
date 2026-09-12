@@ -668,3 +668,58 @@ test('an invoice settled at another till stays out of the counter’s drawer', a
   assert.equal((await drawer()).expected.usd, before, 'the counter never took that money');
   assert.equal((await drawer(office.id)).expected.usd, 8, 'the office did');
 });
+
+/*
+ * Reported from the counter: "$7.78 · 700,000 LL", 700,000 LL handed over,
+ * "$0.00 still due" on the screen — and the button stayed grey. The pounds
+ * asked for are rounded to the shop's step, and 700,000 LL at the rate came to
+ * $7.7778, a fraction of a cent under the dollar total.
+ */
+test('paying exactly the pounds the screen asked for is not short', async () => {
+  await req('POST', '/cash/open', { openingUsd: 50 }, adminToken);
+  const was = (await req('GET', '/settings', null, adminToken)).json.settings;
+  // No tax on this one: the odd figure has to be the total itself.
+  await req('PUT', '/settings', { exchange_rate: 90000, lbp_rounding: 5000, tax_enabled: 'false' }, adminToken);
+  const item = (
+    await req('POST', '/products', { name: 'Odd priced', sku: 'ODD-778', price: 7.78, cost: 3, stock: 5 }, adminToken)
+  ).json.product;
+
+  // 7.78 × 90,000 = 700,200, which the shop shows as 700,000 LL.
+  const sale = await req(
+    'POST',
+    '/orders',
+    {
+      items: [{ productId: item.id, quantity: 1 }],
+      paymentMethod: 'cash',
+      payments: [{ currency: 'LBP', amount: 700000 }],
+      changeCurrency: 'LBP',
+    },
+    cashierToken,
+    AT_REGISTER,
+  );
+  assert.equal(sale.status, 201, JSON.stringify(sale.json));
+  assert.equal(sale.json.order.change_due, 0, 'and no change is owed either way');
+
+  // Genuinely short is still short: a whole note under.
+  const short = await req(
+    'POST',
+    '/orders',
+    {
+      items: [{ productId: item.id, quantity: 1 }],
+      paymentMethod: 'cash',
+      payments: [{ currency: 'LBP', amount: 600000 }],
+      changeCurrency: 'LBP',
+    },
+    cashierToken,
+    AT_REGISTER,
+  );
+  assert.equal(short.status, 400);
+  assert.match(short.json.error, /less than/);
+
+  await req(
+    'PUT',
+    '/settings',
+    { exchange_rate: was.exchange_rate, lbp_rounding: was.lbp_rounding, tax_enabled: was.tax_enabled },
+    adminToken,
+  );
+});
