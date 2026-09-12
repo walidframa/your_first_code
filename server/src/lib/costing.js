@@ -26,13 +26,18 @@ import { db } from '../db.js';
 import { round2 } from './currency.js';
 
 /*
+ * Landed, not just priced: `di.cost` on a confirmed delivery is the price plus
+ * that line's share of the freight, customs and commission the invoice
+ * carried — see landCharges in lib/documents.js. The price alone is what the
+ * supplier wrote; the cost is what the shelf actually paid.
+ *
  * One query for the whole catalogue rather than one per product: the products
  * list is loaded on every visit to the register, and a correlated subquery per
  * row turns a 900-product catalogue into 900 queries.
  */
 const AVERAGES = `
   SELECT di.product_id AS id,
-         SUM(di.price * di.quantity) AS spent,
+         SUM(COALESCE(di.cost, di.price) * di.quantity) AS spent,
          SUM(di.quantity) AS units
   FROM document_items di
   JOIN documents d ON d.id = di.document_id
@@ -49,7 +54,7 @@ const AVERAGES = `
  * invoice dearer than this is the one worth stopping somebody over.
  */
 const LATEST = `
-  SELECT di.product_id AS id, di.price AS cost,
+  SELECT di.product_id AS id, COALESCE(di.cost, di.price) AS cost,
          COALESCE(d.confirmed_at, d.created_at) AS at, d.doc_number AS reference
   FROM document_items di
   JOIN documents d ON d.id = di.document_id
@@ -92,7 +97,7 @@ export function lastCostMap() {
 export function costingFor(productId) {
   const totals = db
     .prepare(
-      `SELECT SUM(di.price * di.quantity) AS spent, SUM(di.quantity) AS units
+      `SELECT SUM(COALESCE(di.cost, di.price) * di.quantity) AS spent, SUM(di.quantity) AS units
        FROM document_items di
        JOIN documents d ON d.id = di.document_id
        WHERE d.doc_type = 'purchase_invoice' AND d.status = 'confirmed'
@@ -102,7 +107,7 @@ export function costingFor(productId) {
 
   const last = db
     .prepare(
-      `SELECT di.price AS cost, COALESCE(d.confirmed_at, d.created_at) AS at, d.doc_number AS reference
+      `SELECT COALESCE(di.cost, di.price) AS cost, COALESCE(d.confirmed_at, d.created_at) AS at, d.doc_number AS reference
        FROM document_items di
        JOIN documents d ON d.id = di.document_id
        WHERE d.doc_type = 'purchase_invoice' AND d.status = 'confirmed'

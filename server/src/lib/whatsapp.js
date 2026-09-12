@@ -188,7 +188,7 @@ export function documentMessage(id) {
   const found = getDocument(id);
   if (!found) return null;
 
-  const { document: doc, items } = found;
+  const { document: doc, items, charges = [] } = found;
   const settings = getSettings();
   const type = DOC_TYPES[doc.doc_type];
   const rate = doc.exchange_rate || 0;
@@ -208,6 +208,9 @@ export function documentMessage(id) {
     doc.discount > 0 ? `Subtotal: ${money(doc.subtotal)}` : null,
     doc.discount > 0 ? `Discount: −${money(doc.discount)}` : null,
     doc.tax > 0 ? `Tax: ${money(doc.tax)}` : null,
+    /* Only what is on the invoice to them; what the shop paid on its own
+       account is the shop's business. */
+    ...charges.filter((c) => c.billed).map((c) => `${c.label}: ${money(c.amount_usd)}`),
     `Total: ${money(doc.total)}`,
     rate > 0 ? pounds(usdToLbp(doc.total, rate, settings.lbp_rounding)) : null,
     /*

@@ -2826,6 +2826,38 @@ function widenDocumentTypes() {
 }
 widenDocumentTypes();
 
+/*
+ * What an invoice cost or charged beyond its lines.
+ *
+ * Shipping, customs, a commission: a delivery of fifty phones with a $100
+ * freight bill is fifty phones that each cost two dollars more than the
+ * supplier's price, and an invoice that carried only the price had every one
+ * of those margins reading two dollars too high. And a sale shipped to a
+ * customer either charged them for the courier or did not — both are real,
+ * and neither had a line.
+ *
+ * `billed` says which: on this invoice, to the party (so in the total and on
+ * their account), or paid separately by the shop (an expense written when the
+ * document is confirmed, and taken back when it is reversed). On a delivery
+ * both kinds are spread into the unit cost of the goods.
+ */
+db.exec(`
+  CREATE TABLE IF NOT EXISTS document_charges (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    document_id INTEGER NOT NULL REFERENCES documents(id),
+    kind TEXT NOT NULL CHECK (kind IN ('shipping', 'customs', 'commission', 'other')),
+    label TEXT NOT NULL,
+    amount_usd REAL NOT NULL,
+    billed INTEGER NOT NULL DEFAULT 1,
+    paid_with TEXT,
+    payee TEXT,
+    expense_id INTEGER REFERENCES expenses(id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_document_charges_doc ON document_charges(document_id);
+`);
+/* The billed charges, summed, so the total can be read without a join. */
+addColumn('documents', 'charges', 'REAL NOT NULL DEFAULT 0');
+
 export const ADJUSTMENT_REASONS = [
   'received',
   'damaged',
