@@ -208,3 +208,28 @@ test('a search and a balance filter narrow together', async () => {
   assert.equal(none.total, 0);
   assert.equal(none.owing, 0);
 });
+
+/* ------------------------------------------------------------------ staff */
+
+test('the list says who is staff, so a sale can go on an employee’s account', async () => {
+  /*
+   * An employee's pay and purchases run through a customer account of their
+   * own, so they are on this list already; the register has to be able to
+   * tell, or a sale put on "Rami" goes on the wrong Rami.
+   */
+  const hired = await req('POST', '/employees', { name: 'Rami Staff', jobTitle: 'Technician', monthlySalary: 500 });
+  assert.equal(hired.status, 201, JSON.stringify(hired.json));
+
+  const { parties } = await list('?search=rami%20staff');
+  assert.equal(parties.length, 1);
+  assert.equal(parties[0].is_staff, true);
+  assert.equal(parties[0].staff_title, 'Technician');
+
+  const civilian = (await list('?search=ahmad%20halabi')).parties[0];
+  assert.equal(civilian.is_staff, false);
+  assert.equal(civilian.staff_title, null);
+
+  // Suppliers are never staff, and the field is not on them at all.
+  const suppliers = (await req('GET', '/suppliers')).json.parties;
+  assert.ok(suppliers.every((s) => s.is_staff === undefined));
+});

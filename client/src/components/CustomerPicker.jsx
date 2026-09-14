@@ -19,6 +19,14 @@ export default function CustomerPicker({ customer, onChange }) {
   const [search, setSearch] = useState('');
   const [creating, setCreating] = useState(false);
   /*
+   * Staff buy things too. An employee has an account of their own — their
+   * wages, advances and whatever they take from the shelf all land on the one
+   * balance — and a sale goes on it the same way it goes on a customer's. The
+   * list marks who is staff so "Rami" is the right Rami, and can be narrowed
+   * to them when that is who is standing there.
+   */
+  const [onlyStaff, setOnlyStaff] = useState(false);
+  /*
    * Adding a contact is its own permission — the same one the Customers screen
    * sits behind. A button that always came back 403 would be worse than no
    * button, so a cashier without it picks from the list as before.
@@ -32,8 +40,9 @@ export default function CustomerPicker({ customer, onChange }) {
 
   const term = search.trim().toLowerCase();
   const visible = (customers || []).filter(
-    (c) => matchesSearch(term, c.name, c.phone),
+    (c) => (!onlyStaff || c.is_staff) && matchesSearch(term, c.name, c.phone),
   );
+  const anyStaff = (customers || []).some((c) => c.is_staff);
 
   return (
     <>
@@ -41,7 +50,10 @@ export default function CustomerPicker({ customer, onChange }) {
         <div className="flex items-center gap-2 rounded-lg bg-brand-50 px-2.5 py-1.5">
           <UserRound size={14} className="shrink-0 text-brand-700" />
           <div className="min-w-0 flex-1">
-            <p className="truncate text-xs font-medium text-brand-900">{customer.name}</p>
+            <p className="truncate text-xs font-medium text-brand-900">
+              {customer.name}
+              {customer.is_staff && <span className="ml-1 text-[10px] text-brand-700">· {t('Staff')}</span>}
+            </p>
             {customer.balance > 0.005 && (
               <p className="tnum text-[11px] text-brand-700">{t('owes')} {money(customer.balance)}</p>
             )}
@@ -84,6 +96,30 @@ export default function CustomerPicker({ customer, onChange }) {
           />
         </div>
 
+        {anyStaff && (
+          <div className="mb-2 flex gap-1.5" role="group" aria-label="Who to list">
+            {[
+              [false, t('Everyone')],
+              [true, t('Staff')],
+            ].map(([value, label]) => (
+              <button
+                key={label}
+                type="button"
+                onClick={() => setOnlyStaff(value)}
+                aria-pressed={onlyStaff === value}
+                className={cx(
+                  'rounded-full px-3 py-1 text-xs font-medium ring-1 transition',
+                  onlyStaff === value
+                    ? 'bg-brand-600 text-white ring-brand-600'
+                    : 'bg-white text-slate-600 ring-slate-200 hover:bg-slate-50',
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+
         {!customers ? (
           <p className="py-6 text-center text-sm text-slate-400">Loading…</p>
         ) : visible.length === 0 ? (
@@ -116,8 +152,14 @@ export default function CustomerPicker({ customer, onChange }) {
                   className="flex w-full items-center justify-between gap-3 px-1 py-2.5 text-left transition hover:bg-slate-50"
                 >
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-slate-800">{c.name}</p>
-                    <p className="text-xs text-slate-400">{c.phone || c.email || '—'}</p>
+                    <p className="flex items-center gap-1.5 truncate text-sm font-medium text-slate-800">
+                      {c.name}
+                      {c.is_staff && <Badge tone="info">{t('Staff')}</Badge>}
+                    </p>
+                    <p className="text-xs text-slate-400">
+                      {c.is_staff && c.staff_title ? `${c.staff_title} · ` : ''}
+                      {c.phone || c.email || '—'}
+                    </p>
                   </div>
                   <div className="shrink-0 text-right">
                     {c.balance > 0.005 ? (

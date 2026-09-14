@@ -26,6 +26,20 @@ const router = Router();
 const spending = [requireAuth, requirePermission('expenses')];
 const reporting = [requireAuth, requirePermission('reports')];
 
+/*
+ * Recording one from the register is the cashier's job too.
+ *
+ * The salesman who pays the water man out of the drawer has to be able to
+ * write that down where he is standing, or the drawer is short at the count
+ * and nobody can say why. So the register permission is enough to *record*
+ * an expense while the register page is the one asking (see `req.atRegister`);
+ * reading the list and deleting from it stay the owner's.
+ */
+function canSpendHere(req, res, next) {
+  if (can(req.user, 'expenses') || (req.atRegister && can(req.user, 'register'))) return next();
+  return res.status(403).json({ error: 'Recording expenses is not something this account may do' });
+}
+
 router.get('/categories', requireAuth, (req, res) => {
   res.json({ categories: EXPENSE_CATEGORIES, paidWith: PAID_WITH });
 });
@@ -41,7 +55,7 @@ router.get('/', ...spending, (req, res) => {
   });
 });
 
-router.post('/', ...spending, (req, res) => {
+router.post('/', requireAuth, canSpendHere, (req, res) => {
   const { spentOn, category, amountUsd, amountLbp, paidWith, supplierId, note, accountId } =
     req.body || {};
   try {

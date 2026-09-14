@@ -77,10 +77,20 @@ export function partyRouter(partyType) {
         recent: 'p.id DESC',
       }[sort] || 'p.name';
 
+    /*
+     * Who on the list is staff. An employee's pay and purchases run through a
+     * customer account of their own, so they are on this list already; the
+     * register needs to be able to tell, or a sale put on "Rami" goes on the
+     * wrong Rami.
+     */
+    const staff = isCustomer
+      ? 'LEFT JOIN employees e ON e.customer_id = p.id AND e.active = 1'
+      : '';
     const from = `FROM ${table} p
        LEFT JOIN (SELECT party_id, ROUND(COALESCE(SUM(amount_usd), 0), 2) AS balance
                     FROM account_entries WHERE party_type = ? GROUP BY party_id) bal
               ON bal.party_id = p.id
+       ${staff}
       ${where.length ? `WHERE ${where.join(' AND ')}` : ''}`;
 
     const total = db.prepare(`SELECT COUNT(*) AS n ${from}`).get(partyType, ...params).n;
@@ -102,12 +112,20 @@ export function partyRouter(partyType) {
     const limit = paged ? Math.min(Math.max(Number(req.query.limit) || 50, 1), 500) : -1;
     const offset = Math.max(0, Number(req.query.offset) || 0);
 
+    const staffColumns = isCustomer ? ', e.id IS NOT NULL AS is_staff, e.job_title AS staff_title' : '';
     const rows = db
-      .prepare(`SELECT p.*, COALESCE(bal.balance, 0) AS balance ${from} ORDER BY ${order} LIMIT ? OFFSET ?`)
+      .prepare(
+        `SELECT p.*, COALESCE(bal.balance, 0) AS balance${staffColumns} ${from} ORDER BY ${order} LIMIT ? OFFSET ?`,
+      )
       .all(partyType, ...params, limit, paged ? offset : 0);
 
     res.json({
-      parties: rows.map((r) => ({ ...r, active: !!r.active, balance: round2(r.balance) })),
+      parties: rows.map((r) => ({
+        ...r,
+        active: !!r.active,
+        balance: round2(r.balance),
+        ...(isCustomer ? { is_staff: !!r.is_staff } : {}),
+      })),
       total,
       owing: round2(sums.owing),
       credit: round2(sums.credit),
