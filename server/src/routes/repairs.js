@@ -19,10 +19,13 @@ import {
   takeTradeIn,
   ticketWithDetail,
   warrantyOf,
+  undoTradeIn,
 } from '../lib/repairs.js';
 import { repairMessage, sendable } from '../lib/whatsapp.js';
 import { presetRange } from '../lib/profit.js';
 import { getIdPhoto, removeIdPhoto, setIdPhoto } from '../lib/idPhotos.js';
+import { notify } from '../lib/telegram.js';
+import { deletedText } from '../lib/notifyText.js';
 
 const router = Router();
 
@@ -344,7 +347,7 @@ router.post('/trade-ins', requireAuth, (req, res) => {
       const paidUsd = Number(req.body.paidUsd) || 0;
       const paidLbp = Number(req.body.paidLbp) || 0;
       if (paidUsd > 0 || paidLbp > 0) {
-        recordMovement({
+        const movementId = recordMovement({
           kind: 'cash_out',
           amountUsd: -paidUsd,
           amountLbp: -paidLbp,
@@ -353,12 +356,39 @@ router.post('/trade-ins', requireAuth, (req, res) => {
           userId: req.user.id,
           accountId: tillFor({ atRegister: req.atRegister, branchId: req.branchId }),
         });
+        // Remembered on the purchase, so undoing it knows which pile to refill.
+        if (movementId) {
+          db.prepare('UPDATE trade_ins SET cash_movement_id = ? WHERE id = ?').run(movementId, taken.tradeInId);
+        }
       }
 
       return taken;
     })();
 
     res.status(201).json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+/**
+ * A handset bought in by mistake.
+ *
+ * Only one still on the shelf: a sold one belongs to a sale now, and the way
+ * back from that is a refund. The money goes back where it came from.
+ */
+router.delete('/trade-ins/:id', requireAuth, requirePermission('repairs'), (req, res) => {
+  try {
+    const result = undoTradeIn(Number(req.params.id), req.user.id);
+    res.json(result);
+    notify(
+      'delete',
+      deletedText({
+        what: 'trade-in',
+        detail: `${result.imei} · ${result.returnedUsd.toFixed(2)} USD back`,
+        user: req.user.name,
+      }),
+    );
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { BadgeCheck, HandCoins, Plus, ShieldAlert, Trash2 } from 'lucide-react';
+import { BadgeCheck, HandCoins, Plus, ShieldAlert, Trash2, Undo2 } from 'lucide-react';
 import BuyHandsetModal from '../../components/BuyHandsetModal';
 import api from '../../api';
 import PageHeader from '../../components/PageHeader';
@@ -130,6 +130,9 @@ export default function TradeIns() {
   const [buying, setBuying] = useState(false);
   // Which purchase's ID is on screen, if any.
   const [viewing, setViewing] = useState(null);
+  const [undoing, setUndoing] = useState(null);
+  const confirm = useConfirm();
+  const toast = useToast();
 
   const load = useCallback(async () => {
     const [list, prods] = await Promise.all([
@@ -143,6 +146,33 @@ export default function TradeIns() {
   useEffect(() => {
     load();
   }, [load]);
+
+  /*
+   * A handset bought by mistake. Only while it is on the shelf — a sold one is
+   * part of a sale now, and the server says so if asked. The money goes back
+   * where it came from.
+   */
+  async function undo(t) {
+    const agreed = await confirm({
+      title: 'Undo this purchase?',
+      body: `${t.product_name} (${t.imei}) comes off the shelf and the ${money(t.paid_usd)}${
+        t.paid_lbp > 0 ? ` and ${lbp(t.paid_lbp)}` : ''
+      } paid for it goes back into the cash. This cannot be undone.`,
+      confirmLabel: 'Undo the purchase',
+    });
+    if (!agreed) return;
+
+    setUndoing(t.id);
+    try {
+      await api.delete(`/repairs/trade-ins/${t.id}`);
+      toast('The purchase was undone and the money put back');
+      await load();
+    } catch (err) {
+      toast(err.response?.data?.error || 'That could not be undone', 'error');
+    } finally {
+      setUndoing(null);
+    }
+  }
 
   const shown = (rows || []).filter(
     (t) =>
@@ -194,6 +224,7 @@ export default function TradeIns() {
                   <th className="px-3 py-2 font-medium">From</th>
                   <th className="px-3 py-2 text-right font-medium">Paid</th>
                   <th className="px-5 py-2 font-medium">Since then</th>
+                  <th className="px-3 py-2" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-rule">
@@ -245,6 +276,19 @@ export default function TradeIns() {
                       >
                         {t.unit_status === 'sold' ? 'Sold on' : 'On the shelf'}
                       </span>
+                    </td>
+                    <td className="px-3 py-2.5 text-right">
+                      {t.unit_status !== 'sold' && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          loading={undoing === t.id}
+                          onClick={() => undo(t)}
+                          title="Bought by mistake — take it off the shelf and put the money back"
+                        >
+                          <Undo2 size={14} /> Undo
+                        </Button>
+                      )}
                     </td>
                   </tr>
                 ))}
