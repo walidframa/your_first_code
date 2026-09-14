@@ -723,3 +723,37 @@ test('paying exactly the pounds the screen asked for is not short', async () => 
     adminToken,
   );
 });
+
+/*
+ * The salesman who pays the water man out of the drawer has to be able to
+ * write that down where he is standing, or the drawer is short at the count
+ * and nobody can say why.
+ */
+test('a cashier records an expense from the register, and it comes out of the drawer', async () => {
+  await req('POST', '/cash/open', { openingUsd: 60 }, adminToken);
+  const before = (await req('GET', '/cash/current', null, adminToken)).json.expected.usd;
+
+  const paid = await req(
+    'POST',
+    '/expenses',
+    { category: 'supplies', amountUsd: 4, paidWith: 'cash', note: 'Water for the counter' },
+    cashierToken,
+    AT_REGISTER,
+  );
+  assert.equal(paid.status, 201, JSON.stringify(paid.json));
+  assert.equal(paid.json.expense.category, 'supplies');
+
+  const after = (await req('GET', '/cash/current', null, adminToken)).json.expected.usd;
+  assert.equal(Math.round((before - after) * 100) / 100, 4, 'out of the drawer in front of them');
+
+  // Away from the register the cashier has no business with expenses.
+  const elsewhere = await req(
+    'POST',
+    '/expenses',
+    { category: 'supplies', amountUsd: 4, paidWith: 'cash' },
+    cashierToken,
+  );
+  assert.equal(elsewhere.status, 403);
+  // And they still cannot read the list.
+  assert.equal((await req('GET', '/expenses', null, cashierToken)).status, 403);
+});

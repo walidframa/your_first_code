@@ -11,9 +11,11 @@ import {
   LockOpen,
   RefreshCw,
   TrendingUp,
+  Wallet,
 } from 'lucide-react';
 import api from '../api';
 import CashReport from './CashReport';
+import AddExpense from './AddExpense';
 import { lbp, useSettings } from '../context/SettingsContext';
 import { combinedUsd } from '../lib/change.js';
 import { countDifference } from '../lib/cashCount.js';
@@ -1077,6 +1079,24 @@ export default function CashBox({
               <Button size="sm" variant="secondary" className="flex-1" onClick={() => setDialog('out')}>
                 <ArrowUpRight size={15} /> {t('Cash out')}
               </Button>
+              {/*
+                * An expense, written where it was paid.
+                *
+                * "Cash out" only says money left; the water man, the bag of
+                * ice and the taxi for a delivery are spending, and spending
+                * belongs on the Expenses screen and off the profit — which a
+                * cash-out never reached. So the cashier records the expense
+                * itself, out of this drawer, without leaving the register.
+                */}
+              <Button
+                size="sm"
+                variant="secondary"
+                className="flex-1"
+                onClick={() => setDialog('expense')}
+                title="An expense paid out of this drawer"
+              >
+                <Wallet size={15} /> {t('Expense')}
+              </Button>
               {/* Icon-only to fit three controls in a narrow column, so it needs
                   a name of its own for anyone not looking at the icon. */}
               <Button
@@ -1119,6 +1139,9 @@ export default function CashBox({
       )}
       {(dialog === 'in' || dialog === 'out') && (
         <MoveCash direction={dialog} accountId={accountId} onClose={() => setDialog(null)} onDone={done} />
+      )}
+      {dialog === 'expense' && (
+        <AddExpense accountId={accountId} onClose={() => setDialog(null)} onSaved={done} />
       )}
       {reportFor && <CashReport sessionId={reportFor} onClose={() => setReportFor(null)} />}
     </>
