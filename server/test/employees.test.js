@@ -232,6 +232,27 @@ test('a month run against the wrong period can be taken back', async () => {
   assert.equal(detail.salaries.length, 0, 'and the month is free to run again');
 });
 
+test('deleting the wage from the expenses page takes the month back too', async () => {
+  const hired = (await hire({ name: 'Wage Deleted', monthlySalary: 250 })).json.employee;
+  await req('POST', `/employees/${hired.id}/salary`, { period: '2026-07' }, adminToken);
+  const owed = (await req('GET', `/employees/${hired.id}`, null, adminToken)).json;
+  assert.equal(owed.employee.balance, -250, 'they are owed the month');
+
+  const expenses = (await req('GET', '/expenses?category=wages&from=2026-07-01&to=2026-07-31', null, adminToken)).json;
+  const wage = (expenses.expenses ?? expenses).find((e) => /Wage Deleted/.test(e.note || ''));
+  assert.ok(wage, 'the month is on the expenses page');
+
+  // This used to fail with "FOREIGN KEY constraint failed" and leave the salary
+  // standing: the payroll row points at the expense.
+  const gone = await req('DELETE', `/expenses/${wage.id}`, null, adminToken);
+  assert.equal(gone.status, 200, JSON.stringify(gone.json));
+
+  const after = (await req('GET', `/employees/${hired.id}`, null, adminToken)).json;
+  assert.equal(after.employee.balance, 0, 'and they are no longer owed it');
+  assert.equal(after.salaries.length, 0, 'the month can be run again');
+  assert.ok(after.entries.some((e) => /reversed/i.test(e.note || '')));
+});
+
 test('a month must be a month', async () => {
   const employee = (await req('GET', '/employees', null, adminToken)).json.employees[0];
   const res = await req('POST', `/employees/${employee.id}/salary`, { period: 'August' }, adminToken);

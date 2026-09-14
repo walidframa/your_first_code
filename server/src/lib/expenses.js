@@ -12,6 +12,17 @@ import { round2 } from './currency.js';
 import { getSettings } from './settings.js';
 import { currentSession, recordMovement, requiresSession, tillFor } from './cash.js';
 import { postExpense } from './postings.js';
+import { addEntry } from './accounts.js';
+
+/** `2026-08` → `August 2026`, the way the payroll screen writes a month. */
+function monthName(period) {
+  const [year, month] = String(period).split('-');
+  return new Date(Date.UTC(Number(year), Number(month) - 1, 1)).toLocaleDateString('en-GB', {
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  });
+}
 
 /**
  * Categories are a fixed list rather than free text: a month's spending that
@@ -297,7 +308,48 @@ export function deleteExpense(id, userId = null) {
   const expense = db.prepare('SELECT * FROM expenses WHERE id = ?').get(id);
   if (!expense) throw new Error('Expense not found');
 
+  /*
+   * An expense that a document is carrying cannot be deleted from underneath
+   * it: the goods were costed with that freight in them. It goes when the
+   * invoice is reversed, or the charge taken off it.
+   */
+  const charge = db
+    .prepare(
+      `SELECT c.label, d.doc_number
+         FROM document_charges c
+         JOIN documents d ON d.id = c.document_id
+        WHERE c.expense_id = ?`,
+    )
+    .get(id);
+  if (charge) {
+    throw new Error(
+      `This is the ${charge.label} on ${charge.doc_number}. Take it off the invoice instead.`,
+    );
+  }
+
   return transaction(() => {
+    /*
+     * A wage is written twice: the expense, and the credit on the employee's
+     * account saying they are owed it. Deleting one and leaving the other
+     * would keep the shop owing money it no longer counts as a cost - so the
+     * month is taken back the way the payroll screen would take it back.
+     */
+    const salary = db
+      .prepare('SELECT * FROM employee_salaries WHERE expense_id = ?')
+      .get(id);
+    if (salary) {
+      const employee = db.prepare('SELECT * FROM employees WHERE id = ?').get(salary.employee_id);
+      addEntry({
+        partyType: 'customer',
+        partyId: employee.customer_id,
+        kind: 'adjustment',
+        amountUsd: salary.amount_usd,
+        note: `Salary reversed — ${monthName(salary.period)}`,
+        userId,
+      });
+      db.prepare('DELETE FROM employee_salaries WHERE id = ?').run(salary.id);
+    }
+
     if (expense.cash_movement_id) {
       const movement = db
         .prepare('SELECT * FROM cash_movements WHERE id = ?')
