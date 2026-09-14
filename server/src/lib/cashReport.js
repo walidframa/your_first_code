@@ -29,7 +29,7 @@ const KIND_LABELS = {
   voucher: 'Vouchers',
   cash_in: 'Cash in',
   cash_out: 'Cash out',
-  bank_drop: 'To the bank',
+  bank_drop: 'Taken out at close',
   sweep: 'Moved to the cash account',
   correction: 'Over / short',
 };
@@ -38,7 +38,7 @@ const REASON_LABELS = {
   petty_cash: 'petty cash',
   owner_funds: 'owner’s money',
   owner_draw: 'owner took out',
-  bank_drop: 'to the bank',
+  bank_drop: 'taken out at close',
   sweep: 'moved to the cash account',
   customer_payment: 'customer payment',
   supplier: 'supplier',

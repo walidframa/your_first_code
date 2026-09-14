@@ -668,7 +668,7 @@ export function profitForSession(
    * 9999-12-31 until somebody closes it.
    */
   const expenses = includeExpenses
-    ? expensesDuring({ from: bounds.from, to: session.closed_at || null, branchId })
+    ? expensesDuring({ from: bounds.from, to: session.closed_at || null, branchId, sessionId: session.id })
     : { total: 0, count: 0, byCategory: [] };
 
   return {

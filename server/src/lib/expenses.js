@@ -79,7 +79,7 @@ function allExpensesIn({ from = null, to = null, branchId = null } = {}) {
  * morning's bill against the afternoon's cashier, and on a drawer still open
  * it counted every expense from the day it opened onwards.
  */
-export function expensesDuring({ from, to = null, branchId = null } = {}) {
+export function expensesDuring({ from, to = null, branchId = null, sessionId = null } = {}) {
   const where = ['created_at >= ?'];
   const params = [from];
   if (to) {
@@ -89,6 +89,20 @@ export function expensesDuring({ from, to = null, branchId = null } = {}) {
   if (branchId) {
     where.push('branch_id = ?');
     params.push(branchId);
+  }
+  /*
+   * Only what was paid out of this drawer, when asked about a sitting.
+   *
+   * The register's profit bar is the counter's own result. Every expense in
+   * the branch during the hours the till was open used to count against it —
+   * so a month's payroll run at the desk, or a supplier paid from the main
+   * cash, showed the cashier a loss on a day they sold well. Spending that
+   * did not come out of this drawer is the shop's, on the Profit screen; the
+   * bar carries the water the cashier paid for.
+   */
+  if (sessionId) {
+    where.push('cash_movement_id IN (SELECT id FROM cash_movements WHERE session_id = ?)');
+    params.push(sessionId);
   }
   const rows = db
     .prepare(`SELECT * FROM expenses WHERE ${where.join(' AND ')}`)

@@ -326,10 +326,19 @@ export function openingOfficeCash(branchId = null) {
  */
 export function sweepTargetFor(accountId) {
   const target = db.prepare('SELECT id, name, kind, active FROM cash_accounts WHERE is_default = 1').get();
-  if (!target || !target.active) return null;
-  if (target.id === accountId) return null;
-  if (target.kind === 'drawer') return null;
-  return target;
+  if (target && target.active && target.id !== accountId && target.kind !== 'drawer') return target;
+
+  /*
+   * The default is this drawer, or another one. The takings still go
+   * somewhere at close — into the shop's main cash, which is where its
+   * suppliers, its technicians and its bills are paid from. Recorded as "to
+   * the bank" instead, a day's takings vanished from the shop's cash while
+   * the main cash went on paying bills out of a balance that only ever fell.
+   */
+  const branch = db.prepare('SELECT branch_id FROM cash_accounts WHERE id = ?').get(accountId)?.branch_id ?? null;
+  const office = officeCashId(branch);
+  if (!office || office === accountId) return null;
+  return db.prepare('SELECT id, name, kind, active FROM cash_accounts WHERE id = ?').get(office) ?? null;
 }
 
 /** What a till holds right now: every movement it has ever had, added up. */

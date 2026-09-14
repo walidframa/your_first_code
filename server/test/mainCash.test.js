@@ -278,3 +278,46 @@ test('an expense can name the till it came out of, and a shut drawer named is re
   assert.equal(refused.status, 400);
   assert.match(refused.json.error, /closed/);
 });
+
+/* ------------------------------------------------- the sitting's own result */
+
+test('the register’s profit bar carries only what was paid out of its drawer', async () => {
+  assert.equal((await req('POST', '/cash/open', { openingUsd: 100 })).status, 201);
+  const before = (await req('GET', '/cash/current')).json.profit;
+
+  // A bill paid at the desk, from the main cash: the shop's spending, not the counter's.
+  assert.equal((await req('POST', '/expenses', { category: 'rent', amountUsd: 300, paidWith: 'cash' })).status, 201);
+  // A month's wages, which do not pass through any drawer.
+  const hired = await req('POST', '/employees', { name: 'Paid Person', jobTitle: 'Clerk', monthlySalary: 600 });
+  assert.equal(hired.status, 201, JSON.stringify(hired.json));
+  const accrued = await req('POST', `/employees/${hired.json.employee.id}/salary`, {});
+  assert.equal(accrued.status, 201, JSON.stringify(accrued.json));
+
+  const untouched = (await req('GET', '/cash/current')).json.profit;
+  assert.equal(untouched.expenses, before.expenses, 'neither the rent nor the wages are on the bar');
+
+  // The water the cashier paid for, out of this drawer, is.
+  assert.equal(
+    (await req('POST', '/expenses', { category: 'supplies', amountUsd: 4, paidWith: 'cash' }, AT_REGISTER)).status,
+    201,
+  );
+  const after = (await req('GET', '/cash/current')).json.profit;
+  assert.equal(round(after.expenses - before.expenses), 4);
+
+  // The Profit screen still carries all of it.
+  // (Wages are dated by their pay period, so today's figure is the rent and the water.)
+  const shop = (await req('GET', '/expenses/profit?preset=today&branch=all')).json;
+  assert.ok(shop.expenses.total >= 304, `the shop's spending includes the rent: ${shop.expenses.total}`);
+});
+
+test('closing the drawer moves the takings into the main cash, not to a bank nobody named', async () => {
+  const cashBefore = await mainCashUsd();
+  const counted = await drawerUsd();
+  const closed = await req('POST', '/cash/close', { countedUsd: counted, carriedUsd: 20 });
+  assert.equal(closed.status, 200, JSON.stringify(closed.json));
+
+  const kinds = closed.json.movements.map((m) => m.kind);
+  assert.ok(kinds.includes('sweep'), 'moved to the main cash');
+  assert.ok(!kinds.includes('bank_drop'), 'not sent to a bank');
+  assert.equal(await mainCashUsd(), round(cashBefore + counted - 20), 'the main cash holds the takings');
+});
