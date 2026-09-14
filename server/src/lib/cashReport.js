@@ -126,6 +126,21 @@ export function buildCashReport(sessionId, { includeProfit = false } = {}) {
   const counted = closed ? { usd: session.counted_usd, lbp: session.counted_lbp } : null;
   const difference = closed ? { usd: session.over_short_usd, lbp: session.over_short_lbp } : null;
 
+  /*
+   * What the books said at the moment of the count — not what is left now.
+   *
+   * `expected` above is the sum of every movement on the sitting, and a close
+   * writes two more: the over/short correction and the money lifted out. So
+   * on a closed sitting it is what was *carried forward* (usually nothing),
+   * and the count table read "Expected $0.00 · Counted $471.29 · +$69.29
+   * over" — three figures that cannot all be true of the same drawer. The
+   * figure the count was taken against was written on the session at close,
+   * and that is the one the table is about.
+   */
+  const atCount = closed
+    ? { usd: round2(session.expected_usd ?? 0), lbp: Math.round(session.expected_lbp ?? 0) }
+    : expected;
+
   return {
     session,
     account: { id: session.account_id, name: session.account_name || 'Cashbox' },
@@ -138,7 +153,10 @@ export function buildCashReport(sessionId, { includeProfit = false } = {}) {
     },
     closed,
     rate,
-    expected,
+    /* Against the count, once there is one; otherwise what is in the drawer. */
+    expected: atCount,
+    /* What is in the drawer now — after the close, what was left for next time. */
+    left: expected,
     counted,
     difference,
     /*
@@ -148,7 +166,7 @@ export function buildCashReport(sessionId, { includeProfit = false } = {}) {
      */
     combined: rate > 0
       ? {
-          expected: round2(combinedUsd(expected.usd, expected.lbp, rate)),
+          expected: round2(combinedUsd(atCount.usd, atCount.lbp, rate)),
           counted: counted ? round2(combinedUsd(counted.usd, counted.lbp, rate)) : null,
           difference: difference ? round2(combinedUsd(difference.usd, difference.lbp, rate)) : null,
         }
@@ -398,8 +416,8 @@ export function renderCashReportPdf(report, { generatedBy = null, timeZone = 'UT
   doc.rule({ above: 3, below: 2 });
   doc.row([
     { text: report.closed ? 'Left in the drawer' : 'In the drawer now', width: 260, bold: true },
-    { text: usd(report.expected.usd), width: 110, align: 'right', bold: true },
-    { text: lbp(report.expected.lbp), align: 'right', bold: true },
+    { text: usd(report.left.usd), width: 110, align: 'right', bold: true },
+    { text: lbp(report.left.lbp), align: 'right', bold: true },
   ]);
   doc.gap(10);
 

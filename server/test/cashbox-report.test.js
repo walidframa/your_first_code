@@ -343,6 +343,22 @@ test('the count on the report is the count that was recorded at close', async ()
   assert.equal(report.difference.usd, report.session.over_short_usd);
   assert.equal(report.difference.lbp, report.session.over_short_lbp);
   assert.equal(report.session.closing_note, 'twenty short');
+
+  /*
+   * The count table is about the moment of the count. The close writes two
+   * more movements — the correction and the money lifted out — and summing
+   * them in made "Expected" the float carried forward, so the table read
+   * "$0.00 expected, $471.29 counted, $69.29 over" on a live shop.
+   */
+  assert.equal(report.expected.usd, report.session.expected_usd, 'what the books said at the count');
+  assert.equal(report.expected.lbp, report.session.expected_lbp);
+  assert.equal(
+    Math.round((report.expected.usd + report.difference.usd) * 100) / 100,
+    report.counted.usd,
+    'expected plus the difference is the count — the three figures agree',
+  );
+  assert.equal(report.left.usd, 50, 'and what was left for next time is its own figure');
+  assert.equal(report.left.lbp, 0);
 });
 
 test('the two currencies are added up through the sitting’s own rate', async () => {
