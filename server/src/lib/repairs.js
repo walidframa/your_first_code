@@ -5,11 +5,12 @@
  * trade-in is a repair's opposite — a phone the shop takes in and keeps.
  */
 
-import { db } from '../db.js';
+import { db, transaction } from '../db.js';
 import { moveStock, stockAt } from './stock.js';
 import { encryptSecret } from './secrets.js';
 import { normaliseImei, receiveUnits, syncStockFromUnits } from './units.js';
-import { setIdPhoto } from './idPhotos.js';
+import { removeIdPhoto, setIdPhoto } from './idPhotos.js';
+import { currentSession, recordMovement, tillFor } from './cash.js';
 import { getSettings } from './settings.js';
 import { dayEndUtc, dayStartUtc, sqlDayShift } from './shopTime.js';
 
@@ -669,4 +670,67 @@ export function takeTradeIn(input, userId, branchId = null) {
 
   syncStockFromUnits(product.id);
   return { unit, cost, tradeInId, hasIdPhoto: Boolean(input.idPhoto) };
+}
+
+/**
+ * Undo a handset bought in by mistake.
+ *
+ * Only while it is still on the shelf: once sold, the sale's history points at
+ * it and the way back is to refund the sale. Everything the purchase wrote is
+ * taken back — the unit, the seller's ID, the row itself — and the money
+ * returns to the pile it came out of: the drawer if that sitting is still
+ * open, the shop's main cash otherwise, since a shut drawer cannot take
+ * money back any more than it can pay out.
+ */
+export function undoTradeIn(id, userId = null) {
+  const tradeIn = db.prepare('SELECT * FROM trade_ins WHERE id = ?').get(id);
+  if (!tradeIn) throw new Error('That purchase is not on record');
+
+  const unit = db.prepare('SELECT * FROM product_units WHERE id = ?').get(tradeIn.unit_id);
+  if (!unit) throw new Error('That handset is no longer on record');
+  if (unit.status === 'sold' || unit.sold_order_id || unit.sold_document_id) {
+    throw new Error(`${unit.imei} has been sold on — refund that sale instead`);
+  }
+  const partExchange = db.prepare('SELECT order_number FROM orders WHERE trade_in_id = ?').get(id);
+  if (partExchange) {
+    throw new Error(
+      `${unit.imei} was taken in part-exchange on ${partExchange.order_number} — refund that sale instead`,
+    );
+  }
+
+  return transaction(() => {
+    const paid = db
+      .prepare('SELECT * FROM cash_movements WHERE id = ?')
+      .get(tradeIn.cash_movement_id ?? -1)
+      ?? db
+        .prepare(
+          `SELECT * FROM cash_movements
+            WHERE reason = 'supplier' AND note = ? AND amount_usd = ? AND amount_lbp = ?
+            ORDER BY id DESC LIMIT 1`,
+        )
+        .get(`Traded in ${unit.imei}`, -Number(tradeIn.paid_usd || 0), -Number(tradeIn.paid_lbp || 0));
+
+    const usd = paid ? -paid.amount_usd : Number(tradeIn.paid_usd || 0);
+    const lbp = paid ? -paid.amount_lbp : Number(tradeIn.paid_lbp || 0);
+    if (usd > 0 || lbp > 0) {
+      const stillOpen = paid?.account_id ? currentSession(paid.account_id) : null;
+      recordMovement({
+        kind: 'cash_in',
+        amountUsd: usd,
+        amountLbp: lbp,
+        reason: 'correction',
+        note: `Trade-in undone ${unit.imei}`,
+        userId,
+        accountId: stillOpen ? paid.account_id : tillFor({ atRegister: false, branchId: unit.branch_id }),
+      });
+    }
+
+    removeIdPhoto('trade_in', id);
+    db.prepare('DELETE FROM trade_in_ids WHERE trade_in_id = ?').run(id);
+    db.prepare('DELETE FROM trade_ins WHERE id = ?').run(id);
+    db.prepare('DELETE FROM product_units WHERE id = ?').run(unit.id);
+    syncStockFromUnits(unit.product_id);
+
+    return { ok: true, imei: unit.imei, returnedUsd: usd, returnedLbp: lbp };
+  })();
 }

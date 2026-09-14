@@ -745,6 +745,40 @@ test('the ID can be deleted, and the purchase stays', async () => {
   assert.ok(list.find((t) => t.id === idTradeIn), 'the purchase itself is untouched');
 });
 
+test('a handset bought by mistake comes off the shelf, and the money goes back', async () => {
+  const cashBefore = await mainCashUsd();
+  const bought = await req(
+    'POST',
+    '/repairs/trade-ins',
+    { productId: phone.id, imei: '35 8800 1111 2222 5', condition: 'used', paidUsd: 75, sellerName: 'Oops' },
+    adminToken,
+  );
+  assert.equal(bought.status, 201, JSON.stringify(bought.json));
+  assert.equal(await mainCashUsd(), cashBefore - 75);
+
+  const undone = await req('DELETE', `/repairs/trade-ins/${bought.json.tradeInId}`, null, adminToken);
+  assert.equal(undone.status, 200, JSON.stringify(undone.json));
+  assert.equal(undone.json.returnedUsd, 75);
+
+  assert.equal(await mainCashUsd(), cashBefore, 'the money is back where it came from');
+  const found = await req('GET', '/units/lookup?imei=358800111122225', null, adminToken);
+  assert.notEqual(found.status, 200, 'the handset is gone from the shelf');
+  const list = (await req('GET', '/repairs/trade-ins/list', null, adminToken)).json.tradeIns;
+  assert.ok(!list.find((t) => t.id === bought.json.tradeInId), 'and off the list');
+});
+
+test('a handset already sold on cannot be undone — the sale is the way back', async () => {
+  const sold = (await req('GET', '/repairs/trade-ins/list', null, adminToken)).json.tradeIns.find(
+    (t) => t.imei === '358800111122221',
+  );
+  assert.ok(sold, 'the phone sold earlier is on the list');
+  assert.equal(sold.unit_status, 'sold');
+
+  const refused = await req('DELETE', `/repairs/trade-ins/${sold.id}`, null, adminToken);
+  assert.equal(refused.status, 400);
+  assert.match(refused.json.error, /sold on/);
+});
+
 /* ------------------------------------------------------- what the bench made */
 
 /*

@@ -2348,6 +2348,11 @@ addColumn('users', 'favourites', 'TEXT');
 
 addColumn('orders', 'trade_in_value', 'REAL NOT NULL DEFAULT 0');
 addColumn('orders', 'trade_in_id', 'INTEGER REFERENCES trade_ins(id)');
+/*
+ * Which cash movement paid for the handset, so undoing the purchase can put
+ * the money back where it came from rather than guessing from the note.
+ */
+addColumn('trade_ins', 'cash_movement_id', 'INTEGER REFERENCES cash_movements(id)');
 
 /*
  * Money taken on a repair, kept apart from the status.
