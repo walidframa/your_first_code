@@ -454,7 +454,7 @@ function CloseDrawer({ accountId, expected, sweepTo, onClose, onClosed, onReport
               it; where the shop keeps a standing cash account, it goes there
               and that account is credited with it. */}
           <p className="mt-1.5 text-xs text-slate-500">
-            {sweepTo ? `The rest is moved to ${sweepTo}.` : 'The rest is recorded as going to the bank.'}
+            {sweepTo ? `The rest is moved to ${sweepTo}.` : 'The rest is recorded as taken out of the drawer.'}
           </p>
         </div>
 
