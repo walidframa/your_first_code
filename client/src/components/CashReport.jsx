@@ -121,6 +121,20 @@ export default function CashReport({ sessionId, onClose }) {
   }
 
   const { session, closed, expected, counted, difference, combined, profit } = report;
+  /* After a close, what was left for the next sitting; before it, the drawer now. */
+  const left = report.left ?? expected;
+  /*
+   * The one shape of "wrong" that is not wrong: pounds the books expected were
+   * held as dollars, or the other way round, and the two differences cancel.
+   * The drawer is right; the notes are just not the ones the sales were paid
+   * in — pounds changed into dollars during the day, or counted in with them.
+   */
+  const swapped =
+    closed &&
+    combined &&
+    difference &&
+    Math.abs(combined.difference) < 1 &&
+    ((difference.usd > 0.005 && difference.lbp < -0.5) || (difference.usd < -0.005 && difference.lbp > 0.5));
 
   return (
     <Modal
@@ -211,6 +225,13 @@ export default function CashReport({ sessionId, onClose }) {
               )}
             </tbody>
           </table>
+          {swapped && (
+            <p className="mt-2 rounded-lg bg-brand-50 px-3 py-2 text-xs text-brand-800">
+              The drawer is right altogether: the {difference.usd > 0 ? 'pounds' : 'dollars'} the books
+              expected were in the drawer as {difference.usd > 0 ? 'dollars' : 'pounds'} instead — changed
+              during the sitting, or counted in with them. Nothing is missing.
+            </p>
+          )}
           <p className="mt-2 text-xs text-slate-500">
             Left for the next sitting {money(session.carried_usd)} · {lbp(session.carried_lbp)}. The rest was
             taken out. The difference is recorded against this sitting, so the next one starts from what is
@@ -244,8 +265,8 @@ export default function CashReport({ sessionId, onClose }) {
               ))}
               <tr className="border-t border-slate-200 font-semibold">
                 <td className="py-1.5 text-slate-900">{closed ? 'Left in the drawer' : 'In the drawer now'}</td>
-                <td className="tnum py-1.5 text-right text-slate-900">{money(expected.usd)}</td>
-                <td className="tnum py-1.5 text-right text-slate-600">{lbp(expected.lbp)}</td>
+                <td className="tnum py-1.5 text-right text-slate-900">{money(left.usd)}</td>
+                <td className="tnum py-1.5 text-right text-slate-600">{lbp(left.lbp)}</td>
               </tr>
             </tbody>
           </table>
