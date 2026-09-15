@@ -460,6 +460,67 @@ test('a paid repair puts the money in the drawer', async () => {
   assert.equal(after.usd, before.usd + 35, 'the repair was paid into the till');
 });
 
+test('handed back at less than the quote, the till takes what was charged, not what was quoted', async () => {
+  const t = (
+    await req(
+      'POST',
+      '/repairs',
+      { customerName: 'Talked Down', device: 'Samsung A12', fault: 'Screen', quoted: 100 },
+      adminToken,
+    )
+  ).json.ticket;
+
+  const before = (await req('GET', '/cash/current', null, adminToken)).json.expected;
+  const res = await req('POST', `/repairs/${t.id}/collect`, { charged: 80, takeBalance: true }, adminToken);
+  assert.equal(res.status, 200, JSON.stringify(res.json));
+  assert.equal(res.json.ticket.charged, 80);
+  assert.equal(res.json.ticket.paid_usd, 80, 'what was taken is what was charged');
+  assert.equal(res.json.outstanding, 0);
+
+  const after = (await req('GET', '/cash/current', null, adminToken)).json.expected;
+  assert.equal(Math.round((after.usd - before.usd) * 100) / 100, 80, 'and that is what went into the drawer');
+});
+
+test('the charge and the money taken can be put right after the phone has gone home', async () => {
+  const t = (
+    await req(
+      'POST',
+      '/repairs',
+      { customerName: 'Typed Wrong', device: 'Oppo A54', fault: 'Battery', quoted: 60 },
+      adminToken,
+    )
+  ).json.ticket;
+  const handed = await req(
+    'POST',
+    `/repairs/${t.id}/collect`,
+    { charged: 60, payments: [{ currency: 'USD', amount: 60 }] },
+    adminToken,
+  );
+  assert.equal(handed.status, 200, JSON.stringify(handed.json));
+
+  const before = (await req('GET', '/cash/current', null, adminToken)).json.expected;
+  // It was really $50, and the customer paid $50.
+  const fixed = await req('PATCH', `/repairs/${t.id}`, { charged: 50, paidUsd: 50 }, adminToken);
+  assert.equal(fixed.status, 200, JSON.stringify(fixed.json));
+  assert.equal(fixed.json.ticket.charged, 50);
+  assert.equal(fixed.json.ticket.paid_usd, 50);
+  assert.equal(fixed.json.ticket.status, 'collected', 'still handed back');
+  assert.ok(
+    fixed.json.events.some((e) => e.status === 'correction' && /\$60\.00 → \$50\.00/.test(e.note || '')),
+    'the correction is on the record',
+  );
+
+  const after = (await req('GET', '/cash/current', null, adminToken)).json.expected;
+  assert.equal(Math.round((after.usd - before.usd) * 100) / 100, -10, 'the ten dollars never taken leave the drawer');
+
+  const today = new Date().toISOString().slice(0, 10);
+  const profit = (await req('GET', `/repairs/profit?from=${today}&to=${today}`, null, adminToken)).json;
+  assert.ok(profit.revenue >= 50, 'the report reads the corrected charge');
+
+  const noNegatives = await req('PATCH', `/repairs/${t.id}`, { paidUsd: -5 }, adminToken);
+  assert.equal(noNegatives.status, 400);
+});
+
 /* ------------------------------------------------------------- trade-ins */
 
 /** The shop's main cash, as the Accounts screen reads it. */
