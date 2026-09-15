@@ -8,6 +8,7 @@ import {
   movementsFor,
   recordMovement,
   roundAmount,
+  transferBetweenBranches,
   walletById,
 } from '../lib/wallets.js';
 import { installStarterCatalogue, STARTER_CARD_COUNT } from '../lib/prepaidCatalogue.js';
@@ -20,8 +21,18 @@ const router = Router();
  * credit ran out by selling something the shop cannot deliver.
  */
 router.get('/', requireAuth, (req, res) => {
-  res.json({ wallets: listWallets({ activeOnly: req.query.activeOnly === 'true' }) });
+  // The balance where the caller is standing; the company's total rides
+  // alongside as `total`, and `balances` says how it splits between branches.
+  res.json({ wallets: listWallets({ activeOnly: req.query.activeOnly === 'true', branchId: req.branchId }) });
 });
+
+/** A branch named in a request, checked to be one of the shop's. */
+function branchIn(req, given) {
+  if (given === undefined || given === null || given === '') return req.branchId;
+  const branch = db.prepare('SELECT id, active FROM branches WHERE id = ?').get(Number(given));
+  if (!branch || !branch.active) throw new Error('That branch does not exist');
+  return branch.id;
+}
 
 router.post('/', requireAuth, requirePermission('cards'), (req, res) => {
   const { name, kind = 'other', currency = 'USD', lowBalance = 0, note = null, opening = 0 } = req.body || {};
@@ -49,9 +60,10 @@ router.post('/', requireAuth, requirePermission('cards'), (req, res) => {
           amount: Number(opening),
           note: 'Opening balance',
           userId: req.user.id,
+          branchId: branchIn(req, req.body?.branchId),
         });
       }
-      return walletById(info.lastInsertRowid);
+      return walletById(info.lastInsertRowid, { branchId: req.branchId });
     })();
     res.status(201).json({ wallet });
   } catch (err) {
@@ -126,7 +138,7 @@ router.put('/:id', requireAuth, requirePermission('cards'), (req, res) => {
   } catch {
     return res.status(409).json({ error: 'A wallet with that name already exists' });
   }
-  res.json({ wallet: walletById(wallet.id) });
+  res.json({ wallet: walletById(wallet.id, { branchId: req.branchId }) });
 });
 
 router.delete('/:id', requireAuth, requirePermission('cards'), (req, res) => {
@@ -150,9 +162,37 @@ router.delete('/:id', requireAuth, requirePermission('cards'), (req, res) => {
 });
 
 router.get('/:id/movements', requireAuth, requirePermission('cards'), (req, res) => {
-  const wallet = walletById(req.params.id);
+  const wallet = walletById(req.params.id, { branchId: req.branchId });
   if (!wallet) return res.status(404).json({ error: 'Wallet not found' });
-  res.json({ wallet, movements: movementsFor(wallet.id, req.query.limit) });
+  // The whole company's statement unless one branch is asked for by name.
+  const branchId = req.query.branchId ? Number(req.query.branchId) : null;
+  res.json({ wallet, movements: movementsFor(wallet.id, req.query.limit, branchId) });
+});
+
+/**
+ * Move credit from one branch's line to another's.
+ *
+ * Credit bought once and split between the shops, or lent across when one
+ * has run out. Both statements say what happened, and the receiving branch
+ * is costed at what the giving one paid.
+ */
+router.post('/:id/transfer', requireAuth, requirePermission('cards'), (req, res) => {
+  const { fromBranchId, toBranchId, amount, note = null } = req.body || {};
+  try {
+    const moved = transaction(() =>
+      transferBetweenBranches({
+        walletId: Number(req.params.id),
+        fromBranchId: fromBranchId ?? req.branchId,
+        toBranchId,
+        amount,
+        note,
+        userId: req.user.id,
+      }),
+    )();
+    res.status(201).json({ ...moved, wallet: walletById(req.params.id, { branchId: req.branchId }) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
 });
 
 /**
@@ -166,7 +206,7 @@ router.post('/:id/movements', requireAuth, requirePermission('cards'), (req, res
   const wallet = db.prepare('SELECT * FROM wallets WHERE id = ?').get(req.params.id);
   if (!wallet) return res.status(404).json({ error: 'Wallet not found' });
 
-  const { kind = 'top_up', amount, note = null, costUsd = null } = req.body || {};
+  const { kind = 'top_up', amount, note = null, costUsd = null, branchId } = req.body || {};
   if (!['top_up', 'withdrawal', 'adjustment'].includes(kind)) {
     return res.status(400).json({ error: 'kind must be top_up, withdrawal or adjustment' });
   }
@@ -209,11 +249,13 @@ router.post('/:id/movements', requireAuth, requirePermission('cards'), (req, res
       note,
       userId: req.user.id,
       costUsd: cost,
+      // Whose line it went onto: the branch named, or the one the caller is at.
+      branchId: branchIn(req, branchId),
     });
   } catch (err) {
     return res.status(400).json({ error: err.message });
   }
-  res.status(201).json({ wallet: walletById(wallet.id) });
+  res.status(201).json({ wallet: walletById(wallet.id, { branchId: req.branchId }) });
 });
 
 /**
@@ -224,7 +266,7 @@ router.post('/:id/movements', requireAuth, requirePermission('cards'), (req, res
  */
 router.post('/starter-catalogue', requireAuth, requirePermission('cards'), (req, res) => {
   const result = transaction(() => installStarterCatalogue({ userId: req.user.id }))();
-  res.status(201).json({ ...result, total: STARTER_CARD_COUNT, wallets: listWallets() });
+  res.status(201).json({ ...result, total: STARTER_CARD_COUNT, wallets: listWallets({ branchId: req.branchId }) });
 });
 
 export default router;

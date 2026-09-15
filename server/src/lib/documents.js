@@ -7,7 +7,7 @@ import { cancelDocumentVouchers, recordDocumentVoucher } from './vouchers.js';
 import { recordCostChange } from './costHistory.js';
 import { parseImeiList, isAvailable, receiveUnits, syncStockFromUnits } from './units.js';
 import { costOfLine } from './wallets.js';
-import { moveStock, stockAt } from './stock.js';
+import { mainBranchId, moveStock, stockAt } from './stock.js';
 import { componentsOf, movePartsStock } from './bundles.js';
 import { scratchPlan } from './validityCards.js';
 import { taxRate } from './settings.js';
@@ -577,8 +577,8 @@ function moveWalletCredit({ doc, item, product, direction, userId, note, sign })
 
   db.prepare(
     `INSERT INTO wallet_movements
-       (wallet_id, kind, amount, amount_usd, exchange_rate, document_id, product_id, note, user_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (wallet_id, kind, amount, amount_usd, exchange_rate, document_id, product_id, note, user_id, branch_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     wallet.id,
     kind,
@@ -589,6 +589,8 @@ function moveWalletCredit({ doc, item, product, direction, userId, note, sign })
     product.id,
     note,
     userId,
+    // The branch the invoice belongs to is whose line the credit moved on.
+    doc.branch_id ?? mainBranchId(),
   );
 }
 
@@ -608,10 +610,11 @@ function moveValidityCredit({ doc, item, product, direction, userId, note, sign 
   if (sign > 0) return;
   const packs = Math.round(item.quantity);
   const movement = sign * direction; // −1 on a sale, +1 undoing one
+  const at = doc.branch_id ?? mainBranchId();
   const stamp = db.prepare(
     `INSERT INTO wallet_movements
-       (wallet_id, kind, amount, amount_usd, cost_usd, exchange_rate, document_id, product_id, note, user_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (wallet_id, kind, amount, amount_usd, cost_usd, exchange_rate, document_id, product_id, note, user_id, branch_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
 
   for (const card of scratchPlan(product)) {
@@ -633,6 +636,7 @@ function moveValidityCredit({ doc, item, product, direction, userId, note, sign 
           linked.id,
           `${each} × ${linked.name} · ${note}`,
           userId,
+          at,
         );
       }
     } else {
@@ -655,6 +659,7 @@ function moveValidityCredit({ doc, item, product, direction, userId, note, sign 
       product.id,
       `Back off ${packs} × ${product.name} · ${note}`,
       userId,
+      at,
     );
   }
 }

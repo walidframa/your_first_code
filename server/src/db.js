@@ -1857,6 +1857,32 @@ function seedMainBranch() {
 seedMainBranch();
 
 /*
+ * Which branch's credit a wallet movement touched.
+ *
+ * A wallet used to be one balance for the whole company. That is not how the
+ * shops that sell cards work: each branch holds its own line with the carrier,
+ * tops it up from its own money and sells its own cards out of it — so the
+ * balance is kept per branch, and the wallet is the name they share. Anything
+ * written before this column existed is filed under the branch its sale or
+ * invoice belonged to, and under the main branch when it named neither.
+ */
+addColumn('wallet_movements', 'branch_id', 'INTEGER REFERENCES branches(id)');
+db.prepare(
+  `UPDATE wallet_movements
+      SET branch_id = (SELECT o.branch_id FROM orders o WHERE o.id = wallet_movements.order_id)
+    WHERE branch_id IS NULL AND order_id IS NOT NULL`,
+).run();
+db.prepare(
+  `UPDATE wallet_movements
+      SET branch_id = (SELECT d.branch_id FROM documents d WHERE d.id = wallet_movements.document_id)
+    WHERE branch_id IS NULL AND document_id IS NOT NULL`,
+).run();
+db.prepare('UPDATE wallet_movements SET branch_id = ? WHERE branch_id IS NULL').run(
+  db.prepare('SELECT id FROM branches WHERE is_main = 1').get()?.id ?? null,
+);
+db.exec('CREATE INDEX IF NOT EXISTS idx_wallet_movements_branch ON wallet_movements(wallet_id, branch_id)');
+
+/*
  * Shopify inventory sync.
  *
  * `shopify_links` ties a local product to one Shopify variant, and remembers

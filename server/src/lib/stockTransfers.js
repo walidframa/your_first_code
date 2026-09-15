@@ -192,7 +192,9 @@ export function sendTransfer({
       if (product.wallet_id) {
         // Credit is not on a shelf. A card's wallet is shared by the company
         // already, so there is nothing to move.
-        throw new Error(`${product.name} is sold from a wallet — there is no stock to move`);
+        throw new Error(
+          `${product.name} is sold from a wallet — there is no stock to move. Move the credit itself, from the wallet under Cards`,
+        );
       }
 
       if (product.tracks_units) {

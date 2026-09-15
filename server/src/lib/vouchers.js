@@ -143,7 +143,7 @@ export function partySign(type, direction) {
  * `direction` is −1 for the side the money left and +1 for the side it reached,
  * so both ends run through the same code and cannot disagree about the sign.
  */
-function applySide(side, direction, { usd, lbp, usdEquivalent, rate, number, note, userId }) {
+function applySide(side, direction, { usd, lbp, usdEquivalent, rate, number, note, userId, branchId }) {
   if (side.type === 'cash') {
     return {
       movementId: recordMovement({
@@ -169,6 +169,7 @@ function applySide(side, direction, { usd, lbp, usdEquivalent, rate, number, not
       amountUsd: round2(direction * usdEquivalent),
       note: `${number}${note ? ` · ${note}` : ''}`,
       userId,
+      branchId,
     });
     return { movementId: null, entryId: null };
   }
@@ -227,6 +228,8 @@ export function recordVoucher({
   note = null,
   issuedOn = null,
   userId = null,
+  /* Whose wallet line a top-up lands on, when one end is a wallet. */
+  branchId = null,
 }) {
   const usd = round2(Number(amountUsd) || 0);
   const lbp = Math.round(Number(amountLbp) || 0);
@@ -302,7 +305,7 @@ export function recordVoucher({
       );
 
     const voucherId = info.lastInsertRowid;
-    const context = { usd, lbp, usdEquivalent, rate, number, note, userId };
+    const context = { usd, lbp, usdEquivalent, rate, number, note, userId, branchId };
 
     const out = applySide(from, -1, context);
     const arrived = applySide(to, 1, context);
@@ -432,6 +435,16 @@ export function cancelVoucher(id, userId = null) {
   const from = resolveSide(voucher.from_type, voucher.from_id, voucher.from_name, 'from');
   const to = resolveSide(voucher.to_type, voucher.to_id, voucher.to_name, 'to');
 
+  /*
+   * A wallet end is put back on the branch whose line it moved: the movement
+   * the voucher wrote says which, and cancelling it anywhere else would leave
+   * one branch short and another long.
+   */
+  const branchId =
+    db
+      .prepare('SELECT branch_id FROM wallet_movements WHERE note = ? OR note LIKE ? LIMIT 1')
+      .get(voucher.voucher_number, `${voucher.voucher_number} · %`)?.branch_id ?? null;
+
   const context = {
     usd: voucher.amount_usd,
     lbp: voucher.amount_lbp,
@@ -440,6 +453,7 @@ export function cancelVoucher(id, userId = null) {
     number: `Cancelled ${voucher.voucher_number}`,
     note: null,
     userId,
+    branchId,
   };
 
   return transaction(() => {

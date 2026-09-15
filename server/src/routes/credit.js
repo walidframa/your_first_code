@@ -28,9 +28,10 @@ router.get('/carriers', requireAuth, (req, res) => {
       priceLbp: w.credit_price_lbp,
       // What a dollar of this credit really cost, which is not face value for
       // a shop that gets it back off validity cards.
-      costBasis: creditCostBasis(w.id),
+      costBasis: creditCostBasis(w.id, req.branchId),
       lowBalance: w.low_balance,
-      balance: balanceOf(w.id),
+      // This counter's line with the carrier, not the company's.
+      balance: balanceOf(w.id, req.branchId),
     })),
   });
 });
@@ -52,7 +53,7 @@ router.get('/quote', requireAuth, (req, res) => {
   try {
     const quoted = quote(req.query.amount, wallet.sms_fee);
     const { exchange_rate: rate, lbp_rounding: step } = getSettings();
-    const basis = creditCostBasis(wallet.id);
+    const basis = creditCostBasis(wallet.id, req.branchId);
 
     /*
      * Credit is quoted in pounds — "110,000 a dollar" is the number the counter
@@ -76,7 +77,7 @@ router.get('/quote', requireAuth, (req, res) => {
        */
       realCost: round2(quoted.cost * basis),
       costLbp: rate > 0 ? usdToLbp(round2(quoted.cost * basis), rate, step) : 0,
-      carrier: { id: wallet.id, name: wallet.name, balance: balanceOf(wallet.id) },
+      carrier: { id: wallet.id, name: wallet.name, balance: balanceOf(wallet.id, req.branchId) },
     });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -121,12 +122,13 @@ router.post('/received', requireAuth, requirePermission('register'), (req, res) 
     amount: round2(value),
     costUsd: round2(cost),
     userId: req.user.id,
+    branchId: req.branchId,
     note: [msisdn ? `Back from ${msisdn}` : 'Credit taken back', note].filter(Boolean).join(' — '),
   });
 
   res.status(201).json({
-    balance: balanceOf(wallet.id),
-    costBasis: creditCostBasis(wallet.id),
+    balance: balanceOf(wallet.id, req.branchId),
+    costBasis: creditCostBasis(wallet.id, req.branchId),
   });
 });
 
