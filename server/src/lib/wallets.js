@@ -15,6 +15,7 @@ import { db } from '../db.js';
 import { round2 } from './currency.js';
 import { getSettings } from './settings.js';
 import { mainBranchId } from './stock.js';
+import { dayEndUtc, dayStartUtc } from './shopTime.js';
 
 export const WALLET_KINDS = ['recharge', 'gift_card', 'app', 'other'];
 export const WALLET_CURRENCIES = ['USD', 'LBP'];
@@ -118,8 +119,22 @@ export function listWallets({ activeOnly = false, branchId = null } = {}) {
   }));
 }
 
-export function movementsFor(walletId, limit = 100, branchId = null) {
-  return db
+/**
+ * The wallet's history, newest first.
+ *
+ * Every movement, not the last hundred: a shop reconciling against the
+ * carrier's statement needs the month, and the month before it. So it is cut
+ * by date, by kind and by branch, and paged — `more` says whether there is
+ * another page behind the one returned. Dates are the shop's own days, see
+ * lib/shopTime.js. The old positional `limit` is still honoured.
+ */
+export function movementsFor(walletId, options = 100, legacyBranch = null) {
+  const opts = typeof options === 'object' && options !== null ? options : { limit: options, branchId: legacyBranch };
+  const { limit = 100, offset = 0, branchId = null, from = null, to = null, kind = null } = opts;
+  const lo = from ? dayStartUtc(from) : null;
+  const hi = to ? dayEndUtc(to) : null;
+  const size = Math.min(Math.max(Number(limit) || 100, 1), 1000);
+  const rows = db
     .prepare(
       `SELECT m.*, u.name AS user_name, o.order_number, d.doc_number, p.name AS product_name,
               b.name AS branch_name
@@ -129,11 +144,61 @@ export function movementsFor(walletId, limit = 100, branchId = null) {
        LEFT JOIN documents d ON d.id = m.document_id
        LEFT JOIN products p ON p.id = m.product_id
        LEFT JOIN branches b ON b.id = m.branch_id
-       WHERE m.wallet_id = ? AND (? IS NULL OR m.branch_id = ?)
+       WHERE m.wallet_id = ?
+         AND (? IS NULL OR m.branch_id = ?)
+         AND (? IS NULL OR m.created_at >= ?)
+         AND (? IS NULL OR m.created_at <= ?)
+         AND (? IS NULL OR m.kind = ?)
        ORDER BY m.created_at DESC, m.id DESC
-       LIMIT ?`,
+       LIMIT ? OFFSET ?`,
     )
-    .all(walletId, branchId, branchId, Math.min(Number(limit) || 100, 500));
+    .all(walletId, branchId, branchId, lo, lo, hi, hi, kind, kind, size + 1, Math.max(Number(offset) || 0, 0));
+  const more = rows.length > size;
+  return Object.assign(more ? rows.slice(0, size) : rows, { more });
+}
+
+/** What the statement says in words for each kind of row. */
+export const MOVEMENT_LABELS = {
+  top_up: 'Topped up',
+  withdrawal: 'Taken out',
+  sale: 'Sold',
+  refund: 'Refunded',
+  adjustment: 'Correction',
+};
+
+/**
+ * The same history as a spreadsheet.
+ *
+ * For the accountant, and for the argument with the carrier: their statement
+ * is a file, and the shop's answer to it should be one too.
+ */
+export function movementsCsv(wallet, rows) {
+  const cell = (v) => {
+    const s = v === null || v === undefined ? '' : String(v);
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const lines = [
+    ['When', 'Branch', 'What happened', 'Detail', 'Reference', `Amount (${wallet.currency})`, 'Amount (USD)', 'Cost (USD)', 'By', 'Note'].join(','),
+  ];
+  for (const m of rows) {
+    lines.push(
+      [
+        m.created_at,
+        m.branch_name || '',
+        MOVEMENT_LABELS[m.kind] || m.kind,
+        m.product_name || '',
+        m.order_number || m.doc_number || '',
+        m.amount,
+        m.amount_usd,
+        m.cost_usd ?? '',
+        m.user_name || '',
+        m.note || '',
+      ]
+        .map(cell)
+        .join(','),
+    );
+  }
+  return lines.join('\n') + '\n';
 }
 
 /**

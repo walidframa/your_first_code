@@ -8,7 +8,7 @@
 import { db, transaction } from '../db.js';
 import { moveStock, stockAt } from './stock.js';
 import { encryptSecret } from './secrets.js';
-import { normaliseImei, receiveUnits, syncStockFromUnits } from './units.js';
+import { UNIT_CONDITIONS, normaliseImei, receiveUnits, syncStockFromUnits } from './units.js';
 import { removeIdPhoto, setIdPhoto } from './idPhotos.js';
 import { currentSession, recordMovement, tillFor } from './cash.js';
 import { getSettings } from './settings.js';
@@ -755,6 +755,109 @@ export function takeTradeIn(input, userId, branchId = null) {
 
   syncStockFromUnits(product.id);
   return { unit, cost, tradeInId, hasIdPhoto: Boolean(input.idPhoto) };
+}
+
+/**
+ * Put a purchase right after the fact.
+ *
+ * The seller's name typed wrong, an IMEI with a digit missing, a price agreed
+ * as $60 and written as $75. While the handset is still on the shelf all of
+ * it is editable, the money included: a purchase corrected downwards is money
+ * that never left, so the difference goes back into the pile it came from
+ * (the open drawer, or the main cash). Once the phone has been sold on, only
+ * who sold it and the note can change — the unit belongs to a sale now.
+ */
+export function editTradeIn(id, input, userId = null) {
+  const tradeIn = db.prepare('SELECT * FROM trade_ins WHERE id = ?').get(id);
+  if (!tradeIn) throw new Error('That purchase is not on record');
+  const unit = db.prepare('SELECT * FROM product_units WHERE id = ?').get(tradeIn.unit_id);
+  if (!unit) throw new Error('That handset is no longer on record');
+  const onShelf = unit.status === 'in_stock' && !unit.sold_order_id && !unit.sold_document_id;
+
+  const has = (k) => input[k] !== undefined;
+  const wantsUnitChange = ['imei', 'condition', 'productId', 'paidUsd', 'paidLbp'].some(has);
+  if (!onShelf && wantsUnitChange) {
+    throw new Error(`${unit.imei} has been sold on — only the seller and the note can be changed now`);
+  }
+
+  return transaction(() => {
+    db.prepare(
+      `UPDATE trade_ins SET seller_name = ?, seller_phone = ?, note = ? WHERE id = ?`,
+    ).run(
+      has('sellerName') ? String(input.sellerName || '').trim() || null : tradeIn.seller_name,
+      has('sellerPhone') ? String(input.sellerPhone || '').trim() || null : tradeIn.seller_phone,
+      has('note') ? String(input.note || '').trim() || null : tradeIn.note,
+      id,
+    );
+
+    if (onShelf) {
+      let { imei, imei2, product_id: productId, condition } = unit;
+      if (has('imei')) {
+        const parts = String(input.imei).split(/[,/;|]/).map((x) => normaliseImei(x)).filter(Boolean);
+        if (!parts[0]) throw new Error('A handset needs an IMEI');
+        [imei, imei2 = null] = parts;
+        for (const number of [imei, imei2].filter(Boolean)) {
+          const clash = db
+            .prepare('SELECT id FROM product_units WHERE (imei = ? OR imei2 = ?) AND id != ?')
+            .get(number, number, unit.id);
+          if (clash) throw new Error(`${number} is already in stock or sold`);
+        }
+      }
+      if (has('condition')) {
+        condition = String(input.condition);
+        if (!UNIT_CONDITIONS.includes(condition)) {
+          throw new Error(`Condition must be one of: ${UNIT_CONDITIONS.join(', ')}`);
+        }
+      }
+      if (has('productId')) {
+        const product = db.prepare('SELECT * FROM products WHERE id = ?').get(Number(input.productId));
+        if (!product) throw new Error('Which model is it? Pick the product it will be sold as');
+        if (!product.tracks_units) throw new Error(`${product.name} is not tracked by IMEI`);
+        productId = product.id;
+      }
+
+      const paidUsd = has('paidUsd') ? Math.round((Number(input.paidUsd) || 0) * 100) / 100 : tradeIn.paid_usd;
+      const paidLbp = has('paidLbp') ? Math.round(Number(input.paidLbp) || 0) : tradeIn.paid_lbp;
+      if (paidUsd < 0 || paidLbp < 0) throw new Error('A trade-in cannot pay out less than nothing');
+      const deltaUsd = Math.round((paidUsd - tradeIn.paid_usd) * 100) / 100;
+      const deltaLbp = paidLbp - Math.round(tradeIn.paid_lbp);
+
+      let cost = unit.cost;
+      if (deltaUsd !== 0 || deltaLbp !== 0) {
+        const rate = Number(getSettings().exchange_rate) || 0;
+        cost = Math.round((paidUsd + (rate > 0 ? paidLbp / rate : 0)) * 100) / 100;
+        /* Money the other way: paid less than written is money back in. */
+        const paid = db.prepare('SELECT * FROM cash_movements WHERE id = ?').get(tradeIn.cash_movement_id ?? -1);
+        const stillOpen = paid?.account_id ? currentSession(paid.account_id) : null;
+        recordMovement({
+          kind: deltaUsd > 0 || deltaLbp > 0 ? 'cash_out' : 'cash_in',
+          amountUsd: -deltaUsd,
+          amountLbp: -deltaLbp,
+          reason: 'correction',
+          note: `Trade-in ${imei} corrected`,
+          userId,
+          accountId: stillOpen ? paid.account_id : tillFor({ atRegister: false, branchId: unit.branch_id }),
+        });
+        db.prepare('UPDATE trade_ins SET paid_usd = ?, paid_lbp = ? WHERE id = ?').run(paidUsd, paidLbp, id);
+      }
+
+      db.prepare(
+        `UPDATE product_units SET imei = ?, imei2 = ?, product_id = ?, condition = ?, cost = ? WHERE id = ?`,
+      ).run(imei, imei2, productId, condition, cost, unit.id);
+      if (productId !== unit.product_id) syncStockFromUnits(unit.product_id);
+      syncStockFromUnits(productId);
+    }
+
+    return db
+      .prepare(
+        `SELECT ti.*, u.imei, u.imei2, u.condition, u.status AS unit_status, u.product_id, p.name AS product_name
+           FROM trade_ins ti
+           JOIN product_units u ON u.id = ti.unit_id
+           JOIN products p ON p.id = u.product_id
+          WHERE ti.id = ?`,
+      )
+      .get(id);
+  })();
 }
 
 /**

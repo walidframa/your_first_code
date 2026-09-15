@@ -22,6 +22,7 @@ import {
   undoTradeIn,
   outstandingOn,
   correctMoney,
+  editTradeIn,
 } from '../lib/repairs.js';
 import { repairMessage, sendable } from '../lib/whatsapp.js';
 import { presetRange } from '../lib/profit.js';
@@ -393,6 +394,15 @@ router.post('/trade-ins', requireAuth, (req, res) => {
  * Only one still on the shelf: a sold one belongs to a sale now, and the way
  * back from that is a refund. The money goes back where it came from.
  */
+/** Put a purchase right: who sold it, the IMEI, the model, what was paid. */
+router.put('/trade-ins/:id', requireAuth, requirePermission('repairs'), (req, res) => {
+  try {
+    res.json({ tradeIn: editTradeIn(Number(req.params.id), req.body || {}, req.user.id) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 router.delete('/trade-ins/:id', requireAuth, requirePermission('repairs'), (req, res) => {
   try {
     const result = undoTradeIn(Number(req.params.id), req.user.id);

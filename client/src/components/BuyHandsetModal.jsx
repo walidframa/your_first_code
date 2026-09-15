@@ -214,6 +214,17 @@ export default function BuyHandsetModal({
           label="IMEI"
           value={form.imei}
           onChange={set('imei')}
+          /*
+           * A barcode reader types the number and then presses Enter, and
+           * Enter in a form is "submit". That sent a half-filled purchase off
+           * — no price, no seller — and threw the person out of the dialog.
+           * The scanner's Enter moves to the next field instead.
+           */
+          onKeyDown={(e) => {
+            if (e.key !== 'Enter') return;
+            e.preventDefault();
+            document.getElementById('cond')?.focus();
+          }}
           required
           className="font-mono"
           hint="Both numbers of a dual-SIM, separated by a comma"

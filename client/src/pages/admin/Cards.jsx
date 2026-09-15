@@ -579,14 +579,94 @@ function TopUpDialog({ wallet, onClose, onSaved }) {
   );
 }
 
+const MOVEMENT_KINDS = [
+  ['', 'Everything'],
+  ['top_up', 'Topped up'],
+  ['sale', 'Sold'],
+  ['refund', 'Refunded'],
+  ['withdrawal', 'Taken out'],
+  ['adjustment', 'Corrections'],
+];
+
+const PAGE = 100;
+
+/**
+ * The whole history, not the last hundred rows.
+ *
+ * A shop reconciling against the carrier's statement needs the month and the
+ * month before it, cut to what it is looking for — so the statement is
+ * filtered by date, by kind and by branch, paged as far back as it goes, and
+ * comes down as a spreadsheet for the accountant.
+ */
 function StatementDialog({ wallet, onClose }) {
+  const toast = useToast();
   const [data, setData] = useState(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [downloading, setDownloading] = useState(false);
   const { branches } = useBranch();
   const several = branches.length > 1;
+  const [filters, setFilters] = useState({ from: '', to: '', kind: '', branchId: '' });
+  const setFilter = (k) => (e) => setFilters((f) => ({ ...f, [k]: e.target.value }));
+
+  const params = useMemo(
+    () => ({
+      from: filters.from || undefined,
+      to: filters.to || undefined,
+      kind: filters.kind || undefined,
+      branchId: filters.branchId || undefined,
+      limit: PAGE,
+    }),
+    [filters],
+  );
 
   useEffect(() => {
-    api.get(`/wallets/${wallet.id}/movements`).then((res) => setData(res.data));
-  }, [wallet.id]);
+    let live = true;
+    setData(null);
+    api.get(`/wallets/${wallet.id}/movements`, { params }).then((res) => {
+      if (live) setData(res.data);
+    });
+    return () => {
+      live = false;
+    };
+  }, [wallet.id, params]);
+
+  async function loadMore() {
+    setLoadingMore(true);
+    try {
+      const res = await api.get(`/wallets/${wallet.id}/movements`, {
+        params: { ...params, offset: data.movements.length },
+      });
+      setData((d) => ({ ...d, movements: [...d.movements, ...res.data.movements], more: res.data.more }));
+    } finally {
+      setLoadingMore(false);
+    }
+  }
+
+  /* Fetched with the token and handed to the browser as a file, the same way
+     the cashbox report is: a plain link would arrive without it. */
+  async function download() {
+    setDownloading(true);
+    try {
+      const res = await api.get(`/wallets/${wallet.id}/movements.csv`, {
+        params: { ...params, limit: undefined },
+        responseType: 'blob',
+      });
+      const name =
+        /filename="([^"]+)"/.exec(res.headers['content-disposition'] || '')?.[1] || 'wallet-statement.csv';
+      const url = URL.createObjectURL(new Blob([res.data], { type: 'text/csv' }));
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = name;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+    } catch {
+      toast('Could not download the statement', 'error');
+    } finally {
+      setDownloading(false);
+    }
+  }
 
   return (
     <Modal
@@ -600,13 +680,52 @@ function StatementDialog({ wallet, onClose }) {
           : `Balance ${walletAmount(wallet.balance, wallet.currency)}`
       }
     >
+      <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-4" data-statement-filters>
+        <Input label="From" type="date" value={filters.from} onChange={setFilter('from')} />
+        <Input label="To" type="date" value={filters.to} onChange={setFilter('to')} />
+        <Select label="Show" value={filters.kind} onChange={setFilter('kind')}>
+          {MOVEMENT_KINDS.map(([v, l]) => (
+            <option key={v} value={v}>
+              {l}
+            </option>
+          ))}
+        </Select>
+        {several ? (
+          <Select label="Branch" value={filters.branchId} onChange={setFilter('branchId')}>
+            <option value="">Whole company</option>
+            {branches.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.name}
+              </option>
+            ))}
+          </Select>
+        ) : (
+          <div className="flex items-end">
+            <Button variant="secondary" className="w-full" onClick={download} loading={downloading}>
+              Download CSV
+            </Button>
+          </div>
+        )}
+      </div>
+      {several && (
+        <div className="mb-3 flex justify-end">
+          <Button variant="secondary" onClick={download} loading={downloading}>
+            Download CSV
+          </Button>
+        </div>
+      )}
+
       {!data ? (
         <Skeleton className="h-48" />
       ) : data.movements.length === 0 ? (
         <EmptyState
           icon={Receipt}
-          title="Nothing yet"
-          description="Top the wallet up, and every card sold out of it will appear here."
+          title="Nothing here"
+          description={
+            filters.from || filters.to || filters.kind || filters.branchId
+              ? 'Nothing matches these filters.'
+              : 'Top the wallet up, and every card sold out of it will appear here.'
+          }
         />
       ) : (
         <table className="w-full text-sm">
@@ -645,6 +764,13 @@ function StatementDialog({ wallet, onClose }) {
             ))}
           </tbody>
         </table>
+      )}
+      {data?.more && (
+        <div className="mt-3 flex justify-center">
+          <Button variant="secondary" onClick={loadMore} loading={loadingMore}>
+            Show older
+          </Button>
+        </div>
       )}
     </Modal>
   );
