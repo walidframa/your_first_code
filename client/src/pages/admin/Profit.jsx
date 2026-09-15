@@ -384,6 +384,80 @@ export default function Profit() {
               )}
             </Card>
 
+            {/*
+              * The same sales by category — the question behind "what should
+              * I buy more of", which ten best products cannot answer when the
+              * accessories earn their money ten dollars at a time.
+              */}
+            <Card data-by-category>
+              <div className="border-b border-slate-100 px-5 py-3">
+                <p className="font-medium text-slate-900">By category</p>
+                <p className="text-sm text-slate-500">Every category that sold, best takings first</p>
+              </div>
+              {(report.byCategory || []).length === 0 ? (
+                <EmptyState
+                  icon={TrendingUp}
+                  title="Nothing sold in this period"
+                  description="Pick a wider range, or ring up a sale."
+                />
+              ) : (
+                <table className="w-full text-sm">
+                  <thead className="border-b border-slate-100 text-left text-xs text-slate-500">
+                    <tr>
+                      <th className="px-5 py-2 font-medium">Category</th>
+                      <th className="px-3 py-2 text-right font-medium">Sold</th>
+                      <th className="px-3 py-2 text-right font-medium">Revenue</th>
+                      <th className="px-3 py-2 text-right font-medium">Cost</th>
+                      <th className="px-3 py-2 text-right font-medium">Profit</th>
+                      <th className="px-5 py-2 text-right font-medium">Margin</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-rule">
+                    {report.byCategory.map((c) => (
+                      <tr key={c.id ?? 'none'}>
+                        <td className="px-5 py-2">
+                          <p className="font-medium text-slate-800">{c.name}</p>
+                          <p className="text-xs text-slate-400">
+                            {c.products} product{c.products === 1 ? '' : 's'}
+                          </p>
+                        </td>
+                        <td className="tnum px-3 py-2 text-right text-slate-600">{c.quantity}</td>
+                        <td className="tnum px-3 py-2 text-right text-slate-700">{money(c.revenue)}</td>
+                        <td className="tnum px-3 py-2 text-right text-slate-500">{money(c.cost)}</td>
+                        <td
+                          className={cx(
+                            'tnum px-3 py-2 text-right font-semibold',
+                            c.profit >= 0 ? 'text-brand-700' : 'text-red-600',
+                          )}
+                        >
+                          {money(c.profit)}
+                        </td>
+                        <td className="tnum px-5 py-2 text-right text-slate-500">{c.margin}%</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot className="border-t border-slate-200 text-xs font-medium text-slate-600">
+                    <tr>
+                      <td className="px-5 py-2">All categories</td>
+                      <td className="tnum px-3 py-2 text-right">
+                        {report.byCategory.reduce((n, c) => n + c.quantity, 0)}
+                      </td>
+                      <td className="tnum px-3 py-2 text-right">
+                        {money(report.byCategory.reduce((n, c) => n + c.revenue, 0))}
+                      </td>
+                      <td className="tnum px-3 py-2 text-right">
+                        {money(report.byCategory.reduce((n, c) => n + c.cost, 0))}
+                      </td>
+                      <td className="tnum px-3 py-2 text-right">
+                        {money(report.byCategory.reduce((n, c) => n + c.profit, 0))}
+                      </td>
+                      <td />
+                    </tr>
+                  </tfoot>
+                </table>
+              )}
+            </Card>
+
             <Card>
               <div className="border-b border-slate-100 px-5 py-3">
                 <p className="font-medium text-slate-900">What made the most</p>

@@ -693,3 +693,45 @@ test('cashiers cannot read an item’s activity or the profit report', async () 
   assert.equal((await req('GET', '/expenses/profit', null, cashierToken)).status, 403);
   assert.equal((await req('GET', '/expenses', null, cashierToken)).status, 403);
 });
+
+test('the same sales, category by category', async () => {
+  const cat = (await req('POST', '/products/categories', { name: 'Chargers' }, adminToken)).json.category;
+  const other = (await req('POST', '/products/categories', { name: 'Cases' }, adminToken)).json.category;
+  const charger = (
+    await req(
+      'POST',
+      '/products',
+      { name: '20W charger', sku: 'CAT-CHG-1', price: 12, cost: 7, stock: 10, category_id: cat.id },
+      adminToken,
+    )
+  ).json.product;
+  const kase = (
+    await req(
+      'POST',
+      '/products',
+      { name: 'Clear case', sku: 'CAT-CASE-1', price: 5, cost: 2, stock: 10, category_id: other.id },
+      adminToken,
+    )
+  ).json.product;
+
+  const sale = await req(
+    'POST',
+    '/orders',
+    { items: [{ productId: charger.id, quantity: 2 }, { productId: kase.id, quantity: 3 }], paymentMethod: 'card' },
+    cashierToken,
+  );
+  assert.equal(sale.status, 201, JSON.stringify(sale.json));
+
+  const report = await day();
+  const chargers = report.byCategory.find((c) => c.name === 'Chargers');
+  const cases = report.byCategory.find((c) => c.name === 'Cases');
+  assert.ok(chargers && cases, 'both categories are on the report');
+  assert.equal(chargers.quantity, 2);
+  assert.equal(chargers.cost, 14);
+  assert.equal(chargers.products, 1);
+  assert.equal(cases.quantity, 3);
+  assert.equal(cases.cost, 6);
+  assert.equal(round(chargers.profit), round(chargers.revenue - 14));
+  assert.ok(report.byCategory[0].revenue >= report.byCategory[report.byCategory.length - 1].revenue, 'best takings first');
+});
+

@@ -604,3 +604,48 @@ test('a cashier cannot move what the shop is funded from', async () => {
   const refused = await req('POST', '/products/paid-from', { productIds: [1], walletId: 1 }, cashierToken);
   assert.equal(refused.status, 403);
 });
+
+/* ------------------------------------------------------------ the history */
+
+test('the statement can be cut by kind and by date, and paged', async () => {
+  const w = (await req('POST', '/wallets', { name: 'History test', opening: 20 }, adminToken)).json.wallet;
+  await req('POST', `/wallets/${w.id}/movements`, { kind: 'top_up', amount: 5, note: 'second' }, adminToken);
+  await req('POST', `/wallets/${w.id}/movements`, { kind: 'withdrawal', amount: 3 }, adminToken);
+
+  const all = (await req('GET', `/wallets/${w.id}/movements`, null, adminToken)).json;
+  assert.equal(all.movements.length, 3);
+  assert.equal(all.more, false);
+
+  const ups = (await req('GET', `/wallets/${w.id}/movements?kind=top_up`, null, adminToken)).json.movements;
+  assert.equal(ups.length, 2);
+  assert.ok(ups.every((m) => m.kind === 'top_up'));
+
+  const page = (await req('GET', `/wallets/${w.id}/movements?limit=2`, null, adminToken)).json;
+  assert.equal(page.movements.length, 2);
+  assert.equal(page.more, true, 'there is a row behind the page');
+  const rest = (await req('GET', `/wallets/${w.id}/movements?limit=2&offset=2`, null, adminToken)).json;
+  assert.equal(rest.movements.length, 1);
+  assert.equal(rest.more, false);
+
+  const today = new Date().toISOString().slice(0, 10);
+  const nothing = (await req('GET', `/wallets/${w.id}/movements?from=2000-01-01&to=2000-01-02`, null, adminToken)).json;
+  assert.equal(nothing.movements.length, 0);
+  const todays = (await req('GET', `/wallets/${w.id}/movements?from=${today}&to=${today}`, null, adminToken)).json;
+  assert.equal(todays.movements.length, 3);
+});
+
+test('the whole statement comes down as a spreadsheet', async () => {
+  const w = (await req('GET', '/wallets', null, adminToken)).json.wallets.find((x) => x.name === 'History test');
+  const res = await fetch(`${BASE}/wallets/${w.id}/movements.csv`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get('content-type'), /text\/csv/);
+  assert.match(res.headers.get('content-disposition'), /history-test-statement\.csv/);
+  const text = await res.text();
+  const lines = text.trim().split('\n');
+  assert.equal(lines.length, 4, 'a header and three rows');
+  assert.match(lines[0], /^When,Branch,What happened/);
+  assert.ok(lines.some((l) => /Taken out/.test(l) && /,-3,/.test(l)));
+});
+

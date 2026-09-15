@@ -828,6 +828,36 @@ test('a handset bought by mistake comes off the shelf, and the money goes back',
   assert.ok(!list.find((t) => t.id === bought.json.tradeInId), 'and off the list');
 });
 
+test('a purchase can be put right afterwards, and the till follows the money', async () => {
+  const cashBefore = await mainCashUsd();
+  const bought = await req(
+    'POST',
+    '/repairs/trade-ins',
+    { productId: phone.id, imei: '35 8800 1111 2222 6', condition: 'used', paidUsd: 75, sellerName: 'Karm' },
+    adminToken,
+  );
+  assert.equal(bought.status, 201, JSON.stringify(bought.json));
+
+  const fixed = await req(
+    'PUT',
+    `/repairs/trade-ins/${bought.json.tradeInId}`,
+    { sellerName: 'Karim', sellerPhone: '03 111 222', paidUsd: 60, condition: 'refurbished', imei: '35 8800 1111 2222 7' },
+    adminToken,
+  );
+  assert.equal(fixed.status, 200, JSON.stringify(fixed.json));
+  assert.equal(fixed.json.tradeIn.seller_name, 'Karim');
+  assert.equal(fixed.json.tradeIn.paid_usd, 60);
+  assert.equal(fixed.json.tradeIn.condition, 'refurbished');
+  assert.equal(fixed.json.tradeIn.imei, '358800111122227');
+
+  assert.equal(await mainCashUsd(), cashBefore - 60, 'fifteen dollars never left came back');
+  const unit = (await req('GET', '/units/lookup?imei=358800111122227', null, adminToken)).json.unit;
+  assert.equal(unit.cost, 60, 'the handset now costs what was really paid');
+
+  const clash = await req('PUT', `/repairs/trade-ins/${bought.json.tradeInId}`, { imei: '358800111122221' }, adminToken);
+  assert.equal(clash.status, 400, 'an IMEI the shop already holds is refused');
+});
+
 test('a handset already sold on cannot be undone — the sale is the way back', async () => {
   const sold = (await req('GET', '/repairs/trade-ins/list', null, adminToken)).json.tradeIns.find(
     (t) => t.imei === '358800111122221',

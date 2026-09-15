@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { BadgeCheck, HandCoins, Plus, ShieldAlert, Trash2, Undo2 } from 'lucide-react';
+import { BadgeCheck, HandCoins, Pencil, Plus, ShieldAlert, Trash2, Undo2 } from 'lucide-react';
 import BuyHandsetModal from '../../components/BuyHandsetModal';
 import api from '../../api';
 import PageHeader from '../../components/PageHeader';
@@ -10,8 +10,10 @@ import {
   Button,
   Card,
   EmptyState,
+  Input,
   Modal,
   ModalActions,
+  Select,
   Skeleton,
   cx,
   money,
@@ -121,6 +123,124 @@ function IdPhotoViewer({ tradeIn, onClose, onRemoved }) {
   );
 }
 
+const CONDITIONS = [
+  ['used', 'Used'],
+  ['refurbished', 'Refurbished'],
+  ['new', 'New'],
+];
+
+/**
+ * Put a purchase right.
+ *
+ * A name typed wrong, a digit missing off the IMEI, a price agreed as $60 and
+ * written as $75. While the handset is on the shelf everything is editable,
+ * the money included, and the cashbox follows by the difference. Once it has
+ * been sold on, only who sold it and the note can change.
+ */
+function EditTradeInDialog({ tradeIn, products, onClose, onSaved }) {
+  const toast = useToast();
+  const sold = tradeIn.unit_status === 'sold';
+  const [form, setForm] = useState({
+    productId: String(tradeIn.product_id ?? ''),
+    imei: [tradeIn.imei, tradeIn.imei2].filter(Boolean).join(', '),
+    condition: tradeIn.condition || 'used',
+    paidUsd: String(tradeIn.paid_usd ?? 0),
+    paidLbp: String(tradeIn.paid_lbp ?? 0),
+    sellerName: tradeIn.seller_name || '',
+    sellerPhone: tradeIn.seller_phone || '',
+    note: tradeIn.note || '',
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+
+  async function submit(e) {
+    e.preventDefault();
+    setError('');
+    setSaving(true);
+    try {
+      const body = { sellerName: form.sellerName, sellerPhone: form.sellerPhone, note: form.note };
+      if (!sold) {
+        Object.assign(body, {
+          productId: Number(form.productId),
+          imei: form.imei,
+          condition: form.condition,
+          paidUsd: Number(form.paidUsd) || 0,
+          paidLbp: Number(form.paidLbp) || 0,
+        });
+      }
+      await api.put(`/repairs/trade-ins/${tradeIn.id}`, body);
+      toast('Purchase updated');
+      onSaved();
+    } catch (err) {
+      setError(err.response?.data?.error || 'Could not save that');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Modal open onClose={saving ? undefined : onClose} title="Edit this purchase" subtitle={tradeIn.product_name} size="lg">
+      <form onSubmit={submit} className="grid grid-cols-2 gap-3">
+        {sold && (
+          <p className="col-span-2 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-600">
+            This handset has been sold on, so only who sold it and the note can change.
+          </p>
+        )}
+        {!sold && (
+          <>
+            <div className="col-span-2">
+              <Select label="Sold as" value={form.productId} onChange={set('productId')}>
+                {products.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <Input
+              label="IMEI"
+              value={form.imei}
+              onChange={set('imei')}
+              onKeyDown={(e) => {
+                if (e.key !== 'Enter') return;
+                e.preventDefault();
+                document.getElementById('edit-cond')?.focus();
+              }}
+              className="font-mono"
+              hint="Both numbers of a dual-SIM, separated by a comma"
+            />
+            <Select id="edit-cond" label="Condition" value={form.condition} onChange={set('condition')}>
+              {CONDITIONS.map(([v, l]) => (
+                <option key={v} value={v}>
+                  {l}
+                </option>
+              ))}
+            </Select>
+            <Input label="Paid in dollars" type="number" step="0.01" min="0" value={form.paidUsd} onChange={set('paidUsd')} />
+            <Input label="Paid in LBP" type="number" step="1000" min="0" value={form.paidLbp} onChange={set('paidLbp')} />
+            <p className="col-span-2 text-xs text-slate-500">
+              Change what was paid and the cashbox moves by the difference.
+            </p>
+          </>
+        )}
+        <Input label="Seller's name" value={form.sellerName} onChange={set('sellerName')} />
+        <Input label="Phone number" value={form.sellerPhone} onChange={set('sellerPhone')} />
+        <Input label="Note" value={form.note} onChange={set('note')} className="col-span-2" />
+        {error && <p className="col-span-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+        <ModalActions className="col-span-2">
+          <Button type="button" variant="secondary" onClick={onClose} disabled={saving}>
+            Cancel
+          </Button>
+          <Button type="submit" className="flex-1" loading={saving}>
+            Save
+          </Button>
+        </ModalActions>
+      </form>
+    </Modal>
+  );
+}
+
 export default function TradeIns() {
   const [rows, setRows] = useState(null);
   const [products, setProducts] = useState([]);
@@ -131,6 +251,7 @@ export default function TradeIns() {
   // Which purchase's ID is on screen, if any.
   const [viewing, setViewing] = useState(null);
   const [undoing, setUndoing] = useState(null);
+  const [editing, setEditing] = useState(null);
   const confirm = useConfirm();
   const toast = useToast();
 
@@ -277,7 +398,16 @@ export default function TradeIns() {
                         {t.unit_status === 'sold' ? 'Sold on' : 'On the shelf'}
                       </span>
                     </td>
-                    <td className="px-3 py-2.5 text-right">
+                    <td className="px-3 py-2.5 text-right whitespace-nowrap">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setEditing(t)}
+                        aria-label={`Edit the purchase of ${t.imei}`}
+                        title="Edit"
+                      >
+                        <Pencil size={14} /> Edit
+                      </Button>
                       {t.unit_status !== 'sold' && (
                         <Button
                           variant="ghost"
@@ -304,6 +434,18 @@ export default function TradeIns() {
           onClose={() => setViewing(null)}
           onRemoved={() => {
             setViewing(null);
+            load();
+          }}
+        />
+      )}
+
+      {editing && (
+        <EditTradeInDialog
+          tradeIn={editing}
+          products={products}
+          onClose={() => setEditing(null)}
+          onSaved={() => {
+            setEditing(null);
             load();
           }}
         />

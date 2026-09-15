@@ -440,6 +440,78 @@ function byProduct(bounds, limit = 10, branchId = null) {
 }
 
 /**
+ * The same sales, category by category.
+ *
+ * "How are the cases doing against the chargers" is the question a shop asks
+ * when deciding what to buy more of, and a list of the ten best products does
+ * not answer it — the accessories make their money ten dollars at a time
+ * across forty lines. Built from exactly the union `byProduct` uses, so the
+ * two agree to the cent; a product with no category is reported as its own
+ * row rather than dropped.
+ */
+function byCategory(bounds, branchId = null) {
+  return db
+    .prepare(
+      `SELECT c.id, COALESCE(c.name, 'Uncategorised') AS name,
+              COUNT(DISTINCT s.product_id) AS products,
+              SUM(s.quantity) AS quantity,
+              ROUND(SUM(s.revenue), 2) AS revenue,
+              ROUND(SUM(s.cost), 2) AS cost
+       FROM (
+         SELECT oi.product_id,
+                (oi.quantity - oi.returned_qty) AS quantity,
+                CASE WHEN oi.quantity > 0
+                     THEN oi.line_total * (oi.quantity - oi.returned_qty) / oi.quantity
+                     ELSE oi.line_total END AS revenue,
+                (oi.quantity - oi.returned_qty) * COALESCE(oi.cost, 0) AS cost
+         FROM order_items oi
+         JOIN orders o ON o.id = oi.order_id
+         WHERE o.status = 'completed' AND o.created_at BETWEEN ? AND ?
+           AND (? IS NULL OR o.branch_id = ?)
+
+         UNION ALL
+
+         SELECT di.product_id,
+                di.quantity AS quantity,
+                di.line_total AS revenue,
+                di.quantity * COALESCE(di.cost, 0) AS cost
+         FROM document_items di
+         JOIN documents d ON d.id = di.document_id
+         WHERE d.doc_type = 'sales_invoice' AND d.status = 'confirmed'
+           AND COALESCE(d.confirmed_at, d.created_at) BETWEEN ? AND ?
+           AND (? IS NULL OR d.branch_id = ?)
+
+         UNION ALL
+
+         SELECT di.product_id,
+                -di.quantity AS quantity,
+                -di.line_total AS revenue,
+                -di.quantity * COALESCE(di.cost, 0) AS cost
+         FROM document_items di
+         JOIN documents d ON d.id = di.document_id
+         WHERE d.doc_type = 'sales_return' AND d.status = 'confirmed'
+           AND COALESCE(d.confirmed_at, d.created_at) BETWEEN ? AND ?
+           AND (? IS NULL OR d.branch_id = ?)
+       ) s
+       JOIN products p ON p.id = s.product_id
+       LEFT JOIN categories c ON c.id = p.category_id
+       GROUP BY c.id
+       HAVING SUM(s.quantity) <> 0 OR SUM(s.revenue) <> 0
+       ORDER BY SUM(s.revenue) DESC`,
+    )
+    .all(
+      bounds.from, bounds.to, branchId, branchId,
+      bounds.from, bounds.to, branchId, branchId,
+      bounds.from, bounds.to, branchId, branchId,
+    )
+    .map((r) => ({
+      ...r,
+      profit: round2(r.revenue - r.cost),
+      margin: r.revenue > 0 ? round2(((r.revenue - r.cost) / r.revenue) * 100) : 0,
+    }));
+}
+
+/**
  * The same total, day by day.
  *
  * The report is one number, and a number a shopkeeper cannot make add up is a
@@ -611,6 +683,8 @@ export function profitReport({ from = null, to = null, includeExpenses = true, b
     repairs,
     refunds: refunded,
     topProducts: byProduct(bounds, 10, branchId),
+    /* Every category that sold anything, best takings first. */
+    byCategory: byCategory(bounds, branchId),
     /*
      * Sales made before costs were recorded on the line have no cost to
      * subtract, so their profit is overstated. Saying so is better than

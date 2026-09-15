@@ -5,6 +5,7 @@ import {
   WALLET_CURRENCIES,
   WALLET_KINDS,
   listWallets,
+  movementsCsv,
   movementsFor,
   recordMovement,
   roundAmount,
@@ -161,12 +162,48 @@ router.delete('/:id', requireAuth, requirePermission('cards'), (req, res) => {
   res.json({ ok: true });
 });
 
+/** The filters a statement request carries, read once for both shapes of it. */
+function statementFilters(req) {
+  const { from, to, kind, limit, offset } = req.query;
+  return {
+    // The whole company's statement unless one branch is asked for by name.
+    branchId: req.query.branchId ? Number(req.query.branchId) : null,
+    from: from || null,
+    to: to || null,
+    kind: kind || null,
+    limit,
+    offset,
+  };
+}
+
 router.get('/:id/movements', requireAuth, requirePermission('cards'), (req, res) => {
   const wallet = walletById(req.params.id, { branchId: req.branchId });
   if (!wallet) return res.status(404).json({ error: 'Wallet not found' });
-  // The whole company's statement unless one branch is asked for by name.
-  const branchId = req.query.branchId ? Number(req.query.branchId) : null;
-  res.json({ wallet, movements: movementsFor(wallet.id, req.query.limit, branchId) });
+  const movements = movementsFor(wallet.id, statementFilters(req));
+  res.json({ wallet, movements: [...movements], more: movements.more });
+});
+
+/**
+ * The same statement as a file, every row that matches — no page size, because
+ * a spreadsheet with the second half missing is not a statement.
+ */
+router.get('/:id/movements.csv', requireAuth, requirePermission('cards'), (req, res) => {
+  const wallet = walletById(req.params.id, { branchId: req.branchId });
+  if (!wallet) return res.status(404).json({ error: 'Wallet not found' });
+  const rows = movementsFor(wallet.id, { ...statementFilters(req), limit: 1000, offset: 0 });
+  const all = [...rows];
+  let offset = all.length;
+  let more = rows.more;
+  while (more) {
+    const next = movementsFor(wallet.id, { ...statementFilters(req), limit: 1000, offset });
+    all.push(...next);
+    offset += next.length;
+    more = next.more;
+  }
+  const slug = wallet.name.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase() || 'wallet';
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${slug}-statement.csv"`);
+  res.send(movementsCsv(wallet, all));
 });
 
 /**
