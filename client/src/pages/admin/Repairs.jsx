@@ -35,7 +35,7 @@ const STATUS_LABEL = {
 };
 
 /* Not a status — a payment, filed in the same history column. */
-const EVENT_LABEL = { ...STATUS_LABEL, payment: 'Paid', cost: 'Cost' };
+const EVENT_LABEL = { ...STATUS_LABEL, payment: 'Paid', cost: 'Cost', correction: 'Corrected' };
 
 const STATUS_STYLE = {
   received: 'bg-slate-100 text-slate-700',
@@ -212,6 +212,10 @@ function TicketModal({ id, onClose, onChanged }) {
   /* What the shop paid outside for the job — as typed, so it can be edited. */
   const [outsideCost, setOutsideCost] = useState('');
   const [passcode, setPasscode] = useState(null);
+  /* Putting the money right after the fact: what the ticket should say. */
+  const [fixing, setFixing] = useState(false);
+  const [fixPaidUsd, setFixPaidUsd] = useState('');
+  const [fixPaidLbp, setFixPaidLbp] = useState('');
 
   const load = useCallback(async () => {
     const [d, p] = await Promise.all([api.get(`/repairs/${id}`), api.get('/products')]);
@@ -220,6 +224,8 @@ function TicketModal({ id, onClose, onChanged }) {
     setCharged(String(d.data.ticket.charged ?? d.data.ticket.quoted ?? d.data.partsTotal ?? ''));
     setPayNow(d.data.outstanding > 0 ? String(d.data.outstanding) : '');
     setOutsideCost(Number(d.data.ticket.outside_cost) > 0 ? String(d.data.ticket.outside_cost) : '');
+    setFixPaidUsd(String(Number(d.data.ticket.paid_usd) || 0));
+    setFixPaidLbp(String(Math.round(Number(d.data.ticket.paid_lbp) || 0)));
   }, [id]);
 
   /** The typed cost as a number: blank is nothing paid outside. */
@@ -296,23 +302,45 @@ function TicketModal({ id, onClose, onChanged }) {
 
   async function collect() {
     const amount = Number(charged) || 0;
-    const due = Math.max(0, Number(outstanding) || 0);
     try {
       await api.post(`/repairs/${id}/collect`, {
         charged: amount,
         // What it cost the shop, saved in the same breath as what it was
         // charged: this is the moment the profit on the job becomes real.
         outsideCost: outsideCostValue,
-        // Only what is actually still owed — a job paid for at intake is handed
-        // back at nothing to pay, and charging it again would put the money in
-        // the drawer twice.
-        payments: due > 0 ? [{ currency: 'USD', amount: due }] : [],
+        /*
+         * The server works out what is still owed at *this* charge and takes
+         * that: a job paid for at intake is handed back at nothing to pay, and
+         * one quoted at $100 and handed back at $80 takes $80 — not the $100
+         * this screen was told was outstanding when it opened.
+         */
+        takeBalance: true,
       });
       toast('Handed back');
       await load();
       onChanged();
     } catch (err) {
       toast(err.response?.data?.error || 'Could not collect it', 'error');
+    }
+  }
+
+  /*
+   * Put the money right. The till moves by the difference, on the server —
+   * a payment corrected from $60 to $50 is $10 that was never in the drawer.
+   */
+  async function saveMoney() {
+    try {
+      await api.patch(`/repairs/${id}`, {
+        charged: detail?.ticket.under_warranty === 1 ? 0 : Number(charged) || 0,
+        paidUsd: Number(fixPaidUsd) || 0,
+        paidLbp: Number(fixPaidLbp) || 0,
+      });
+      toast('Corrected');
+      setFixing(false);
+      await load();
+      onChanged();
+    } catch (err) {
+      toast(err.response?.data?.error || 'Could not correct that', 'error');
     }
   }
 
@@ -493,7 +521,41 @@ function TicketModal({ id, onClose, onChanged }) {
                       ) : (
                         <span className="text-brand-700"> · nothing left to pay</span>
                       )}
+                      {' · '}
+                      <button
+                        type="button"
+                        onClick={() => setFixing((f) => !f)}
+                        className="text-xs font-medium text-brand-700 underline-offset-2 hover:underline"
+                      >
+                        {fixing ? 'Leave it' : 'Correct it'}
+                      </button>
                     </p>
+                  )}
+                  {paid && fixing && (
+                  <div className="mt-2 flex flex-wrap items-end gap-2" data-repair-correct>
+                    <Input
+                      label="Paid in dollars"
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={fixPaidUsd}
+                      onChange={(e) => setFixPaidUsd(e.target.value)}
+                    />
+                    <Input
+                      label="Paid in pounds"
+                      type="number"
+                      step="1000"
+                      min="0"
+                      value={fixPaidLbp}
+                      onChange={(e) => setFixPaidLbp(e.target.value)}
+                    />
+                    <Button variant="secondary" onClick={saveMoney}>
+                      Save the correction
+                    </Button>
+                    <p className="basis-full text-xs text-slate-500">
+                      The cashbox moves by the difference.
+                    </p>
+                  </div>
                   )}
                 </>
               )}
@@ -512,6 +574,55 @@ function TicketModal({ id, onClose, onChanged }) {
             * the month's report. Editable after the phone has gone home too,
             * because that is when the bill usually turns up.
             */}
+          {ticket.status === 'collected' && (
+            <Card className="p-4">
+              <p className="mb-2 text-xs font-medium tracking-wide text-slate-500 uppercase">
+                The money
+              </p>
+              {/*
+                * The phone has gone home and the figures are on the record —
+                * which is exactly when somebody notices they were typed wrong.
+                * Editable here, and the cashbox follows.
+                */}
+              {ticket.under_warranty === 1 ? (
+                <p className="text-sm text-slate-600">Under warranty — charged nothing.</p>
+              ) : (
+                <Input
+                  label="Charged for the job"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={charged}
+                  onChange={(e) => setCharged(e.target.value)}
+                />
+              )}
+                  <div className="mt-3 flex flex-wrap items-end gap-2" data-repair-correct>
+                    <Input
+                      label="Paid in dollars"
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={fixPaidUsd}
+                      onChange={(e) => setFixPaidUsd(e.target.value)}
+                    />
+                    <Input
+                      label="Paid in pounds"
+                      type="number"
+                      step="1000"
+                      min="0"
+                      value={fixPaidLbp}
+                      onChange={(e) => setFixPaidLbp(e.target.value)}
+                    />
+                    <Button variant="secondary" onClick={saveMoney}>
+                      Save the correction
+                    </Button>
+                    <p className="basis-full text-xs text-slate-500">
+                      The cashbox moves by the difference.
+                    </p>
+                  </div>
+            </Card>
+          )}
+
           <Card className="p-4" data-repair-cost>
             <p className="mb-2 text-xs font-medium tracking-wide text-slate-500 uppercase">
               What it cost you

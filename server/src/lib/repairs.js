@@ -357,6 +357,91 @@ export function takePayment(
 }
 
 /**
+ * Put right what a ticket says about the money, after the fact.
+ *
+ * A charge typed wrong at the counter, or a payment written down as more or
+ * less than crossed it, used to be stuck once the phone had gone home. Both
+ * are corrected here, and the till is corrected with them: a payment that
+ * shrinks by $20 is $20 that was never in the drawer, so a correction of that
+ * size comes out of it — the open drawer if there is one, the main cash
+ * otherwise, since a shut drawer cannot be adjusted any more than paid into.
+ *
+ * Absolute figures, not deltas, because that is what the person typing has in
+ * front of them: what the ticket should say, not what it was out by.
+ */
+export function correctMoney(ticketId, { charged, paidUsd, paidLbp }, userId = null) {
+  const ticket = db.prepare('SELECT * FROM repair_tickets WHERE id = ?').get(ticketId);
+  if (!ticket) throw new Error('Ticket not found');
+
+  const notes = [];
+
+  if (charged !== undefined) {
+    const next = charged === null ? null : Math.round((Number(charged) || 0) * 100) / 100;
+    if (next !== null && next < 0) throw new Error('A charge cannot be less than nothing');
+    if (ticket.under_warranty && next > 0) {
+      throw new Error('This phone is under warranty — it is charged nothing');
+    }
+    if (next !== (ticket.charged ?? null)) {
+      db.prepare(`UPDATE repair_tickets SET charged = ?, updated_at = datetime('now') WHERE id = ?`).run(
+        next,
+        ticketId,
+      );
+      notes.push(`charge ${fmtUsd(ticket.charged)} → ${fmtUsd(next)}`);
+    }
+  }
+
+  const wantUsd = paidUsd === undefined ? null : Math.round((Number(paidUsd) || 0) * 100) / 100;
+  const wantLbp = paidLbp === undefined ? null : Math.round(Number(paidLbp) || 0);
+  if ((wantUsd !== null && wantUsd < 0) || (wantLbp !== null && wantLbp < 0)) {
+    throw new Error('A payment cannot be less than nothing');
+  }
+  const deltaUsd = wantUsd === null ? 0 : Math.round((wantUsd - Number(ticket.paid_usd || 0)) * 100) / 100;
+  const deltaLbp = wantLbp === null ? 0 : wantLbp - Math.round(Number(ticket.paid_lbp || 0));
+
+  if (deltaUsd !== 0 || deltaLbp !== 0) {
+    recordMovement({
+      kind: 'correction',
+      amountUsd: deltaUsd,
+      amountLbp: deltaLbp,
+      reason: 'correction',
+      note: `Repair ${ticket.ticket_number} payment corrected`,
+      userId,
+      accountId: tillFor({ atRegister: true, branchId: ticket.branch_id }),
+    });
+    db.prepare(
+      `UPDATE repair_tickets
+         SET paid_usd = ?, paid_lbp = ?,
+             paid_at = CASE WHEN ? > 0 OR ? > 0 THEN COALESCE(paid_at, datetime('now')) ELSE NULL END,
+             updated_at = datetime('now')
+       WHERE id = ?`,
+    ).run(
+      wantUsd ?? ticket.paid_usd,
+      wantLbp ?? ticket.paid_lbp,
+      wantUsd ?? ticket.paid_usd,
+      wantLbp ?? ticket.paid_lbp,
+      ticketId,
+    );
+    if (deltaUsd !== 0) notes.push(`paid ${fmtUsd(ticket.paid_usd)} → ${fmtUsd(wantUsd)}`);
+    if (deltaLbp !== 0) {
+      notes.push(`paid ${Math.round(ticket.paid_lbp || 0).toLocaleString('en-US')} LL → ${wantLbp.toLocaleString('en-US')} LL`);
+    }
+  }
+
+  if (notes.length > 0) {
+    db.prepare('INSERT INTO repair_events (ticket_id, status, note, user_id) VALUES (?, ?, ?, ?)').run(
+      ticketId,
+      'correction',
+      notes.join(', '),
+      userId,
+    );
+  }
+
+  return ticketWithDetail(ticketId);
+}
+
+const fmtUsd = (n) => (n === null || n === undefined ? '—' : `$${(Number(n) || 0).toFixed(2)}`);
+
+/**
  * What the bench made over a period.
  *
  * Two figures, because a repair takes money and finishes on two different days

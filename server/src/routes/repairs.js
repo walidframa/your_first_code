@@ -20,6 +20,8 @@ import {
   ticketWithDetail,
   warrantyOf,
   undoTradeIn,
+  outstandingOn,
+  correctMoney,
 } from '../lib/repairs.js';
 import { repairMessage, sendable } from '../lib/whatsapp.js';
 import { presetRange } from '../lib/profit.js';
@@ -165,12 +167,17 @@ router.post('/', requireAuth, (req, res) => {
 });
 
 router.patch('/:id', requireAuth, (req, res) => {
-  const { status, note, quoted, outsideCost } = req.body || {};
+  const { status, note, quoted, outsideCost, charged, paidUsd, paidLbp } = req.body || {};
   try {
     transaction(() => {
       // What the job cost the shop outside. Settable on its own, and on a
       // closed job, because the technician's bill arrives when it arrives.
       if (outsideCost !== undefined) setOutsideCost(req.params.id, outsideCost, req.user.id);
+      // What it was charged and what was paid, put right after the fact — the
+      // till moves by the difference, see correctMoney.
+      if (charged !== undefined || paidUsd !== undefined || paidLbp !== undefined) {
+        correctMoney(req.params.id, { charged, paidUsd, paidLbp }, req.user.id);
+      }
       if (quoted !== undefined) {
         db.prepare(`UPDATE repair_tickets SET quoted = ?, updated_at = datetime('now') WHERE id = ?`).run(
           quoted === null ? null : Number(quoted),
@@ -267,7 +274,7 @@ router.post('/:id/payment', requireAuth, (req, res) => {
  * could reach its last status. Now it is only the handing back.
  */
 router.post('/:id/collect', requireAuth, (req, res) => {
-  const { charged = null, payments = [], note, outsideCost } = req.body || {};
+  const { charged = null, payments = [], note, outsideCost, takeBalance = false } = req.body || {};
 
   try {
     const detail = transaction(() => {
@@ -287,7 +294,16 @@ router.post('/:id/collect', requireAuth, (req, res) => {
         );
       }
 
-      const { paidUsd, paidLbp } = tally(payments);
+      /*
+       * `takeBalance` takes whatever is still owing at the charge being handed
+       * in now, worked out here rather than on the screen. The screen used to
+       * send what it had been told was outstanding when it opened — a figure
+       * built on the quote — so a job quoted at $100 and handed back at $80
+       * took $100 out of the customer's hand.
+       */
+      const { paidUsd, paidLbp } = takeBalance
+        ? { paidUsd: outstandingOn({ ...ticket, charged: amount }, getSettings().exchange_rate), paidLbp: 0 }
+        : tally(payments);
 
       // What it cost the shop, written down in the same breath as what it was
       // charged: this is the moment the profit on the job becomes real.
