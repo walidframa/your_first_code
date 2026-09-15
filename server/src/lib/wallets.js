@@ -14,6 +14,7 @@
 import { db } from '../db.js';
 import { round2 } from './currency.js';
 import { getSettings } from './settings.js';
+import { mainBranchId } from './stock.js';
 
 export const WALLET_KINDS = ['recharge', 'gift_card', 'app', 'other'];
 export const WALLET_CURRENCIES = ['USD', 'LBP'];
@@ -25,45 +26,87 @@ export function roundAmount(amount, currency) {
   return currency === 'LBP' ? Math.round(n) : round2(n);
 }
 
-export function balanceOf(walletId) {
+/*
+ * A wallet's balance is kept per branch.
+ *
+ * Each branch holds its own line with the carrier and sells its own cards out
+ * of it, so "what is left on the I-Pick wallet" has a different answer at each
+ * counter. The wallet is the name they share; the movements say whose credit
+ * moved. Asked without a branch, the answer is the company's total.
+ */
+export function balanceOf(walletId, branchId = null) {
   const row = db
-    .prepare('SELECT COALESCE(SUM(amount), 0) AS balance FROM wallet_movements WHERE wallet_id = ?')
-    .get(walletId);
+    .prepare(
+      `SELECT COALESCE(SUM(amount), 0) AS balance FROM wallet_movements
+        WHERE wallet_id = ? AND (? IS NULL OR branch_id = ?)`,
+    )
+    .get(walletId, branchId, branchId);
   const wallet = db.prepare('SELECT currency FROM wallets WHERE id = ?').get(walletId);
   return roundAmount(row.balance, wallet?.currency || 'USD');
 }
 
 /** Balances for every wallet at once, so a list is one query rather than N. */
-export function balanceMap() {
+export function balanceMap(branchId = null) {
   const rows = db
-    .prepare('SELECT wallet_id, COALESCE(SUM(amount), 0) AS balance FROM wallet_movements GROUP BY wallet_id')
-    .all();
+    .prepare(
+      `SELECT wallet_id, COALESCE(SUM(amount), 0) AS balance FROM wallet_movements
+        WHERE (? IS NULL OR branch_id = ?) GROUP BY wallet_id`,
+    )
+    .all(branchId, branchId);
   return new Map(rows.map((r) => [r.wallet_id, r.balance]));
 }
 
-export function walletById(id) {
+/**
+ * The same wallet, branch by branch — every open branch, including the ones
+ * holding nothing, so the screen can show where the credit is and is not.
+ */
+export function balancesByBranch(walletId, currency = 'USD') {
+  return db
+    .prepare(
+      `SELECT b.id AS branch_id, b.name AS branch_name, b.is_main,
+              COALESCE((SELECT SUM(m.amount) FROM wallet_movements m
+                         WHERE m.wallet_id = ? AND m.branch_id = b.id), 0) AS balance
+         FROM branches b
+        WHERE b.active = 1
+        ORDER BY b.is_main DESC, b.name`,
+    )
+    .all(walletId)
+    .map((r) => ({ ...r, is_main: !!r.is_main, balance: roundAmount(r.balance, currency) }));
+}
+
+/**
+ * One wallet as a screen reads it: `balance` is the figure where the caller is
+ * standing (the company's total when nobody said where), `total` is always the
+ * company's, and `balances` says how it splits.
+ */
+export function walletById(id, { branchId = null } = {}) {
   const wallet = db.prepare('SELECT * FROM wallets WHERE id = ?').get(id);
   if (!wallet) return null;
   return {
     ...wallet,
     active: !!wallet.active,
-    balance: balanceOf(wallet.id),
-    cost_basis: creditCostBasis(wallet.id),
+    balance: balanceOf(wallet.id, branchId),
+    total: balanceOf(wallet.id),
+    balances: balancesByBranch(wallet.id, wallet.currency),
+    cost_basis: creditCostBasis(wallet.id, branchId),
   };
 }
 
-export function listWallets({ activeOnly = false } = {}) {
+export function listWallets({ activeOnly = false, branchId = null } = {}) {
   const rows = db
     .prepare(
       `SELECT w.*, (SELECT COUNT(*) FROM products p WHERE p.wallet_id = w.id AND p.active = 1) AS product_count
        FROM wallets w ${activeOnly ? 'WHERE w.active = 1' : ''} ORDER BY w.name`,
     )
     .all();
-  const balances = balanceMap();
+  const here = balanceMap(branchId);
+  const everywhere = branchId === null ? here : balanceMap();
   return rows.map((w) => ({
     ...w,
     active: !!w.active,
-    balance: roundAmount(balances.get(w.id) || 0, w.currency),
+    balance: roundAmount(here.get(w.id) || 0, w.currency),
+    total: roundAmount(everywhere.get(w.id) || 0, w.currency),
+    balances: balancesByBranch(w.id, w.currency),
     /*
      * What a dollar of this credit costs the shop, which is what every sale out
      * of it is costed at. Sent to the screen because a shop cannot check a
@@ -71,24 +114,26 @@ export function listWallets({ activeOnly = false } = {}) {
      * nothing", and that is the state a shop sits in without knowing until it
      * is shown. One small query per wallet, and there are a handful of them.
      */
-    cost_basis: creditCostBasis(w.id),
+    cost_basis: creditCostBasis(w.id, branchId),
   }));
 }
 
-export function movementsFor(walletId, limit = 100) {
+export function movementsFor(walletId, limit = 100, branchId = null) {
   return db
     .prepare(
-      `SELECT m.*, u.name AS user_name, o.order_number, d.doc_number, p.name AS product_name
+      `SELECT m.*, u.name AS user_name, o.order_number, d.doc_number, p.name AS product_name,
+              b.name AS branch_name
        FROM wallet_movements m
        LEFT JOIN users u ON u.id = m.user_id
        LEFT JOIN orders o ON o.id = m.order_id
        LEFT JOIN documents d ON d.id = m.document_id
        LEFT JOIN products p ON p.id = m.product_id
-       WHERE m.wallet_id = ?
+       LEFT JOIN branches b ON b.id = m.branch_id
+       WHERE m.wallet_id = ? AND (? IS NULL OR m.branch_id = ?)
        ORDER BY m.created_at DESC, m.id DESC
        LIMIT ?`,
     )
-    .all(walletId, Math.min(Number(limit) || 100, 500));
+    .all(walletId, branchId, branchId, Math.min(Number(limit) || 100, 500));
 }
 
 /**
@@ -112,10 +157,14 @@ export function recordMovement({
    * same number of dollars.
    */
   costUsd = null,
+  /* Whose credit moved. The main branch when nobody said, which is the only
+     branch a shop with one counter has. */
+  branchId = null,
 }) {
   const wallet = db.prepare('SELECT * FROM wallets WHERE id = ?').get(walletId);
   if (!wallet) throw new Error('That wallet does not exist');
   if (!MOVEMENT_KINDS.includes(kind)) throw new Error(`Unknown wallet movement: ${kind}`);
+  const at = branchId ?? mainBranchId();
 
   const { exchange_rate: rate } = getSettings();
   const value = roundAmount(amount, wallet.currency);
@@ -140,12 +189,13 @@ export function recordMovement({
     .prepare(
       `INSERT INTO wallet_movements
          (wallet_id, kind, amount, amount_usd, exchange_rate, order_id, product_id, note, user_id,
-          cost_usd)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          cost_usd, branch_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       wallet.id, kind, value, usd, rate || null, orderId, productId, note, userId,
       costUsd === null || costUsd === undefined ? null : round2(costUsd),
+      at,
     );
 
   return info.lastInsertRowid;
@@ -169,18 +219,78 @@ export function recordMovement({
  * value" and is the safe assumption: it understates the margin rather than
  * inventing one.
  */
-export function creditCostBasis(walletId) {
-  const row = db
-    .prepare(
-      `SELECT COALESCE(SUM(COALESCE(cost_usd, amount_usd)), 0) AS paid,
-              COALESCE(SUM(amount_usd), 0) AS added
-       FROM wallet_movements
-       WHERE wallet_id = ? AND kind = 'top_up'`,
-    )
-    .get(walletId);
+export function creditCostBasis(walletId, branchId = null) {
+  const basisOf = (where) =>
+    db
+      .prepare(
+        `SELECT COALESCE(SUM(COALESCE(cost_usd, amount_usd)), 0) AS paid,
+                COALESCE(SUM(amount_usd), 0) AS added
+         FROM wallet_movements
+         WHERE wallet_id = ? AND kind = 'top_up' AND (? IS NULL OR branch_id = ?)`,
+      )
+      .get(walletId, where, where);
 
+  /*
+   * A branch that buys its own credit is costed on its own top-ups; one that
+   * has never topped up on its own falls back to what the company paid, which
+   * is where its credit came from.
+   */
+  let row = basisOf(branchId);
+  if (!row.added && branchId !== null) row = basisOf(null);
   if (!row.added) return 1;
   return Math.round((row.paid / row.added) * 10_000) / 10_000;
+}
+
+/**
+ * Move credit from one branch's line to another's.
+ *
+ * Credit bought centrally and split between shops, or lent from a branch with
+ * plenty to one that has run out. Two movements, so each branch's statement
+ * reads what happened to its own balance — and the receiving side is costed
+ * at what the giving side paid, so moving credit does not invent a margin.
+ */
+export function transferBetweenBranches({ walletId, fromBranchId, toBranchId, amount, note = null, userId = null }) {
+  const wallet = db.prepare('SELECT * FROM wallets WHERE id = ?').get(walletId);
+  if (!wallet) throw new Error('That wallet does not exist');
+  const from = Number(fromBranchId);
+  const to = Number(toBranchId);
+  if (!from || !to) throw new Error('Say which branch the credit leaves, and which it goes to');
+  if (from === to) throw new Error('The credit has to go to a different branch');
+  for (const id of [from, to]) {
+    const branch = db.prepare('SELECT id, active FROM branches WHERE id = ?').get(id);
+    if (!branch || !branch.active) throw new Error('That branch does not exist');
+  }
+  const value = roundAmount(Math.abs(Number(amount) || 0), wallet.currency);
+  if (value === 0) throw new Error('Enter an amount');
+
+  const { exchange_rate: rate } = getSettings();
+  const usd = wallet.currency === 'USD' ? value : rate > 0 ? round2(value / rate) : 0;
+  const basis = creditCostBasis(wallet.id, from);
+  const names = Object.fromEntries(
+    db.prepare('SELECT id, name FROM branches WHERE id IN (?, ?)').all(from, to).map((b) => [b.id, b.name]),
+  );
+  const tag = note ? ` · ${note}` : '';
+
+  recordMovement({
+    walletId: wallet.id,
+    kind: 'withdrawal',
+    amount: -value,
+    amountUsd: -usd,
+    note: `Moved to ${names[to]}${tag}`,
+    userId,
+    branchId: from,
+  });
+  recordMovement({
+    walletId: wallet.id,
+    kind: 'top_up',
+    amount: value,
+    amountUsd: usd,
+    costUsd: round2(usd * basis),
+    note: `Moved from ${names[from]}${tag}`,
+    userId,
+    branchId: to,
+  });
+  return { from, to, amount: value };
 }
 
 /**
@@ -214,7 +324,7 @@ export function costOfLine(wallet, costUsd, quantity, rate = null) {
  * whatever the ledger says — so the balance is allowed to go negative and shown
  * as such, which is a bill to settle rather than a sale to lose.
  */
-export function chargeSale({ walletId, product, quantity, orderId, userId }) {
+export function chargeSale({ walletId, product, quantity, orderId, userId, branchId = null }) {
   const wallet = db.prepare('SELECT * FROM wallets WHERE id = ?').get(walletId);
   if (!wallet) throw new Error(`${product.name} is funded by a wallet that no longer exists`);
 
@@ -229,6 +339,7 @@ export function chargeSale({ walletId, product, quantity, orderId, userId }) {
     orderId,
     productId: product.id,
     userId,
+    branchId,
     note: `${quantity} × ${product.name}`,
   });
 }
@@ -248,9 +359,9 @@ export function refundOrder(orderId, userId = null) {
   for (const m of spent) {
     db.prepare(
       `INSERT INTO wallet_movements
-         (wallet_id, kind, amount, amount_usd, exchange_rate, order_id, product_id, note, user_id)
-       VALUES (?, 'refund', ?, ?, ?, ?, ?, ?, ?)`,
-    ).run(m.wallet_id, -m.amount, -m.amount_usd, m.exchange_rate, orderId, m.product_id, 'Refunded', userId);
+         (wallet_id, kind, amount, amount_usd, exchange_rate, order_id, product_id, note, user_id, branch_id)
+       VALUES (?, 'refund', ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(m.wallet_id, -m.amount, -m.amount_usd, m.exchange_rate, orderId, m.product_id, 'Refunded', userId, m.branch_id);
   }
 
   return spent.length;
@@ -274,8 +385,8 @@ export function refundOrderLine({ orderId, productId, returning, sold, userId = 
   for (const m of spent) {
     db.prepare(
       `INSERT INTO wallet_movements
-         (wallet_id, kind, amount, amount_usd, exchange_rate, order_id, product_id, note, user_id)
-       VALUES (?, 'refund', ?, ?, ?, ?, ?, ?, ?)`,
+         (wallet_id, kind, amount, amount_usd, exchange_rate, order_id, product_id, note, user_id, branch_id)
+       VALUES (?, 'refund', ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       m.wallet_id,
       -round2(m.amount * share),
@@ -285,6 +396,7 @@ export function refundOrderLine({ orderId, productId, returning, sold, userId = 
       m.product_id,
       returning === sold ? 'Returned' : `Returned ${returning} of ${sold}`,
       userId,
+      m.branch_id,
     );
   }
 

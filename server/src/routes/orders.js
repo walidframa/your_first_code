@@ -121,7 +121,7 @@ function buildCreditLine(item, branchId, exchangeRate) {
    * multiplied too — they come off the same balance, so they are worth what
    * that balance cost.
    */
-  const basis = creditCostBasis(wallet.id);
+  const basis = creditCostBasis(wallet.id, branchId);
   const realCost = round2(quoted.cost * basis);
 
   /*
@@ -827,6 +827,7 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
             amountUsd: -quoted.cost,
             orderId,
             userId: req.user.id,
+            branchId,
             note: to
               ? `$${quoted.amount} to ${to} — ${quoted.smsCount} SMS`
               : `$${quoted.amount} — ${quoted.smsCount} SMS`,
@@ -899,6 +900,7 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
                 quantity: each,
                 orderId,
                 userId: req.user.id,
+                branchId,
               });
             } else {
               // A linked card held as ordinary stock comes off the shelf instead.
@@ -920,6 +922,7 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
               orderId,
               productId: li.product.id,
               userId: req.user.id,
+              branchId,
               note: `Back off ${li.quantity} × ${li.product.name}`,
             });
           }
@@ -935,6 +938,7 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
             quantity: li.quantity,
             orderId,
             userId: req.user.id,
+            branchId,
           });
         } else if (li.parts) {
           /*
@@ -1733,9 +1737,9 @@ function undoReturnsOnLine({ order, item, userId, branchId, atRegister = false }
     for (const m of refunds) {
       db.prepare(
         `INSERT INTO wallet_movements
-           (wallet_id, kind, amount, amount_usd, exchange_rate, order_id, product_id, note, user_id)
-         VALUES (?, 'sale', ?, ?, ?, ?, ?, ?, ?)`,
-      ).run(m.wallet_id, -m.amount, -m.amount_usd, m.exchange_rate, order.id, m.product_id, 'Return undone', userId);
+           (wallet_id, kind, amount, amount_usd, exchange_rate, order_id, product_id, note, user_id, branch_id)
+         VALUES (?, 'sale', ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(m.wallet_id, -m.amount, -m.amount_usd, m.exchange_rate, order.id, m.product_id, 'Return undone', userId, m.branch_id);
     }
   } else if (item.product_id) {
     const parts = partsUsedOn(item.id, item.product_id);

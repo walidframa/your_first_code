@@ -16,6 +16,7 @@ import LinkValidity from '../../components/LinkValidity';
 import { shrink } from '../../lib/shrink';
 import MoneyInput from '../../components/MoneyInput';
 import { lbp, useSettings } from '../../context/SettingsContext';
+import { useBranch } from '../../context/BranchContext';
 import {
   Badge,
   Button,
@@ -108,6 +109,28 @@ function WalletCard({ wallet, onTopUp, onEdit, onDelete, onStatement }) {
       <p className="mt-0.5 text-xs text-slate-400">
         {wallet.product_count} card{wallet.product_count === 1 ? '' : 's'} funded by this
       </p>
+
+      {/*
+        * Each branch holds its own line with the carrier, so the big figure is
+        * this counter's and the split says where the rest of the company's
+        * credit is. One branch, and there is nothing to split.
+        */}
+      {(wallet.balances || []).length > 1 && (
+        <ul className="mt-2 space-y-0.5 text-xs" data-wallet-branches>
+          {wallet.balances.map((b) => (
+            <li key={b.branch_id} className="flex justify-between gap-2">
+              <span className="truncate text-slate-500">{b.branch_name}</span>
+              <span className={cx('tnum', b.balance <= 0 ? 'text-red-600' : 'text-slate-700')}>
+                {walletAmount(b.balance, wallet.currency)}
+              </span>
+            </li>
+          ))}
+          <li className="flex justify-between gap-2 border-t border-slate-100 pt-0.5 font-medium">
+            <span className="text-slate-500">Whole company</span>
+            <span className="tnum text-slate-800">{walletAmount(wallet.total, wallet.currency)}</span>
+          </li>
+        </ul>
+      )}
 
       {/*
         * A wallet in the red is not an error to hide: the cards were sold and
@@ -382,6 +405,17 @@ function TopUpDialog({ wallet, onClose, onSaved }) {
   // Only used for a pound wallet, whose balance and whose cost are in different
   // currencies — see centsOnTheDollar.
   const { rate } = useSettings();
+  /*
+   * Whose line the credit goes onto. Each branch holds its own with the
+   * carrier, so a shop with more than one is asked which; a shop with one is
+   * not asked anything.
+   */
+  const { branches, branchId } = useBranch();
+  const several = branches.length > 1;
+  const [atBranch, setAtBranch] = useState(String(branchId ?? branches[0]?.id ?? ''));
+  const [toBranch, setToBranch] = useState(
+    String(branches.find((b) => b.id !== branchId)?.id ?? ''),
+  );
   const [kind, setKind] = useState('top_up');
   const [amount, setAmount] = useState('');
   /*
@@ -403,11 +437,23 @@ function TopUpDialog({ wallet, onClose, onSaved }) {
     setError('');
     setBusy(true);
     try {
+      if (kind === 'move') {
+        await api.post(`/wallets/${wallet.id}/transfer`, {
+          fromBranchId: Number(atBranch),
+          toBranchId: Number(toBranch),
+          amount: Number(amount),
+          note: note || null,
+        });
+        toast(`${walletAmount(Number(amount), wallet.currency)} moved`);
+        onSaved();
+        return;
+      }
       const res = await api.post(`/wallets/${wallet.id}/movements`, {
         kind,
         amount: Number(amount),
         note: note || null,
         costUsd: kind === 'top_up' && paid !== '' ? Number(paid) : null,
+        branchId: several ? Number(atBranch) : undefined,
       });
       toast(`${wallet.name} is now ${walletAmount(res.data.wallet.balance, wallet.currency)}`);
       onSaved();
@@ -430,7 +476,36 @@ function TopUpDialog({ wallet, onClose, onSaved }) {
           <option value="top_up">Topped it up — paid the supplier</option>
           <option value="withdrawal">Took credit back out</option>
           <option value="adjustment">Correction to match their statement</option>
+          {several && <option value="move">Moved credit to another branch</option>}
         </Select>
+
+        {several && (
+          <div className="grid grid-cols-2 gap-2">
+            <Select
+              label={kind === 'move' ? 'From' : 'At which branch'}
+              name="branchId"
+              value={atBranch}
+              onChange={(e) => setAtBranch(e.target.value)}
+            >
+              {branches.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.name}
+                </option>
+              ))}
+            </Select>
+            {kind === 'move' && (
+              <Select label="To" name="toBranchId" value={toBranch} onChange={(e) => setToBranch(e.target.value)}>
+                {branches
+                  .filter((b) => String(b.id) !== String(atBranch))
+                  .map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.name}
+                    </option>
+                  ))}
+              </Select>
+            )}
+          </div>
+        )}
 
         <Input
           label={`Amount (${wallet.currency})`}
@@ -490,7 +565,12 @@ function TopUpDialog({ wallet, onClose, onSaved }) {
           <Button type="button" variant="secondary" className="flex-1" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit" className="flex-1" loading={busy} disabled={!Number(amount)}>
+          <Button
+            type="submit"
+            className="flex-1"
+            loading={busy}
+            disabled={!Number(amount) || (kind === 'move' && (!toBranch || toBranch === atBranch))}
+          >
             Record it
           </Button>
         </ModalActions>
@@ -501,6 +581,8 @@ function TopUpDialog({ wallet, onClose, onSaved }) {
 
 function StatementDialog({ wallet, onClose }) {
   const [data, setData] = useState(null);
+  const { branches } = useBranch();
+  const several = branches.length > 1;
 
   useEffect(() => {
     api.get(`/wallets/${wallet.id}/movements`).then((res) => setData(res.data));
@@ -512,7 +594,11 @@ function StatementDialog({ wallet, onClose }) {
       onClose={onClose}
       size="lg"
       title={`${wallet.name} statement`}
-      subtitle={`Balance ${walletAmount(wallet.balance, wallet.currency)}`}
+      subtitle={
+        several
+          ? `Here ${walletAmount(wallet.balance, wallet.currency)} · whole company ${walletAmount(wallet.total, wallet.currency)}`
+          : `Balance ${walletAmount(wallet.balance, wallet.currency)}`
+      }
     >
       {!data ? (
         <Skeleton className="h-48" />
@@ -541,6 +627,9 @@ function StatementDialog({ wallet, onClose }) {
                     <span className="ml-1 text-xs text-slate-400">
                       {m.order_number || m.doc_number}
                     </span>
+                  )}
+                  {several && m.branch_name && (
+                    <span className="ml-1 rounded bg-slate-100 px-1 text-xs text-slate-500">{m.branch_name}</span>
                   )}
                 </td>
                 <td

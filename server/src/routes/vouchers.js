@@ -45,7 +45,7 @@ router.get('/:id', ...desk, (req, res) => {
 
 router.post('/', ...desk, (req, res) => {
   try {
-    res.status(201).json({ voucher: recordVoucher({ ...req.body, userId: req.user.id }) });
+    res.status(201).json({ voucher: recordVoucher({ ...req.body, userId: req.user.id, branchId: req.branchId }) });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
