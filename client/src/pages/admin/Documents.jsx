@@ -35,6 +35,7 @@ import { clearDraft, readDraft, useDraft } from '../../lib/draft';
 import ProductQuickCreate from '../../components/ProductQuickCreate';
 import ProductQuickEdit from '../../components/ProductQuickEdit';
 import ImeiFields from '../../components/ImeiFields';
+import ReturnHandsets from '../../components/ReturnHandsets';
 import PartyQuickCreate from '../../components/PartyQuickCreate';
 import { A4, usePageSize } from '../../lib/pageSize';
 import {
@@ -1012,15 +1013,23 @@ function DocumentForm({ existing, startAs = null, page = false, onClose, onSaved
                                       )}
                                     </div>
                                   )}
-                                {/* A delivery names the handsets that arrived; a return to the
-                                    supplier names the ones going back. */}
-                                {(docType === 'purchase_invoice' || docType === 'purchase_return') &&
-                                  l.product.tracks_units && (
+                                {/* A delivery names the handsets that arrived, typed off the
+                                    boxes. A return to the supplier picks them off the shelf
+                                    instead: they are already in stock, so the line offers them. */}
+                                {docType === 'purchase_invoice' && l.product.tracks_units && (
                                   <ImeiFields
                                     value={l.imeis || ''}
                                     quantity={l.quantity}
                                     productName={l.product.name}
                                     onChange={(imeis) => updateLine(l.key, { imeis })}
+                                  />
+                                )}
+                                {docType === 'purchase_return' && l.product.tracks_units && (
+                                  <ReturnHandsets
+                                    product={l.product}
+                                    value={l.imeis || ''}
+                                    quantity={l.quantity}
+                                    onChange={(patch) => updateLine(l.key, patch)}
                                   />
                                 )}
                               </div>
