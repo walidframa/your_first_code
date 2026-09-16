@@ -108,6 +108,14 @@ router.patch('/:id', requireAuth, requirePermission('inventory'), (req, res) => 
   if (unit.status === 'sold' && status !== 'sold') {
     return res.status(400).json({ error: 'Refund the order to bring this unit back' });
   }
+  // Sent back to the supplier by a purchase return, and brought back by
+  // cancelling it: a document's doing, not an edit's.
+  if (status === 'sent_back' && unit.status !== 'sent_back') {
+    return res.status(400).json({ error: 'A handset goes back to the supplier on a purchase return, not by editing it' });
+  }
+  if (unit.status === 'sent_back' && status !== 'sent_back') {
+    return res.status(400).json({ error: 'Cancel the purchase return to bring this unit back' });
+  }
 
   try {
     transaction(() => {

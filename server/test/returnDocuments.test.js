@@ -268,6 +268,53 @@ test('a delivery cannot be deleted while a return stands against it, and a draft
 
 /* ------------------------------------------------------------- the edges */
 
+test('handsets go back to the supplier by IMEI, and come back if the return is cancelled', async () => {
+  const delivery = await draft('purchase_invoice', supplier.id, [
+    { productId: phone.id, quantity: 2, price: 200, imeis: '358800111100001\n358800111100002' },
+  ]);
+  assert.equal((await confirm(delivery.id)).status, 200);
+  const shelf = await stockOf(phone.id);
+  const owed = await balanceOf('supplier', supplier.id);
+
+  const ret = (await req('POST', `/documents/${delivery.id}/convert`, { docType: 'purchase_return' })).json.document;
+  const drafted = (await req('GET', `/documents/${ret.id}`)).json;
+  assert.match(drafted.items[0].imeis || '', /358800111100001/, 'the draft starts from the handsets that came in');
+
+  // Without naming the handset, the line is refused — by count, not by kind.
+  await req('PUT', `/documents/${ret.id}`, { items: [{ productId: phone.id, quantity: 1, price: 200 }] });
+  const vague = await confirm(ret.id);
+  assert.equal(vague.status, 400);
+  assert.match(vague.json.error, /1 on the line but 0 IMEIs/);
+
+  await req('PUT', `/documents/${ret.id}`, {
+    items: [{ productId: phone.id, quantity: 1, price: 200, imeis: '358800111100002' }],
+  });
+  const done = await confirm(ret.id);
+  assert.equal(done.status, 200, JSON.stringify(done.json));
+  assert.equal(await stockOf(phone.id), shelf - 1, 'one handset left the shelf');
+  assert.equal(await balanceOf('supplier', supplier.id), round(owed - 200), 'and its price is off what is owed');
+
+  const gone = (await req('GET', '/units/lookup?imei=358800111100002')).json;
+  assert.equal(gone.unit.status, 'sent_back');
+  assert.equal(gone.available, false, 'it cannot be sold');
+  const kept = (await req('GET', '/units/lookup?imei=358800111100001')).json;
+  assert.equal(kept.available, true, 'its box-mate is still for sale');
+
+  // The same phone cannot go back twice.
+  const again = (await req('POST', `/documents/${delivery.id}/convert`, { docType: 'purchase_return' })).json.document;
+  await req('PUT', `/documents/${again.id}`, {
+    items: [{ productId: phone.id, quantity: 1, price: 200, imeis: '358800111100002' }],
+  });
+  const twice = await confirm(again.id);
+  assert.equal(twice.status, 400);
+  assert.match(twice.json.error, /already sent back/);
+
+  const cancelled = await req('POST', `/documents/${ret.id}/cancel`);
+  assert.equal(cancelled.status, 200, JSON.stringify(cancelled.json));
+  assert.equal(await stockOf(phone.id), shelf, 'back on the shelf');
+  assert.equal((await req('GET', '/units/lookup?imei=358800111100002')).json.unit.status, 'in_stock');
+});
+
 test('a handset is not returned on paper', async () => {
   const ret = await draft('sales_return', customer.id, [{ productId: phone.id, quantity: 1, price: 300 }]);
   const refused = await confirm(ret.id);

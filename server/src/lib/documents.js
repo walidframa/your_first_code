@@ -392,14 +392,14 @@ function applyDocumentStock(doc, items, userId, direction, note, { keepUnits = n
        * supplier is a unit to scrap or move by its IMEI. Refused by name
        * rather than booked in as a new phone that never existed.
        */
-      if (type.returns) {
+      if (type.returns && type.party === 'customer') {
         throw new Error(
-          `${product.name} is tracked by IMEI — ${
-            type.party === 'customer'
-              ? 'take it back from the sale it went out on, from the Sales screen'
-              : 'send handsets back one by one, by IMEI, from Stock → Handsets'
-          }`,
+          `${product.name} is tracked by IMEI — take it back from the sale it went out on, from the Sales screen`,
         );
+      }
+      if (type.returns) {
+        sendUnitsBack({ doc, item, product, direction, userId, note, branchId });
+        continue;
       }
       moveUnits({ doc, item, product, direction, userId, note, branchId, keepUnits });
       continue;
@@ -699,6 +699,74 @@ function whatHolds(unitId) {
     }
   }
   return null;
+}
+
+/**
+ * Handsets going back to the supplier on a purchase return.
+ *
+ * A return document could not name which phone it meant, so a line for a
+ * serialised product was refused and the shop was sent to scrap them one at a
+ * time — which is not what happened: the phones went back in their boxes and
+ * the supplier owes for them. So the line carries the IMEIs, exactly as the
+ * delivery's did, and each named unit leaves the shelf as `sent_back`, pointed
+ * at this document. Cancelling the return puts those same units back.
+ *
+ * Only a handset the shop still holds can go back. One already sold is on a
+ * sale's history; one on a plan or in transit is spoken for.
+ */
+function sendUnitsBack({ doc, item, product, direction, userId, note, branchId = null }) {
+  if (direction < 0) {
+    const gone = db
+      .prepare("SELECT * FROM product_units WHERE sold_document_id = ? AND product_id = ? AND status = 'sent_back'")
+      .all(doc.id, product.id);
+    for (const u of gone) {
+      db.prepare(
+        `UPDATE product_units SET status = 'in_stock', sold_document_id = NULL, sold_at = NULL WHERE id = ?`,
+      ).run(u.id);
+    }
+    if (gone.length) {
+      const left = syncStockFromUnits(product.id);
+      db.prepare(
+        `INSERT INTO stock_adjustments (product_id, user_id, delta, resulting_stock, reason, note, branch_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      ).run(product.id, userId, gone.length, left, 'count_correction', note, branchId);
+    }
+    return;
+  }
+
+  const wanted = Math.round(item.quantity);
+  const handsets = parseImeiList(item.imeis);
+  if (handsets.length !== wanted) {
+    throw new Error(
+      `${product.name}: ${wanted} on the line but ${handsets.length} IMEI${handsets.length === 1 ? '' : 's'} given — say which handsets are going back`,
+    );
+  }
+
+  const units = [];
+  for (const h of handsets) {
+    const unit = db
+      .prepare('SELECT * FROM product_units WHERE imei = ? OR imei2 = ?')
+      .get(h.imei, h.imei);
+    if (!unit) throw new Error(`${h.imei} is not in the shop's records`);
+    if (unit.product_id !== product.id) throw new Error(`${h.imei} is not a ${product.name}`);
+    if (!isAvailable(unit.status)) {
+      throw new Error(`${unit.imei} is already ${unit.status.replace('_', ' ')} — it cannot go back`);
+    }
+    const held = whatHolds(unit.id);
+    if (held && !/a sale/.test(held)) throw new Error(`${unit.imei} is still on ${held}`);
+    units.push(unit);
+  }
+
+  for (const u of units) {
+    db.prepare(
+      `UPDATE product_units SET status = 'sent_back', sold_document_id = ?, sold_at = datetime('now') WHERE id = ?`,
+    ).run(doc.id, u.id);
+  }
+  const left = syncStockFromUnits(product.id);
+  db.prepare(
+    `INSERT INTO stock_adjustments (product_id, user_id, delta, resulting_stock, reason, note, branch_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  ).run(product.id, userId, -units.length, left, 'count_correction', note, branchId);
 }
 
 function moveUnits({ doc, item, product, direction, userId, note, branchId = null, keepUnits = null }) {
