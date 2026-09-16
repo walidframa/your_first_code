@@ -199,6 +199,32 @@ test('the inventory screen counts the shelf you are standing at', async () => {
   assert.equal(there.totals.units - before.there, 0);
 });
 
+test('the products page counts the same shelf as the inventory page', async () => {
+  /*
+   * Reported from the shop: the two screens showed different quantities for
+   * the same product. The inventory page honoured "All branches" and showed
+   * the company's total; the products page ignored it and went on showing
+   * this branch's shelf. Both now answer the same question the same way.
+   */
+  const made = await makeProduct(9);
+
+  const list = async (branch, all = false) =>
+    (await req('GET', `/products${all ? '?branch=all' : ''}`, null, adminToken, branch)).json.products.find(
+      (p) => p.id === made.id,
+    );
+  const inv = async (branch, all = false) =>
+    (await req('GET', `/inventory${all ? '?branch=all' : ''}`, null, adminToken, branch)).json.products.find(
+      (p) => p.id === made.id,
+    );
+
+  assert.equal((await list(mainBranch.id)).stock, (await inv(mainBranch.id)).stock, 'nine here on both screens');
+  assert.equal((await list(saida.id)).stock, (await inv(saida.id)).stock, 'none at Saida on both screens');
+  assert.equal((await list(saida.id)).stock, 0);
+  assert.equal((await list(saida.id)).total_stock, 9);
+  assert.equal((await list(saida.id, true)).stock, 9, 'the whole company, on the products page too');
+  assert.equal((await list(saida.id, true)).stock, (await inv(saida.id, true)).stock);
+});
+
 test('and the owner can still ask for the whole company at once', async () => {
   const made = await makeProduct(7);
 

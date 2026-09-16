@@ -5,6 +5,7 @@ import { activityFor, costHistoryFor, recordCostChange, salesSummaryFor } from '
 import { averageCostMap, costingFor, lastCostMap } from '../lib/costing.js';
 import { barcodeMap, barcodesFor, barcodesFromBody, generateBarcode, setBarcodes } from '../lib/barcodes.js';
 import { clearStockEverywhere, setStock, stockAt, stockByBranch, stockMap } from '../lib/stock.js';
+import { branchScope } from '../lib/branchScope.js';
 import { addStarterCategories } from '../lib/starterCategories.js';
 import {
   availableBundles,
@@ -503,9 +504,17 @@ router.get('/', requireAuth, (req, res) => {
   // One query for every product's barcodes rather than one per product: the
   // register loads this list on every visit.
   const codes = barcodeMap();
-  // One query each for barcodes and for this branch's shelf, rather than two
-  // per product: the register loads the whole catalogue every visit.
-  const here = stockMap(req.branchId);
+  /*
+   * One query each for barcodes and for this branch's shelf, rather than two
+   * per product: the register loads the whole catalogue every visit.
+   *
+   * The same scope the inventory screen uses: this branch's shelf, or — when
+   * the owner has asked for the whole company — what is owned altogether. The
+   * two screens used to answer differently to the same question, and a shop
+   * with two counters saw two quantities for one product.
+   */
+  const scope = branchScope(req);
+  const here = scope === null ? null : stockMap(scope);
   /*
    * Which of these are made of other products, in one query rather than one per
    * row. A bundle's own shelf is always empty, so the register needs to be told
@@ -534,8 +543,8 @@ router.get('/', requireAuth, (req, res) => {
       const base = {
         ...serializeProduct(p, {
           codes: codes.get(p.id) || [],
-          here: here.get(p.id) ?? 0,
-          branchId: req.branchId,
+          here: here ? (here.get(p.id) ?? 0) : p.stock,
+          branchId: scope ?? req.branchId,
         }),
         // Null when the shop has never booked a purchase invoice for it, which
         // is honest: falling back to `cost` would print a figure called
@@ -771,7 +780,12 @@ router.get('/:id', requireAuth, (req, res) => {
   // here is empty.
   res.json({
     product: {
-      ...serializeProduct(product, { branchId: req.branchId }),
+      // The same scope as the list it was opened from: this shelf, or the whole
+      // company when the owner asked for it.
+      ...serializeProduct(product, {
+        branchId: branchScope(req) ?? req.branchId,
+        here: branchScope(req) === null ? product.stock : undefined,
+      }),
       ...priceHistory(product.id),
       scratch_cards: scratchedBy(product.id),
     },
