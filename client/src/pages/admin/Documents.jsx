@@ -1012,7 +1012,10 @@ function DocumentForm({ existing, startAs = null, page = false, onClose, onSaved
                                       )}
                                     </div>
                                   )}
-                                {docType === 'purchase_invoice' && l.product.tracks_units && (
+                                {/* A delivery names the handsets that arrived; a return to the
+                                    supplier names the ones going back. */}
+                                {(docType === 'purchase_invoice' || docType === 'purchase_return') &&
+                                  l.product.tracks_units && (
                                   <ImeiFields
                                     value={l.imeis || ''}
                                     quantity={l.quantity}

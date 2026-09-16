@@ -14,7 +14,7 @@ import { db } from '../db.js';
 import { mainBranchId, setStock } from './stock.js';
 
 export const UNIT_CONDITIONS = ['new', 'used', 'refurbished'];
-export const UNIT_STATUSES = ['in_stock', 'sold', 'returned', 'scrapped'];
+export const UNIT_STATUSES = ['in_stock', 'sold', 'returned', 'scrapped', 'sent_back'];
 
 /**
  * Digits only, uppercased.

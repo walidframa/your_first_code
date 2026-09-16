@@ -24,7 +24,7 @@ export default function UnitPicker({ product, onPick, onClose }) {
   useEffect(() => {
     let cancelled = false;
     api.get(`/units/product/${product.id}`).then((res) => {
-      if (!cancelled) setUnits(res.data.units.filter((u) => u.status !== 'sold' && u.status !== 'scrapped'));
+      if (!cancelled) setUnits(res.data.units.filter((u) => u.status === 'in_stock' || u.status === 'returned'));
     });
     return () => {
       cancelled = true;

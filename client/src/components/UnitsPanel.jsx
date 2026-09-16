@@ -24,6 +24,7 @@ const STATUS_STYLE = {
   returned: 'bg-amber-50 text-amber-700',
   sold: 'bg-slate-100 text-slate-500',
   scrapped: 'bg-red-50 text-red-600',
+  sent_back: 'bg-violet-50 text-violet-700',
 };
 
 const STATUS_LABEL = {
@@ -31,6 +32,7 @@ const STATUS_LABEL = {
   returned: 'Returned',
   sold: 'Sold',
   scrapped: 'Scrapped',
+  sent_back: 'Sent back to supplier',
 };
 
 /**

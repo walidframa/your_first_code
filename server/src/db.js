@@ -2857,6 +2857,50 @@ function widenDocumentTypes() {
 }
 widenDocumentTypes();
 
+/**
+ * A handset that went back to the supplier.
+ *
+ * A purchase return names the IMEIs going back, and those units are neither
+ * sold nor scrapped — they left the shop on a document the shop can cancel.
+ * The CHECK on `product_units.status` is widened the same way as above.
+ */
+function widenUnitStatuses() {
+  const row = db
+    .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'product_units'")
+    .get();
+  if (!row?.sql || row.sql.includes('sent_back')) return;
+
+  const create = row.sql
+    .replace(/CREATE TABLE (IF NOT EXISTS )?"?product_units"?/i, 'CREATE TABLE product_units_new')
+    .replace("'scrapped')", "'scrapped', 'sent_back')");
+  if (!create.includes('sent_back') || !create.startsWith('CREATE TABLE product_units_new')) {
+    throw new Error('Could not widen product_units.status — the table is not shaped as expected');
+  }
+
+  db.exec('PRAGMA foreign_keys = OFF');
+  db.exec('BEGIN');
+  try {
+    db.exec(create);
+    const columns = db
+      .prepare('PRAGMA table_info(product_units)')
+      .all()
+      .map((c) => `"${c.name}"`)
+      .join(', ');
+    db.exec(`INSERT INTO product_units_new (${columns}) SELECT ${columns} FROM product_units`);
+    db.exec('DROP TABLE product_units');
+    db.exec('ALTER TABLE product_units_new RENAME TO product_units');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_units_product ON product_units(product_id, status)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_units_imei ON product_units(imei)');
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  } finally {
+    db.exec('PRAGMA foreign_keys = ON');
+  }
+}
+widenUnitStatuses();
+
 /*
  * What an invoice cost or charged beyond its lines.
  *
