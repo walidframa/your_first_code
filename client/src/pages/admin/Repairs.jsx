@@ -8,6 +8,7 @@ import WhatsAppButton from '../../components/WhatsAppButton';
 import CustomerField from '../../components/CustomerField';
 import HistoryFilter from '../../components/HistoryFilter';
 import { useHistoryFilter } from '../../lib/history';
+import { useBranch } from '../../context/BranchContext';
 import {
   Button,
   Card,
@@ -721,6 +722,9 @@ function TicketModal({ id, onClose, onChanged }) {
 }
 
 export default function Repairs() {
+  /* Which shop each phone is at — only worth a column when there is more than one. */
+  const { total: branchCount } = useBranch();
+  const severalBranches = branchCount > 1;
   /*
    * Arrived pointing at one ticket — from a customer's account, say, which now
    * lists the phones they have left here. A link that lands on a filtered board
@@ -884,6 +888,7 @@ export default function Repairs() {
                   <th className="px-3 py-2 font-medium">Device</th>
                   <th className="hidden px-3 py-2 font-medium sm:table-cell">Customer</th>
                   <th className="hidden px-3 py-2 font-medium md:table-cell">Fault</th>
+                  {severalBranches && <th className="px-3 py-2 font-medium">Branch</th>}
                   <th className="hidden px-3 py-2 text-right font-medium sm:table-cell">Parts</th>
                   <th className="px-5 py-2 font-medium">Status</th>
                 </tr>
@@ -914,6 +919,16 @@ export default function Repairs() {
                       )}
                     </td>
                     <td className="hidden max-w-[16rem] truncate px-3 py-2.5 text-slate-500 md:table-cell">{t.fault}</td>
+                    {severalBranches && (
+                      <td className="px-3 py-2.5">
+                        <span
+                          className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600"
+                          title={t.branch_name || ''}
+                        >
+                          {t.branch_code || t.branch_name || '—'}
+                        </span>
+                      </td>
+                    )}
                     <td className="tnum hidden px-3 py-2.5 text-right text-slate-600 sm:table-cell">
                       {t.part_count ? money(t.parts_total) : '—'}
                     </td>
