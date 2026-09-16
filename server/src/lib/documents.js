@@ -752,8 +752,22 @@ function sendUnitsBack({ doc, item, product, direction, userId, note, branchId =
     if (!isAvailable(unit.status)) {
       throw new Error(`${unit.imei} is already ${unit.status.replace('_', ' ')} — it cannot go back`);
     }
-    const held = whatHolds(unit.id);
-    if (held && !/a sale/.test(held)) throw new Error(`${unit.imei} is still on ${held}`);
+    /*
+     * Only a transfer still on the road holds it. One received months ago is
+     * history — the phone is on this shelf, which is the whole point — and a
+     * blanket "ever on a transfer" refused every handset that had moved
+     * between the shops.
+     */
+    const inTransit = db
+      .prepare(
+        `SELECT t.reference FROM stock_transfer_items i
+           JOIN stock_transfers t ON t.id = i.transfer_id
+          WHERE i.unit_id = ? AND t.status IN ('draft', 'sent') LIMIT 1`,
+      )
+      .get(unit.id);
+    if (inTransit) {
+      throw new Error(`${unit.imei} is on ${inTransit.reference}, still on its way — receive or cancel that first`);
+    }
     units.push(unit);
   }
 

@@ -315,6 +315,52 @@ test('handsets go back to the supplier by IMEI, and come back if the return is c
   assert.equal((await req('GET', '/units/lookup?imei=358800111100002')).json.unit.status, 'in_stock');
 });
 
+test('a handset that moved between branches can still go back; one on the road cannot', async () => {
+  const at = (branch) => async (method, route, body) => {
+    const res = await fetch(BASE + route, {
+      method,
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, 'X-Branch-Id': String(branch) },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    return { status: res.status, json: await res.json().catch(() => null) };
+  };
+  const main = (await req('GET', '/branches')).json.branches.find((b) => b.is_main);
+  const saida = (await req('POST', '/branches', { name: 'Saida', code: 'SAI' })).json.branch;
+
+  const delivery = await draft('purchase_invoice', supplier.id, [
+    { productId: phone.id, quantity: 2, price: 200, imeis: '358800111100011\n358800111100012' },
+  ]);
+  assert.equal((await confirm(delivery.id)).status, 200);
+  const moved = (await req('GET', '/units/lookup?imei=358800111100011')).json.unit;
+  const stuck = (await req('GET', '/units/lookup?imei=358800111100012')).json.unit;
+
+  // One phone goes to Saida and is received there; the other is sent and never arrives.
+  const t1 = await at(main.id)('POST', '/stock-transfers', { toBranchId: saida.id, items: [{ productId: phone.id, unitId: moved.id }] });
+  assert.equal(t1.status, 201, JSON.stringify(t1.json));
+  const received = await at(saida.id)('POST', `/stock-transfers/${t1.json.transfer.id}/receive`);
+  assert.equal(received.status, 200, JSON.stringify(received.json));
+  const t2 = await at(main.id)('POST', '/stock-transfers', { toBranchId: saida.id, items: [{ productId: phone.id, unitId: stuck.id }] });
+  assert.equal(t2.status, 201, JSON.stringify(t2.json));
+
+  const ret = (await at(saida.id)('POST', '/documents', {
+    docType: 'purchase_return',
+    partyId: supplier.id,
+    items: [{ productId: phone.id, quantity: 1, price: 200, imeis: '358800111100011' }],
+  })).json.document;
+  const done = await at(saida.id)('POST', `/documents/${ret.id}/confirm`);
+  assert.equal(done.status, 200, JSON.stringify(done.json));
+  assert.equal((await req('GET', '/units/lookup?imei=358800111100011')).json.unit.status, 'sent_back');
+
+  const onRoad = (await at(main.id)('POST', '/documents', {
+    docType: 'purchase_return',
+    partyId: supplier.id,
+    items: [{ productId: phone.id, quantity: 1, price: 200, imeis: '358800111100012' }],
+  })).json.document;
+  const refused = await at(main.id)('POST', `/documents/${onRoad.id}/confirm`);
+  assert.equal(refused.status, 400);
+  assert.match(refused.json.error, /still on its way/);
+});
+
 test('a handset is not returned on paper', async () => {
   const ret = await draft('sales_return', customer.id, [{ productId: phone.id, quantity: 1, price: 300 }]);
   const refused = await confirm(ret.id);
