@@ -111,12 +111,13 @@ router.get('/', requireAuth, (req, res) => {
 
   const tickets = db
     .prepare(
-      `SELECT t.*, u.name AS taken_by_name,
+      `SELECT t.*, u.name AS taken_by_name, b.name AS branch_name, b.code AS branch_code,
               (SELECT COUNT(*) FROM repair_parts p WHERE p.ticket_id = t.id) AS part_count,
               (SELECT COALESCE(SUM(p.price * p.quantity), 0) FROM repair_parts p WHERE p.ticket_id = t.id)
                 AS parts_total
        FROM repair_tickets t
        LEFT JOIN users u ON u.id = t.taken_by
+       LEFT JOIN branches b ON b.id = t.branch_id
        ${clauses.length ? `WHERE ${clauses.join(' AND ')}` : ''}
        ORDER BY t.created_at DESC, t.id DESC
        LIMIT 200`,

@@ -201,6 +201,13 @@ test('a phone the shop never sold is still taken in, by description', async () =
   assert.equal(res.json.ticket.under_warranty, 0);
 });
 
+test('the board says which branch each phone is at', async () => {
+  const main = (await req('GET', '/branches', null, adminToken)).json.branches.find((b) => b.is_main);
+  const { tickets } = (await req('GET', '/repairs', null, adminToken)).json;
+  assert.ok(tickets.length > 0);
+  assert.ok(tickets.every((t) => t.branch_name === main.name), 'every ticket so far was taken in at the main shop');
+});
+
 test('a ticket needs a name, a device and a fault', async () => {
   for (const body of [
     { device: 'X', fault: 'Y' },
