@@ -416,7 +416,7 @@ test('the shift report totals sales by how they were paid', async () => {
   assert.ok(summary.byKind.some((k) => k.kind === 'sale'));
 });
 
-test('a customer settling their account fills the drawer', async () => {
+test('a customer settling their account at the register fills the drawer', async () => {
   await req('POST', '/cash/open', { openingUsd: 0 }, adminToken);
   const customer = (
     await req('POST', '/customers', { name: 'Pays In Cash', credit_limit: 500 }, adminToken)
@@ -428,12 +428,43 @@ test('a customer settling their account fills the drawer', async () => {
     `/customers/${customer.id}/payments`,
     { payments: [{ currency: 'USD', amount: 40 }] },
     adminToken,
+    { 'X-At-Register': '1' },
   );
 
   assert.equal((await req('GET', '/cash/current', null, adminToken)).json.expected.usd, 40);
 });
 
-test('paying a supplier from the till empties it', async () => {
+test('a payment recorded from the customers screen goes to the main cash, not the drawer', async () => {
+  /*
+   * Reported from the shop: a payment taken at the desk was landing in the
+   * register's box, and the count at close was over by money the cashier
+   * never touched. The customers screen is a desk — the same rule as an
+   * expense or a supplier bill paid from it.
+   */
+  await req('POST', '/cash/open', { openingUsd: 50 }, adminToken);
+  const drawerBefore = (await req('GET', '/cash/current', null, adminToken)).json.expected?.usd ?? 0;
+  const customer = (
+    await req('POST', '/customers', { name: 'Pays At The Desk', credit_limit: 500 }, adminToken)
+  ).json.party;
+  await req('POST', `/customers/${customer.id}/charges`, { amount: 34.27, note: 'Old balance' }, adminToken);
+
+  const registry = async () => (await req('GET', '/accounts/registry', null, adminToken)).json.registry.cash;
+  const mainBefore = (await registry()).find((a) => a.name === 'Main cash')?.balance ?? 0;
+
+  const paid = await req(
+    'POST',
+    `/customers/${customer.id}/payments`,
+    { payments: [{ currency: 'USD', amount: 34.27 }] },
+    adminToken,
+  );
+  assert.equal(paid.status, 201, JSON.stringify(paid.json));
+
+  assert.equal((await req('GET', '/cash/current', null, adminToken)).json.expected?.usd ?? 0, drawerBefore, 'the drawer is untouched');
+  const mainAfter = (await registry()).find((a) => a.name === 'Main cash')?.balance ?? 0;
+  assert.equal(Math.round((mainAfter - mainBefore) * 100) / 100, 34.27, 'the main cash took it');
+});
+
+test('paying a supplier from the register empties the drawer', async () => {
   await req('POST', '/cash/open', { openingUsd: 300 }, adminToken);
   const supplier = (await req('POST', '/suppliers', { name: 'Paid From Till' }, adminToken)).json.party;
   await req('POST', `/suppliers/${supplier.id}/charges`, { amount: 120, note: 'Delivery' }, adminToken);
@@ -443,6 +474,7 @@ test('paying a supplier from the till empties it', async () => {
     `/suppliers/${supplier.id}/payments`,
     { payments: [{ currency: 'USD', amount: 120 }] },
     adminToken,
+    { 'X-At-Register': '1' },
   );
 
   assert.equal((await req('GET', '/cash/current', null, adminToken)).json.expected.usd, 180);

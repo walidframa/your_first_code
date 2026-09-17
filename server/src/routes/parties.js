@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { db, transaction } from '../db.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
-import { defaultAccount } from '../lib/cashAccounts.js';
+import { tillFor } from '../lib/cash.js';
 import { recordVoucher } from '../lib/vouchers.js';
 import { round2 } from '../lib/currency.js';
 import {
@@ -321,7 +321,13 @@ export function partyRouter(partyType) {
     if (!party) return res.status(404).json({ error: 'Not found' });
 
     const inCash = req.body?.inCash !== false;
-    const till = req.body?.accountId ?? (inCash ? defaultAccount()?.id ?? null : null);
+    /*
+     * Which pile the money joins. The register's drawer when the payment is
+     * taken at the register with the till open; the shop's main cash when it
+     * is recorded from the customers screen, which is a desk — the same rule
+     * as every other movement made away from the counter. See `tillFor`.
+     */
+    const till = req.body?.accountId ?? (inCash ? tillFor({ atRegister: req.atRegister, branchId: req.branchId }) : null);
 
     try {
       if (inCash && till) {

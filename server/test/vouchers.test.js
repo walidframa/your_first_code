@@ -28,12 +28,13 @@ let wallet;
 let mainTill;
 let deskTill;
 
-async function req(method, route, body, token) {
+async function req(method, route, body, token, headers = {}) {
   const res = await fetch(BASE + route, {
     method,
     headers: {
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...headers,
     },
     body: body ? JSON.stringify(body) : undefined,
   });
@@ -606,6 +607,7 @@ test('a customer settling their account gets a numbered slip', async () => {
     `/customers/${customer.id}/payments`,
     { payments: [{ currency: 'USD', amount: 30 }], note: 'On account' },
     adminToken,
+    { 'X-At-Register': '1' },
   );
   assert.equal(paid.status, 201, JSON.stringify(paid.json));
 
@@ -627,6 +629,7 @@ test('paying a supplier is the same slip the other way round', async () => {
     `/suppliers/${supplier.id}/payments`,
     { payments: [{ currency: 'USD', amount: 40 }] },
     adminToken,
+    { 'X-At-Register': '1' },
   );
   assert.equal(paid.status, 201, JSON.stringify(paid.json));
   assert.match(paid.json.voucher.voucher_number, /^PV-/);
