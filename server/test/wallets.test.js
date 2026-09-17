@@ -649,3 +649,52 @@ test('the whole statement comes down as a spreadsheet', async () => {
   assert.ok(lines.some((l) => /Taken out/.test(l) && /,-3,/.test(l)));
 });
 
+/* ----------------------------------------------------- prices in pounds */
+
+test('a price set in pounds stays in pounds, and a dollar edit lets it go', async () => {
+  const made = await req(
+    'POST',
+    '/products',
+    { name: 'Pound priced', sku: 'LBP-1', price: 3.33, cost: 2.22, stock: 5, price_lbp: 300000, cost_lbp: 200000 },
+    adminToken,
+  );
+  assert.equal(made.status, 201, JSON.stringify(made.json));
+  assert.equal(made.json.product.price_lbp, 300000);
+  assert.equal(made.json.product.cost_lbp, 200000);
+
+  const listed = (await req('GET', '/products', null, adminToken)).json.products.find((p) => p.id === made.json.product.id);
+  assert.equal(listed.price_lbp, 300000, 'the register is told the exact pounds');
+
+  // The dollar price changed on its own: the pinned pounds no longer describe it.
+  const edited = await req('PUT', `/products/${made.json.product.id}`, { price: 4 }, adminToken);
+  assert.equal(edited.status, 200, JSON.stringify(edited.json));
+  assert.equal(edited.json.product.price_lbp, null);
+  assert.equal(edited.json.product.cost_lbp, 200000, 'the cost was not touched');
+
+  // Re-pinned in pounds, together with the dollars that go with it.
+  const repinned = await req('PUT', `/products/${made.json.product.id}`, { price: 3.33, price_lbp: 300000 }, adminToken);
+  assert.equal(repinned.json.product.price_lbp, 300000);
+});
+
+test('a card costed in pounds charges a pound wallet exactly that', async () => {
+  const w = (await req('POST', '/wallets', { name: 'Pound wallet exact', currency: 'LBP', opening: 5000000 }, adminToken)).json.wallet;
+  const c = (
+    await req(
+      'POST',
+      '/products',
+      { name: 'Touch 300k', sku: 'CARD-LBP-EXACT', price: 3.5, cost: 3.33, cost_lbp: 300000, wallet_id: w.id },
+      adminToken,
+    )
+  ).json.product;
+
+  const sale = await req(
+    'POST',
+    '/orders',
+    { items: [{ productId: c.id, quantity: 2 }], paymentMethod: 'card' },
+    cashierToken,
+  );
+  assert.equal(sale.status, 201, JSON.stringify(sale.json));
+  // 2 × 300,000 exactly — not 2 × 3.33 × the rate, which is 299,700 each.
+  assert.equal(await balanceOf(w.id), 5000000 - 600000);
+});
+

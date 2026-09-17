@@ -125,6 +125,13 @@ function tradePrice(value) {
   return Number.isFinite(n) && n >= 0 ? n : null;
 }
 
+/** A figure in pounds, kept whole; empty means "set in dollars, follow the rate". */
+function pounds(value) {
+  if (value === undefined || value === null || value === '') return null;
+  const n = Math.round(Number(value));
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 /** The two cost figures a single product's screen wants, flattened onto it. */
 function priceHistory(productId) {
   const { average, last } = costingFor(productId);
@@ -650,7 +657,7 @@ router.post('/', requireAuth, requirePermission('catalogue'), (req, res) => {
     name, sku, price, cost, stock, category_id, image_emoji, barcode, supplier, image_url,
     reorder_point, tracks_units, warranty_months, wallet_id, is_sim,
     validity_days, linked_card_id, credit_recovered, credit_wallet_id, credits_included,
-    wholesale_price, is_service,
+    wholesale_price, is_service, price_lbp, cost_lbp,
   } = req.body || {};
   if (!name || !sku || price == null) {
     return res.status(400).json({ error: 'name, sku and price are required' });
@@ -680,8 +687,8 @@ router.post('/', requireAuth, requirePermission('catalogue'), (req, res) => {
   if (problem) return res.status(400).json({ error: problem });
   try {
     const info = db.prepare(`
-      INSERT INTO products (name, sku, price, cost, stock, category_id, image_emoji, barcode, supplier, image_url, reorder_point, tracks_units, warranty_months, wallet_id, is_sim, validity_days, linked_card_id, credit_recovered, credit_wallet_id, credits_included, wholesale_price, is_service)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO products (name, sku, price, cost, stock, category_id, image_emoji, barcode, supplier, image_url, reorder_point, tracks_units, warranty_months, wallet_id, is_sim, validity_days, linked_card_id, credit_recovered, credit_wallet_id, credits_included, wholesale_price, is_service, price_lbp, cost_lbp)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       name,
       sku,
@@ -720,6 +727,8 @@ router.post('/', requireAuth, requirePermission('catalogue'), (req, res) => {
       tradePrice(wholesale_price),
       // Something the shop does rather than something it has — see db.js.
       kind.is_service,
+      pounds(price_lbp),
+      pounds(cost_lbp),
     );
     /*
      * The opening count lands on the shelf of the branch it was entered at —
@@ -876,6 +885,9 @@ router.put('/:id', requireAuth, requirePermission('catalogue'), (req, res) => {
     // a markup on the cost — see the column's own note in db.js.
     'wholesale_price',
     'is_service',
+    // A price or cost pinned in pounds — see db.js.
+    'price_lbp',
+    'cost_lbp',
   ];
   const updates = {};
   for (const f of fields) {
@@ -918,6 +930,18 @@ router.put('/:id', requireAuth, requirePermission('catalogue'), (req, res) => {
   // `product` is re-read above when the stock was cleared, so the merge cannot
   // put the old count back.
   const merged = { ...product, ...updates, barcode: barcodesFor(product.id)[0] ?? null };
+
+  /*
+   * A dollar price changed on its own — from an invoice line, a quick edit,
+   * an import — is a dollar price now. The pound figure that was pinned to the
+   * old one would otherwise sit under it saying something else.
+   */
+  if (updates.price !== undefined && updates.price_lbp === undefined && Number(updates.price) !== Number(product.price)) {
+    merged.price_lbp = null;
+  }
+  if (updates.cost !== undefined && updates.cost_lbp === undefined && Number(updates.cost) !== Number(product.cost)) {
+    merged.cost_lbp = null;
+  }
   if (switchingTracking && updates.tracks_units) merged.stock = 0;
 
   /*
@@ -957,7 +981,7 @@ router.put('/:id', requireAuth, requirePermission('catalogue'), (req, res) => {
       tracks_units = ?,
       warranty_months = ?, wallet_id = ?, is_sim = ?,
       validity_days = ?, linked_card_id = ?, credit_recovered = ?, credit_wallet_id = ?,
-      credits_included = ?, wholesale_price = ?, is_service = ?
+      credits_included = ?, wholesale_price = ?, is_service = ?, price_lbp = ?, cost_lbp = ?
     WHERE id = ?
   `).run(
     merged.name,
@@ -992,6 +1016,8 @@ router.put('/:id', requireAuth, requirePermission('catalogue'), (req, res) => {
     Number(merged.credits_included) || null,
     tradePrice(merged.wholesale_price),
     merged.is_service ? 1 : 0,
+    pounds(merged.price_lbp),
+    pounds(merged.cost_lbp),
     req.params.id
   );
 

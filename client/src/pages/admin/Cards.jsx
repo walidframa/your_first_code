@@ -849,6 +849,10 @@ function CardDialog({ card, wallets, categories, onClose, onSaved }) {
   const [sku, setSku] = useState(card?.sku || '');
   const [price, setPrice] = useState(String(card?.price ?? ''));
   const [cost, setCost] = useState(String(card?.cost ?? ''));
+  /* As set in pounds, when they were: what the counter shows and the wallet is
+     charged, to the pound. Null means dollars. */
+  const [priceLbp, setPriceLbp] = useState(card?.price_lbp ?? null);
+  const [costLbp, setCostLbp] = useState(card?.cost_lbp ?? null);
   const [categoryId, setCategoryId] = useState(String(card?.category_id || categories[0]?.id || ''));
   const [walletId, setWalletId] = useState(String(card?.wallet_id || wallets[0]?.id || ''));
   const [credits, setCredits] = useState(String(card?.credits_included ?? ''));
@@ -870,6 +874,8 @@ function CardDialog({ card, wallets, categories, onClose, onSaved }) {
       wallet_id: Number(walletId) || null,
       credits_included: Number(credits) || null,
       image_url: picture || null,
+      price_lbp: priceLbp,
+      cost_lbp: costLbp,
     };
     try {
       if (editing) {
@@ -920,12 +926,21 @@ function CardDialog({ card, wallets, categories, onClose, onSaved }) {
           * in their head is how a cost lands out by a factor of ten.
           */}
         <div className="grid grid-cols-2 gap-3">
-          <MoneyInput label="Selling price" name="price" value={price} onChange={setPrice} />
+          <MoneyInput
+            label="Selling price"
+            name="price"
+            value={price}
+            onChange={setPrice}
+            pounds={priceLbp}
+            onPounds={setPriceLbp}
+          />
           <MoneyInput
             label="What it costs you"
             name="cost"
             value={cost}
             onChange={setCost}
+            pounds={costLbp}
+            onPounds={setCostLbp}
             hint="Comes off the wallet on every sale"
           />
         </div>

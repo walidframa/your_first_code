@@ -365,7 +365,7 @@ export function transferBetweenBranches({ walletId, fromBranchId, toBranchId, am
  * charged the converted figure. Both are returned: the wallet moves in its own
  * currency, the books stay in dollars.
  */
-export function costOfLine(wallet, costUsd, quantity, rate = null) {
+export function costOfLine(wallet, costUsd, quantity, rate = null, costLbp = null) {
   /*
    * The rate can be given rather than read. A document's effect is undone with
    * the rate it was confirmed at, so cancelling it takes back exactly what it
@@ -374,7 +374,18 @@ export function costOfLine(wallet, costUsd, quantity, rate = null) {
    */
   const useRate = rate === null ? getSettings().exchange_rate : rate;
   const usd = round2((Number(costUsd) || 0) * quantity);
-  const amount = wallet.currency === 'LBP' ? Math.round(usd * (useRate || 0)) : usd;
+  /*
+   * A card whose cost was set in pounds is charged those pounds, exactly. Run
+   * through the dollar figure and back it came out a few hundred pounds off,
+   * and a wallet reconciled against the dealer's statement was off by that
+   * much on every card.
+   */
+  const amount =
+    wallet.currency === 'LBP'
+      ? Number(costLbp) > 0
+        ? Math.round(Number(costLbp) * quantity)
+        : Math.round(usd * (useRate || 0))
+      : usd;
   return { usd, amount };
 }
 
@@ -393,7 +404,7 @@ export function chargeSale({ walletId, product, quantity, orderId, userId, branc
   const wallet = db.prepare('SELECT * FROM wallets WHERE id = ?').get(walletId);
   if (!wallet) throw new Error(`${product.name} is funded by a wallet that no longer exists`);
 
-  const { usd, amount } = costOfLine(wallet, product.cost, quantity);
+  const { usd, amount } = costOfLine(wallet, product.cost, quantity, null, product.cost_lbp);
   if (amount === 0) return null;
 
   return recordMovement({

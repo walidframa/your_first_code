@@ -56,17 +56,42 @@ export function PoundsInput({ label, name, value, onChange, hint, ...props }) {
  * — keeping them would mean a cost that quietly changed every time the rate
  * moved, which is not what a cost is.
  */
-export default function MoneyInput({ label, name, value, onChange, hint, switchable = true, ...props }) {
+/**
+ * `pounds` / `onPounds` carry the figure as typed in pounds, whole. A price set
+ * in pounds used to be divided by the rate, kept to the cent and multiplied
+ * back on every screen — so 300,000 LL came up as 301,000 at the counter. When
+ * the caller keeps the pounds, the dollars are the same amount at today's rate
+ * for the books, and the pounds are what the shop actually said.
+ */
+export default function MoneyInput({
+  label,
+  name,
+  value,
+  onChange,
+  hint,
+  switchable = true,
+  pounds: pinnedPounds = null,
+  onPounds = null,
+  ...props
+}) {
   const { rate } = useSettings();
-  const [currency, setCurrency] = useState('USD');
+  const pinned = pinnedPounds !== null && pinnedPounds !== undefined && pinnedPounds !== '';
+  const [currency, setCurrency] = useState(pinned ? 'LBP' : 'USD');
 
   // What the stored dollars are worth in pounds, for the box to start from.
   const asLbp = rate > 0 && value !== '' ? String(Math.round(Number(value) * rate)) : '';
-  const [pounds, setPounds] = useState(asLbp);
+  const [pounds, setPounds] = useState(pinned ? String(pinnedPounds) : asLbp);
 
   function typePounds(next) {
     setPounds(next);
     onChange(next === '' ? '' : String(round2(Number(next) / rate)));
+    if (onPounds) onPounds(next === '' ? null : Math.round(Number(next)) || null);
+  }
+
+  function typeDollars(next) {
+    onChange(next);
+    // Typed in dollars: the pounds follow the rate from now on.
+    if (onPounds) onPounds(null);
   }
 
   function switchTo(nextCurrency) {
@@ -130,7 +155,7 @@ export default function MoneyInput({ label, name, value, onChange, hint, switcha
         min="0"
         step={inPounds ? '1000' : '0.01'}
         value={inPounds ? pounds : value}
-        onChange={(e) => (inPounds ? typePounds(e.target.value) : onChange(e.target.value))}
+        onChange={(e) => (inPounds ? typePounds(e.target.value) : typeDollars(e.target.value))}
         {...props}
       />
 

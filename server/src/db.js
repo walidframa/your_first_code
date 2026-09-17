@@ -2161,6 +2161,19 @@ addColumn('products', 'credits_included', 'REAL');
 addColumn('products', 'is_service', 'INTEGER NOT NULL DEFAULT 0');
 
 addColumn('products', 'wholesale_price', 'REAL');
+/*
+ * A price, or a cost, that was set in pounds and is to stay in pounds.
+ *
+ * Dollars are what the books are kept in, and a figure typed in pounds used to
+ * be divided by the rate, kept to the cent, and multiplied back — so a card
+ * priced at 300,000 LL came up on the register as 301,000, and the shop was
+ * quoting a figure it never chose. When these are set they are the figure the
+ * counter shows and the wallet is charged; the dollar column is the same
+ * amount at the day's rate, for the profit report. Null means the price was
+ * set in dollars, and pounds follow the rate as before.
+ */
+addColumn('products', 'price_lbp', 'REAL');
+addColumn('products', 'cost_lbp', 'REAL');
 
 /*
  * How much of a line has come back.
