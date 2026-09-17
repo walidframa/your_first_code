@@ -257,6 +257,11 @@ function MoneyModal({ party, config, mode, onClose, onSaved }) {
                 {rate > 0 && <> · {lbp(toLbp(totalUsd))}</>}
               </p>
             )}
+            {/* This screen is a desk, not the counter: the cash joins the main
+                cash, and the register's count at close is left alone. */}
+            <p className="text-xs text-slate-500">
+              Cash recorded here goes into the main cash. Money taken at the register goes into its drawer.
+            </p>
           </>
         ) : (
           <>

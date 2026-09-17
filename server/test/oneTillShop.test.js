@@ -101,7 +101,13 @@ async function balance() {
   return registry.cash.find((a) => a.id === drawer.id).balance;
 }
 
-test('the register and the back office are the same drawer', async () => {
+/** The shop's main cash, once it has one. */
+async function mainCash() {
+  const registry = (await req('GET', '/accounts/registry')).json.registry;
+  return registry.cash.find((a) => a.name === 'Main cash') ?? null;
+}
+
+test('the register takes the sale; the back office pays from a main cash the shop gets for it', async () => {
   const current = await req('GET', '/cash/current');
   assert.equal(current.json.accountId, drawer.id);
 
@@ -114,18 +120,30 @@ test('the register and the back office are the same drawer', async () => {
   });
   assert.equal(await balance(), 120, 'the sale is in it');
 
+  /*
+   * A supplier paid from the suppliers screen is money leaving the desk, not
+   * the counter. A shop with only a drawer used to have it come out of the
+   * drawer, and the count at close was short by money the cashier never
+   * handed over. It now comes out of a main cash, opened for the shop the
+   * first time it needs one — the same rule as an expense from the desk.
+   */
+  assert.equal(await mainCash(), null, 'nothing but the drawer so far');
   await req('POST', `/suppliers/${supplier.id}/payments`, {
     payments: [{ currency: 'USD', amount: 30 }],
   });
-  assert.equal(await balance(), 90, 'and the supplier came out of it');
+  assert.equal(await balance(), 120, 'the drawer is untouched');
+  const office = await mainCash();
+  assert.ok(office, 'the shop now has a main cash');
+  assert.equal(office.balance, -30, 'and the supplier came out of it');
 });
 
-test('closing it is still a bank drop, because there is nowhere else for the money to go', async () => {
-  const closed = await req('POST', '/cash/close', { countedUsd: 90, carriedUsd: 10 });
+test('closing it now moves the takings into that main cash', async () => {
+  const closed = await req('POST', '/cash/close', { countedUsd: 120, carriedUsd: 10 });
   assert.equal(closed.status, 200, JSON.stringify(closed.json));
 
   const kinds = closed.json.movements.map((m) => m.kind);
-  assert.ok(kinds.includes('bank_drop'), 'money out of the drawer, to the bank');
-  assert.ok(!kinds.includes('sweep'), 'and not moved to an account that does not exist');
+  assert.ok(kinds.includes('sweep'), 'the takings move into the main cash');
+  assert.ok(!kinds.includes('bank_drop'), 'not to a bank nobody named');
   assert.equal(await balance(), 10, 'the float stays behind');
+  assert.equal((await mainCash()).balance, 80, '110 swept in, less the 30 it paid the supplier');
 });

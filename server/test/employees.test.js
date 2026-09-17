@@ -23,12 +23,13 @@ let workDir;
 let adminToken;
 let cashierToken;
 
-async function req(method, route, body, token) {
+async function req(method, route, body, token, headers = {}) {
   const res = await fetch(BASE + route, {
     method,
     headers: {
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...headers,
     },
     body: body ? JSON.stringify(body) : undefined,
   });
@@ -148,11 +149,17 @@ test('running the same month twice does not pay anybody twice', async () => {
   assert.equal(now.balance, -600, 'still one month, not two');
 });
 
-test('paying them moves the drawer and the balance the same way', async () => {
+test('paying them at the register moves the drawer and the balance the same way', async () => {
   const employee = (await req('GET', '/employees', null, adminToken)).json.employees[0];
   const before = (await req('GET', '/cash/current', null, adminToken)).json.expected;
 
-  const paid = await req('POST', `/employees/${employee.id}/payments`, { amountUsd: 400 }, adminToken);
+  const paid = await req(
+    'POST',
+    `/employees/${employee.id}/payments`,
+    { amountUsd: 400 },
+    adminToken,
+    { 'X-At-Register': '1' },
+  );
   assert.equal(paid.status, 201, JSON.stringify(paid.json));
 
   // A numbered slip, in the same book as every other payment out.
@@ -162,6 +169,21 @@ test('paying them moves the drawer and the balance the same way', async () => {
 
   const after = (await req('GET', '/cash/current', null, adminToken)).json.expected;
   assert.equal(Math.round((before.usd - after.usd) * 100) / 100, 400);
+});
+
+test('wages paid from the staff screen come out of the main cash, not the drawer', async () => {
+  const hired = (await hire({ name: 'Desk Paid', monthlySalary: 300 })).json.employee;
+  const drawerBefore = (await req('GET', '/cash/current', null, adminToken)).json.expected.usd;
+  const mainOf = async () =>
+    (await req('GET', '/accounts/registry', null, adminToken)).json.registry.cash.find((a) => a.name === 'Main cash')
+      ?.balance ?? 0;
+  const mainBefore = await mainOf();
+
+  const paid = await req('POST', `/employees/${hired.id}/payments`, { amountUsd: 100 }, adminToken);
+  assert.equal(paid.status, 201, JSON.stringify(paid.json));
+
+  assert.equal((await req('GET', '/cash/current', null, adminToken)).json.expected.usd, drawerBefore, 'the drawer is untouched');
+  assert.equal(Math.round((mainBefore - (await mainOf())) * 100) / 100, 100, 'the main cash paid it');
 });
 
 test('an advance before payday puts them in debt, and the wage clears it', async () => {

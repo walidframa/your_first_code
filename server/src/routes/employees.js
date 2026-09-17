@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { requireAuth, requirePermission, requireRole } from '../middleware/auth.js';
 import { db } from '../db.js';
 import { dealingsWith, listEntries } from '../lib/accounts.js';
-import { defaultAccount } from '../lib/cashAccounts.js';
+import { tillFor } from '../lib/cash.js';
 import { recordVoucher } from '../lib/vouchers.js';
 import { statementFor } from '../lib/statements.js';
 import {
@@ -141,7 +141,9 @@ router.post('/:id/payments', ...owner, (req, res) => {
   const employee = getEmployee(req.params.id);
   if (!employee) return res.status(404).json({ error: 'That employee does not exist' });
 
-  const till = req.body?.accountId ?? defaultAccount()?.id ?? null;
+  // Wages are paid from the desk: the main cash, unless the payment is made at
+  // the register with the drawer open. See `tillFor`.
+  const till = req.body?.accountId ?? tillFor({ atRegister: req.atRegister, branchId: req.branchId }) ?? null;
   if (!till) return res.status(400).json({ error: 'There is no till to pay it out of' });
 
   try {
@@ -174,7 +176,7 @@ router.post('/:id/receipts', ...owner, (req, res) => {
   const employee = getEmployee(req.params.id);
   if (!employee) return res.status(404).json({ error: 'That employee does not exist' });
 
-  const till = req.body?.accountId ?? defaultAccount()?.id ?? null;
+  const till = req.body?.accountId ?? tillFor({ atRegister: req.atRegister, branchId: req.branchId }) ?? null;
   if (!till) return res.status(400).json({ error: 'There is no till to put it in' });
 
   try {
