@@ -20,6 +20,9 @@ const CHANGE_FIELDS = ['CHANGE_USD', 'CHANGE_LBP'];
 export default function PaymentSheet({
   open,
   total,
+  /* The same total in pounds, when the cart knows it exactly — prices set in
+     pounds add up in pounds, not through the dollar figure and back. */
+  totalLbp: exactLbp = null,
   customer,
   onClose,
   onConfirm,
@@ -112,7 +115,10 @@ export default function PaymentSheet({
    */
   const overGiving = split.over;
 
-  const totalLbp = useMemo(() => toLbp(total), [toLbp, total]);
+  const totalLbp = useMemo(
+    () => (exactLbp !== null && exactLbp !== undefined ? exactLbp : toLbp(total)),
+    [exactLbp, toLbp, total],
+  );
 
   const SETTERS = {
     USD: setUsdEntry,

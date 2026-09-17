@@ -569,7 +569,15 @@ function moveWalletCredit({ doc, item, product, direction, userId, note, sign })
   // On a delivery the price on the line is what was actually paid for the
   // credit; on a sale the cost is the product's own.
   const each = sign > 0 ? (item.cost ?? item.price ?? product.cost) : product.cost;
-  const { usd, amount } = costOfLine(wallet, each, Math.round(item.quantity), doc.exchange_rate ?? null);
+  const { usd, amount } = costOfLine(
+    wallet,
+    each,
+    Math.round(item.quantity),
+    doc.exchange_rate ?? null,
+    // What was paid on a delivery is the line's own figure; a sale is charged
+    // what the card costs, in pounds where that is how it was set.
+    sign > 0 ? null : product.cost_lbp,
+  );
   if (amount === 0) return;
 
   const movement = sign * direction;
@@ -623,7 +631,7 @@ function moveValidityCredit({ doc, item, product, direction, userId, note, sign 
     if (linked.wallet_id) {
       const wallet = db.prepare('SELECT * FROM wallets WHERE id = ?').get(linked.wallet_id);
       if (!wallet) throw new Error(`${linked.name} is funded by a wallet that no longer exists`);
-      const { usd, amount } = costOfLine(wallet, linked.cost, each, doc.exchange_rate ?? null);
+      const { usd, amount } = costOfLine(wallet, linked.cost, each, doc.exchange_rate ?? null, linked.cost_lbp);
       if (amount !== 0) {
         stamp.run(
           wallet.id,

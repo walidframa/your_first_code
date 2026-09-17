@@ -455,13 +455,36 @@ export default function Checkout() {
    * catalogue has no trade price at all, and a shop switched into wholesale
    * must not start selling the rest of its stock at zero.
    */
-  const priceOf = useCallback(
+  /*
+   * A price set in pounds is the pounds; the dollars are that figure at the
+   * day's rate. Priced the other way round — dollars kept to the cent,
+   * multiplied back — 300,000 LL came up as 301,000 on the counter, and when
+   * the rate moved the pound price moved with it though nobody had changed it.
+   */
+  const lbpPriceOf = useCallback(
     (product) =>
-      trade && product.wholesale_price !== null && product.wholesale_price !== undefined
-        ? product.wholesale_price
-        : product.price,
-    [trade],
+      product.price_lbp > 0 &&
+      rate > 0 &&
+      !(trade && product.wholesale_price !== null && product.wholesale_price !== undefined)
+        ? Number(product.price_lbp)
+        : null,
+    [trade, rate],
   );
+  const priceOf = useCallback(
+    (product) => {
+      const pounds = lbpPriceOf(product);
+      if (pounds !== null) return Math.round((pounds / rate) * 100) / 100;
+      return trade && product.wholesale_price !== null && product.wholesale_price !== undefined
+        ? product.wholesale_price
+        : product.price;
+    },
+    [trade, rate, lbpPriceOf],
+  );
+  /* The pounds a cart line is worth, exactly, or null when they follow the rate. */
+  const exactLbp = (item) =>
+    item.price_lbp != null && !item.isGift && (item.listPrice == null || item.listPrice === item.price)
+      ? Number(item.price_lbp)
+      : null;
 
   const addToCart = useCallback(
     (product, quantity = 1, unit = null) => {
@@ -486,6 +509,7 @@ export default function Checkout() {
               name: product.name,
               sku: product.sku,
               price: priceOf(product),
+              price_lbp: lbpPriceOf(product),
               stock: 1,
               image_url: product.image_url,
               image_emoji: product.image_emoji,
@@ -547,6 +571,7 @@ export default function Checkout() {
             name: product.name,
             sku: product.sku,
             price: priceOf(product),
+            price_lbp: lbpPriceOf(product),
             stock: product.stock,
             unlimited,
             noCreditSetUp,
@@ -1058,6 +1083,24 @@ export default function Checkout() {
   const taxableAmount = round2(subtotal - discountAmount);
   const tax = round2(taxableAmount * taxRate);
   const total = round2(taxableAmount + tax);
+  /*
+   * The total in pounds. Lines priced in pounds add up in pounds; the rest is
+   * the dollar figure at the rate. A discount or tax puts the whole thing back
+   * through the dollars, because a share of a pound price is not a round
+   * number of pounds anyway.
+   */
+  const totalLbp = (() => {
+    if (!(rate > 0)) return 0;
+    if (discountAmount > 0 || tax > 0 || tradeIn) return toLbp(total);
+    let pounds = 0;
+    let dollars = 0;
+    for (const item of cart) {
+      const exact = exactLbp(item);
+      if (exact !== null) pounds += exact * item.quantity;
+      else dollars += item.price * item.quantity;
+    }
+    return pounds + (dollars > 0 ? toLbp(dollars) : 0);
+  })();
 
   /*
    * What the shop stands to make on the sale in front of it.
@@ -1647,7 +1690,7 @@ export default function Checkout() {
                         {money(p.price)}
                         {rate > 0 && (
                           <span className="block text-[11px] font-medium text-slate-500">
-                            {lbp(toLbp(p.price))}
+                            {lbp(p.price_lbp > 0 ? Number(p.price_lbp) : toLbp(p.price))}
                           </span>
                         )}
                       </span>
@@ -1683,7 +1726,7 @@ export default function Checkout() {
                       </div>
                       {rate > 0 && (
                         <span className="tnum block text-xs font-medium text-slate-500">
-                          {lbp(toLbp(p.price))}
+                          {lbp(p.price_lbp > 0 ? Number(p.price_lbp) : toLbp(p.price))}
                         </span>
                       )}
                     </div>
@@ -2090,7 +2133,7 @@ export default function Checkout() {
                       {item.isGift || item.creditSend ? (
                         <span className="tnum min-w-0 flex-1 truncate @xl:flex-none">
                           {money(item.price)} each
-                          {rate > 0 && <> · {lbp(toLbp(item.price))}</>}
+                          {rate > 0 && <> · {lbp(exactLbp(item) ?? toLbp(item.price))}</>}
                         </span>
                       ) : (
                         <button
@@ -2105,7 +2148,7 @@ export default function Checkout() {
                           )}
                         >
                           {money(item.price)} each
-                          {rate > 0 && <> · {lbp(toLbp(item.price))}</>}
+                          {rate > 0 && <> · {lbp(exactLbp(item) ?? toLbp(item.price))}</>}
                           {item.listPrice != null && item.listPrice !== item.price && (
                             <> · was {money(item.listPrice)}</>
                           )}
@@ -2118,7 +2161,9 @@ export default function Checkout() {
                         * the arithmetic rather than as a total.
                         */}
                       {rate > 0 && item.quantity > 1 && (
-                        <span className="tnum shrink-0">{lbp(toLbp(item.price * item.quantity))}</span>
+                        <span className="tnum shrink-0">
+                          {lbp(exactLbp(item) !== null ? exactLbp(item) * item.quantity : toLbp(item.price * item.quantity))}
+                        </span>
                       )}
                     </div>
 
@@ -2464,7 +2509,7 @@ export default function Checkout() {
                 </span>
                 {!tradeIn && rate > 0 && (
                   <span className="tnum mt-0.5 block text-xs font-medium text-slate-500">
-                    {lbp(toLbp(total))}
+                    {lbp(totalLbp)}
                   </span>
                 )}
               </dd>
@@ -2557,6 +2602,7 @@ export default function Checkout() {
       <PaymentSheet
         open={paymentOpen}
         total={due}
+        totalLbp={due === total && rate > 0 ? totalLbp : null}
         customer={customer}
         submitting={submitting}
         onClose={() => setPaymentOpen(false)}

@@ -71,6 +71,8 @@ const emptyForm = {
   tracks_units: false,
   is_sim: false,
   is_service: false,
+  price_lbp: null,
+  cost_lbp: null,
 };
 
 function ProductModal({ product, categories, allProducts, onClose, onSaved, onCategories }) {
@@ -84,6 +86,10 @@ function ProductModal({ product, categories, allProducts, onClose, onSaved, onCa
           barcodes: product.barcodes || (product.barcode ? [product.barcode] : []),
           price: product.price,
           cost: product.cost,
+          // The figures as they were set in pounds, when they were — see the
+          // money input. Null means dollars, following the rate.
+          price_lbp: product.price_lbp ?? null,
+          cost_lbp: product.cost_lbp ?? null,
           // Null is "no trade price", and the box for it is empty rather than
           // showing a zero the shop never typed.
           wholesale_price: product.wholesale_price ?? '',
@@ -273,12 +279,16 @@ function ProductModal({ product, categories, allProducts, onClose, onSaved, onCa
             name="price"
             value={form.price}
             onChange={(v) => setForm((f) => ({ ...f, price: v }))}
+            pounds={form.price_lbp}
+            onPounds={(v) => setForm((f) => ({ ...f, price_lbp: v }))}
           />
           <MoneyInput
             label="Cost"
             name="cost"
             value={form.cost}
             onChange={(v) => setForm((f) => ({ ...f, cost: v }))}
+            pounds={form.cost_lbp}
+            onPounds={(v) => setForm((f) => ({ ...f, cost_lbp: v }))}
           />
           {/*
             * What the trade pays, for the shops that buy from this one.
