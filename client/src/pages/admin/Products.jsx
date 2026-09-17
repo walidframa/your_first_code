@@ -4,6 +4,8 @@ import { Link } from 'react-router';
 import {
   Archive,
   ArchiveRestore,
+  Eye,
+  EyeOff,
   History,
   Package,
   Pencil,
@@ -558,6 +560,31 @@ export default function Products() {
   const [search, setSearch] = useState('');
   const [showArchived, setShowArchived] = useState(false);
   /*
+   * Costs, on or off with one press.
+   *
+   * The Cost column can be ticked in the column picker, but that is a desk
+   * setting three clicks deep, and on a phone there is no picker at all. The
+   * owner wants to glance at what the shelf cost and then put it away again
+   * before turning the screen round — so it is one button, remembered on the
+   * device, and it shows the costs in the rows and adds them up at the top.
+   */
+  const [showCosts, setShowCosts] = useState(() => {
+    try {
+      return globalThis.localStorage?.getItem('pos_products_costs') === '1';
+    } catch {
+      return false;
+    }
+  });
+  const toggleCosts = () =>
+    setShowCosts((on) => {
+      try {
+        globalThis.localStorage?.setItem('pos_products_costs', on ? '0' : '1');
+      } catch {
+        /* Private browsing: the choice lasts the session. */
+      }
+      return !on;
+    });
+  /*
    * Which slice of the shelf.
    *
    * A catalogue is read for one of a few reasons — what is running out, what
@@ -879,6 +906,11 @@ export default function Products() {
         </span>
         <span className="shrink-0 text-end">
           <span className="tnum block font-semibold text-slate-800">{money(p.price)}</span>
+          {showCosts && !p.is_service && (
+            <span className="tnum block text-xs text-slate-500" data-phone-cost>
+              {money(p.cost)} cost
+            </span>
+          )}
           <span className="block text-xs">
             {p.is_service ? (
               <span className="text-slate-400">service</span>
@@ -906,7 +938,11 @@ export default function Products() {
   const narrow = useNarrow();
   /* The reader's own column choices are a desk decision; on a phone there is
      one column and the picker that sets them is hidden with it. */
-  const shown = narrow ? [PHONE_COLUMN] : cols.visible;
+  /* With costs switched on, the two cost columns show whatever the picker says. */
+  const desktopShown = showCosts
+    ? COLUMNS.filter((c) => cols.visible.includes(c) || c.key === 'cost' || c.key === 'avgCost')
+    : cols.visible;
+  const shown = narrow ? [PHONE_COLUMN] : desktopShown;
 
   /*
    * The heading bands, worked out from whichever columns are actually showing.
@@ -917,8 +953,8 @@ export default function Products() {
    * heading silently stops sitting over its own numbers.
    */
   const bands = [];
-  (narrow ? [] : cols.visible).forEach((c, i) => {
-    const previous = i > 0 ? cols.visible[i - 1].band ?? null : undefined;
+  (narrow ? [] : desktopShown).forEach((c, i) => {
+    const previous = i > 0 ? desktopShown[i - 1].band ?? null : undefined;
     const band = c.band ?? null;
     if (band !== previous) {
       bands.push({ name: band, span: 1 });
@@ -1114,6 +1150,22 @@ export default function Products() {
               <span className="hidden sm:inline">Show archived</span>
             </label>
 
+            <button
+              type="button"
+              onClick={toggleCosts}
+              aria-pressed={showCosts}
+              data-show-costs
+              className={cx(
+                'flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium ring-1 transition',
+                showCosts
+                  ? 'bg-brand-50 text-brand-800 ring-brand-200 hover:bg-brand-100'
+                  : 'bg-white text-slate-600 ring-edge hover:bg-slate-50',
+              )}
+            >
+              {showCosts ? <EyeOff size={14} /> : <Eye size={14} />}
+              {showCosts ? 'Hide costs' : 'Show costs'}
+            </button>
+
             {/* Beside the search rather than in the header: it is a choice
                 about the table underneath, made while looking at it. */}
             {!narrow && (
@@ -1193,7 +1245,7 @@ export default function Products() {
           </div>
 
           {products &&
-            search.trim() &&
+            (search.trim() || showCosts) &&
             visible.length > 0 &&
             /*
               * Five phrases across the top of a monitor; on a phone they wrapped
@@ -1212,7 +1264,8 @@ export default function Products() {
               <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1 border-b border-slate-100 bg-slate-50 px-5 py-2.5 text-sm">
                 <span className="text-slate-500">
                   <span className="tnum font-semibold text-slate-800">{visible.length}</span>{' '}
-                  {visible.length === 1 ? 'product' : 'products'} matching “{search.trim()}”
+                  {visible.length === 1 ? 'product' : 'products'}
+                  {search.trim() ? ` matching “${search.trim()}”` : ' shown'}
                 </span>
                 <span className="text-slate-500">
                   <span className="tnum font-semibold text-slate-800">{found.units}</span> in stock
