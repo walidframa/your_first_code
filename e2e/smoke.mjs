@@ -2261,7 +2261,8 @@ try {
         await fetch('/api/customers', {
           method: 'POST',
           headers: h,
-          body: JSON.stringify({ name: 'Nadia Khoury', phone: '03 987 654', credit_limit: 1000 }),
+          // A second Nadia, deliberately: the shop has said she is somebody else.
+          body: JSON.stringify({ name: 'Nadia Khoury', phone: '03 987 654', credit_limit: 1000, allowDuplicate: true }),
         })
       ).json();
       await fetch(`/api/customers/${made.party.id}/charges`, {

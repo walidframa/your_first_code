@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import api from '../api';
 import { Button, Input, Modal, ModalActions, useToast } from './ui';
+import useDuplicateParty from '../lib/useDuplicateParty';
 
 /**
  * Add a customer or a supplier without leaving the document you are writing.
@@ -23,6 +24,12 @@ export default function PartyQuickCreate({ open, partyType, onClose, onCreated }
   const [form, setForm] = useState({ name: '', phone: '', email: '' });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [refused, setRefused] = useState(null);
+  const { duplicate, message: duplicateMessage } = useDuplicateParty(partyType, {
+    name: form.name,
+    phone: form.phone,
+    enabled: open,
+  });
 
   /* A fresh form each time it opens — the last one's half-typed name is not
    * this one's, and inheriting it silently creates the wrong contact. */
@@ -30,12 +37,16 @@ export default function PartyQuickCreate({ open, partyType, onClose, onCreated }
     if (!open) return;
     setForm({ name: '', phone: '', email: '' });
     setError('');
+    setRefused(null);
   }, [open, partyType]);
 
-  const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
+  const set = (key) => (e) => {
+    setRefused(null);
+    setForm((f) => ({ ...f, [key]: e.target.value }));
+  };
 
-  async function submit(e) {
-    e.preventDefault();
+  async function submit(e, allowDuplicate = false) {
+    e?.preventDefault();
     setError('');
     setSaving(true);
     try {
@@ -43,10 +54,16 @@ export default function PartyQuickCreate({ open, partyType, onClose, onCreated }
         name: form.name.trim(),
         phone: form.phone.trim() || null,
         email: form.email.trim() || null,
+        allowDuplicate,
       });
       toast(`${res.data.party.name} added`);
       onCreated(res.data.party);
     } catch (err) {
+      if (err.response?.status === 409 && err.response.data?.duplicate) {
+        setRefused(err.response.data);
+        setSaving(false);
+        return;
+      }
       /*
        * A 403 here is not a broken form. Creating contacts sits behind its own
        * permission, and a cashier who has not got it should be told which
@@ -87,6 +104,33 @@ export default function PartyQuickCreate({ open, partyType, onClose, onCreated }
             ? 'Address, notes and a credit limit can be filled in later on the Customers screen.'
             : 'Address and notes can be filled in later on the Suppliers screen.'}
         </p>
+
+        {(refused || duplicate) && (
+          <div
+            role="alert"
+            data-duplicate-party
+            className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900 ring-1 ring-amber-200"
+          >
+            <p className="font-medium">{refused?.error || duplicateMessage}</p>
+            <p className="mt-0.5 text-xs text-amber-800">
+              {(refused?.duplicate || duplicate).name}
+              {(refused?.duplicate || duplicate).phone ? ` · ${(refused?.duplicate || duplicate).phone}` : ''}
+              {' — '}pick them from the list instead, or add anyway if it really is somebody else.
+            </p>
+            {refused && (
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                className="mt-2"
+                loading={saving}
+                onClick={(e) => submit(e, true)}
+              >
+                Add anyway — it is somebody else
+              </Button>
+            )}
+          </div>
+        )}
 
         {error && <p className="text-sm text-red-600">{error}</p>}
 
