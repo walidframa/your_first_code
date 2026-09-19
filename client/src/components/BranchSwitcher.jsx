@@ -51,6 +51,9 @@ export default function BranchSwitcher({ expanded }) {
   if (!canSwitch && (total ?? branches.length) <= 1) return null;
 
   const label = viewingAll ? 'All branches' : branch.name;
+  /* A phone's top bar has room for a code, not a name: "Main bra…" said less
+     than "MAIN" does. The full name stays in the title and on wider screens. */
+  const short = viewingAll ? 'All' : branch.code || branch.name;
 
   if (!canSwitch) {
     return (
@@ -84,7 +87,10 @@ export default function BranchSwitcher({ expanded }) {
         <Store size={14} className="shrink-0 text-brand-400" />
         {expanded && (
           <>
-            <span className="min-w-0 flex-1 truncate text-left text-xs font-medium">{label}</span>
+            <span className="min-w-0 flex-1 truncate text-left text-xs font-medium">
+              <span className="sm:hidden">{short}</span>
+              <span className="hidden sm:inline">{label}</span>
+            </span>
             <ChevronDown size={13} className="shrink-0 text-slate-400" />
           </>
         )}

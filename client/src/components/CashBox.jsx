@@ -959,7 +959,7 @@ export default function CashBox({
           className={cx(
             compact &&
               detailOpen &&
-              'absolute end-0 top-full z-30 mt-1 w-80 rounded-xl bg-white py-2 shadow-lg ring-1 ring-slate-200',
+              'absolute end-0 top-full z-30 mt-1 w-80 max-w-[calc(100vw-1rem)] rounded-xl bg-white py-2 shadow-lg ring-1 ring-slate-200',
             // Folded away, there is nothing to hang below the handle.
             compact && !detailOpen && 'hidden',
           )}
@@ -1072,11 +1072,18 @@ export default function CashBox({
               </button>
             </p>
 
-            <div className="mt-2 flex items-center gap-1.5">
-              <Button size="sm" variant="secondary" className="flex-1" onClick={() => setDialog('in')}>
+            {/*
+              * Four buttons on one row overflowed the card by exactly one
+              * button, and the one that hung outside was the lock. The three
+              * movements share a row and wrap when they must; closing the
+              * cashbox is a row of its own, named, because it is the one of
+              * the four that ends the shift.
+              */}
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              <Button size="sm" variant="secondary" className="min-w-[6rem] flex-1" onClick={() => setDialog('in')}>
                 <ArrowDownLeft size={15} /> {t('Cash in')}
               </Button>
-              <Button size="sm" variant="secondary" className="flex-1" onClick={() => setDialog('out')}>
+              <Button size="sm" variant="secondary" className="min-w-[6rem] flex-1" onClick={() => setDialog('out')}>
                 <ArrowUpRight size={15} /> {t('Cash out')}
               </Button>
               {/*
@@ -1091,22 +1098,21 @@ export default function CashBox({
               <Button
                 size="sm"
                 variant="secondary"
-                className="flex-1"
+                className="min-w-[6rem] flex-1"
                 onClick={() => setDialog('expense')}
                 title="An expense paid out of this drawer"
               >
                 <Wallet size={15} /> {t('Expense')}
               </Button>
-              {/* Icon-only to fit three controls in a narrow column, so it needs
-                  a name of its own for anyone not looking at the icon. */}
               <Button
                 size="sm"
                 variant="secondary"
+                className="basis-full"
                 onClick={() => setDialog('close')}
                 aria-label={t('Close the cashbox')}
                 title="Close the cashbox"
               >
-                <Lock size={15} />
+                <Lock size={15} /> {t('Close the cashbox')}
               </Button>
             </div>
           </div>
