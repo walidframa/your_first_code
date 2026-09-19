@@ -28,6 +28,7 @@ import CategoryManager from '../../components/CategoryManager';
 import ProductImageField from '../../components/ProductImageField';
 import BundleEditor from '../../components/BundleEditor';
 import ColumnPicker from '../../components/ColumnPicker';
+import OverflowMenu from '../../components/OverflowMenu';
 import { useColumns } from '../../lib/tableColumns';
 import { useWindowedRows } from '../../lib/windowedRows';
 import { useRevalidate } from '../../lib/revalidate';
@@ -1077,29 +1078,42 @@ export default function Products() {
               * jobs done once a month; the catalogue underneath is read every
               * day, and it was getting whatever was left.
               */}
-            <Button
-              variant="secondary"
-              onClick={() => setManagingCategories(true)}
-              aria-label="Categories"
-              title="Categories"
-            >
-              <Tags size={16} /> <span className="hidden sm:inline">Categories</span>
-            </Button>
-            {/* Beside Import for the same reason Categories is: this is the
-                other way a catalogue gets filled in without typing. */}
-            <Button
-              variant="secondary"
-              onClick={() => setFindingPhotos(true)}
-              aria-label="Find pictures"
-              title="Find pictures"
-            >
-              <Images size={16} /> <span className="hidden sm:inline">Find pictures</span>
-            </Button>
-            <Link to="/admin/import">
-              <Button variant="secondary" aria-label="Import" title="Import a catalogue">
-                <Upload size={16} /> <span className="hidden sm:inline">Import</span>
-              </Button>
-            </Link>
+            {narrow ? (
+              <OverflowMenu
+                label="More"
+                items={[
+                  { label: 'Categories', icon: Tags, onClick: () => setManagingCategories(true) },
+                  { label: 'Find pictures', icon: Images, onClick: () => setFindingPhotos(true) },
+                  { label: 'Import a catalogue', icon: Upload, onClick: () => navigate('/admin/import') },
+                ]}
+              />
+            ) : (
+              <>
+                <Button
+                  variant="secondary"
+                  onClick={() => setManagingCategories(true)}
+                  aria-label="Categories"
+                  title="Categories"
+                >
+                  <Tags size={16} /> <span className="hidden sm:inline">Categories</span>
+                </Button>
+                {/* Beside Import for the same reason Categories is: this is the
+                    other way a catalogue gets filled in without typing. */}
+                <Button
+                  variant="secondary"
+                  onClick={() => setFindingPhotos(true)}
+                  aria-label="Find pictures"
+                  title="Find pictures"
+                >
+                  <Images size={16} /> <span className="hidden sm:inline">Find pictures</span>
+                </Button>
+                <Link to="/admin/import">
+                  <Button variant="secondary" aria-label="Import" title="Import a catalogue">
+                    <Upload size={16} /> <span className="hidden sm:inline">Import</span>
+                  </Button>
+                </Link>
+              </>
+            )}
             {/* The one that keeps its word, because it is the one that gets
                 pressed and an icon alone would be a guess. */}
             <Button onClick={() => setEditing(null)}>
@@ -1140,15 +1154,35 @@ export default function Products() {
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search by name, SKU or barcode…"
-                className="h-9 w-full rounded-lg bg-slate-100 pr-3 pl-9 text-sm ring-1 ring-transparent transition focus:bg-white focus:ring-brand-600 focus:outline-none"
+                /*
+                 * The size of the thing on a phone: a full-width pill the
+                 * thumb finds first, the way every phone app draws its
+                 * search. On a desk the compact box it always was.
+                 */
+                className="h-11 w-full rounded-full bg-slate-100 pr-3 pl-10 text-base ring-1 ring-transparent transition focus:bg-white focus:ring-brand-600 focus:outline-none sm:h-9 sm:rounded-lg sm:pl-9 sm:text-sm"
               />
             </div>
 
             {/* Walking the shelves with a phone: point it at the box rather
                 than typing thirteen digits off it. */}
             {canScan() && <ScanButton onClick={() => setScanning(true)} />}
+            {/*
+              * On a phone the two switches live behind one button, and the
+              * search box gets the width they were taking. On a desk they
+              * stay where a glance finds them.
+              */}
+            {narrow && (
+              <OverflowMenu
+                label="Filters"
+                items={[
+                  { label: 'Show archived', icon: Archive, checked: showArchived, onClick: () => setShowArchived((v) => !v) },
+                  { label: 'Show costs', icon: showCosts ? EyeOff : Eye, checked: showCosts, onClick: toggleCosts },
+                ]}
+              />
+            )}
             {/* "Show archived" is four words for a switch that is off all but
                 twice a year. On a phone it is the word that matters. */}
+            {!narrow && (
             <label className="flex shrink-0 cursor-pointer items-center gap-2 text-sm text-slate-600">
               <input
                 type="checkbox"
@@ -1159,7 +1193,9 @@ export default function Products() {
               <span className="sm:hidden">Archived</span>
               <span className="hidden sm:inline">Show archived</span>
             </label>
+            )}
 
+            {!narrow && (
             <button
               type="button"
               onClick={toggleCosts}
@@ -1175,6 +1211,7 @@ export default function Products() {
               {showCosts ? <EyeOff size={14} /> : <Eye size={14} />}
               {showCosts ? 'Hide costs' : 'Show costs'}
             </button>
+            )}
 
             {/* Beside the search rather than in the header: it is a choice
                 about the table underneath, made while looking at it. */}
@@ -1217,7 +1254,7 @@ export default function Products() {
                   aria-pressed={stockFilter === key}
                   data-stock-filter={key}
                   className={cx(
-                    'rounded-md px-2.5 py-1 text-xs font-medium whitespace-nowrap transition',
+                    'rounded-md px-3 py-1.5 text-sm font-medium whitespace-nowrap transition sm:px-2.5 sm:py-1 sm:text-xs',
                     stockFilter === key
                       ? 'bg-white text-slate-900 shadow-sm'
                       : 'text-slate-500 hover:text-slate-800',
