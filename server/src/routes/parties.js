@@ -142,6 +142,13 @@ export function partyRouter(partyType) {
    * history. Suppliers have no such thing — what a shop *pays* is on the
    * purchase side, and lives with the costs.
    */
+  /** Asked as the form is typed, so the warning arrives before the button is pressed. */
+  router.get('/duplicate', requireAuth, (req, res) => {
+    const exceptId = req.query.exceptId ? Number(req.query.exceptId) : null;
+    const duplicate = findDuplicate({ name: req.query.name, phone: req.query.phone, exceptId });
+    res.json({ duplicate, message: duplicate ? duplicateMessage(duplicate) : null });
+  });
+
   if (isCustomer) {
     router.get('/:id/last-prices', requireAuth, (req, res) => {
       const party = db.prepare(`SELECT id FROM ${table} WHERE id = ?`).get(req.params.id);
@@ -178,6 +185,45 @@ export function partyRouter(partyType) {
     });
   });
 
+  /*
+   * Somebody already on the books under this name, or this phone.
+   *
+   * The same customer typed twice — "Ali Akil" and "ali akil", or the same
+   * number with a space in it — is two balances for one person, and the shop
+   * finds out when it tries to collect. The name is compared without case or
+   * stray spaces; the phone as digits only, because the same number is typed
+   * a different way each time. Archived contacts are left out: bringing one
+   * back is a different question from creating another.
+   */
+  const squash = (v) => String(v || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  /*
+   * The same number, however it was dialled: "03 833 330", "+961 3 833330"
+   * and "009613833330" are one phone. The international prefix and the
+   * trunk zero are dropped so that what is left is the number itself.
+   */
+  const digits = (v) =>
+    String(v || '')
+      .replace(/\D/g, '')
+      .replace(/^00/, '')
+      .replace(/^961/, '')
+      .replace(/^0/, '');
+  function findDuplicate({ name, phone, exceptId = null }) {
+    const wantName = squash(name);
+    const wantPhone = digits(phone);
+    const rows = db
+      .prepare(`SELECT id, name, phone FROM ${table} WHERE active = 1 AND (? IS NULL OR id != ?)`)
+      .all(exceptId, exceptId);
+    const byName = wantName ? rows.find((r) => squash(r.name) === wantName) : null;
+    if (byName) return { id: byName.id, name: byName.name, phone: byName.phone, matched: 'name' };
+    const byPhone = wantPhone.length >= 6 ? rows.find((r) => digits(r.phone) === wantPhone) : null;
+    if (byPhone) return { id: byPhone.id, name: byPhone.name, phone: byPhone.phone, matched: 'phone' };
+    return null;
+  }
+  const duplicateMessage = (d) =>
+    d.matched === 'name'
+      ? `A ${partyType} called “${d.name}” already exists`
+      : `${d.name} already has this phone number`;
+
   router.post('/', requireAuth, requirePermission('parties'), (req, res) => {
     const { name, phone, email, address, notes, credit_limit: creditLimit, opening_balance: opening } =
       req.body || {};
@@ -201,6 +247,16 @@ export function partyRouter(partyType) {
     if (limit < 0) return res.status(400).json({ error: 'Credit limit cannot be negative' });
 
     const openingBalance = Number(opening) || 0;
+
+    /*
+     * Refused with the name of who is already there, unless the shop has
+     * looked at that and said "no, this is somebody else" — two brothers with
+     * one phone are real, and `allowDuplicate` is how the form says so.
+     */
+    if (req.body?.allowDuplicate !== true) {
+      const duplicate = findDuplicate({ name, phone });
+      if (duplicate) return res.status(409).json({ error: duplicateMessage(duplicate), duplicate });
+    }
 
     try {
       const id = transaction(() => {
@@ -258,6 +314,12 @@ export function partyRouter(partyType) {
     }
     if (isCustomer && Number(merged.credit_limit) < 0) {
       return res.status(400).json({ error: 'Credit limit cannot be negative' });
+    }
+    // Renaming somebody onto a name already taken is the same mistake as
+    // creating them twice, and is refused the same way.
+    if (req.body?.allowDuplicate !== true && (req.body.name !== undefined || req.body.phone !== undefined)) {
+      const duplicate = findDuplicate({ name: merged.name, phone: merged.phone, exceptId: party.id });
+      if (duplicate) return res.status(409).json({ error: duplicateMessage(duplicate), duplicate });
     }
 
     db.prepare(

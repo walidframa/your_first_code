@@ -16,6 +16,7 @@ import {
   Users as UsersIcon,
 } from 'lucide-react';
 import api from '../../api';
+import useDuplicateParty from '../../lib/useDuplicateParty';
 import PageHeader from '../../components/PageHeader';
 import AccountStatement from '../../components/AccountStatement';
 import VoucherSlip from '../../components/VoucherSlip';
@@ -118,17 +119,28 @@ function PartyForm({ party, config, onClose, onSaved }) {
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  /* The server's refusal, kept so the form can offer "this is somebody else". */
+  const [refused, setRefused] = useState(null);
+  const { duplicate, message: duplicateMessage } = useDuplicateParty(config.single, {
+    name: form.name,
+    phone: form.phone,
+    exceptId: party?.id ?? null,
+  });
 
-  const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
+  const set = (key) => (e) => {
+    setRefused(null);
+    setForm((f) => ({ ...f, [key]: e.target.value }));
+  };
 
-  async function submit(e) {
-    e.preventDefault();
+  async function submit(e, allowDuplicate = false) {
+    e?.preventDefault();
     setError('');
     setSaving(true);
     const payload = {
       ...form,
       credit_limit: Number(form.credit_limit) || 0,
       opening_balance: Number(form.opening_balance) || 0,
+      allowDuplicate,
     };
     try {
       if (party) await api.put(`/${config.path}/${party.id}`, payload);
@@ -136,7 +148,11 @@ function PartyForm({ party, config, onClose, onSaved }) {
       toast(party ? 'Saved' : `${config.single === 'customer' ? 'Customer' : 'Supplier'} added`);
       onSaved();
     } catch (err) {
-      setError(err.response?.data?.error || 'Save failed');
+      if (err.response?.status === 409 && err.response.data?.duplicate) {
+        setRefused(err.response.data);
+      } else {
+        setError(err.response?.data?.error || 'Save failed');
+      }
     } finally {
       setSaving(false);
     }
@@ -173,6 +189,42 @@ function PartyForm({ party, config, onClose, onSaved }) {
           )}
           <Input label="Notes" value={form.notes} onChange={set('notes')} className="col-span-2" />
         </div>
+
+        {/*
+          * Said while the name is being typed, and again — with a way past it
+          * — if the button is pressed anyway. Two people sharing a phone are
+          * real; two records for one person are a balance the shop cannot
+          * collect.
+          */}
+        {(refused || duplicate) && (
+          <div
+            role="alert"
+            data-duplicate-party
+            className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900 ring-1 ring-amber-200"
+          >
+            <p className="font-medium">{refused?.error || duplicateMessage}</p>
+            <p className="mt-0.5 text-xs text-amber-800">
+              {(refused?.duplicate || duplicate).name}
+              {(refused?.duplicate || duplicate).phone ? ` · ${(refused?.duplicate || duplicate).phone}` : ''}
+              {' — '}
+              {party
+                ? 'pick another name, or keep this one if it really is somebody else.'
+                : `close this and find them in the list, or add anyway if it really is somebody else.`}
+            </p>
+            {refused && (
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                className="mt-2"
+                loading={saving}
+                onClick={(e) => submit(e, true)}
+              >
+                {party ? 'Keep it anyway' : 'Add anyway — it is somebody else'}
+              </Button>
+            )}
+          </div>
+        )}
 
         {error && <p className="text-sm text-red-600">{error}</p>}
 

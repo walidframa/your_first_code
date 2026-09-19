@@ -233,3 +233,51 @@ test('the list says who is staff, so a sale can go on an employee’s account', 
   const suppliers = (await req('GET', '/suppliers')).json.parties;
   assert.ok(suppliers.every((s) => s.is_staff === undefined));
 });
+
+/* ------------------------------------------------------- no two of anybody */
+
+test('the same customer cannot be added twice, however the name is typed', async () => {
+  const first = await req('POST', '/customers', { name: 'Ali Akil', phone: '03 833 330' });
+  assert.equal(first.status, 201, JSON.stringify(first.json));
+
+  const again = await req('POST', '/customers', { name: '  ali   AKIL ' });
+  assert.equal(again.status, 409);
+  assert.match(again.json.error, /already exists/);
+  assert.equal(again.json.duplicate.id, first.json.party.id);
+  assert.equal(again.json.duplicate.matched, 'name');
+
+  // The same phone is the same person, whatever they were called this time.
+  const samePhone = await req('POST', '/customers', { name: 'A. Akil', phone: '+961 3 833330' });
+  assert.equal(samePhone.status, 409);
+  assert.equal(samePhone.json.duplicate.matched, 'phone');
+  assert.match(samePhone.json.error, /already has this phone/);
+
+  // Looked at, and said to be somebody else.
+  const anyway = await req('POST', '/customers', { name: 'Ali Akil', phone: '03 833 330', allowDuplicate: true });
+  assert.equal(anyway.status, 201, JSON.stringify(anyway.json));
+});
+
+test('the form can ask before the button is pressed', async () => {
+  const asked = await req('GET', '/customers/duplicate?name=ali%20akil');
+  assert.equal(asked.status, 200);
+  assert.equal(asked.json.duplicate?.name, 'Ali Akil');
+  assert.match(asked.json.message, /already exists/);
+
+  const clear = await req('GET', '/customers/duplicate?name=Nobody%20Yet');
+  assert.equal(clear.json.duplicate, null);
+});
+
+test('renaming somebody onto a taken name is refused too, and suppliers get the same guard', async () => {
+  const other = (await req('POST', '/customers', { name: 'Hassan K' })).json.party;
+  const renamed = await req('PUT', `/customers/${other.id}`, { name: 'ALI AKIL' });
+  assert.equal(renamed.status, 409);
+  const ownName = await req('PUT', `/customers/${other.id}`, { name: 'Hassan K', phone: '70 000 111' });
+  assert.equal(ownName.status, 200, 'saving a contact under its own name is not a duplicate');
+
+  const sup = await req('POST', '/suppliers', { name: 'Beirut Wholesale' });
+  assert.equal(sup.status, 201);
+  const supAgain = await req('POST', '/suppliers', { name: 'beirut wholesale' });
+  assert.equal(supAgain.status, 409);
+  assert.match(supAgain.json.error, /supplier called/);
+});
+
