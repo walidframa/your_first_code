@@ -173,9 +173,22 @@ function DocumentForm({ existing, startAs = null, page = false, onClose, onSaved
 
   const [docType, setDocType] = useState(draft?.docType || startType);
   const draftKey = `documents:${doc?.id ?? 'new'}:${docType}`;
-  const [parties, setParties] = useState([]);
+  /*
+   * Both lists, always.
+   *
+   * The same people are on both sides of the counter here: the repair shop
+   * two streets over buys screens from this one and sells it the odd handset.
+   * A sales invoice that could only be made out to a customer meant keeping
+   * them on both lists, which is two balances for one business. So the picker
+   * offers everybody, and the document remembers which list they came from.
+   */
+  const [customers, setCustomers] = useState([]);
+  const [suppliers, setSuppliers] = useState([]);
   const [partyId, setPartyId] = useState(
     draft?.partyId ?? (doc?.party_id ? String(doc.party_id) : ''),
+  );
+  const [partyKind, setPartyKind] = useState(
+    draft?.partyKind ?? doc?.party_type ?? TYPE_META[draft?.docType || startType].party,
   );
   const [products, setProducts] = useState([]);
   const [lines, setLines] = useState([]);
@@ -284,15 +297,20 @@ function DocumentForm({ existing, startAs = null, page = false, onClose, onSaved
     loadProducts();
   }, [loadProducts]);
 
-  /* Picking a different type means a different list to choose from. */
+  /* Picking a different type means a different side of the counter. */
   const lastPartyType = useRef(partyType);
   useEffect(() => {
     if (lastPartyType.current !== partyType) {
       lastPartyType.current = partyType;
       setPartyId('');
+      setPartyKind(partyType);
     }
-    api.get(`/${partyType}s`).then((res) => setParties(res.data.parties));
   }, [partyType]);
+
+  useEffect(() => {
+    api.get('/customers').then((res) => setCustomers(res.data.parties));
+    api.get('/suppliers').then((res) => setSuppliers(res.data.parties));
+  }, []);
 
   /*
    * Lines carry the whole product so the row can show its thumbnail, but the
@@ -385,6 +403,7 @@ function DocumentForm({ existing, startAs = null, page = false, onClose, onSaved
     {
       docType,
       partyId,
+      partyKind,
       discountPercent,
       notes,
       trade,
@@ -411,7 +430,7 @@ function DocumentForm({ existing, startAs = null, page = false, onClose, onSaved
    * making.
    */
   useEffect(() => {
-    if (partyType !== 'customer' || !partyId) {
+    if (!sells || partyKind !== 'customer' || !partyId) {
       setLastPrices({});
       return;
     }
@@ -425,7 +444,7 @@ function DocumentForm({ existing, startAs = null, page = false, onClose, onSaved
     return () => {
       live = false;
     };
-  }, [partyType, partyId]);
+  }, [sells, partyKind, partyId]);
 
   /*
    * Changing which figure the lines are priced from re-prices them — switching
@@ -687,6 +706,7 @@ function DocumentForm({ existing, startAs = null, page = false, onClose, onSaved
 
     const payload = {
       partyId: Number(partyId),
+      partyType: partyKind,
       discountPercent: Number(discountPercent) || 0,
       payments,
       paymentMethod: payments.length ? payMethod : null,
@@ -860,19 +880,48 @@ function DocumentForm({ existing, startAs = null, page = false, onClose, onSaved
                 </button>
               )}
             </div>
+            {/*
+             * The document's own side first, the other side below it. The
+             * value carries which list the name came from — customer 12 and
+             * supplier 12 are two different people.
+             */}
             <select
               id="doc-party"
-              value={partyId}
-              onChange={(e) => setPartyId(e.target.value)}
+              value={partyId ? `${partyKind}:${partyId}` : ''}
+              onChange={(e) => {
+                const [kind, id] = e.target.value.split(':');
+                setPartyKind(kind || partyType);
+                setPartyId(id || '');
+              }}
               className="h-10 w-full rounded-lg bg-white px-3 text-sm ring-1 ring-edge focus:ring-2 focus:ring-brand-600 focus:outline-none"
             >
-              <option value="">Choose a {partyType}…</option>
-              {parties.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
+              <option value="">Choose a {partyType === 'supplier' ? 'supplier or customer' : 'customer or supplier'}…</option>
+              {(partyType === 'supplier'
+                ? [
+                    ['supplier', 'Suppliers', suppliers],
+                    ['customer', 'Customers', customers],
+                  ]
+                : [
+                    ['customer', 'Customers', customers],
+                    ['supplier', 'Suppliers', suppliers],
+                  ]
+              ).map(([kind, heading, list]) => (
+                <optgroup key={kind} label={heading}>
+                  {list.map((p) => (
+                    <option key={`${kind}:${p.id}`} value={`${kind}:${p.id}`}>
+                      {p.name}
+                    </option>
+                  ))}
+                </optgroup>
               ))}
             </select>
+            {partyId && partyKind !== partyType && (
+              <p className="mt-1 text-xs text-slate-500">
+                {partyKind === 'supplier'
+                  ? 'A supplier — this goes on the account the shop has with them.'
+                  : 'A customer — this goes on their account with the shop.'}
+              </p>
+            )}
           </div>
 
           <div>
@@ -1487,11 +1536,12 @@ function DocumentForm({ existing, startAs = null, page = false, onClose, onSaved
         onClose={() => setNewParty(false)}
         onCreated={(party) => {
           setNewParty(false);
-          setParties((prev) =>
+          const add = (prev) =>
             [...prev.filter((p) => p.id !== party.id), party].sort((a, b) =>
               a.name.localeCompare(b.name),
-            ),
-          );
+            );
+          (partyType === 'supplier' ? setSuppliers : setCustomers)(add);
+          setPartyKind(partyType);
           setPartyId(String(party.id));
         }}
       />
@@ -1843,7 +1893,10 @@ function DocumentDetail({ id, onClose, onChanged, onDeleted, onConverted }) {
       <div className="mb-5 flex flex-wrap items-start justify-between gap-6">
         <div className="min-w-[12rem]">
           <p className="text-[11px] font-semibold tracking-wide text-slate-400 uppercase">
-            {doc.party_type === 'supplier' ? 'From' : 'Billed to'}
+            {TYPE_META[doc.doc_type]?.party === 'supplier' ? 'From' : 'Billed to'}
+            {doc.party_type && TYPE_META[doc.doc_type]?.party !== doc.party_type
+              ? ` · ${doc.party_type === 'supplier' ? 'a supplier' : 'a customer'}`
+              : ''}
           </p>
           <p className="mt-1 font-semibold text-slate-900">{doc.party_name || '—'}</p>
           {doc.party_phone && <p className="text-sm text-slate-600">{doc.party_phone}</p>}
