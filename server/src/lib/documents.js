@@ -103,6 +103,24 @@ export function cashDirection(docType) {
 
 export const PARTY_TABLE = { customer: 'customers', supplier: 'suppliers' };
 
+/**
+ * Which way the party's account moves when the document posts: +1 billed to
+ * them, −1 credited to them, 0 for paper that posts nothing.
+ *
+ * Anybody can be on either side of the counter. The repair shop two streets
+ * over buys screens from this one and sells it the odd handset, so a sales
+ * invoice can be made out to a supplier and a delivery booked in from a
+ * customer. The ledger is signed per side — positive is what a customer owes
+ * the shop, and what the shop owes a supplier — so when the party is the
+ * other kind the posting flips: a sale to a supplier comes off what the shop
+ * owes them, and a delivery from a customer goes on to what the shop owes.
+ */
+export function ledgerSign(doc) {
+  const type = DOC_TYPES[doc.doc_type];
+  if (!type || type.posts === 0) return 0;
+  return type.posts * (doc.party_type === type.party ? 1 : -1);
+}
+
 /** Next number for a type, e.g. PI-0007. Sequential per type. */
 export function nextDocNumber(docType) {
   const { prefix } = DOC_TYPES[docType];
@@ -1082,10 +1100,12 @@ export function applyEffects(doc, items, userId, note = doc.doc_number, accountI
   /* +1 bills the party, −1 credits them: the whole difference between an
      invoice and a return, on the account. */
   const posts = type.posts;
+  /* And on this party's account in particular — see ledgerSign. */
+  const signed = ledgerSign(doc);
 
   // Only the unpaid remainder is credit, so that is what the limit applies to.
   // A return owes the customer, so there is no credit to check.
-  if (doc.party_type === 'customer' && posts > 0) {
+  if (doc.party_type === 'customer' && signed > 0) {
     const check = creditCheck(doc.party_id, outstandingOf(doc));
     if (!check.ok) throw new Error(check.error);
   }
@@ -1094,7 +1114,7 @@ export function applyEffects(doc, items, userId, note = doc.doc_number, accountI
     partyType: doc.party_type,
     partyId: doc.party_id,
     kind: posts < 0 ? 'refund' : type.party === 'supplier' ? 'bill' : 'sale',
-    amountUsd: posts * doc.total,
+    amountUsd: signed * doc.total,
     exchangeRate: doc.exchange_rate,
     note,
     userId,
@@ -1108,7 +1128,7 @@ export function applyEffects(doc, items, userId, note = doc.doc_number, accountI
       partyType: doc.party_type,
       partyId: doc.party_id,
       kind: 'payment',
-      amountUsd: -posts * paid,
+      amountUsd: -signed * paid,
       paidUsd: doc.paid_usd,
       paidLbp: doc.paid_lbp,
       exchangeRate: doc.exchange_rate,
@@ -1177,13 +1197,14 @@ export function reverseEffects(doc, items, userId, note = `Cancelled ${doc.doc_n
   if (!postsToLedger(doc)) return;
 
   const posts = DOC_TYPES[doc.doc_type].posts;
+  const signed = ledgerSign(doc);
 
   addEntry({
     partyType: doc.party_type,
     partyId: doc.party_id,
     /* Undoing an invoice is a refund; undoing a return is the charge put back. */
     kind: posts < 0 ? 'adjustment' : 'refund',
-    amountUsd: -posts * doc.total,
+    amountUsd: -signed * doc.total,
     exchangeRate: doc.exchange_rate,
     note,
     userId,
@@ -1198,7 +1219,7 @@ export function reverseEffects(doc, items, userId, note = `Cancelled ${doc.doc_n
       partyType: doc.party_type,
       partyId: doc.party_id,
       kind: 'adjustment',
-      amountUsd: posts * paid,
+      amountUsd: signed * paid,
       exchangeRate: doc.exchange_rate,
       note: `${note} — ${doc.payment_method} ${posts < 0 ? 'refund' : 'payment'} returned`,
       userId,

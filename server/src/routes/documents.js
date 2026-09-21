@@ -53,7 +53,7 @@ router.get('/types', requireAuth, (req, res) => {
 });
 
 router.get('/', requireAuth, requirePermission('documents'), (req, res) => {
-  const { type, status, partyId } = req.query;
+  const { type, status, partyId, partyType } = req.query;
 
   let sql = `
     SELECT d.*, COALESCE(c.name, s.name) AS party_name, u.name AS user_name
@@ -86,6 +86,11 @@ router.get('/', requireAuth, requirePermission('documents'), (req, res) => {
   if (partyId) {
     sql += ' AND d.party_id = ?';
     params.push(partyId);
+    /* Customer 12 and supplier 12 are two people; say which. */
+    if (PARTY_TABLE[partyType]) {
+      sql += ' AND d.party_type = ?';
+      params.push(partyType);
+    }
   }
   sql += ' ORDER BY d.created_at DESC, d.id DESC LIMIT 500';
 
@@ -165,6 +170,7 @@ router.post('/', requireAuth, requirePermission('documents'), (req, res) => {
   const {
     docType,
     partyId,
+    partyType: partyTypeInput,
     items,
     discountPercent = 0,
     notes,
@@ -177,9 +183,19 @@ router.post('/', requireAuth, requirePermission('documents'), (req, res) => {
   const type = DOC_TYPES[docType];
   if (!type) return res.status(400).json({ error: 'Unknown document type' });
 
+  /*
+   * Whose paper it is: the kind the type expects unless the form says the
+   * other — a sales invoice to a supplier, a delivery from a customer. The
+   * same people trade both ways here, and keeping one of them on two lists
+   * is how they end up with two balances.
+   */
+  if (partyTypeInput !== undefined && partyTypeInput !== null && !PARTY_TABLE[partyTypeInput]) {
+    return res.status(400).json({ error: 'A party is a customer or a supplier' });
+  }
+  const partyType = PARTY_TABLE[partyTypeInput] ? partyTypeInput : type.party;
   if (partyId) {
-    const party = db.prepare(`SELECT * FROM ${PARTY_TABLE[type.party]} WHERE id = ?`).get(partyId);
-    if (!party) return res.status(400).json({ error: `That ${type.party} does not exist` });
+    const party = db.prepare(`SELECT * FROM ${PARTY_TABLE[partyType]} WHERE id = ?`).get(partyId);
+    if (!party) return res.status(400).json({ error: `That ${partyType} does not exist` });
   } else if (type.posts !== 0) {
     return res.status(400).json({ error: `A ${type.label.toLowerCase()} needs a ${type.party}` });
   }
@@ -203,7 +219,7 @@ router.post('/', requireAuth, requirePermission('documents'), (req, res) => {
         .run(
           docType,
           nextDocNumber(docType),
-          type.party,
+          partyType,
           partyId || null,
           validUntil || null,
           totals.subtotal,
@@ -271,14 +287,27 @@ router.put('/:id', requireAuth, requirePermission('documents'), (req, res) => {
   const doc = db.prepare('SELECT * FROM documents WHERE id = ?').get(req.params.id);
   if (!doc) return res.status(404).json({ error: 'Document not found' });
 
-  const { partyId, items, discountPercent, notes, validUntil, payments, paymentMethod, charges: chargesInput } =
-    req.body || {};
+  const {
+    partyId,
+    partyType: partyTypeInput,
+    items,
+    discountPercent,
+    notes,
+    validUntil,
+    payments,
+    paymentMethod,
+    charges: chargesInput,
+  } = req.body || {};
 
   const type = DOC_TYPES[doc.doc_type];
+  if (partyTypeInput !== undefined && partyTypeInput !== null && !PARTY_TABLE[partyTypeInput]) {
+    return res.status(400).json({ error: 'A party is a customer or a supplier' });
+  }
+  const nextPartyType = PARTY_TABLE[partyTypeInput] ? partyTypeInput : doc.party_type || type.party;
   const nextPartyId = partyId === undefined ? doc.party_id : partyId || null;
   if (nextPartyId) {
-    const party = db.prepare(`SELECT * FROM ${PARTY_TABLE[type.party]} WHERE id = ?`).get(nextPartyId);
-    if (!party) return res.status(400).json({ error: `That ${type.party} does not exist` });
+    const party = db.prepare(`SELECT * FROM ${PARTY_TABLE[nextPartyType]} WHERE id = ?`).get(nextPartyId);
+    if (!party) return res.status(400).json({ error: `That ${nextPartyType} does not exist` });
   } else if (type.posts !== 0) {
     return res.status(400).json({ error: `A ${type.label.toLowerCase()} needs a ${type.party}` });
   }
@@ -342,10 +371,11 @@ router.put('/:id', requireAuth, requirePermission('documents'), (req, res) => {
       }
 
       db.prepare(
-        `UPDATE documents SET party_id = ?, valid_until = ?, subtotal = ?, discount_percent = ?,
+        `UPDATE documents SET party_type = ?, party_id = ?, valid_until = ?, subtotal = ?, discount_percent = ?,
            discount = ?, tax = ?, total = ?, on_account = ?, notes = ?,
            paid_usd = ?, paid_lbp = ?, payment_method = ?, charges = ? WHERE id = ?`,
       ).run(
+        nextPartyType,
         nextPartyId,
         validUntil === undefined ? doc.valid_until : validUntil || null,
         totals.subtotal,
