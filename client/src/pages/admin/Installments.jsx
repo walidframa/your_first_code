@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { CalendarClock, HandCoins, Plus, Wallet } from 'lucide-react';
 import api from '../../api';
+import { useLive } from '../../lib/live';
 import PageHeader from '../../components/PageHeader';
 import CustomerPicker from '../../components/CustomerPicker';
 import MoneyInput from '../../components/MoneyInput';
@@ -302,6 +303,7 @@ export default function Installments() {
   useEffect(() => {
     load();
   }, [load]);
+  useLive(load);
 
   const shown = useMemo(() => {
     if (!plans) return null;

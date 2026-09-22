@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { RotateCcw } from 'lucide-react';
 import api from '../api';
+import { useLive } from '../lib/live';
 import ReturnLine from './ReturnLine';
 import { Badge, Card, EmptyState, Skeleton, money } from './ui';
 import { when } from '../lib/when';
@@ -99,6 +100,7 @@ export function ProductSalesHistory({ productId, onChanged }) {
   useEffect(() => {
     load();
   }, [load]);
+  useLive(load);
 
   if (orders === null) return <Skeleton className="h-24" />;
 

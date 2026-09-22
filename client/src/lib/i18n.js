@@ -108,6 +108,11 @@ const AR = {
   'They looked, and changed nothing.': 'اطّلعوا فقط، ولم يغيّروا شيئاً.',
   'Cash payment': 'الدفع نقداً',
   'Card payment': 'الدفع بالبطاقة',
+  Whish: 'ويش',
+  'Whish payment': 'الدفع عبر ويش',
+  'Sent on Whish': 'محوَّل عبر ويش',
+  'Check the transfer has arrived in the shop’s Whish app before confirming.':
+    'تأكّد من وصول التحويل إلى تطبيق ويش الخاص بالمحل قبل التأكيد.',
   'Log out': 'تسجيل الخروج',
 
   // — a phone in part-exchange ————————————————————————————————

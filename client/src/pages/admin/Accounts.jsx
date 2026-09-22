@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { Link } from 'react-router';
 import api from '../../api';
+import { useLive } from '../../lib/live';
 import PageHeader from '../../components/PageHeader';
 import { lbp, useSettings } from '../../context/SettingsContext';
 import {
@@ -253,6 +254,7 @@ export default function Accounts() {
   useEffect(() => {
     load();
   }, [load]);
+  useLive(load);
 
   const confirm = useConfirm();
 

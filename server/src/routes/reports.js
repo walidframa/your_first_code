@@ -97,6 +97,25 @@ router.get('/summary', requireAuth, requirePermission('reports'), (req, res) => 
     .all(...params);
 
   /*
+   * Of the electronic money, how much came through which app. A Whish
+   * transfer and a bank card are both "card" to the drawer; the shop
+   * reconciling its Whish balance wants them apart.
+   */
+  const paymentApps = db
+    .prepare(
+      `SELECT op.label,
+              COALESCE(SUM(op.amount_usd + CASE WHEN COALESCE(o.exchange_rate, 0) > 0
+                                                THEN op.amount_lbp / o.exchange_rate ELSE 0 END), 0) AS revenue,
+              COUNT(DISTINCT o.id) AS orders
+         FROM order_payments op
+         JOIN orders o ON o.id = op.order_id
+         ${whereJoined} AND op.method = 'card' AND op.label IS NOT NULL AND op.label != ''
+        GROUP BY op.label
+        ORDER BY revenue DESC`,
+    )
+    .all(...joinedParams);
+
+  /*
    * When the shop is busy.
    *
    * A shopkeeper decides who is on the counter on Saturday afternoon and
@@ -165,6 +184,7 @@ router.get('/summary', requireAuth, requirePermission('reports'), (req, res) => 
     topProducts,
     lowStock,
     paymentMix,
+    paymentApps,
     byHour,
     slowMovers,
     // What the shelf that is not moving is worth altogether, so the panel can

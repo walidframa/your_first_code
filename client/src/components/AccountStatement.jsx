@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Printer } from 'lucide-react';
 import api from '../api';
+import { useLive } from '../lib/live';
 import Letterhead from './Letterhead';
 import { A4, usePageSize } from '../lib/pageSize';
 import { Button, Input, Modal, ModalActions, Skeleton, cx, money } from './ui';
@@ -59,6 +60,7 @@ export default function AccountStatement({ partyType, partyId, path, name, onClo
   useEffect(() => {
     load();
   }, [load]);
+  useLive(load);
 
   const supplier = statement?.partyType === 'supplier';
   /*

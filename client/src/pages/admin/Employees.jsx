@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { CalendarCheck, FileText, IdCard, Pencil, Plus, Trash2, Wallet } from 'lucide-react';
 import { Link } from 'react-router';
 import api from '../../api';
+import { useLive } from '../../lib/live';
 import PageHeader from '../../components/PageHeader';
 import AccountStatement from '../../components/AccountStatement';
 import { useConfirm } from '../../components/ConfirmProvider';
@@ -233,6 +234,7 @@ function EmployeeModal({ id, onClose, onChanged }) {
     load();
     setPeriod(new Date().toISOString().slice(0, 7));
   }, [load]);
+  useLive(load);
 
   async function runMonth() {
     try {

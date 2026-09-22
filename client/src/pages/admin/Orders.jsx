@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import { X } from 'lucide-react';
 import api from '../../api';
+import { useLive } from '../../lib/live';
 import PageHeader from '../../components/PageHeader';
 import OrderTable from '../../components/OrderTable';
 import HistoryFilter from '../../components/HistoryFilter';
@@ -91,6 +92,7 @@ export default function Orders() {
     const timer = setTimeout(load, searching && !pickedId ? 300 : 0);
     return () => clearTimeout(timer);
   }, [load, searching, pickedId]);
+  useLive(load);
 
   /* A new search is a new question; the pick belonged to the old one. */
   useEffect(() => {

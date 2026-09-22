@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { apiBase, isNative } from './lib/server.js';
+import { CLIENT_ID, setLiveToken } from './lib/live.js';
 
 /*
  * Where the shop is.
@@ -16,6 +17,8 @@ import { apiBase, isNative } from './lib/server.js';
  * new shop rather than the old one.
  */
 const api = axios.create({ baseURL: apiBase() });
+/* Which screen is asking — so the change it makes is not echoed back to it. See lib/live.js. */
+api.defaults.headers.common['X-Client-Id'] = CLIENT_ID;
 
 api.interceptors.request.use((config) => {
   if (isNative()) config.baseURL = apiBase();
@@ -70,6 +73,7 @@ export function setAuthToken(token) {
   } else {
     delete api.defaults.headers.common.Authorization;
   }
+  setLiveToken(token || null);
   /*
    * A rotation is over when the new token is *in place*, not when the reply
    * carrying it arrived — those are two different moments, and anything

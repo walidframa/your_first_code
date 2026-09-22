@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Pencil, Plus, Store, Undo2, X } from 'lucide-react';
 import api from '../../api';
+import { useLive } from '../../lib/live';
 import PageHeader from '../../components/PageHeader';
 import { useBranch } from '../../context/BranchContext';
 import {
@@ -109,6 +110,7 @@ export default function Branches() {
   useEffect(() => {
     load();
   }, [load]);
+  useLive(load);
 
   async function close(branch) {
     try {

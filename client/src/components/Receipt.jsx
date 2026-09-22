@@ -288,7 +288,8 @@ function Roll({ order, items, tenders, rate, totalLbp, changeText, reprint, t })
         {order.payment_method === 'card' && (
           <div className="flex justify-between">
             <dt className="text-slate-500">Paid by</dt>
-            <dd className="text-slate-700">Card</dd>
+            {/* Whish, OMT or a bank card — the tender says which. */}
+            <dd className="text-slate-700">{tenders.find((p) => p.label)?.label || 'Card'}</dd>
           </div>
         )}
 

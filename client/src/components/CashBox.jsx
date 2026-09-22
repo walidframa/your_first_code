@@ -14,6 +14,7 @@ import {
   Wallet,
 } from 'lucide-react';
 import api from '../api';
+import { useLive } from '../lib/live';
 import CashReport from './CashReport';
 import AddExpense from './AddExpense';
 import { lbp, useSettings } from '../context/SettingsContext';
@@ -692,6 +693,7 @@ export default function CashBox({
   useEffect(() => {
     load();
   }, [load, refreshOn]);
+  useLive(load);
 
   const refresh = async () => {
     setBusy(true);

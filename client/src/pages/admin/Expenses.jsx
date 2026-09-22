@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Plus, Trash2, Wallet } from 'lucide-react';
 import api from '../../api';
+import { useLive } from '../../lib/live';
 import PageHeader from '../../components/PageHeader';
 import AddExpense, { EXPENSE_CATEGORIES } from '../../components/AddExpense';
 import HistoryFilter from '../../components/HistoryFilter';
@@ -35,6 +36,7 @@ export default function Expenses() {
   useEffect(() => {
     load();
   }, [load]);
+  useLive(load);
 
   async function remove(expense) {
     const agreed = await confirm({

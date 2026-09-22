@@ -18,6 +18,7 @@ import {
   Images,
 } from 'lucide-react';
 import api from '../../api';
+import { useLive } from '../../lib/live';
 import BarcodeField from '../../components/BarcodeField';
 import MoneyInput from '../../components/MoneyInput';
 import PageHeader from '../../components/PageHeader';
@@ -629,6 +630,7 @@ export default function Products() {
   useEffect(() => {
     load();
   }, [load]);
+  useLive(load);
 
   /* And again, quietly, whenever this screen is looked at afresh — see
      lib/revalidate.js. */

@@ -16,6 +16,7 @@ import {
   Users as UsersIcon,
 } from 'lucide-react';
 import api from '../../api';
+import { useLive } from '../../lib/live';
 import useDuplicateParty from '../../lib/useDuplicateParty';
 import PageHeader from '../../components/PageHeader';
 import AccountStatement from '../../components/AccountStatement';
@@ -493,6 +494,7 @@ function PartyDetail({ partyId, config, onClose, onChanged }) {
   useEffect(() => {
     load();
   }, [load]);
+  useLive(load);
 
   if (!data) {
     return (

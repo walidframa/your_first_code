@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { ArrowLeftRight, Ban, Printer, ReceiptText, Search } from 'lucide-react';
 import api from '../api';
+import { useLive } from '../lib/live';
 import PageHeader from '../components/PageHeader';
 import CashBox from '../components/CashBox';
 import { useConfirm } from '../components/ConfirmProvider';
@@ -425,6 +426,7 @@ export default function Vouchers() {
     const id = setTimeout(load, search ? 250 : 0);
     return () => clearTimeout(id);
   }, [load, search]);
+  useLive(() => load());
 
   async function cancel(voucher) {
     const agreed = await confirm({

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Plus, Smartphone, Trash2 } from 'lucide-react';
 import api from '../api';
+import { useLive } from '../lib/live';
 import {
   Button,
   EmptyState,
@@ -157,6 +158,7 @@ export default function UnitsPanel({ product, onChanged }) {
   useEffect(() => {
     load();
   }, [load]);
+  useLive(load);
 
   async function remove(unit) {
     try {

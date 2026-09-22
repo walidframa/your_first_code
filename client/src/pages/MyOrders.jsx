@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import api from '../api';
+import { useLive } from '../lib/live';
 import PageHeader from '../components/PageHeader';
 import OrderTable from '../components/OrderTable';
 import { money } from '../components/ui';
@@ -14,6 +15,7 @@ export default function MyOrders() {
   useEffect(() => {
     load();
   }, [load]);
+  useLive(load);
 
   const completed = (orders || []).filter((o) => o.status === 'completed');
   const total = completed.reduce((sum, o) => sum + o.total, 0);
