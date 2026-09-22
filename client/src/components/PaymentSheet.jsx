@@ -353,7 +353,7 @@ export default function PaymentSheet({
                 : t('Card payment')
       }
       subtitle={`${money(total)} · ${lbp(totalLbp)}`}
-      size={method === 'cash' || method === 'split' ? 'lg' : 'sm'}
+      size={method === 'card' || method === 'whish' ? 'sm' : 'lg'}
       footer={footer}
     >
       {method === 'split' && (
@@ -372,26 +372,26 @@ export default function PaymentSheet({
           <div className="grid grid-cols-3 gap-3">
             <button
               onClick={() => setMethod('card')}
-              className="flex flex-col items-center gap-2 rounded-xl bg-white px-4 py-8 ring-1 ring-edge transition hover:bg-slate-50 hover:ring-brand-400"
+              className="flex flex-col items-center gap-3 rounded-2xl bg-white px-4 py-12 ring-1 ring-edge transition hover:bg-slate-50 hover:ring-brand-400 active:bg-brand-50"
             >
-              <CreditCard size={26} className="text-slate-700" />
-              <span className="font-medium text-slate-800">{t('Card')}</span>
+              <CreditCard size={40} className="text-slate-700" />
+              <span className="text-lg font-semibold text-slate-800">{t('Card')}</span>
             </button>
             <button
               onClick={() => setMethod('cash')}
-              className="flex flex-col items-center gap-2 rounded-xl bg-white px-4 py-8 ring-1 ring-edge transition hover:bg-slate-50 hover:ring-brand-400"
+              className="flex flex-col items-center gap-3 rounded-2xl bg-white px-4 py-12 ring-1 ring-edge transition hover:bg-slate-50 hover:ring-brand-400 active:bg-brand-50"
             >
-              <Banknote size={26} className="text-slate-700" />
-              <span className="font-medium text-slate-800">{t('Cash')}</span>
+              <Banknote size={40} className="text-slate-700" />
+              <span className="text-lg font-semibold text-slate-800">{t('Cash')}</span>
             </button>
             {/* The wallet app half this country pays with — its own button, not a
                 label hidden inside the split sheet. */}
             <button
               onClick={() => setMethod('whish')}
-              className="flex flex-col items-center gap-2 rounded-xl bg-white px-4 py-8 ring-1 ring-edge transition hover:bg-slate-50 hover:ring-brand-400"
+              className="flex flex-col items-center gap-3 rounded-2xl bg-white px-4 py-12 ring-1 ring-edge transition hover:bg-slate-50 hover:ring-brand-400 active:bg-brand-50"
             >
-              <Smartphone size={26} className="text-slate-700" />
-              <span className="font-medium text-slate-800">{t('Whish')}</span>
+              <Smartphone size={40} className="text-slate-700" />
+              <span className="text-lg font-semibold text-slate-800">{t('Whish')}</span>
             </button>
           </div>
 

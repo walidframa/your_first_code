@@ -961,7 +961,13 @@ export default function CashBox({
           className={cx(
             compact &&
               detailOpen &&
-              'absolute end-0 top-full z-30 mt-1 w-80 max-w-[calc(100vw-1rem)] rounded-xl bg-white py-2 shadow-lg ring-1 ring-slate-200',
+              /*
+               * Hung from the pill's *start* edge, opening towards the page.
+               * Anchored to the end it spread left, under the rail — on a
+               * window narrow enough for the pill to sit near it, the Cash in
+               * button and half the figures were behind the menu.
+               */
+              'absolute start-0 top-full z-40 mt-1 w-80 max-w-[calc(100vw-1rem)] rounded-xl bg-white py-2 shadow-lg ring-1 ring-slate-200',
             // Folded away, there is nothing to hang below the handle.
             compact && !detailOpen && 'hidden',
           )}
