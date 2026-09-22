@@ -37,6 +37,7 @@ import ProductQuickEdit from '../../components/ProductQuickEdit';
 import ImeiFields from '../../components/ImeiFields';
 import ReturnHandsets from '../../components/ReturnHandsets';
 import PartyQuickCreate from '../../components/PartyQuickCreate';
+import PartyCombobox from '../../components/PartyCombobox';
 import { A4, usePageSize } from '../../lib/pageSize';
 import {
   Badge,
@@ -881,40 +882,31 @@ function DocumentForm({ existing, startAs = null, page = false, onClose, onSaved
               )}
             </div>
             {/*
-             * The document's own side first, the other side below it. The
-             * value carries which list the name came from — customer 12 and
-             * supplier 12 are two different people.
+             * Typed into, not scrolled through: the person writing the invoice
+             * knows who it is for. The document's own side is listed first,
+             * the other side below it, and the value carries which list the
+             * name came from — customer 12 and supplier 12 are two people.
              */}
-            <select
+            <PartyCombobox
               id="doc-party"
-              value={partyId ? `${partyKind}:${partyId}` : ''}
-              onChange={(e) => {
-                const [kind, id] = e.target.value.split(':');
-                setPartyKind(kind || partyType);
-                setPartyId(id || '');
+              value={partyId ? { kind: partyKind, id: partyId } : null}
+              onChange={(next) => {
+                setPartyKind(next?.kind || partyType);
+                setPartyId(next?.id || '');
               }}
-              className="h-10 w-full rounded-lg bg-white px-3 text-sm ring-1 ring-edge focus:ring-2 focus:ring-brand-600 focus:outline-none"
-            >
-              <option value="">Choose a {partyType === 'supplier' ? 'supplier or customer' : 'customer or supplier'}…</option>
-              {(partyType === 'supplier'
-                ? [
-                    ['supplier', 'Suppliers', suppliers],
-                    ['customer', 'Customers', customers],
-                  ]
-                : [
-                    ['customer', 'Customers', customers],
-                    ['supplier', 'Suppliers', suppliers],
-                  ]
-              ).map(([kind, heading, list]) => (
-                <optgroup key={kind} label={heading}>
-                  {list.map((p) => (
-                    <option key={`${kind}:${p.id}`} value={`${kind}:${p.id}`}>
-                      {p.name}
-                    </option>
-                  ))}
-                </optgroup>
-              ))}
-            </select>
+              placeholder={`Type a ${partyType === 'supplier' ? 'supplier or customer' : 'customer or supplier'}…`}
+              groups={
+                partyType === 'supplier'
+                  ? [
+                      { kind: 'supplier', heading: 'Suppliers', list: suppliers },
+                      { kind: 'customer', heading: 'Customers', list: customers },
+                    ]
+                  : [
+                      { kind: 'customer', heading: 'Customers', list: customers },
+                      { kind: 'supplier', heading: 'Suppliers', list: suppliers },
+                    ]
+              }
+            />
             {partyId && partyKind !== partyType && (
               <p className="mt-1 text-xs text-slate-500">
                 {partyKind === 'supplier'

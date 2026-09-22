@@ -134,6 +134,17 @@ async function step(name, fn) {
  * contacts it needs have arrived, and a click on a tile in that gap does
  * nothing at all.
  */
+/**
+ * Put a customer or supplier on the document by typing their name — the box
+ * is a search, not a drop-down, and it lists both sides of the counter.
+ */
+async function pickParty(scope, name) {
+  const box = scope.locator('#doc-party');
+  await box.click();
+  await box.fill(name);
+  await scope.locator('[data-party-option]', { hasText: name }).first().click();
+}
+
 async function openNewDocument() {
   await page.click('button:has-text("New document")');
   await page.waitForURL(/\/admin\/documents\/new/, { timeout: 15000 });
@@ -528,13 +539,15 @@ try {
     await page.waitForSelector('[role=dialog] >> text=$7.00', { timeout: 5000 });
     await page.keyboard.press('Backspace');
 
-    // A small USD amount alone leaves a balance still due.
+    // A small USD amount alone falls short — and the sheet offers the rest in
+    // pounds on its own, so a dollar and the suggested lira already covers it.
     await dialog.getByRole('button', { name: '1', exact: true }).click();
-    await page.waitForSelector('text=Still due');
+    await page.waitForSelector('[role=dialog] >> text=the rest', { timeout: 5000 });
+    await page.waitForSelector('text=Change to give');
 
-    // Top up in pounds. The cart is ~$24, so 1,000,000 LL (~$11) is still short;
-    // 5,000,000 LL (~$56) covers it.
-    await dialog.getByRole('button', { name: 'Lebanese pounds' }).first().click();
+    // The cashier says what pounds actually arrived. The cart is ~$24, so
+    // 1,000,000 LL (~$11) is short; 5,000,000 LL (~$56) covers it.
+    await dialog.getByRole('button', { name: /Lebanese pounds/ }).first().click();
     await dialog.getByRole('button', { name: '1,000k' }).click();
     await page.waitForSelector('text=Still due', { timeout: 5000 });
     await dialog.getByRole('button', { name: '5,000k' }).click();
@@ -2371,7 +2384,7 @@ try {
     const dialog = await openNewDocument();
     // Type is chosen by icon tile now.
     await dialog.getByRole('button', { name: /Purchase invoice/ }).click();
-    await dialog.locator('#doc-party').selectOption({ label: 'Corner Bakehouse' });
+    await pickParty(dialog, 'Corner Bakehouse');
 
     // Search for a product and add it with Enter.
     await dialog.getByLabel('Search products to add').fill('Bagel');
@@ -2467,7 +2480,7 @@ try {
     await goToDocuments();
     const dialog = await openNewDocument();
     await dialog.getByRole('button', { name: /Purchase invoice/ }).click();
-    await dialog.locator('#doc-party').selectOption({ label: 'Corner Bakehouse' });
+    await pickParty(dialog, 'Corner Bakehouse');
     await dialog.getByLabel('Search products to add').fill('Bagel');
     await dialog.locator('text=/BAK-002/').first().waitFor();
     await dialog.getByLabel('Search products to add').press('Enter');
@@ -2888,7 +2901,7 @@ try {
     await goToDocuments();
     const dialog = await openNewDocument();
     await dialog.getByRole('button', { name: /Quotation/ }).click();
-    await dialog.locator('#doc-party').selectOption({ label: 'Rami Haddad' });
+    await pickParty(dialog, 'Rami Haddad');
     await dialog.getByLabel('Search products to add').fill('Croissant');
     await dialog.getByLabel('Search products to add').press('Enter');
     await dialog.getByLabel(/Quantity for/i).first().fill('2');
@@ -2923,7 +2936,7 @@ try {
     await goToDocuments();
     const dialog = await openNewDocument();
     await dialog.getByRole('button', { name: /Purchase invoice/ }).click();
-    await dialog.locator('#doc-party').selectOption({ label: 'Corner Bakehouse' });
+    await pickParty(dialog, 'Corner Bakehouse');
 
     // Searching for something that does not exist offers to create it.
     await dialog.getByLabel('Search products to add').fill('Pistachio Baklava');
@@ -3014,7 +3027,7 @@ try {
     await goToDocuments();
     const dialog = await openNewDocument();
     await dialog.getByRole('button', { name: /Purchase invoice/ }).click();
-    await dialog.locator('#doc-party').selectOption({ label: 'Corner Bakehouse' });
+    await pickParty(dialog, 'Corner Bakehouse');
     await dialog.getByLabel('Search products to add').fill('Redmi Note 13');
     await dialog.getByLabel('Search products to add').press('Enter');
     await page.waitForSelector('td:has-text("RN13")', { timeout: 15000 });
@@ -3104,7 +3117,7 @@ try {
     await goToDocuments();
     const dialog = await openNewDocument();
     await dialog.getByRole('button', { name: /Purchase invoice/ }).click();
-    await dialog.locator('#doc-party').selectOption({ label: 'Corner Bakehouse' });
+    await pickParty(dialog, 'Corner Bakehouse');
     await dialog.getByLabel('Search products to add').fill('Croissant');
     await dialog.getByLabel('Search products to add').press('Enter');
     await page.waitForSelector('td:has-text("Croissant")', { timeout: 15000 });
@@ -3127,7 +3140,7 @@ try {
     if (quantity !== '7') throw new Error(`the quantity came back as "${quantity}"`);
 
     const party = await page.evaluate(
-      () => document.querySelector('#doc-party')?.selectedOptions[0]?.text,
+      () => document.querySelector('#doc-party')?.value,
     );
     if (!/Corner Bakehouse/.test(party || '')) {
       throw new Error(`the supplier came back as "${party}"`);
@@ -3211,8 +3224,8 @@ try {
      * would be the same trip to another screen, only better hidden.
      */
     const chosen = await page
-      .locator('#doc-party option:checked')
-      .textContent()
+      .locator('#doc-party')
+      .inputValue()
       .catch(() => '');
     if (!String(chosen).includes('Bekaa Handset Traders')) {
       throw new Error(`the new supplier was not put on the document — the picker says "${chosen}"`);
@@ -3225,7 +3238,7 @@ try {
     await goToDocuments();
     const dialog = await openNewDocument();
     await dialog.getByRole('button', { name: /Purchase invoice/ }).click();
-    await dialog.locator('#doc-party').selectOption({ label: 'Corner Bakehouse' });
+    await pickParty(dialog, 'Corner Bakehouse');
     await dialog.getByLabel('Search products to add').fill('Croissant');
     await dialog.getByLabel('Search products to add').press('Enter');
     await dialog.getByLabel(/Quantity for/i).first().fill('10');
@@ -3255,7 +3268,7 @@ try {
     await goToDocuments();
     const dialog = await openNewDocument();
     await dialog.getByRole('button', { name: /Purchase invoice/ }).click();
-    await dialog.locator('#doc-party').selectOption({ label: 'Corner Bakehouse' });
+    await pickParty(dialog, 'Corner Bakehouse');
     await dialog.getByLabel('Search products to add').fill('Croissant');
     await dialog.getByLabel('Search products to add').press('Enter');
     await dialog.getByLabel(/Quantity for/i).first().fill('10');
@@ -3284,7 +3297,7 @@ try {
     await goToDocuments();
     let dialog = await openNewDocument();
     await dialog.getByRole('button', { name: /Purchase invoice/ }).click();
-    await dialog.locator('#doc-party').selectOption({ label: 'Corner Bakehouse' });
+    await pickParty(dialog, 'Corner Bakehouse');
     await dialog.getByLabel('Search products to add').fill('Bagel');
     await dialog.getByLabel('Search products to add').press('Enter');
     await dialog.getByLabel(/Quantity for/i).first().fill('10');
@@ -3367,7 +3380,7 @@ try {
     await goToDocuments();
     const dialog = await openNewDocument();
     await dialog.getByRole('button', { name: /Sales invoice/ }).click();
-    await dialog.locator('#doc-party').selectOption({ label: 'Rami Haddad' });
+    await pickParty(dialog, 'Rami Haddad');
     await dialog.getByLabel('Search products to add').fill('Croissant');
     await dialog.getByLabel('Search products to add').press('Enter');
     await dialog.getByLabel(/Quantity for/i).first().fill('2');
@@ -3395,7 +3408,7 @@ try {
     await goToDocuments();
     const dialog = await openNewDocument();
     await dialog.getByRole('button', { name: /Sales invoice/ }).click();
-    await dialog.locator('#doc-party').selectOption({ label: 'Rami Haddad' });
+    await pickParty(dialog, 'Rami Haddad');
     await dialog.getByLabel('Search products to add').fill('Croissant');
     await dialog.getByLabel('Search products to add').press('Enter');
 
