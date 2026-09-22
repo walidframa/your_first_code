@@ -41,7 +41,7 @@ export default function PaymentSheet({
    * A field is "touched" once the cashier types a figure into it. Until then it
    * is the till's suggestion, free to follow whatever the other field says.
    */
-  const [touched, setTouched] = useState({ CHANGE_USD: false, CHANGE_LBP: false });
+  const [touched, setTouched] = useState({ LBP: false, CHANGE_USD: false, CHANGE_LBP: false });
   // Which field the keypad is typing into: a tender currency, or — in split
   // mode — one of the two piles being handed back.
   const [active, setActive] = useState('USD');
@@ -53,13 +53,25 @@ export default function PaymentSheet({
       setLbpEntry('');
       setChangeUsdEntry('');
       setChangeLbpEntry('');
-      setTouched({ CHANGE_USD: false, CHANGE_LBP: false });
+      setTouched({ LBP: false, CHANGE_USD: false, CHANGE_LBP: false });
       setActive('USD');
     }
   }, [open]);
 
   const paidUsd = Number(usdEntry || 0);
-  const paidLbp = Number(lbpEntry || 0);
+  /*
+   * The rest, in pounds, the moment the dollars fall short.
+   *
+   * "Twenty dollars and the rest in lira" is how most of this counter's cash
+   * arrives, and the sheet used to make the cashier work the rest out from
+   * the "still due" line and type it. Now the pounds tile offers it — the
+   * till's suggestion, in the tile's own colour — and Enter takes it. Type
+   * into the tile and it is the cashier's figure instead, as with the change.
+   */
+  const usdShort = rate > 0 && paidUsd > 0 && total - paidUsd > 0.004 ? toLbp(total - paidUsd) : 0;
+  const lbpSuggested = !touched.LBP && usdShort > 0 ? String(usdShort) : '';
+  const lbpShown = touched.LBP ? lbpEntry : lbpSuggested;
+  const paidLbp = Number(lbpShown || 0);
   const tenderedUsd = paidUsd + (rate ? paidLbp / rate : 0);
   const remaining = total - tenderedUsd;
   /*
@@ -130,8 +142,15 @@ export default function PaymentSheet({
   // Pounds have no subunit in practice, in the drawer or in the change.
   const wholeNumbersOnly = active === 'LBP' || active === 'CHANGE_LBP';
 
+  /* Typing into a field makes it the cashier's rather than the till's suggestion. */
+  function touch() {
+    if (active === 'LBP' || CHANGE_FIELDS.includes(active)) setTouched((t) => ({ ...t, [active]: true }));
+  }
+
   function press(key) {
-    if (CHANGE_FIELDS.includes(active)) setTouched((t) => ({ ...t, [active]: true }));
+    // Clearing the pounds hands the tile back to the till, suggestion and all.
+    if (key === 'clear' && active === 'LBP') setTouched((t) => ({ ...t, LBP: false }));
+    else touch();
     setEntry((prev) => {
       if (key === 'clear') return '';
       if (key === 'back') return prev.slice(0, -1);
@@ -200,7 +219,7 @@ export default function PaymentSheet({
     // it changes — cheap, and the alternative is a listener typing into a
     // stale field.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, method, active, usdEntry, lbpEntry, covered, overGiving, submitting]);
+  }, [open, method, active, usdEntry, lbpEntry, touched.LBP, covered, overGiving, submitting]);
 
   /**
    * Give the whole change in one currency.
@@ -212,14 +231,14 @@ export default function PaymentSheet({
    */
   function allInDollars() {
     setChangeUsdEntry(String(Math.round(changeUsd * 100) / 100));
-    setTouched({ CHANGE_USD: true, CHANGE_LBP: false });
+    setTouched((t) => ({ ...t, CHANGE_USD: true, CHANGE_LBP: false }));
     setActive('CHANGE_USD');
   }
 
   function allInPounds() {
     setChangeUsdEntry('');
     setChangeLbpEntry('');
-    setTouched({ CHANGE_USD: false, CHANGE_LBP: false });
+    setTouched((t) => ({ ...t, CHANGE_USD: false, CHANGE_LBP: false }));
     setActive('CHANGE_LBP');
   }
 
@@ -411,7 +430,13 @@ export default function PaymentSheet({
           <div className="grid grid-cols-2 gap-2">
             {[
               { key: 'USD', label: 'US dollars', value: usdEntry, display: money(paidUsd) },
-              { key: 'LBP', label: 'Lebanese pounds', value: lbpEntry, display: lbp(paidLbp) },
+              {
+                key: 'LBP',
+                label: lbpSuggested ? 'Lebanese pounds · the rest' : 'Lebanese pounds',
+                value: lbpShown,
+                display: lbp(paidLbp),
+                suggested: !!lbpSuggested,
+              },
             ].map((c) => (
               <button
                 key={c.key}
@@ -425,7 +450,7 @@ export default function PaymentSheet({
                 <span
                   className={cx(
                     'mt-0.5 block text-xl font-semibold',
-                    c.value ? 'text-slate-900' : 'text-slate-300',
+                    c.suggested ? 'text-brand-700' : c.value ? 'text-slate-900' : 'text-slate-300',
                   )}
                 >
                   {c.value ? c.display : c.key === 'USD' ? '$0.00' : '0 LL'}
@@ -577,6 +602,7 @@ export default function PaymentSheet({
                   key={amount}
                   onClick={() => {
                     if (CHANGE_FIELDS.includes(active)) setTouched((t) => ({ ...t, [active]: true }));
+                    touch();
                     setEntry(String(amount));
                   }}
                   className="flex-1 rounded-lg bg-slate-100 px-2 py-2 text-sm font-medium whitespace-nowrap text-slate-700 transition hover:bg-slate-200"

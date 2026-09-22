@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { Eye, Plus, Trash2, Wrench } from 'lucide-react';
 import api from '../../api';
@@ -9,6 +9,8 @@ import CustomerField from '../../components/CustomerField';
 import HistoryFilter from '../../components/HistoryFilter';
 import { useHistoryFilter } from '../../lib/history';
 import { useBranch } from '../../context/BranchContext';
+import { useSettings } from '../../context/SettingsContext';
+import { useConfirm } from '../../components/ConfirmProvider';
 import {
   Button,
   Card,
@@ -205,11 +207,27 @@ function IntakeModal({ onClose, onSaved }) {
 /** One job: its history, its parts, and handing it back. */
 function TicketModal({ id, onClose, onChanged }) {
   const toast = useToast();
+  const confirm = useConfirm();
+  const { rate } = useSettings();
   const [detail, setDetail] = useState(null);
   const [products, setProducts] = useState([]);
   const [partId, setPartId] = useState('');
   const [charged, setCharged] = useState('');
   const [payNow, setPayNow] = useState('');
+  /*
+   * What the customer will still owe once the money in `payNow` is taken.
+   *
+   * The two figures the counter actually knows: what was handed over, and what
+   * is still to come. What the job is *charged* is the two added to what was
+   * paid before — worked out here rather than typed into a third box beside
+   * "Hand it back", which asked the same question a different way and was
+   * answered differently often enough to matter. Follows the money taken
+   * until somebody types into it; then it is theirs.
+   */
+  const [stillOwed, setStillOwed] = useState('');
+  const [stillTouched, setStillTouched] = useState(false);
+  /* The figures as worked out on the last render, for the handlers to send. */
+  const figures = useRef({ chargeNow: 0, takeNow: 0, owedNow: 0 });
   /* What the shop paid outside for the job — as typed, so it can be edited. */
   const [outsideCost, setOutsideCost] = useState('');
   const [passcode, setPasscode] = useState(null);
@@ -224,6 +242,8 @@ function TicketModal({ id, onClose, onChanged }) {
     setProducts(p.data.products.filter((x) => !x.tracks_units));
     setCharged(String(d.data.ticket.charged ?? d.data.ticket.quoted ?? d.data.partsTotal ?? ''));
     setPayNow(d.data.outstanding > 0 ? String(d.data.outstanding) : '');
+    setStillOwed('');
+    setStillTouched(false);
     setOutsideCost(Number(d.data.ticket.outside_cost) > 0 ? String(d.data.ticket.outside_cost) : '');
     setFixPaidUsd(String(Number(d.data.ticket.paid_usd) || 0));
     setFixPaidLbp(String(Math.round(Number(d.data.ticket.paid_lbp) || 0)));
@@ -288,7 +308,7 @@ function TicketModal({ id, onClose, onChanged }) {
     if (amount <= 0) return;
     try {
       await api.post(`/repairs/${id}/payment`, {
-        charged: Number(charged) || null,
+        charged: figures.current.chargeNow,
         outsideCost: outsideCostValue,
         payments: [{ currency: 'USD', amount }],
       });
@@ -302,22 +322,32 @@ function TicketModal({ id, onClose, onChanged }) {
   }
 
   async function collect() {
-    const amount = Number(charged) || 0;
+    const { chargeNow, takeNow, owedNow } = figures.current;
+    /*
+     * The phone is about to leave with money still to come. Said out loud,
+     * because once it has gone home the figure on the ticket is all the shop
+     * has — and "he said he would come back Tuesday" is how it gets lost.
+     */
+    if (owedNow > 0) {
+      const agreed = await confirm({
+        title: `${money(owedNow)} still to come from the customer`,
+        body: `Take it before the phone goes, or hand it back with ${money(owedNow)} still owing on the ticket.`,
+        confirmLabel: `Hand it back, ${money(owedNow)} owing`,
+        cancelLabel: 'Not yet',
+        tone: 'warning',
+      });
+      if (!agreed) return;
+    }
     try {
       await api.post(`/repairs/${id}/collect`, {
-        charged: amount,
+        charged: chargeNow,
         // What it cost the shop, saved in the same breath as what it was
         // charged: this is the moment the profit on the job becomes real.
         outsideCost: outsideCostValue,
-        /*
-         * The server works out what is still owed at *this* charge and takes
-         * that: a job paid for at intake is handed back at nothing to pay, and
-         * one quoted at $100 and handed back at $80 takes $80 — not the $100
-         * this screen was told was outstanding when it opened.
-         */
-        takeBalance: true,
+        /* What was actually handed over now — nothing if nothing was. */
+        payments: takeNow > 0 ? [{ currency: 'USD', amount: takeNow }] : [],
       });
-      toast('Handed back');
+      toast(owedNow > 0 ? `Handed back — ${money(owedNow)} still to come` : 'Handed back');
       await load();
       onChanged();
     } catch (err) {
@@ -361,6 +391,15 @@ function TicketModal({ id, onClose, onChanged }) {
   const partsCost = parts.reduce((sum, p) => sum + (Number(p.cost) || 0) * p.quantity, 0);
   const agreed = ticket.under_warranty === 1 ? 0 : Number(charged) || 0;
   const makes = Math.round((agreed - partsCost - outsideCostValue) * 100) / 100;
+  /* The money as the counter sees it: taken now, still to come, and the charge that makes. */
+  const paidSoFar = Number(ticket.paid_usd || 0) + (rate > 0 ? Number(ticket.paid_lbp || 0) / rate : 0);
+  const takeNow = Math.max(0, Number(payNow) || 0);
+  const owedFollowing = Math.round(Math.max(0, outstanding - takeNow) * 100) / 100;
+  const owedShown = stillTouched ? stillOwed : owedFollowing > 0 ? String(owedFollowing) : '';
+  const owedNow = Math.max(0, Number(owedShown) || 0);
+  const chargeNow =
+    ticket.under_warranty === 1 ? 0 : Math.round((paidSoFar + takeNow + owedNow) * 100) / 100;
+  figures.current = { chargeNow, takeNow, owedNow };
   const costDirty = outsideCostValue !== Math.round((Number(ticket.outside_cost) || 0) * 100) / 100;
 
   return (
@@ -473,30 +512,17 @@ function TicketModal({ id, onClose, onChanged }) {
                   Under warranty — collect at nothing to pay.
                 </p>
               )}
-              <div className="flex gap-2">
-                <Input
-                  label="Charge for the job"
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={ticket.under_warranty === 1 ? '0' : charged}
-                  onChange={(e) => setCharged(e.target.value)}
-                  disabled={ticket.under_warranty === 1}
-                />
-                <div className="flex items-end">
-                  <Button onClick={collect}>Hand it back</Button>
-                </div>
-              </div>
-
-              {ticket.under_warranty !== 1 && (
+              {ticket.under_warranty === 1 ? (
+                <Button onClick={collect}>Hand it back</Button>
+              ) : (
                 <>
                   {/*
-                    * The drop-off payment. Most of this shop's customers pay
-                    * when they hand the phone over, and the only way to record
-                    * that used to be to mark the job collected — which said the
-                    * phone had gone home when it was sitting on the bench.
+                    * Two figures the counter knows, and the charge worked out
+                    * from them. Most customers pay on drop-off; the rest pay
+                    * on pick-up, or partly, and what is left is written down
+                    * here so that handing the phone back can say so.
                     */}
-                  <div className="mt-3 flex gap-2 border-t border-slate-100 pt-3">
+                  <div className="flex gap-2">
                     <Input
                       label="Take money now"
                       type="number"
@@ -507,12 +533,31 @@ function TicketModal({ id, onClose, onChanged }) {
                       hint="The phone stays on the bench"
                     />
                     <div className="flex items-start pt-6">
-                      <Button variant="secondary" onClick={takePayment} disabled={!(Number(payNow) > 0)}>
+                      <Button variant="secondary" onClick={takePayment} disabled={!(takeNow > 0)}>
                         Take it
                       </Button>
                     </div>
                   </div>
-
+                  <Input
+                    className="mt-3"
+                    label="Still to come from the customer"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={owedShown}
+                    onChange={(e) => {
+                      setStillTouched(true);
+                      setStillOwed(e.target.value);
+                    }}
+                    hint="What they will still owe after this — 0 when the job is paid off"
+                  />
+                  <div className="mt-3 flex items-center justify-between gap-3 border-t border-slate-100 pt-3">
+                    <p className="tnum text-sm text-slate-600">
+                      Charge for the job <span className="font-semibold text-slate-900">{money(chargeNow)}</span>
+                      {owedNow > 0 && <span className="text-amber-700"> · {money(owedNow)} still to come</span>}
+                    </p>
+                    <Button onClick={collect}>Hand it back</Button>
+                  </div>
                   {paid && (
                     <p className="tnum mt-2 text-sm text-slate-600">
                       Paid so far {money(ticket.paid_usd)}
@@ -621,6 +666,24 @@ function TicketModal({ id, onClose, onChanged }) {
                       The cashbox moves by the difference.
                     </p>
                   </div>
+                  {outstanding > 0 && ticket.under_warranty !== 1 && (
+                    <div className="mt-3 flex items-end gap-2 border-t border-slate-100 pt-3">
+                      <Input
+                        label="Take money now"
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={payNow}
+                        onChange={(e) => setPayNow(e.target.value)}
+                        hint={`${money(outstanding)} still to come from the customer`}
+                      />
+                      <div className="pb-6">
+                        <Button variant="secondary" onClick={takePayment} disabled={!(takeNow > 0)}>
+                          Take it
+                        </Button>
+                      </div>
+                    </div>
+                  )}
             </Card>
           )}
 
@@ -721,7 +784,29 @@ function TicketModal({ id, onClose, onChanged }) {
   );
 }
 
+/**
+ * What the job comes to, and how much of it is still to come.
+ *
+ * The figure a shop reads down a list for: which phones on the bench are paid
+ * for, and which will be a conversation at pick-up.
+ */
+function AmountCell({ ticket: t, rate }) {
+  const agreed = t.under_warranty === 1 ? 0 : Number(t.charged ?? t.quoted ?? 0) || 0;
+  const paid = Number(t.paid_usd || 0) + (rate > 0 ? Number(t.paid_lbp || 0) / rate : 0);
+  const owed = Math.round(Math.max(0, agreed - paid) * 100) / 100;
+  if (t.under_warranty === 1 || (!agreed && !paid)) return <span className="text-slate-400">—</span>;
+  return (
+    <>
+      <span className="text-slate-800">{money(agreed || paid)}</span>
+      <span className={cx('block text-xs', owed > 0 ? 'text-amber-700' : 'text-brand-700')}>
+        {owed > 0 ? `${money(owed)} to come` : 'paid'}
+      </span>
+    </>
+  );
+}
+
 export default function Repairs() {
+  const { rate } = useSettings();
   /* Which shop each phone is at — only worth a column when there is more than one. */
   const { total: branchCount } = useBranch();
   const severalBranches = branchCount > 1;
@@ -889,6 +974,7 @@ export default function Repairs() {
                   <th className="hidden px-3 py-2 font-medium sm:table-cell">Customer</th>
                   <th className="hidden px-3 py-2 font-medium md:table-cell">Fault</th>
                   {severalBranches && <th className="px-3 py-2 font-medium">Branch</th>}
+                  <th className="px-3 py-2 text-right font-medium">Amount</th>
                   <th className="hidden px-3 py-2 text-right font-medium sm:table-cell">Parts</th>
                   <th className="px-5 py-2 font-medium">Status</th>
                 </tr>
@@ -929,6 +1015,9 @@ export default function Repairs() {
                         </span>
                       </td>
                     )}
+                    <td className="tnum px-3 py-2.5 text-right">
+                      <AmountCell ticket={t} rate={rate} />
+                    </td>
                     <td className="tnum hidden px-3 py-2.5 text-right text-slate-600 sm:table-cell">
                       {t.part_count ? money(t.parts_total) : '—'}
                     </td>

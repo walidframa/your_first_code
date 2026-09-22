@@ -246,13 +246,23 @@ function MoneyModal({ party, config, mode, onClose, onSaved }) {
   const { rate, toLbp } = useSettings();
   const [usd, setUsd] = useState('');
   const [lbpAmount, setLbpAmount] = useState('');
+  const [lbpTouched, setLbpTouched] = useState(false);
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
   const isPayment = mode === 'payment';
-  const totalUsd = isPayment ? Number(usd || 0) + (rate ? Number(lbpAmount || 0) / rate : 0) : Number(amount || 0);
+  /*
+   * The rest in pounds, offered the moment the dollars fall short of what is
+   * owed — the same thing the register's cash sheet does. Typed over, the
+   * pounds become whatever was actually handed across.
+   */
+  const owed = isPayment ? Math.max(0, Number(party?.balance) || 0) : 0;
+  const usdNum = Number(usd || 0);
+  const lbpSuggested = rate > 0 && usdNum > 0 && owed - usdNum > 0.004 ? String(toLbp(owed - usdNum)) : '';
+  const lbpShown = lbpTouched ? lbpAmount : lbpSuggested;
+  const totalUsd = isPayment ? usdNum + (rate ? Number(lbpShown || 0) / rate : 0) : Number(amount || 0);
   const valid = totalUsd > 0;
 
   async function submit(e) {
@@ -263,7 +273,7 @@ function MoneyModal({ party, config, mode, onClose, onSaved }) {
       if (isPayment) {
         const payments = [];
         if (Number(usd) > 0) payments.push({ currency: 'USD', amount: Number(usd) });
-        if (Number(lbpAmount) > 0) payments.push({ currency: 'LBP', amount: Number(lbpAmount) });
+        if (Number(lbpShown) > 0) payments.push({ currency: 'LBP', amount: Number(lbpShown) });
         const res = await api.post(`/${config.path}/${party.id}/payments`, {
           payments,
           note: note || null,
@@ -301,7 +311,18 @@ function MoneyModal({ party, config, mode, onClose, onSaved }) {
           <>
             <div className="grid grid-cols-2 gap-3">
               <Input label="US dollars" type="number" min="0" step="0.01" value={usd} onChange={(e) => setUsd(e.target.value)} />
-              <Input label="Lebanese pounds" type="number" min="0" step="1000" value={lbpAmount} onChange={(e) => setLbpAmount(e.target.value)} />
+              <Input
+                label="Lebanese pounds"
+                type="number"
+                min="0"
+                step="1000"
+                value={lbpShown}
+                onChange={(e) => {
+                  setLbpTouched(true);
+                  setLbpAmount(e.target.value);
+                }}
+                hint={!lbpTouched && lbpSuggested ? 'The rest of what is owed, in pounds' : undefined}
+              />
             </div>
             {totalUsd > 0 && (
               <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-600">
