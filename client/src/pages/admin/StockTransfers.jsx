@@ -12,6 +12,7 @@ import {
   X,
 } from 'lucide-react';
 import api from '../../api';
+import { useLive } from '../../lib/live';
 import PageHeader from '../../components/PageHeader';
 import { useBranch } from '../../context/BranchContext';
 import {
@@ -718,6 +719,7 @@ export default function StockTransfers() {
   useEffect(() => {
     load();
   }, [load, branch?.id]);
+  useLive(load);
 
   const confirm = useConfirm();
 

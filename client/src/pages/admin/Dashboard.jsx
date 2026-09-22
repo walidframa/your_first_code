@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { AlertTriangle, XCircle } from 'lucide-react';
 import api from '../../api';
+import { useLive } from '../../lib/live';
 import PageHeader from '../../components/PageHeader';
 import ColumnPicker from '../../components/ColumnPicker';
 import { useColumns } from '../../lib/tableColumns';
@@ -193,7 +194,10 @@ export default function Dashboard() {
       .get('/accounts/summary')
       .then((res) => setAccounts(res.data))
       .catch(() => setAccounts(null));
-  }, []);
+  }, [attempt]);
+
+  /* A sale on the other PC is a figure on this screen: ask again when anything moves. */
+  useLive(() => setAttempt((a) => a + 1));
 
   return (
     <div className="flex h-full flex-col">
@@ -346,7 +350,7 @@ export default function Dashboard() {
               {shows('mix') && (
                 <Card>
                   <CardHeader title="Payment mix" subtitle="Revenue by tender" />
-                  <PaymentMix mix={summary.paymentMix} />
+                  <PaymentMix mix={summary.paymentMix} apps={summary.paymentApps || []} />
                 </Card>
               )}
 

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { BadgeCheck, HandCoins, Pencil, Plus, ShieldAlert, Trash2, Undo2 } from 'lucide-react';
 import BuyHandsetModal from '../../components/BuyHandsetModal';
 import api from '../../api';
+import { useLive } from '../../lib/live';
 import PageHeader from '../../components/PageHeader';
 import HistoryFilter from '../../components/HistoryFilter';
 import { useHistoryFilter } from '../../lib/history';
@@ -267,6 +268,7 @@ export default function TradeIns() {
   useEffect(() => {
     load();
   }, [load]);
+  useLive(load);
 
   /*
    * A handset bought by mistake. Only while it is on the shelf — a sold one is

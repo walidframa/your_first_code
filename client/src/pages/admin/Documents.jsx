@@ -22,6 +22,7 @@ import {
   Undo2,
 } from 'lucide-react';
 import api from '../../api';
+import { useLive } from '../../lib/live';
 import PageHeader from '../../components/PageHeader';
 import Letterhead from '../../components/Letterhead';
 import { useSettings, lbp } from '../../context/SettingsContext';
@@ -1736,6 +1737,7 @@ function DocumentDetail({ id, onClose, onChanged, onDeleted, onConverted }) {
   useEffect(() => {
     load();
   }, [load]);
+  useLive(load);
 
   /* And again, quietly, whenever this screen is looked at afresh — see
      lib/revalidate.js. */

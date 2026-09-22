@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Banknote } from 'lucide-react';
 import api from '../../api';
+import { useLive } from '../../lib/live';
 import PageHeader from '../../components/PageHeader';
 import CashReport from '../../components/CashReport';
 import HistoryFilter from '../../components/HistoryFilter';
@@ -78,6 +79,7 @@ export default function CashSessions() {
   useEffect(() => {
     load();
   }, [load]);
+  useLive(load);
 
   /* The dates were applied by the server — see load. The typed search is the
      only thing left to sift here. */

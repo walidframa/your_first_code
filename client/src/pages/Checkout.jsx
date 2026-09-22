@@ -22,6 +22,7 @@ import {
   X,
 } from 'lucide-react';
 import api, { setAtRegister } from '../api';
+import { useLive } from '../lib/live';
 import Receipt from '../components/Receipt';
 import { HeldSalesDialog, HoldSaleDialog, ResumeIssues } from '../components/HeldSales';
 import TakeInRepair from '../components/TakeInRepair';
@@ -447,6 +448,8 @@ export default function Checkout() {
   /* And again, quietly, whenever this screen is looked at afresh — see
      lib/revalidate.js. */
   useRevalidate(loadData);
+  /* And whatever another screen just sold, moved or repriced. */
+  useLive(loadData);
 
   /*
    * What one of these costs the person standing in front of the till.

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { BadgeCheck, Plus, ShieldAlert, Smartphone, Trash2 } from 'lucide-react';
 import api from '../../api';
+import { useLive } from '../../lib/live';
 import PageHeader from '../../components/PageHeader';
 import {
   Badge,
@@ -211,6 +212,7 @@ export default function Sims() {
   useEffect(() => {
     load();
   }, [load]);
+  useLive(load);
 
   return (
     <div className="flex h-full flex-col">

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Receipt } from 'lucide-react';
 import api from '../../api';
+import { useLive } from '../../lib/live';
 import PageHeader from '../../components/PageHeader';
 import {
   Button, Card, Input, LoadError, Modal, ModalActions, Select, Skeleton, cx, money, useToast,
@@ -87,6 +88,7 @@ export default function Vat() {
   useEffect(() => {
     load();
   }, [load]);
+  useLive(load);
 
   if (failed) {
     return (

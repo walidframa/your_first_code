@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { AlertTriangle, CheckCircle2 } from 'lucide-react';
 import api from '../../api';
+import { useLive } from '../../lib/live';
 import PageHeader from '../../components/PageHeader';
 import { Card, Input, LoadError, Skeleton, cx, money } from '../../components/ui';
 import { isoDay } from '../../lib/when';
@@ -97,6 +98,7 @@ export default function Statements() {
   useEffect(() => {
     load();
   }, [load]);
+  useLive(load);
 
   if (failed) {
     return (

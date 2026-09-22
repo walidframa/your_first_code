@@ -19,6 +19,7 @@ import settingsRoutes from './routes/settings.js';
 import accountsRoutes from './routes/accounts.js';
 import documentRoutes from './routes/documents.js';
 import { partyRouter } from './routes/parties.js';
+import { broadcastWrites, liveRoute } from './lib/live.js';
 import inventoryRoutes from './routes/inventory.js';
 import unitRoutes from './routes/units.js';
 import heldAccountRoutes from './routes/accountsHeld.js';
@@ -236,6 +237,13 @@ app.use(enforceLicence);
 app.use(enforceModules);
 
 app.use(recordSupportWrites);
+
+/*
+ * Every other screen hears about a change the moment it lands — see
+ * lib/live.js. Before the routes, so none of them has to remember to say so.
+ */
+app.use('/api', broadcastWrites);
+app.get('/api/live', ...liveRoute);
 
 app.use('/api/auth', authRoutes);
 app.use('/api/support', supportRoutes);

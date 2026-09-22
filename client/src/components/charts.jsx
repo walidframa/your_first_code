@@ -234,7 +234,7 @@ export function TopSellers({ products }) {
 
 /* -------------------------------------------- Payment mix (2-series stacked) */
 
-export function PaymentMix({ mix }) {
+export function PaymentMix({ mix, apps = [] }) {
   const total = mix.reduce((sum, m) => sum + m.revenue, 0);
   if (!total) {
     return <p className="px-5 pb-5 text-sm text-slate-400">No payments in this period.</p>;
@@ -277,6 +277,16 @@ export function PaymentMix({ mix }) {
               {s.orders} order{s.orders === 1 ? '' : 's'}
             </span>
             <span className="tnum w-20 text-right font-medium text-slate-800">{money(s.revenue)}</span>
+          </li>
+        ))}
+        {/* Whish, OMT and the like: the card figure, by app. */}
+        {apps.map((a) => (
+          <li key={a.label} className="flex items-center gap-2 pl-4 text-xs text-slate-500">
+            <span className="text-slate-500">of which {a.label}</span>
+            <span className="tnum ml-auto">
+              {a.orders} order{a.orders === 1 ? '' : 's'}
+            </span>
+            <span className="tnum w-20 text-right font-medium text-slate-700">{money(a.revenue)}</span>
           </li>
         ))}
       </ul>

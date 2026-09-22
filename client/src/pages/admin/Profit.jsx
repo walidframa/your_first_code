@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { AlertTriangle, Printer, TrendingUp } from 'lucide-react';
 import api from '../../api';
+import { useLive } from '../../lib/live';
 import PageHeader from '../../components/PageHeader';
 import { Card, EmptyState, Input, LoadError, Select, Skeleton, cx, money } from '../../components/ui';
 import { isoDay } from '../../lib/when';
@@ -109,6 +110,7 @@ export default function Profit() {
   useEffect(() => {
     load();
   }, [load]);
+  useLive(load);
 
   return (
     <div className="flex h-full flex-col">

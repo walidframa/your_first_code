@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { PiggyBank, TrendingDown, TrendingUp, Wallet } from 'lucide-react';
 import api from '../../api';
+import { useLive } from '../../lib/live';
 import PageHeader from '../../components/PageHeader';
 import MoneyInput from '../../components/MoneyInput';
 import { useAuth } from '../../context/AuthContext';
@@ -123,6 +124,7 @@ export default function Capital() {
   useEffect(() => {
     load();
   }, [load]);
+  useLive(load);
 
   if (failed) {
     return (

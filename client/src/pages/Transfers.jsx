@@ -9,6 +9,7 @@ import {
   Wallet,
 } from 'lucide-react';
 import api from '../api';
+import { useLive } from '../lib/live';
 import PageHeader from '../components/PageHeader';
 import TransferAgencies from '../components/TransferAgencies';
 import { useConfirm } from '../components/ConfirmProvider';
@@ -500,6 +501,7 @@ export default function Transfers() {
     const id = setTimeout(load, search ? 250 : 0);
     return () => clearTimeout(id);
   }, [load, search]);
+  useLive(() => load());
 
   async function cancel(transfer) {
     const agreed = await confirm({

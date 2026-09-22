@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { KeyRound, RotateCcwKey, ShieldCheck, Trash2, UserPlus } from 'lucide-react';
 import api from '../../api';
+import { useLive } from '../../lib/live';
 import PageHeader from '../../components/PageHeader';
 import { useAuth } from '../../context/AuthContext';
 import {
@@ -369,6 +370,7 @@ export default function Users() {
     // a one-branch shop — not a reason to take the staff list down.
     api.get('/branches').then((res) => setBranches(res.data.branches || [])).catch(() => {});
   }, [load]);
+  useLive(load);
 
   /**
    * Move somebody to another counter.

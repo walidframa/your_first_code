@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, Banknote, CreditCard, Delete, Layers, Wallet } from 'lucide-react';
+import { ArrowLeft, Banknote, CreditCard, Delete, Layers, Smartphone, Wallet } from 'lucide-react';
 import { Button, Modal, cx, money } from './ui';
 import { useT } from '../context/LanguageContext';
 import { useSettings, lbp } from '../context/SettingsContext';
@@ -290,8 +290,19 @@ export default function PaymentSheet({
    * and a Confirm button you have to scroll to find is one a busy cashier will
    * miss with a queue waiting.
    */
+  /*
+   * Whish is an electronic tender like a card — the shop is not holding the
+   * notes — recorded under the card method with its name on it, which is how
+   * the split sheet and the receipt already tell the apps apart.
+   */
+  const confirmWhish = () =>
+    onConfirm({
+      paymentMethod: 'card',
+      tenders: [{ method: 'card', amountUsd: Math.round(total * 100) / 100, label: 'Whish' }],
+    });
+
   const footer =
-    method === 'card' ? (
+    method === 'card' || method === 'whish' ? (
       <div className="flex gap-2">
         <Button variant="secondary" size="lg" onClick={() => setMethod(null)} disabled={submitting}>
           <ArrowLeft size={16} /> Back
@@ -300,7 +311,7 @@ export default function PaymentSheet({
           size="lg"
           className="flex-1"
           loading={submitting}
-          onClick={() => onConfirm({ paymentMethod: 'card' })}
+          onClick={() => (method === 'whish' ? confirmWhish() : onConfirm({ paymentMethod: 'card' }))}
         >
           {t('Confirm')} {money(total)}
         </Button>
@@ -337,7 +348,9 @@ export default function PaymentSheet({
             ? t('Cash payment')
             : method === 'split'
               ? t('Split payment')
-              : t('Card payment')
+              : method === 'whish'
+                ? t('Whish payment')
+                : t('Card payment')
       }
       subtitle={`${money(total)} · ${lbp(totalLbp)}`}
       size={method === 'cash' || method === 'split' ? 'lg' : 'sm'}
@@ -356,7 +369,7 @@ export default function PaymentSheet({
 
       {method === null && (
         <div className="space-y-3">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-3 gap-3">
             <button
               onClick={() => setMethod('card')}
               className="flex flex-col items-center gap-2 rounded-xl bg-white px-4 py-8 ring-1 ring-edge transition hover:bg-slate-50 hover:ring-brand-400"
@@ -370,6 +383,15 @@ export default function PaymentSheet({
             >
               <Banknote size={26} className="text-slate-700" />
               <span className="font-medium text-slate-800">{t('Cash')}</span>
+            </button>
+            {/* The wallet app half this country pays with — its own button, not a
+                label hidden inside the split sheet. */}
+            <button
+              onClick={() => setMethod('whish')}
+              className="flex flex-col items-center gap-2 rounded-xl bg-white px-4 py-8 ring-1 ring-edge transition hover:bg-slate-50 hover:ring-brand-400"
+            >
+              <Smartphone size={26} className="text-slate-700" />
+              <span className="font-medium text-slate-800">{t('Whish')}</span>
             </button>
           </div>
 
@@ -420,6 +442,19 @@ export default function PaymentSheet({
           <p className="text-center text-xs text-slate-500">
             This records the sale. No card is actually charged — connect a payment provider to take real
             payments.
+          </p>
+        </div>
+      )}
+
+      {method === 'whish' && (
+        <div className="space-y-4">
+          <div className="rounded-xl bg-slate-50 px-4 py-6 text-center">
+            <p className="text-sm text-slate-500">{t('Sent on Whish')}</p>
+            <p className="mt-1 text-3xl font-semibold text-slate-900">{money(total)}</p>
+            <p className="mt-0.5 text-sm text-slate-500">{lbp(totalLbp)}</p>
+          </div>
+          <p className="text-center text-xs text-slate-500">
+            {t('Check the transfer has arrived in the shop’s Whish app before confirming.')}
           </p>
         </div>
       )}

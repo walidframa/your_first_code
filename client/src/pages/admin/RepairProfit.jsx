@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { AlertTriangle, Printer, Wrench } from 'lucide-react';
 import api from '../../api';
+import { useLive } from '../../lib/live';
 import PageHeader from '../../components/PageHeader';
 import { Card, EmptyState, Input, LoadError, Select, Skeleton, cx, money } from '../../components/ui';
 import { isoDay } from '../../lib/when';
@@ -75,6 +76,7 @@ export default function RepairProfit() {
   useEffect(() => {
     load();
   }, [load]);
+  useLive(load);
 
   const rows = report?.byPeriod || [];
 

@@ -2,6 +2,7 @@ import { matchesSearch } from '../../lib/search';
 import { useCallback, useEffect, useState } from 'react';
 import { ArrowDownRight, ArrowUpRight, History, Search, SlidersHorizontal } from 'lucide-react';
 import api from '../../api';
+import { useLive } from '../../lib/live';
 import PageHeader from '../../components/PageHeader';
 import { when } from '../../lib/when';
 import { useRevalidate } from '../../lib/revalidate';
@@ -212,6 +213,7 @@ export default function Inventory() {
   useEffect(() => {
     load();
   }, [load]);
+  useLive(load);
 
   /* And again, quietly, whenever this screen is looked at afresh — see
      lib/revalidate.js. */

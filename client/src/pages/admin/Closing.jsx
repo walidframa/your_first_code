@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { AlertTriangle, Lock, LockOpen } from 'lucide-react';
 import api from '../../api';
+import { useLive } from '../../lib/live';
 import PageHeader from '../../components/PageHeader';
 import {
   Button, Card, EmptyState, Input, LoadError, Modal, ModalActions, Skeleton, cx, money, useToast,
@@ -40,6 +41,7 @@ export default function Closing() {
   useEffect(() => {
     load();
   }, [load]);
+  useLive(load);
 
   if (failed) {
     return (

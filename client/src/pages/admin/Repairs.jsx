@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { Eye, Plus, Trash2, Wrench } from 'lucide-react';
 import api from '../../api';
+import { useLive } from '../../lib/live';
 import PageHeader from '../../components/PageHeader';
 import RepairSlip, { PrintSlipButton } from '../../components/RepairSlip';
 import WhatsAppButton from '../../components/WhatsAppButton';
@@ -273,6 +274,7 @@ function TicketModal({ id, onClose, onChanged }) {
   useEffect(() => {
     load();
   }, [load]);
+  useLive(load);
 
   async function move(status) {
     try {

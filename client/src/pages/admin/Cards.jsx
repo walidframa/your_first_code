@@ -11,6 +11,7 @@ import {
   Wallet as WalletIcon,
 } from 'lucide-react';
 import api from '../../api';
+import { useLive } from '../../lib/live';
 import PageHeader from '../../components/PageHeader';
 import LinkValidity from '../../components/LinkValidity';
 import { shrink } from '../../lib/shrink';
@@ -1060,6 +1061,7 @@ export default function Cards() {
   useEffect(() => {
     load();
   }, [load]);
+  useLive(load);
 
   const openWallets = useMemo(() => (wallets || []).filter((w) => w.active), [wallets]);
 

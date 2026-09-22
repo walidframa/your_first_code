@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { AlertTriangle, CheckCircle2 } from 'lucide-react';
 import api from '../../api';
+import { useLive } from '../../lib/live';
 import PageHeader from '../../components/PageHeader';
 import { Card, EmptyState, Input, LoadError, Skeleton, cx, money } from '../../components/ui';
 
@@ -47,6 +48,7 @@ export default function TrialBalance() {
   useEffect(() => {
     load();
   }, [load]);
+  useLive(load);
 
   if (failed) {
     return (
