@@ -169,6 +169,38 @@ export function clearStockEverywhere(productId) {
   db.prepare('UPDATE products SET stock = 0 WHERE id = ?').run(productId);
 }
 
+/**
+ * Every product's shelf at every branch, keyed by product id — one query, for
+ * the lists the owner reads with "All branches" on.
+ *
+ * Those lists used to add the branches up into one figure, and one figure is
+ * the wrong answer to "what have we got": twelve in the company is five at
+ * one counter and seven at the other, and a shop deciding what to move or
+ * order needs the two, not their sum.
+ */
+export function stockByBranchMap() {
+  const branches = db
+    .prepare('SELECT id, name, code FROM branches WHERE active = 1 ORDER BY is_main DESC, name')
+    .all();
+  const counts = new Map(
+    db
+      .prepare('SELECT product_id, branch_id, stock FROM branch_stock')
+      .all()
+      .map((r) => [`${r.product_id}:${r.branch_id}`, r.stock]),
+  );
+  return {
+    /* Every branch, every time — a shelf with no row yet is a shelf with none on it. */
+    get(productId) {
+      return branches.map((b) => ({
+        branch_id: b.id,
+        branch_name: b.name,
+        branch_code: b.code,
+        stock: counts.get(`${productId}:${b.id}`) ?? 0,
+      }));
+    },
+  };
+}
+
 /** A product's shelf at every branch, for the stock screen and the transfer form. */
 export function stockByBranch(productId) {
   return db

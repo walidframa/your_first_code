@@ -4,7 +4,7 @@ import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { activityFor, costHistoryFor, recordCostChange, salesSummaryFor } from '../lib/costHistory.js';
 import { averageCostMap, costingFor, lastCostMap } from '../lib/costing.js';
 import { barcodeMap, barcodesFor, barcodesFromBody, generateBarcode, setBarcodes } from '../lib/barcodes.js';
-import { clearStockEverywhere, setStock, stockAt, stockByBranch, stockMap } from '../lib/stock.js';
+import { clearStockEverywhere, setStock, stockAt, stockByBranch, stockMap, stockByBranchMap } from '../lib/stock.js';
 import { branchScope } from '../lib/branchScope.js';
 import { addStarterCategories } from '../lib/starterCategories.js';
 import {
@@ -522,6 +522,8 @@ router.get('/', requireAuth, (req, res) => {
    */
   const scope = branchScope(req);
   const here = scope === null ? null : stockMap(scope);
+  /* The whole company, but branch by branch — a sum hides where the stock is. */
+  const byBranch = scope === null ? stockByBranchMap() : null;
   /*
    * Which of these are made of other products, in one query rather than one per
    * row. A bundle's own shelf is always empty, so the register needs to be told
@@ -558,6 +560,7 @@ router.get('/', requireAuth, (req, res) => {
         // "average" that nobody averaged.
         avg_cost: averages.get(p.id) ?? null,
         last_cost: last?.cost ?? null,
+        ...(byBranch && !p.wallet_id ? { stock_by_branch: byBranch.get(p.id) || [] } : {}),
         last_cost_at: last?.at ?? null,
         last_cost_ref: last?.reference ?? null,
         /* Always an array, so the screen never has to tell "none" from "not

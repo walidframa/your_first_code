@@ -715,7 +715,7 @@ export default function Products() {
         ) : p.wallet_id ? (
           <Badge tone="brand">Card · {p.wallet_name}</Badge>
         ) : (
-          <StockBadge stock={p.stock} reorderPoint={p.reorder_point} />
+          <StockBadge stock={p.stock} reorderPoint={p.reorder_point} byBranch={p.stock_by_branch} />
         ),
     },
     {
@@ -929,6 +929,11 @@ export default function Products() {
               <span className="text-slate-400">service</span>
             ) : p.wallet_id ? (
               <span className="text-brand-700">card</span>
+            ) : p.stock_by_branch?.length > 1 ? (
+              /* All branches: each shelf's own count, never their sum. */
+              <span className="tnum text-slate-500">
+                {p.stock_by_branch.map((b) => `${b.branch_code || b.branch_name} ${b.stock}`).join(' · ')}
+              </span>
             ) : p.stock <= 0 ? (
               <span className="font-medium text-red-600">out of stock</span>
             ) : (

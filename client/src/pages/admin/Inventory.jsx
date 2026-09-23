@@ -394,7 +394,11 @@ export default function Inventory() {
                             {money(p.stock * p.price)}
                           </td>
                           <td className="px-3 py-2.5">
-                            <StockBadge stock={p.stock} reorderPoint={p.reorder_point} />
+                            <StockBadge
+                              stock={p.stock}
+                              reorderPoint={p.reorder_point}
+                              byBranch={p.stock_by_branch}
+                            />
                           </td>
                           <td className="px-5 py-2.5">
                             <div className="flex justify-end gap-1">

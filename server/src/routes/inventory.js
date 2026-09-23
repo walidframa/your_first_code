@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { db, transaction, ADJUSTMENT_REASONS } from '../db.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { branchParams, branchScope } from '../lib/branchScope.js';
-import { moveStock, stockAt, stockMap } from '../lib/stock.js';
+import { moveStock, stockAt, stockMap, stockByBranchMap } from '../lib/stock.js';
 
 const router = Router();
 
@@ -28,6 +28,8 @@ router.get('/', requireAuth, requirePermission('inventory'), (req, res) => {
    */
   const branchId = branchScope(req);
   const here = branchId === null ? null : stockMap(branchId);
+  /* The whole company, but branch by branch — a sum hides where the stock is. */
+  const byBranch = branchId === null ? stockByBranchMap() : null;
 
   const products = db
     .prepare(
@@ -49,6 +51,7 @@ router.get('/', requireAuth, requirePermission('inventory'), (req, res) => {
        */
       total_stock: p.stock,
       stock: here ? (here.get(p.id) ?? 0) : p.stock,
+      ...(byBranch ? { stock_by_branch: byBranch.get(p.id) || [] } : {}),
     }))
     /* Sorted on the branch's own figure — what needs reordering here, first. */
     .sort(

@@ -223,6 +223,19 @@ test('the products page counts the same shelf as the inventory page', async () =
   assert.equal((await list(saida.id)).total_stock, 9);
   assert.equal((await list(saida.id, true)).stock, 9, 'the whole company, on the products page too');
   assert.equal((await list(saida.id, true)).stock, (await inv(saida.id, true)).stock);
+
+  /*
+   * And, with "All branches" on, never as one number alone. Reported from a
+   * shop with two counters: the products page "merged the two branches" —
+   * the sum read as stock on a shelf that had none. Each branch's own count
+   * comes with it, so the screens can show five here and four there.
+   */
+  for (const row of [await list(saida.id, true), await inv(saida.id, true)]) {
+    const here = Object.fromEntries(row.stock_by_branch.map((b) => [b.branch_id, b.stock]));
+    assert.equal(here[mainBranch.id], 9);
+    assert.equal(here[saida.id] ?? 0, 0);
+  }
+  assert.equal((await list(saida.id)).stock_by_branch, undefined, 'one branch asked for is one figure');
 });
 
 test('and the owner can still ask for the whole company at once', async () => {
