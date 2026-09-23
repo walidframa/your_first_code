@@ -331,7 +331,34 @@ export function Badge({ tone = 'neutral', icon: Icon, children, className }) {
 /**
  * Stock state as a badge. Status carries an icon and a word, never color alone.
  */
-export function StockBadge({ stock, reorderPoint = 5 }) {
+export function StockBadge({ stock, reorderPoint = 5, byBranch = null }) {
+  /*
+   * With "All branches" on, one figure is the wrong answer: twelve in the
+   * company is five at one counter and seven at the other, and adding them
+   * up reads as stock a cashier could sell that is in fact across town. Each
+   * shelf gets its own line, coloured on its own count.
+   */
+  if (byBranch && byBranch.length > 1) {
+    return (
+      <span className="flex flex-col gap-0.5">
+        {byBranch.map((b) => (
+          <span key={b.branch_id} className="flex items-center gap-1.5 text-xs">
+            <span className="w-10 shrink-0 truncate font-medium text-slate-500" title={b.branch_name}>
+              {b.branch_code || b.branch_name}
+            </span>
+            <span
+              className={cx(
+                'tnum',
+                b.stock <= 0 ? 'text-red-600' : b.stock <= reorderPoint ? 'text-amber-700' : 'text-slate-800',
+              )}
+            >
+              {b.stock <= 0 ? 'none' : b.stock}
+            </span>
+          </span>
+        ))}
+      </span>
+    );
+  }
   if (stock <= 0) return <Badge tone="critical" icon={XCircle}>Out of stock</Badge>;
   if (stock <= reorderPoint) return <Badge tone="warning" icon={AlertTriangle}>Low · {stock}</Badge>;
   return <Badge tone="good" icon={CheckCircle2}>In stock · {stock}</Badge>;
