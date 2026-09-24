@@ -14,12 +14,15 @@ import {
   Trash2,
   Undo2,
   Users as UsersIcon,
+
+  Download,
 } from 'lucide-react';
 import api from '../../api';
 import { useLive } from '../../lib/live';
 import useDuplicateParty from '../../lib/useDuplicateParty';
 import PageHeader from '../../components/PageHeader';
 import AccountStatement from '../../components/AccountStatement';
+import ExportList from '../../components/ExportList';
 import VoucherSlip from '../../components/VoucherSlip';
 import { useSettings, lbp } from '../../context/SettingsContext';
 import { when } from '../../lib/when';
@@ -883,6 +886,7 @@ export default function Parties({ type }) {
    * not deleted — their invoices still name them.
    */
   const [showArchived, setShowArchived] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   /*
    * Which of these names are on the payroll.
@@ -957,10 +961,60 @@ export default function Parties({ type }) {
         title={config.title}
         subtitle={config.subtitle}
         actions={
-          <Button onClick={() => setEditing(null)}>
-            <Plus size={16} /> New {config.single}
-          </Button>
+          <>
+            <Button
+              variant="secondary"
+              onClick={() => setExporting(true)}
+              aria-label="Export"
+              title="Export this list as Excel or PDF"
+              data-export-parties
+            >
+              <Download size={16} /> <span className="hidden sm:inline">Export</span>
+            </Button>
+            <Button onClick={() => setEditing(null)}>
+              <Plus size={16} /> New {config.single}
+            </Button>
+          </>
         }
+      />
+
+      {/*
+        * The whole filtered list, not the page on screen: the list is paged
+        * and a file of forty names when the search matched four hundred is
+        * a file that will be trusted and wrong. Fetched fresh with the same
+        * search and filter, without a limit.
+        */}
+      <ExportList
+        open={exporting}
+        onClose={() => setExporting(false)}
+        title={config.title}
+        subtitle={[search.trim() && `search “${search.trim()}”`, balance !== 'all' && balance, showArchived && 'including archived'].filter(Boolean).join(' · ') || null}
+        filename={config.title}
+        storageKey={`pos_export_${config.path}`}
+        rows={async () => {
+          const res = await api.get(`/${config.path}`, {
+            params: {
+              ...(search.trim() ? { search: search.trim() } : {}),
+              ...(balance === 'all' ? {} : { balance }),
+              ...(balance === 'owing' ? { sort: 'balance' } : {}),
+              ...(showArchived ? { includeArchived: 'true' } : {}),
+            },
+          });
+          return res.data.parties;
+        }}
+        columns={[
+          { key: 'name', label: 'Name', get: (p) => p.name },
+          { key: 'phone', label: 'Phone', get: (p) => p.phone || '' },
+          { key: 'email', label: 'Email', get: (p) => p.email || '', default: false },
+          { key: 'address', label: 'Address', get: (p) => p.address || '' },
+          { key: 'balance', label: `Balance (USD) — ${config.owesLabel.toLowerCase()} when positive`, align: 'right', get: (p) => Number(p.balance) || 0 },
+          ...(config.hasCreditLimit
+            ? [{ key: 'credit_limit', label: 'Credit limit (USD)', align: 'right', get: (p) => Number(p.credit_limit) || 0, default: false }]
+            : []),
+          { key: 'notes', label: 'Notes', get: (p) => p.notes || '', default: false },
+          { key: 'since', label: 'Since', get: (p) => String(p.created_at || '').slice(0, 10), default: false },
+          { key: 'active', label: 'Active', get: (p) => (p.active === false || p.active === 0 ? 'archived' : 'yes'), default: false },
+        ]}
       />
 
       <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">

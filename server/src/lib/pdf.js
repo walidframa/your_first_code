@@ -23,6 +23,8 @@
 /** Points, at 72 to the inch. A4 because that is what a Lebanese shop prints on. */
 export const PAGE_SIZES = {
   A4: [595.28, 841.89],
+  /* On its side, for a list with more columns than a portrait page can hold. */
+  A4_LANDSCAPE: [841.89, 595.28],
   LETTER: [612, 792],
 };
 
