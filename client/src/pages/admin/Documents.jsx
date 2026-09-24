@@ -57,6 +57,31 @@ import {
 } from '../../components/ui';
 import WhatsAppButton from '../../components/WhatsAppButton';
 
+/** A line's cost and what the typed price leaves on top of it. */
+function LineCost({ cost, price }) {
+  const unit = Number(cost) || 0;
+  const sold = Number(price) || 0;
+  if (unit <= 0) {
+    return (
+      <p data-line-cost className="mt-1 text-right text-xs text-amber-700">
+        no cost recorded
+      </p>
+    );
+  }
+  const gain = Math.round((sold - unit) * 100) / 100;
+  const pct = sold > 0 ? Math.round((gain / sold) * 100) : 0;
+  return (
+    <p
+      data-line-cost
+      className={cx('tnum mt-1 text-right text-xs', gain < 0 ? 'font-medium text-red-700' : 'text-slate-400')}
+    >
+      cost {money(unit)} · {gain < 0 ? '−' : '+'}
+      {money(Math.abs(gain))}
+      {sold > 0 && ` (${pct}%)`}
+    </p>
+  );
+}
+
 /** Each type's identity: icon, wording, and what confirming it will do. */
 export const TYPE_META = {
   quotation: {
@@ -1158,6 +1183,20 @@ function DocumentForm({ existing, startAs = null, page = false, onClose, onSaved
                               <History size={11} className="shrink-0" />
                               last {money(l.lastPaid.price)}
                             </button>
+                          )}
+
+                          {/*
+                            * What it cost, under what it is being sold for.
+                            *
+                            * The panel at the bottom already says what the
+                            * whole document makes; the person pricing a line
+                            * wants the figure for *that* line while the price
+                            * is still in the box. Behind the same permission
+                            * as every other profit figure, and only on paper
+                            * that sells.
+                            */}
+                          {canSeeProfit && sells && !isReturn && l.product && !l.product.is_service && (
+                            <LineCost cost={l.product.cost} price={l.price} />
                           )}
                         </td>
                         <td className="tnum px-2 py-2 text-right font-medium text-slate-800">
