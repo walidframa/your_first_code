@@ -2,6 +2,7 @@ import { matchesSearch } from '../../lib/search';
 import { useCallback, useEffect, useState } from 'react';
 import { ArrowDownRight, ArrowUpRight, History, Search, SlidersHorizontal } from 'lucide-react';
 import api from '../../api';
+import StockScope, { stockScopeParams } from '../../components/StockScope';
 import { useLive } from '../../lib/live';
 import PageHeader from '../../components/PageHeader';
 import { when } from '../../lib/when';
@@ -201,14 +202,16 @@ export default function Inventory() {
   const [adjusting, setAdjusting] = useState(null);
   const [viewingHistory, setViewingHistory] = useState(null);
 
+  /* Whose shelf the quantities are for — see StockScope. */
+  const [stockScope, setStockScope] = useState('here');
   const load = useCallback(async () => {
     const [invRes, reasonsRes] = await Promise.all([
-      api.get('/inventory'),
+      api.get('/inventory', { params: stockScopeParams(stockScope) }),
       api.get('/inventory/reasons'),
     ]);
     setData(invRes.data);
     setReasons(reasonsRes.data.reasons);
-  }, []);
+  }, [stockScope]);
 
   useEffect(() => {
     load();
@@ -348,6 +351,7 @@ export default function Inventory() {
                     </button>
                   ))}
                 </div>
+                <StockScope value={stockScope} onChange={setStockScope} className="h-9" />
               </div>
 
               {products.length === 0 ? (
