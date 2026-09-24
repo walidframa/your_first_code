@@ -109,7 +109,13 @@ export function resolveBranch(req, res, next) {
   const stored = db.prepare('SELECT branch_id FROM users WHERE id = ?').get(req.user.id);
   const user = { ...req.user, branch_id: stored?.branch_id ?? null };
 
-  const asked = req.get('X-Branch-Id') || req.query.branchId || null;
+  /*
+   * A branch named on the request itself beats the one the app is standing
+   * at: the header says where the screen is, the query says what this one
+   * list is asking about — the products page looking at the other shop's
+   * shelf without moving the register across town.
+   */
+  const asked = req.query.branchId || req.get('X-Branch-Id') || null;
   req.branchId = branchFor(user, asked, { canSwitch: can(req.user, 'branches') });
   req.user.branch_id = user.branch_id;
   /*

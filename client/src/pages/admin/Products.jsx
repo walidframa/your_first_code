@@ -30,6 +30,7 @@ import CategoryManager from '../../components/CategoryManager';
 import ProductImageField from '../../components/ProductImageField';
 import BundleEditor from '../../components/BundleEditor';
 import ExportList from '../../components/ExportList';
+import StockScope, { stockScopeParams } from '../../components/StockScope';
 import ColumnPicker from '../../components/ColumnPicker';
 import OverflowMenu from '../../components/OverflowMenu';
 import { useColumns } from '../../lib/tableColumns';
@@ -621,14 +622,16 @@ export default function Products() {
     setCategories(data.categories);
   }, []);
 
+  /* Whose shelf the quantities are for — see StockScope. */
+  const [stockScope, setStockScope] = useState('here');
   const load = useCallback(async () => {
     const [productsRes, categoriesRes] = await Promise.all([
-      api.get('/products'),
+      api.get('/products', { params: stockScopeParams(stockScope) }),
       api.get('/products/categories'),
     ]);
     setProducts(productsRes.data.products);
     setCategories(categoriesRes.data.categories);
-  }, []);
+  }, [stockScope]);
 
   useEffect(() => {
     load();
@@ -1298,6 +1301,7 @@ export default function Products() {
                 </option>
               ))}
             </select>
+            <StockScope value={stockScope} onChange={setStockScope} />
             {filtering && (
               <button
                 type="button"
