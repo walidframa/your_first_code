@@ -1582,13 +1582,12 @@ export default function Products() {
           { key: 'price', label: 'Price (USD)', align: 'right', get: (p) => Number(p.price) || 0 },
           { key: 'price_lbp', label: 'Price (LL)', align: 'right', get: (p) => (p.price_lbp ?? (rate > 0 ? toLbp(p.price) : '')) },
           { key: 'wholesale', label: 'Wholesale (USD)', align: 'right', get: (p) => (p.wholesale_price === null || p.wholesale_price === undefined ? '' : Number(p.wholesale_price)), default: false },
-          ...(showCosts
-            ? [
-                { key: 'cost', label: 'Cost (USD)', align: 'right', get: (p) => Number(p.cost) || 0 },
-                { key: 'avg_cost', label: 'Average cost (USD)', align: 'right', get: (p) => (p.avg_cost === null || p.avg_cost === undefined ? '' : Number(p.avg_cost)), default: false },
-                { key: 'margin', label: 'Margin %', align: 'right', get: (p) => (p.price > 0 ? Math.round(((p.price - (p.avg_cost ?? p.cost)) / p.price) * 100) : ''), default: false },
-              ]
-            : []),
+          /* The costs are offered whenever the page is — the column picker
+             already shows them to whoever can open it, whatever the Show
+             costs button happens to be set to. */
+          { key: 'cost', label: 'Cost (USD)', align: 'right', get: (p) => Number(p.cost) || 0 },
+          { key: 'avg_cost', label: 'Average cost (USD)', align: 'right', get: (p) => (p.avg_cost === null || p.avg_cost === undefined ? '' : Number(p.avg_cost)), default: false },
+          { key: 'margin', label: 'Margin %', align: 'right', get: (p) => (p.price > 0 ? Math.round(((p.price - (p.avg_cost ?? p.cost)) / p.price) * 100) : ''), default: false },
           { key: 'reorder', label: 'Reorder point', align: 'right', get: (p) => p.reorder_point ?? '', default: false },
           { key: 'active', label: 'Active', get: (p) => (p.active ? 'yes' : 'archived'), default: false },
         ]}
