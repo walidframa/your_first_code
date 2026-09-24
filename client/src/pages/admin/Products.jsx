@@ -16,6 +16,7 @@ import {
   Tags,
   Upload,
   Images,
+  Download,
 } from 'lucide-react';
 import api from '../../api';
 import { useLive } from '../../lib/live';
@@ -28,6 +29,7 @@ import ItemActivity from '../../components/ItemActivity';
 import CategoryManager from '../../components/CategoryManager';
 import ProductImageField from '../../components/ProductImageField';
 import BundleEditor from '../../components/BundleEditor';
+import ExportList from '../../components/ExportList';
 import ColumnPicker from '../../components/ColumnPicker';
 import OverflowMenu from '../../components/OverflowMenu';
 import { useColumns } from '../../lib/tableColumns';
@@ -580,6 +582,7 @@ export default function Products() {
    * before turning the screen round — so it is one button, remembered on the
    * device, and it shows the costs in the rows and adds them up at the top.
    */
+  const [exporting, setExporting] = useState(false);
   const [showCosts, setShowCosts] = useState(() => {
     try {
       return globalThis.localStorage?.getItem('pos_products_costs') === '1';
@@ -1092,6 +1095,7 @@ export default function Products() {
                   { label: 'Categories', icon: Tags, onClick: () => setManagingCategories(true) },
                   { label: 'Find pictures', icon: Images, onClick: () => setFindingPhotos(true) },
                   { label: 'Import a catalogue', icon: Upload, onClick: () => navigate('/admin/import') },
+                  { label: 'Export this list', icon: Download, onClick: () => setExporting(true) },
                 ]}
               />
             ) : (
@@ -1119,6 +1123,16 @@ export default function Products() {
                     <Upload size={16} /> <span className="hidden sm:inline">Import</span>
                   </Button>
                 </Link>
+                {/* The list as it stands — search, filters and all — taken away as a file. */}
+                <Button
+                  variant="secondary"
+                  onClick={() => setExporting(true)}
+                  aria-label="Export"
+                  title="Export this list as Excel or PDF"
+                  data-export-products
+                >
+                  <Download size={16} /> <span className="hidden sm:inline">Export</span>
+                </Button>
               </>
             )}
             {/* The one that keeps its word, because it is the one that gets
@@ -1540,6 +1554,41 @@ export default function Products() {
       {managingCategories && (
         <CategoryManager onClose={() => setManagingCategories(false)} onChanged={load} />
       )}
+
+      {/*
+        * The rows are the ones on screen right now — the search, the stock
+        * filter and the category all apply — and the columns are whatever the
+        * owner ticks; costs are offered only to somebody allowed to see them.
+        */}
+      <ExportList
+        open={exporting}
+        onClose={() => setExporting(false)}
+        title="Products"
+        subtitle={[search.trim() && `search “${search.trim()}”`, stockFilter !== 'all' && stockFilter.replace('_', ' '), showArchived && 'including archived'].filter(Boolean).join(' · ') || null}
+        filename="Products"
+        storageKey="pos_export_products"
+        rows={visible}
+        columns={[
+          { key: 'name', label: 'Name', get: (p) => p.name },
+          { key: 'sku', label: 'SKU', get: (p) => p.sku || '' },
+          { key: 'barcode', label: 'Barcode', get: (p) => (p.barcodes || []).join(' ') || p.barcode || '' },
+          { key: 'category', label: 'Category', get: (p) => p.category_name || '' },
+          { key: 'supplier', label: 'Supplier', get: (p) => p.supplier || '', default: false },
+          { key: 'stock', label: 'Stock', align: 'right', get: (p) => (p.wallet_id || p.is_service ? '' : Number(p.stock) || 0) },
+          { key: 'price', label: 'Price (USD)', align: 'right', get: (p) => Number(p.price) || 0 },
+          { key: 'price_lbp', label: 'Price (LL)', align: 'right', get: (p) => (p.price_lbp ?? (rate > 0 ? toLbp(p.price) : '')) },
+          { key: 'wholesale', label: 'Wholesale (USD)', align: 'right', get: (p) => (p.wholesale_price === null || p.wholesale_price === undefined ? '' : Number(p.wholesale_price)), default: false },
+          ...(showCosts
+            ? [
+                { key: 'cost', label: 'Cost (USD)', align: 'right', get: (p) => Number(p.cost) || 0 },
+                { key: 'avg_cost', label: 'Average cost (USD)', align: 'right', get: (p) => (p.avg_cost === null || p.avg_cost === undefined ? '' : Number(p.avg_cost)), default: false },
+                { key: 'margin', label: 'Margin %', align: 'right', get: (p) => (p.price > 0 ? Math.round(((p.price - (p.avg_cost ?? p.cost)) / p.price) * 100) : ''), default: false },
+              ]
+            : []),
+          { key: 'reorder', label: 'Reorder point', align: 'right', get: (p) => p.reorder_point ?? '', default: false },
+          { key: 'active', label: 'Active', get: (p) => (p.active ? 'yes' : 'archived'), default: false },
+        ]}
+      />
 
       {unitsFor && (
         <Modal
