@@ -663,25 +663,17 @@ export default function CashBox({
     });
 
   /*
-   * And it closes the way every other menu closes: click elsewhere, or Escape.
-   * In the column there is nothing to dismiss — the panel is part of the page.
+   * The detail is a pop-up, on every screen.
+   *
+   * It began as a drop-down hung under the pill, and a drop-down is the wrong
+   * shape for it: on a phone it ran off the edge of the screen, and at a desk
+   * it hung over the shelf with Cash in a centimetre from the products. A
+   * sheet in the middle of the screen has room for all of it, takes the
+   * cashier's attention while it is open, and closes the way every other
+   * sheet does — the X, the backdrop or Escape.
    */
   const holder = useRef(null);
-  useEffect(() => {
-    if (!compact || !detailOpen) return undefined;
-    const away = (e) => {
-      if (holder.current && !holder.current.contains(e.target)) setDetailOpen(false);
-    };
-    const key = (e) => {
-      if (e.key === 'Escape') setDetailOpen(false);
-    };
-    document.addEventListener('mousedown', away);
-    document.addEventListener('keydown', key);
-    return () => {
-      document.removeEventListener('mousedown', away);
-      document.removeEventListener('keydown', key);
-    };
-  }, [compact, detailOpen]);
+  const popup = compact;
 
   const load = useCallback(async () => {
     const res = await api.get('/cash/current', { params: accountId ? { accountId } : undefined });
@@ -791,6 +783,179 @@ export default function CashBox({
       </>
     );
   }
+
+  const panel = (
+        <div
+          className={cx(
+            compact &&
+              detailOpen &&
+              !popup &&
+              /*
+               * Hung from the pill's *start* edge, opening towards the page.
+               * Anchored to the end it spread left, under the rail — on a
+               * window narrow enough for the pill to sit near it, the Cash in
+               * button and half the figures were behind the menu.
+               */
+              'absolute start-0 top-full z-40 mt-1 w-80 max-w-[calc(100vw-1rem)] rounded-xl bg-white py-2 shadow-lg ring-1 ring-slate-200',
+            // Folded away, there is nothing to hang below the handle.
+            compact && !detailOpen && 'hidden',
+          )}
+        >
+        {short && (
+          <p className="mx-4 mb-2 flex items-start gap-1.5 rounded-lg bg-red-50 px-2 py-1.5 text-[11px] leading-snug text-red-700">
+            <AlertTriangle size={13} className="mt-px shrink-0" />
+            <span>
+              More has gone out than came in. Something earlier is missing — a sale rung up
+              elsewhere, or a float never entered.
+            </span>
+          </p>
+        )}
+
+        {detailOpen && (
+          <div className="px-4 pb-3">
+            {showProfit && profit && (
+              <p className="tnum mb-2 flex items-center justify-between text-[11px] text-brand-700/70">
+                <span>
+                  {/*
+                    * What the figure is *of*, said before the figure.
+                    *
+                    * This is one sitting of this till — from the moment the
+                    * drawer was opened until now — and the Profit screen is a
+                    * calendar range across the whole shop. The two are
+                    * different questions with the same word on them, and a
+                    * shop comparing them found two numbers and no explanation.
+                    * A drawer left open overnight makes it worse: the sitting
+                    * is then two days and "today" is one.
+                    */}
+                  <span className="block text-brand-700/50">
+                    Since the drawer opened, at this till
+                  </span>
+                  {money(profit.revenue)} sold · {money(profit.grossProfit)} gross ·{' '}
+                  {money(profit.expenses)} spent
+                  {/*
+                    * Where it came from, whenever it did not all come from
+                    * here. This panel sits on the register and is read as the
+                    * register's own takings — it is not, it is the shop's whole
+                    * trade over the hours the till was open. Somebody who had
+                    * rung up nothing, refunded everything, and was still shown
+                    * a profit had no way to see that the figure was an
+                    * invoice's.
+                    */}
+                  {profit.fromInvoices > 0 && (
+                    <span className="block text-brand-700/60">
+                      {money(profit.fromInvoices)} of it on invoices, not at this counter
+                    </span>
+                  )}
+                  {/*
+                    * The bench's share, so the figure can be checked against
+                    * the repairs board. Repairs handed back at this counter are
+                    * in the profit above — their cash is in this drawer, and
+                    * what they cost comes off like a sold phone's cost does.
+                    */}
+                  {profit.fromRepairs > 0 && (
+                    <span className="block text-brand-700/60" data-profit-repairs>
+                      {money(profit.fromRepairs)} of it on {profit.repairJobs} repair
+                      {profit.repairJobs === 1 ? '' : 's'} handed back
+                      {profit.repairCost > 0 ? `, which cost ${money(profit.repairCost)}` : ''}
+                    </span>
+                  )}
+                  {profit.refundedOrders > 0 && (
+                    <span className="block text-brand-700/60">
+                      {profit.refundedOrders} sale{profit.refundedOrders === 1 ? '' : 's'} refunded, and
+                      already off these figures
+                    </span>
+                  )}
+                  {/*
+                    * Priced, not counted. "3 lines have no cost" leaves
+                    * somebody to work out whether that matters; "$30.00 of this
+                    * has no cost behind it", against a profit of $30.14, says
+                    * the figure is almost entirely unverified.
+                    */}
+                  {profit.unknownCostLines > 0 && (
+                    <span className="mt-1 block font-medium text-amber-700">
+                      {money(profit.unknownCostValue)} of this was sold with no cost recorded, so it
+                      is all counted as profit. Put the cost on{' '}
+                      {profit.unknownCostLines === 1
+                        ? 'that product'
+                        : `those ${profit.unknownCostLines} lines`}{' '}
+                      and this figure will be right.
+                    </span>
+                  )}
+                </span>
+                <button
+                  onClick={() => setReportFor(session.id)}
+                  title="Cashbox report"
+                  aria-label="Cashbox report"
+                  className="rounded p-1 text-brand-700/70 transition hover:bg-brand-100 hover:text-brand-800"
+                >
+                  <FileText size={13} />
+                </button>
+              </p>
+            )}
+
+            <p className="flex items-center justify-between text-[11px] text-slate-400">
+              <span>
+                Open since{' '}
+                {atTime(session.opened_at)} ·{' '}
+                {session.opened_by_name}
+              </span>
+              <button
+                onClick={refresh}
+                aria-label={t('Refresh cash on hand')}
+                title="Refresh"
+                className="rounded p-1 text-slate-400 transition hover:bg-slate-200 hover:text-slate-700"
+              >
+                <RefreshCw size={13} className={busy ? 'animate-spin' : undefined} />
+              </button>
+            </p>
+
+            {/*
+              * Four buttons on one row overflowed the card by exactly one
+              * button, and the one that hung outside was the lock. The three
+              * movements share a row and wrap when they must; closing the
+              * cashbox is a row of its own, named, because it is the one of
+              * the four that ends the shift.
+              */}
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              <Button size="sm" variant="secondary" className="min-w-[6rem] flex-1" onClick={() => setDialog('in')}>
+                <ArrowDownLeft size={15} /> {t('Cash in')}
+              </Button>
+              <Button size="sm" variant="secondary" className="min-w-[6rem] flex-1" onClick={() => setDialog('out')}>
+                <ArrowUpRight size={15} /> {t('Cash out')}
+              </Button>
+              {/*
+                * An expense, written where it was paid.
+                *
+                * "Cash out" only says money left; the water man, the bag of
+                * ice and the taxi for a delivery are spending, and spending
+                * belongs on the Expenses screen and off the profit — which a
+                * cash-out never reached. So the cashier records the expense
+                * itself, out of this drawer, without leaving the register.
+                */}
+              <Button
+                size="sm"
+                variant="secondary"
+                className="min-w-[6rem] flex-1"
+                onClick={() => setDialog('expense')}
+                title="An expense paid out of this drawer"
+              >
+                <Wallet size={15} /> {t('Expense')}
+              </Button>
+              <Button
+                size="sm"
+                variant="secondary"
+                className="basis-full"
+                onClick={() => setDialog('close')}
+                aria-label={t('Close the cashbox')}
+                title="Close the cashbox"
+              >
+                <Lock size={15} /> {t('Close the cashbox')}
+              </Button>
+            </div>
+          </div>
+        )}
+        </div>
+  );
 
   return (
     <>
@@ -957,175 +1122,13 @@ export default function CashBox({
           * Shown to a cashier too, who cannot see the figure: they are told the
           * drawer is short, not how short, which is still enough to act on.
           */}
-        <div
-          className={cx(
-            compact &&
-              detailOpen &&
-              /*
-               * Hung from the pill's *start* edge, opening towards the page.
-               * Anchored to the end it spread left, under the rail — on a
-               * window narrow enough for the pill to sit near it, the Cash in
-               * button and half the figures were behind the menu.
-               */
-              'absolute start-0 top-full z-40 mt-1 w-80 max-w-[calc(100vw-1rem)] rounded-xl bg-white py-2 shadow-lg ring-1 ring-slate-200',
-            // Folded away, there is nothing to hang below the handle.
-            compact && !detailOpen && 'hidden',
-          )}
-        >
-        {short && (
-          <p className="mx-4 mb-2 flex items-start gap-1.5 rounded-lg bg-red-50 px-2 py-1.5 text-[11px] leading-snug text-red-700">
-            <AlertTriangle size={13} className="mt-px shrink-0" />
-            <span>
-              More has gone out than came in. Something earlier is missing — a sale rung up
-              elsewhere, or a float never entered.
-            </span>
-          </p>
-        )}
-
-        {detailOpen && (
-          <div className="px-4 pb-3">
-            {showProfit && profit && (
-              <p className="tnum mb-2 flex items-center justify-between text-[11px] text-brand-700/70">
-                <span>
-                  {/*
-                    * What the figure is *of*, said before the figure.
-                    *
-                    * This is one sitting of this till — from the moment the
-                    * drawer was opened until now — and the Profit screen is a
-                    * calendar range across the whole shop. The two are
-                    * different questions with the same word on them, and a
-                    * shop comparing them found two numbers and no explanation.
-                    * A drawer left open overnight makes it worse: the sitting
-                    * is then two days and "today" is one.
-                    */}
-                  <span className="block text-brand-700/50">
-                    Since the drawer opened, at this till
-                  </span>
-                  {money(profit.revenue)} sold · {money(profit.grossProfit)} gross ·{' '}
-                  {money(profit.expenses)} spent
-                  {/*
-                    * Where it came from, whenever it did not all come from
-                    * here. This panel sits on the register and is read as the
-                    * register's own takings — it is not, it is the shop's whole
-                    * trade over the hours the till was open. Somebody who had
-                    * rung up nothing, refunded everything, and was still shown
-                    * a profit had no way to see that the figure was an
-                    * invoice's.
-                    */}
-                  {profit.fromInvoices > 0 && (
-                    <span className="block text-brand-700/60">
-                      {money(profit.fromInvoices)} of it on invoices, not at this counter
-                    </span>
-                  )}
-                  {/*
-                    * The bench's share, so the figure can be checked against
-                    * the repairs board. Repairs handed back at this counter are
-                    * in the profit above — their cash is in this drawer, and
-                    * what they cost comes off like a sold phone's cost does.
-                    */}
-                  {profit.fromRepairs > 0 && (
-                    <span className="block text-brand-700/60" data-profit-repairs>
-                      {money(profit.fromRepairs)} of it on {profit.repairJobs} repair
-                      {profit.repairJobs === 1 ? '' : 's'} handed back
-                      {profit.repairCost > 0 ? `, which cost ${money(profit.repairCost)}` : ''}
-                    </span>
-                  )}
-                  {profit.refundedOrders > 0 && (
-                    <span className="block text-brand-700/60">
-                      {profit.refundedOrders} sale{profit.refundedOrders === 1 ? '' : 's'} refunded, and
-                      already off these figures
-                    </span>
-                  )}
-                  {/*
-                    * Priced, not counted. "3 lines have no cost" leaves
-                    * somebody to work out whether that matters; "$30.00 of this
-                    * has no cost behind it", against a profit of $30.14, says
-                    * the figure is almost entirely unverified.
-                    */}
-                  {profit.unknownCostLines > 0 && (
-                    <span className="mt-1 block font-medium text-amber-700">
-                      {money(profit.unknownCostValue)} of this was sold with no cost recorded, so it
-                      is all counted as profit. Put the cost on{' '}
-                      {profit.unknownCostLines === 1
-                        ? 'that product'
-                        : `those ${profit.unknownCostLines} lines`}{' '}
-                      and this figure will be right.
-                    </span>
-                  )}
-                </span>
-                <button
-                  onClick={() => setReportFor(session.id)}
-                  title="Cashbox report"
-                  aria-label="Cashbox report"
-                  className="rounded p-1 text-brand-700/70 transition hover:bg-brand-100 hover:text-brand-800"
-                >
-                  <FileText size={13} />
-                </button>
-              </p>
-            )}
-
-            <p className="flex items-center justify-between text-[11px] text-slate-400">
-              <span>
-                Open since{' '}
-                {atTime(session.opened_at)} ·{' '}
-                {session.opened_by_name}
-              </span>
-              <button
-                onClick={refresh}
-                aria-label={t('Refresh cash on hand')}
-                title="Refresh"
-                className="rounded p-1 text-slate-400 transition hover:bg-slate-200 hover:text-slate-700"
-              >
-                <RefreshCw size={13} className={busy ? 'animate-spin' : undefined} />
-              </button>
-            </p>
-
-            {/*
-              * Four buttons on one row overflowed the card by exactly one
-              * button, and the one that hung outside was the lock. The three
-              * movements share a row and wrap when they must; closing the
-              * cashbox is a row of its own, named, because it is the one of
-              * the four that ends the shift.
-              */}
-            <div className="mt-2 flex flex-wrap items-center gap-1.5">
-              <Button size="sm" variant="secondary" className="min-w-[6rem] flex-1" onClick={() => setDialog('in')}>
-                <ArrowDownLeft size={15} /> {t('Cash in')}
-              </Button>
-              <Button size="sm" variant="secondary" className="min-w-[6rem] flex-1" onClick={() => setDialog('out')}>
-                <ArrowUpRight size={15} /> {t('Cash out')}
-              </Button>
-              {/*
-                * An expense, written where it was paid.
-                *
-                * "Cash out" only says money left; the water man, the bag of
-                * ice and the taxi for a delivery are spending, and spending
-                * belongs on the Expenses screen and off the profit — which a
-                * cash-out never reached. So the cashier records the expense
-                * itself, out of this drawer, without leaving the register.
-                */}
-              <Button
-                size="sm"
-                variant="secondary"
-                className="min-w-[6rem] flex-1"
-                onClick={() => setDialog('expense')}
-                title="An expense paid out of this drawer"
-              >
-                <Wallet size={15} /> {t('Expense')}
-              </Button>
-              <Button
-                size="sm"
-                variant="secondary"
-                className="basis-full"
-                onClick={() => setDialog('close')}
-                aria-label={t('Close the cashbox')}
-                title="Close the cashbox"
-              >
-                <Lock size={15} /> {t('Close the cashbox')}
-              </Button>
-            </div>
-          </div>
-        )}
-        </div>
+        {popup
+          ? detailOpen && (
+              <Modal open onClose={() => setDetailOpen(false)} title={t('Cashbox')} size="sm">
+                {panel}
+              </Modal>
+            )
+          : panel}
       </div>
 
       {dialog === 'open' && (
