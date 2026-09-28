@@ -15,7 +15,6 @@ import {
 } from 'lucide-react';
 import api from '../api';
 import { useLive } from '../lib/live';
-import { useNarrow } from '../lib/screen';
 import CashReport from './CashReport';
 import AddExpense from './AddExpense';
 import { lbp, useSettings } from '../context/SettingsContext';
@@ -664,33 +663,17 @@ export default function CashBox({
     });
 
   /*
-   * And it closes the way every other menu closes: click elsewhere, or Escape.
-   * In the column there is nothing to dismiss — the panel is part of the page.
+   * The detail is a pop-up, on every screen.
+   *
+   * It began as a drop-down hung under the pill, and a drop-down is the wrong
+   * shape for it: on a phone it ran off the edge of the screen, and at a desk
+   * it hung over the shelf with Cash in a centimetre from the products. A
+   * sheet in the middle of the screen has room for all of it, takes the
+   * cashier's attention while it is open, and closes the way every other
+   * sheet does — the X, the backdrop or Escape.
    */
   const holder = useRef(null);
-  /*
-   * On a phone the detail is a pop-up, not a drop-down. Hung under the pill
-   * it ran off the right-hand edge of the screen with half its buttons cut
-   * away; a sheet in the middle of the screen has room for all of it and is
-   * dismissed the way every other sheet is.
-   */
-  const narrow = useNarrow();
-  const popup = compact && narrow;
-  useEffect(() => {
-    if (!compact || !detailOpen || popup) return undefined;
-    const away = (e) => {
-      if (holder.current && !holder.current.contains(e.target)) setDetailOpen(false);
-    };
-    const key = (e) => {
-      if (e.key === 'Escape') setDetailOpen(false);
-    };
-    document.addEventListener('mousedown', away);
-    document.addEventListener('keydown', key);
-    return () => {
-      document.removeEventListener('mousedown', away);
-      document.removeEventListener('keydown', key);
-    };
-  }, [compact, detailOpen, popup]);
+  const popup = compact;
 
   const load = useCallback(async () => {
     const res = await api.get('/cash/current', { params: accountId ? { accountId } : undefined });
