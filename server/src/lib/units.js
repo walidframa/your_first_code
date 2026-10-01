@@ -208,6 +208,119 @@ export function parseImeiList(text) {
  * The customer reads whichever number they can see; asking them which slot it
  * belongs to would be a strange thing to do at a counter.
  */
+/**
+ * Where a handset is, and everything the shop has ever done with it.
+ *
+ * A customer walks in with a phone — "did I buy this here?", "is it still
+ * under warranty?", "my brother says you have one in the other shop". The
+ * answer used to be scattered over five screens, each searching its own
+ * table. This is the one question with one answer: the unit itself, which
+ * shelf it is on, the sale it left on and who took it, the delivery it came
+ * in on, the repairs it has been through, and the trade-in it arrived as.
+ *
+ * Null when the shop has never seen the number. A phone that only ever came
+ * in for repair — not one of ours — is still an answer, with the tickets and
+ * no unit.
+ */
+export function findHandset(imei, { branchId = null } = {}) {
+  const wanted = normaliseImei(imei);
+  if (!wanted) return null;
+
+  const unit = db
+    .prepare(
+      `SELECT u.*, p.name AS product_name, p.sku, p.price, p.image_url, p.image_emoji,
+              b.name AS branch_name, b.code AS branch_code
+         FROM product_units u
+         JOIN products p ON p.id = u.product_id
+         LEFT JOIN branches b ON b.id = u.branch_id
+        WHERE u.imei = ? OR u.imei2 = ?`,
+    )
+    .get(wanted, wanted);
+
+  const repairs = db
+    .prepare(
+      `SELECT id, ticket_number, status, customer_name, customer_phone, device, fault,
+              created_at, collected_at
+         FROM repair_tickets
+        WHERE imei = ?
+        ORDER BY created_at DESC
+        LIMIT 10`,
+    )
+    .all(wanted);
+
+  if (!unit && repairs.length === 0) return null;
+
+  let sale = null;
+  let received = null;
+  let tradeIn = null;
+  if (unit) {
+    if (unit.sold_order_id) {
+      const o = db
+        .prepare(
+          `SELECT o.id, o.order_number AS number, o.created_at AS at, o.total,
+                  c.name AS customer_name, c.phone AS customer_phone
+             FROM orders o LEFT JOIN customers c ON c.id = o.customer_id
+            WHERE o.id = ?`,
+        )
+        .get(unit.sold_order_id);
+      if (o) sale = { kind: 'order', ...o };
+    } else if (unit.sold_document_id) {
+      const d = db
+        .prepare(
+          `SELECT d.id, d.doc_number AS number, d.doc_type, d.created_at AS at, d.total,
+                  COALESCE(c.name, s.name) AS customer_name, COALESCE(c.phone, s.phone) AS customer_phone
+             FROM documents d
+             LEFT JOIN customers c ON c.id = d.party_id AND d.party_type = 'customer'
+             LEFT JOIN suppliers s ON s.id = d.party_id AND d.party_type = 'supplier'
+            WHERE d.id = ?`,
+        )
+        .get(unit.sold_document_id);
+      if (d) sale = { kind: 'document', ...d };
+    }
+    if (unit.received_document_id) {
+      received =
+        db
+          .prepare(
+            `SELECT d.id, d.doc_number AS number, d.doc_type, d.created_at AS at,
+                    COALESCE(s.name, c.name) AS party_name
+               FROM documents d
+               LEFT JOIN suppliers s ON s.id = d.party_id AND d.party_type = 'supplier'
+               LEFT JOIN customers c ON c.id = d.party_id AND d.party_type = 'customer'
+              WHERE d.id = ?`,
+          )
+          .get(unit.received_document_id) || null;
+    }
+    const t = db
+      .prepare(
+        `SELECT t.*, c.name AS customer_name, c.phone AS customer_phone
+           FROM trade_ins t LEFT JOIN customers c ON c.id = t.customer_id
+          WHERE t.unit_id = ?
+          ORDER BY t.id DESC`,
+      )
+      .get(unit.id);
+    if (t) {
+      tradeIn = {
+        id: t.id,
+        seller_name: t.customer_name || t.seller_name || null,
+        seller_phone: t.customer_phone || t.seller_phone || null,
+        at: t.created_at ?? null,
+      };
+    }
+  }
+
+  return {
+    /* Null, not undefined: JSON drops an undefined key, and "no unit" is an answer. */
+    unit: unit ?? null,
+    repairs,
+    sale,
+    received,
+    tradeIn,
+    available: unit ? isAvailable(unit.status) : false,
+    /* On this counter's shelf, so the register can put it straight on the sale. */
+    here: unit ? unit.branch_id == null || branchId == null || unit.branch_id === branchId : false,
+  };
+}
+
 export function findByImei(imei) {
   const wanted = normaliseImei(imei);
   return db
