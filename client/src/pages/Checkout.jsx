@@ -22,6 +22,7 @@ import {
   X,
 } from 'lucide-react';
 import api, { setAtRegister } from '../api';
+import { looksLikeImei, whereIs } from '../components/HandsetFinder';
 import { useLive } from '../lib/live';
 import Receipt from '../components/Receipt';
 import { HeldSalesDialog, HoldSaleDialog, ResumeIssues } from '../components/HeldSales';
@@ -622,7 +623,32 @@ export default function Checkout() {
       if (addToCart(product) === 'added') sayAdded(product.name);
       setSearch('');
     } catch (err) {
+      /*
+       * Not a barcode the catalogue knows — but a run of digits that long is
+       * an IMEI, and the handset itself may well be on the shelf. One of ours
+       * and available here goes straight on the sale; anything else, the
+       * cashier is told where it is rather than "product not found".
+       */
+      if (err.response?.status === 404 && looksLikeImei(code) && (await scanHandset(code))) return;
       toast(err.response?.data?.error || 'Product not found', 'error');
+    }
+  }
+
+  async function scanHandset(code) {
+    try {
+      const res = await api.get('/units/find', { params: { imei: code } });
+      const { unit, available, here } = res.data;
+      const product = unit && products.find((p) => p.id === unit.product_id);
+      if (unit && available && here && product) {
+        setSellingUnit({ product, unit });
+        setSearch('');
+        return true;
+      }
+      toast(whereIs(res.data), 'warning');
+      setSearch('');
+      return true;
+    } catch {
+      return false;
     }
   }
 

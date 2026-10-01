@@ -1,7 +1,10 @@
 import { matchesSearch } from '../../lib/search';
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowDownRight, ArrowUpRight, History, Search, SlidersHorizontal } from 'lucide-react';
+import { ArrowDownRight, ArrowUpRight, History, Search, SlidersHorizontal ,
+  Smartphone,
+} from 'lucide-react';
 import api from '../../api';
+import HandsetFinder, { looksLikeImei } from '../../components/HandsetFinder';
 import StockScope, { stockScopeParams } from '../../components/StockScope';
 import { useLive } from '../../lib/live';
 import PageHeader from '../../components/PageHeader';
@@ -204,6 +207,8 @@ export default function Inventory() {
 
   /* Whose shelf the quantities are for — see StockScope. */
   const [stockScope, setStockScope] = useState('here');
+  /* Where is this handset — the finder, and the IMEI it was opened with. */
+  const [finding, setFinding] = useState(null);
   const load = useCallback(async () => {
     const [invRes, reasonsRes] = await Promise.all([
       api.get('/inventory', { params: stockScopeParams(stockScope) }),
@@ -352,7 +357,13 @@ export default function Inventory() {
                   ))}
                 </div>
                 <StockScope value={stockScope} onChange={setStockScope} className="h-9" />
+                {looksLikeImei(search) && (
+                  <Button variant="secondary" size="sm" onClick={() => setFinding(search.trim())} data-find-handset-chip>
+                    <Smartphone size={14} /> Look up this IMEI
+                  </Button>
+                )}
               </div>
+              <HandsetFinder open={finding !== null} initialImei={finding || ''} onClose={() => setFinding(null)} />
 
               {products.length === 0 ? (
                 <EmptyState icon={Search} title="No products match" description="Try a different search or filter." />

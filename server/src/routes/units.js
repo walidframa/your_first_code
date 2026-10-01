@@ -7,6 +7,7 @@ import {
   findByImei,
   isAvailable,
   normaliseImei,
+  findHandset,
   receiveUnits,
   syncStockFromUnits,
   unitsFor,
@@ -37,6 +38,19 @@ router.get('/lookup', requireAuth, (req, res) => {
 });
 
 /** Every unit of a product, for the stock list and the sale picker. */
+/**
+ * Where is this handset — the one question with one answer. See
+ * lib/units.js. Not found is a 404 that says so in words a counter can read.
+ */
+router.get('/find', requireAuth, (req, res) => {
+  const found = findHandset(req.query.imei, { branchId: req.branchId ?? null });
+  if (!found) {
+    const shown = normaliseImei(req.query.imei) || 'that number';
+    return res.status(404).json({ error: `Nothing in the shop's records for ${shown}` });
+  }
+  res.json(found);
+});
+
 router.get('/product/:productId', requireAuth, (req, res) => {
   const product = db.prepare('SELECT * FROM products WHERE id = ?').get(req.params.productId);
   if (!product) return res.status(404).json({ error: 'Product not found' });

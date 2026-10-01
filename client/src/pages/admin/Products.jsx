@@ -30,6 +30,7 @@ import CategoryManager from '../../components/CategoryManager';
 import ProductImageField from '../../components/ProductImageField';
 import BundleEditor from '../../components/BundleEditor';
 import ExportList from '../../components/ExportList';
+import HandsetFinder, { looksLikeImei } from '../../components/HandsetFinder';
 import StockScope, { stockScopeParams } from '../../components/StockScope';
 import ColumnPicker from '../../components/ColumnPicker';
 import OverflowMenu from '../../components/OverflowMenu';
@@ -584,6 +585,8 @@ export default function Products() {
    * device, and it shows the costs in the rows and adds them up at the top.
    */
   const [exporting, setExporting] = useState(false);
+  /* Where is this handset — the finder, and the IMEI it was opened with. */
+  const [finding, setFinding] = useState(null);
   const [showCosts, setShowCosts] = useState(() => {
     try {
       return globalThis.localStorage?.getItem('pos_products_costs') === '1';
@@ -1099,6 +1102,7 @@ export default function Products() {
                   { label: 'Find pictures', icon: Images, onClick: () => setFindingPhotos(true) },
                   { label: 'Import a catalogue', icon: Upload, onClick: () => navigate('/admin/import') },
                   { label: 'Export this list', icon: Download, onClick: () => setExporting(true) },
+                  { label: 'Find a handset', icon: Smartphone, onClick: () => setFinding('') },
                 ]}
               />
             ) : (
@@ -1135,6 +1139,16 @@ export default function Products() {
                   data-export-products
                 >
                   <Download size={16} /> <span className="hidden sm:inline">Export</span>
+                </Button>
+                {/* One box for "where is this phone" — see HandsetFinder. */}
+                <Button
+                  variant="secondary"
+                  onClick={() => setFinding('')}
+                  aria-label="Find a handset"
+                  title="Where is this handset? Type or scan an IMEI"
+                  data-find-handset
+                >
+                  <Smartphone size={16} /> <span className="hidden sm:inline">Find a handset</span>
                 </Button>
               </>
             )}
@@ -1186,6 +1200,13 @@ export default function Products() {
                 className="h-11 w-full rounded-full bg-slate-100 pr-3 pl-10 text-base ring-1 ring-transparent transition focus:bg-white focus:ring-brand-600 focus:outline-none sm:h-9 sm:rounded-lg sm:pl-9 sm:text-sm"
               />
             </div>
+            {/* A long run of digits in the product search is an IMEI, not a
+                name — offer the finder rather than an empty list. */}
+            {looksLikeImei(search) && (
+              <Button variant="secondary" size="sm" onClick={() => setFinding(search.trim())} data-find-handset-chip>
+                <Smartphone size={14} /> Look up this IMEI
+              </Button>
+            )}
 
             {/* Walking the shelves with a phone: point it at the box rather
                 than typing thirteen digits off it. */}
@@ -1558,6 +1579,8 @@ export default function Products() {
       {managingCategories && (
         <CategoryManager onClose={() => setManagingCategories(false)} onChanged={load} />
       )}
+
+      <HandsetFinder open={finding !== null} initialImei={finding || ''} onClose={() => setFinding(null)} />
 
       {/*
         * The rows are the ones on screen right now — the search, the stock
