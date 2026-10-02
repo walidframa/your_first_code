@@ -45,6 +45,8 @@ import {
   Wrench,
   Undo2,
   PackageMinus,
+
+  Search,
 } from 'lucide-react';
 
 /*
@@ -70,6 +72,13 @@ export const COUNTER_NAV = [
   { to: '/transfers', label: 'Transfers', icon: ArrowLeftRight, permission: 'transfers', module: 'transfers' },
   { to: '/vouchers', label: 'Vouchers', icon: ReceiptText, permission: 'vouchers', module: 'vouchers' },
   { to: '/orders', label: 'My sales', icon: Receipt },
+  /*
+   * "Is there one, what does it cost" — asked at the counter dozens of times
+   * a day with a customer waiting, and answered by a page that is nothing
+   * but a search box. Everybody at the counter can look; the cost line on it
+   * is behind the catalogue permission.
+   */
+  { to: '/lookup', label: 'Check an item', icon: Search },
   /*
    * Not a back-office screen. Handing a customer back the iCloud the shop set
    * up for them is counter work, so whoever is at the counter can find it — the
@@ -190,6 +199,7 @@ export const ADMIN_NAV = [
     heading: 'Stock',
     icon: Warehouse,
     items: [
+      { to: '/lookup', label: 'Check an item', icon: Search },
       { to: '/admin/products', label: 'Products', icon: Package, permission: 'catalogue' },
       { to: '/admin/inventory', label: 'Inventory', icon: Boxes, permission: 'inventory' },
       { to: '/admin/stock-transfers', label: 'Move stock', icon: Truck, permission: 'transfer_stock' , module: 'branches' },

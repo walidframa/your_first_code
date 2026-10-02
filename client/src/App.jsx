@@ -1,6 +1,7 @@
 import { Navigate, Routes, Route } from 'react-router';
 import Login from './pages/Login';
 import SupportEntry from './pages/SupportEntry';
+import Lookup from './pages/Lookup';
 import MenuPage from './pages/Menu';
 import Transfers from './pages/Transfers';
 import Vouchers from './pages/Vouchers';
@@ -93,6 +94,16 @@ export default function App() {
           somebody signed in, so requiring a session to reach it would be a door
           that can only be opened from inside. */}
       <Route path="/support" element={<SupportEntry />} />
+      {/* Signed in, but outside the shell on purpose: a page that is nothing
+          but a search box, for checking an item with a customer waiting. */}
+      <Route
+        path="/lookup"
+        element={
+          <ProtectedRoute>
+            <Lookup />
+          </ProtectedRoute>
+        }
+      />
 
       <Route
         element={
