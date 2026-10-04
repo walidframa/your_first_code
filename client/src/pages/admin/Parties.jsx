@@ -250,7 +250,6 @@ function MoneyModal({ party, config, mode, onClose, onSaved }) {
   const { rate, toLbp } = useSettings();
   const [usd, setUsd] = useState('');
   const [lbpAmount, setLbpAmount] = useState('');
-  const [lbpTouched, setLbpTouched] = useState(false);
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
@@ -258,16 +257,23 @@ function MoneyModal({ party, config, mode, onClose, onSaved }) {
 
   const isPayment = mode === 'payment';
   /*
-   * The rest in pounds, offered the moment the dollars fall short of what is
-   * owed — the same thing the register's cash sheet does. Typed over, the
-   * pounds become whatever was actually handed across.
+   * Only what was typed is a payment.
+   *
+   * This dialog used to fill the pounds box with "the rest" the moment the
+   * dollars fell short of the balance, the way the register's cash sheet
+   * does. At the register that is right: the customer is paying the sale.
+   * Here it was wrong, and badly: a part payment of fifty dollars against
+   * two hundred went in as fifty dollars *and* a hundred and fifty in
+   * pounds nobody handed over, and the account read as settled. So the rest
+   * is shown, and there is a button to take it in pounds, and nothing goes
+   * on the account that somebody did not put there.
    */
   const owed = isPayment ? Math.max(0, Number(party?.balance) || 0) : 0;
   const usdNum = Number(usd || 0);
-  const lbpSuggested = rate > 0 && usdNum > 0 && owed - usdNum > 0.004 ? String(toLbp(owed - usdNum)) : '';
-  const lbpShown = lbpTouched ? lbpAmount : lbpSuggested;
+  const lbpShown = lbpAmount;
   const totalUsd = isPayment ? usdNum + (rate ? Number(lbpShown || 0) / rate : 0) : Number(amount || 0);
   const valid = totalUsd > 0;
+  const leftAfter = isPayment ? Math.round(Math.max(0, owed - totalUsd) * 100) / 100 : 0;
 
   async function submit(e) {
     e.preventDefault();
@@ -321,13 +327,33 @@ function MoneyModal({ party, config, mode, onClose, onSaved }) {
                 min="0"
                 step="1000"
                 value={lbpShown}
-                onChange={(e) => {
-                  setLbpTouched(true);
-                  setLbpAmount(e.target.value);
-                }}
-                hint={!lbpTouched && lbpSuggested ? 'The rest of what is owed, in pounds' : undefined}
+                onChange={(e) => setLbpAmount(e.target.value)}
               />
             </div>
+            {owed > 0 && (
+              <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500" data-left-after>
+                {leftAfter > 0.004 ? (
+                  <>
+                    <span>
+                      Still owed after this: <span className="tnum font-medium text-slate-800">{money(leftAfter)}</span>
+                      {rate > 0 && <> · {lbp(toLbp(leftAfter))}</>}
+                    </span>
+                    {rate > 0 && (
+                      <button
+                        type="button"
+                        className="font-medium text-brand-700 hover:underline"
+                        onClick={() => setLbpAmount(String(toLbp(Math.max(0, owed - usdNum))))}
+                        data-rest-in-pounds
+                      >
+                        Take the rest in pounds
+                      </button>
+                    )}
+                  </>
+                ) : (
+                  <span>This settles the account.</span>
+                )}
+              </p>
+            )}
             {totalUsd > 0 && (
               <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-600">
                 Total <span className="font-medium text-slate-900">{money(totalUsd)}</span>
