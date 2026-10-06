@@ -67,8 +67,13 @@ export default function PaymentSheet({
    * the "still due" line and type it. Now the pounds tile offers it — the
    * till's suggestion, in the tile's own colour — and Enter takes it. Type
    * into the tile and it is the cashier's figure instead, as with the change.
+   *
+   * A typed zero counts: "nothing in dollars" is an answer, and the one that
+   * means the whole sale is in pounds, so the pounds tile offers the lot. An
+   * empty dollars tile is not an answer yet, and suggests nothing.
    */
-  const usdShort = rate > 0 && paidUsd > 0 && total - paidUsd > 0.004 ? toLbp(total - paidUsd) : 0;
+  const usdSaid = usdEntry !== '';
+  const usdShort = rate > 0 && usdSaid && total - paidUsd > 0.004 ? toLbp(total - paidUsd) : 0;
   const lbpSuggested = !touched.LBP && usdShort > 0 ? String(usdShort) : '';
   const lbpShown = touched.LBP ? lbpEntry : lbpSuggested;
   const paidLbp = Number(lbpShown || 0);

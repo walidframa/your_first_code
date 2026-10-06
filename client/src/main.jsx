@@ -65,7 +65,7 @@ if ('serviceWorker' in navigator && import.meta.env.PROD) {
   // Registered, and then watched: a new version installs and waits, and the
   // counter is offered the reload rather than having one done to it. See
   // lib/appUpdate.js.
-  globalThis.addEventListener('load', startUpdateWatch);
+  globalThis.addEventListener('load', () => startUpdateWatch());
 }
 
 createRoot(document.getElementById('root')).render(

@@ -20,6 +20,19 @@
 const listeners = new Set();
 let waiting = null;
 
+/*
+ * How long after the page starts an update still counts as "found by this
+ * load" rather than "arrived while the till was in use".
+ *
+ * Registering the worker makes the browser look for a new sw.js, and if there
+ * is one it installs in the first seconds of the page's life. That update is
+ * not news to this page: a navigation goes to the network for index.html, so a
+ * page that has just loaded is already running the build the new worker
+ * carries. Thirty seconds is long enough for a slow install and well short of
+ * the hourly check, which is the one that finds updates worth a banner.
+ */
+const STARTUP_WINDOW_MS = 30_000;
+
 function announce() {
   for (const listener of listeners) listener(Boolean(waiting));
 }
@@ -48,18 +61,43 @@ export function applyUpdate() {
   waiting.postMessage({ type: 'skip-waiting' });
 }
 
-/** Watch one registration for a worker that has installed and is waiting. */
-function watch(registration) {
+/**
+ * Watch one registration for a worker that has installed and is waiting.
+ *
+ * Two kinds of waiting worker, told apart by when they turned up:
+ *
+ * - One found by this load — already there when the page registered, or
+ *   installed within the first seconds because registering made the browser
+ *   look. The page is on the current build already (navigations go to the
+ *   network for index.html), so the worker is simply told to take over, and
+ *   nothing is said. This is what a manual reload after a deploy produces,
+ *   and a banner announcing a version the page is already running was the
+ *   complaint.
+ *
+ * - One found later, by the hourly check, while the till has been open for a
+ *   while. That page is on the old build, and the banner offers the reload.
+ */
+function watch(registration, now) {
+  const startedAt = now();
   const check = () => {
-    /*
-     * `waiting` is a worker that has installed while another controls the
-     * page. Without a controller there is nothing to interrupt — it is the
-     * first load — and it should simply take over.
-     */
-    if (registration.waiting && navigator.serviceWorker.controller) {
-      waiting = registration.waiting;
-      announce();
+    const found = registration.waiting;
+    if (!found) return;
+    if (now() - startedAt < STARTUP_WINDOW_MS) {
+      // Not set as `waiting`: the controller change this causes must not
+      // reload a page that is already current.
+      found.postMessage({ type: 'skip-waiting' });
+      return;
     }
+    /*
+     * Without a controller there is nothing to interrupt — it is the first
+     * load — and the worker should simply take over.
+     */
+    if (!navigator.serviceWorker.controller) {
+      found.postMessage({ type: 'skip-waiting' });
+      return;
+    }
+    waiting = found;
+    announce();
   };
 
   check();
@@ -72,8 +110,9 @@ function watch(registration) {
   });
 }
 
-export function startUpdateWatch() {
-  if (!('serviceWorker' in navigator)) return;
+export function startUpdateWatch({ now = Date.now, register } = {}) {
+  if (!register && !('serviceWorker' in navigator)) return;
+  const registerWorker = register || (() => navigator.serviceWorker.register('/sw.js'));
 
   /*
    * One reload, when the new worker actually takes over. Guarded because the
@@ -87,10 +126,9 @@ export function startUpdateWatch() {
     globalThis.location.reload();
   });
 
-  navigator.serviceWorker
-    .register('/sw.js')
+  return registerWorker()
     .then((registration) => {
-      watch(registration);
+      watch(registration, now);
       /*
        * Ask again now and then. A till is opened in the morning and left on all
        * day, so without this the only moment it would ever look for a new
