@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
-import { Eye, Plus, Trash2, Wrench } from 'lucide-react';
+import { Eye, Pencil, Plus, Trash2, Wrench } from 'lucide-react';
 import api from '../../api';
 import { useLive } from '../../lib/live';
 import PageHeader from '../../components/PageHeader';
@@ -39,7 +39,13 @@ const STATUS_LABEL = {
 };
 
 /* Not a status — a payment, filed in the same history column. */
-const EVENT_LABEL = { ...STATUS_LABEL, payment: 'Paid', cost: 'Cost', correction: 'Corrected' };
+const EVENT_LABEL = {
+  ...STATUS_LABEL,
+  payment: 'Paid',
+  cost: 'Cost',
+  correction: 'Corrected',
+  edited: 'Edited',
+};
 
 const STATUS_STYLE = {
   received: 'bg-slate-100 text-slate-700',
@@ -205,6 +211,133 @@ function IntakeModal({ onClose, onSaved }) {
   );
 }
 
+/**
+ * Put the ticket right.
+ *
+ * A name typed wrong at the counter, the cousin's phone number, an IMEI read
+ * off the box after the ticket was opened: the only cure used to be a new
+ * ticket, which lost the history and the money on the old one. The same form
+ * as intake, filled from the ticket, and only what is changed is sent. The
+ * passcode box is blank because it is never read back here; typed into, it
+ * replaces what was there.
+ */
+function EditTicketModal({ ticket, onClose, onSaved }) {
+  const toast = useToast();
+  const [form, setForm] = useState({
+    customerId: ticket.customer_id ?? null,
+    customerName: ticket.customer_name || '',
+    customerPhone: ticket.customer_phone || '',
+    imei: ticket.imei || '',
+    device: ticket.device || '',
+    fault: ticket.fault || '',
+    conditionNote: ticket.condition_note || '',
+    passcode: '',
+    quoted: ticket.quoted === null || ticket.quoted === undefined ? '' : String(ticket.quoted),
+  });
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+
+  async function submit(e) {
+    e.preventDefault();
+    setError('');
+    setSaving(true);
+    try {
+      const body = {
+        customerId: form.customerId ?? null,
+        customerName: form.customerName,
+        customerPhone: form.customerPhone,
+        imei: form.imei,
+        device: form.device,
+        fault: form.fault,
+        conditionNote: form.conditionNote,
+        quoted: form.quoted === '' ? null : Number(form.quoted),
+      };
+      if (form.passcode) body.passcode = form.passcode;
+      await api.patch(`/repairs/${ticket.id}`, body);
+      toast(`${ticket.ticket_number} updated`);
+      onSaved();
+    } catch (err) {
+      setError(err.response?.data?.error || 'Could not save the ticket');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Modal
+      open
+      onClose={saving ? undefined : onClose}
+      title={`Edit ${ticket.ticket_number}`}
+      subtitle="Only what you change is written; the history stays"
+      size="full"
+    >
+      <form onSubmit={submit} className="grid grid-cols-2 gap-3" data-repair-edit>
+        <CustomerField value={form} onChange={(next) => setForm((f) => ({ ...f, ...next }))} autoFocus />
+        <Input label="Phone number" value={form.customerPhone} onChange={set('customerPhone')} />
+        <Input
+          label="IMEI"
+          value={form.imei}
+          onChange={set('imei')}
+          hint="If we sold it, the warranty follows the corrected IMEI"
+        />
+        <Input label="Device" value={form.device} onChange={set('device')} placeholder="e.g. Galaxy S22" />
+
+        <div className="col-span-2">
+          <label htmlFor="edit-fault" className="mb-1 block text-sm font-medium text-slate-700">
+            What is wrong with it
+          </label>
+          <textarea
+            id="edit-fault"
+            value={form.fault}
+            onChange={set('fault')}
+            rows={2}
+            required
+            className="w-full rounded-xl px-3 py-2 text-sm ring-1 ring-edge focus:ring-2 focus:ring-brand-500 focus:outline-none"
+          />
+        </div>
+
+        <div className="col-span-2">
+          <label htmlFor="edit-cond" className="mb-1 block text-sm font-medium text-slate-700">
+            Condition it came in
+          </label>
+          <textarea
+            id="edit-cond"
+            value={form.conditionNote}
+            onChange={set('conditionNote')}
+            rows={2}
+            placeholder="Scratches, cracked back, missing SIM tray…"
+            className="w-full rounded-xl px-3 py-2 text-sm ring-1 ring-edge focus:ring-2 focus:ring-brand-500 focus:outline-none"
+          />
+        </div>
+
+        <Input
+          label="Passcode"
+          value={form.passcode}
+          onChange={set('passcode')}
+          placeholder={ticket.passcode_enc ? 'Leave blank to keep the one on file' : ''}
+          hint="Encrypted — only an admin can read it back"
+        />
+        <Input label="Quoted" type="number" step="0.01" min="0" value={form.quoted} onChange={set('quoted')} />
+
+        {error && (
+          <p className="col-span-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
+        )}
+
+        <ModalActions className="col-span-2">
+          <Button type="button" variant="secondary" onClick={onClose} disabled={saving}>
+            Cancel
+          </Button>
+          <Button type="submit" className="flex-1" loading={saving}>
+            Save changes
+          </Button>
+        </ModalActions>
+      </form>
+    </Modal>
+  );
+}
+
 /** One job: its history, its parts, and handing it back. */
 function TicketModal({ id, onClose, onChanged }) {
   const toast = useToast();
@@ -213,6 +346,10 @@ function TicketModal({ id, onClose, onChanged }) {
   const [detail, setDetail] = useState(null);
   const [products, setProducts] = useState([]);
   const [partId, setPartId] = useState('');
+  /* How many of the part: two speakers, four screws, a pair of flex cables. */
+  const [partQty, setPartQty] = useState('1');
+  /* The facts of the job, open for correction. */
+  const [editing, setEditing] = useState(false);
   const [charged, setCharged] = useState('');
   const [payNow, setPayNow] = useState('');
   /*
@@ -288,9 +425,11 @@ function TicketModal({ id, onClose, onChanged }) {
 
   async function fitPart() {
     if (!partId) return;
+    const quantity = Math.max(1, Math.round(Number(partQty) || 1));
     try {
-      await api.post(`/repairs/${id}/parts`, { productId: Number(partId) });
+      await api.post(`/repairs/${id}/parts`, { productId: Number(partId), quantity });
       setPartId('');
+      setPartQty('1');
       await load();
       onChanged();
     } catch (err) {
@@ -409,6 +548,40 @@ function TicketModal({ id, onClose, onChanged }) {
       <div className="grid grid-cols-2 gap-5">
         <div className="space-y-4">
           {/*
+            * Whose phone, which phone, what is wrong: the facts the slip is
+            * printed from, and the ones most often typed wrong at the counter.
+            * Editable, on a closed job too — see EditTicketModal.
+            */}
+          <Card className="p-4" data-repair-facts>
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0 text-sm">
+                <p className="font-medium text-slate-900">
+                  {ticket.customer_name}
+                  {ticket.customer_phone ? (
+                    <span className="font-normal text-slate-500"> · {ticket.customer_phone}</span>
+                  ) : null}
+                  {ticket.customer_id ? (
+                    <Link
+                      to={`/admin/customers?id=${ticket.customer_id}`}
+                      className="ml-2 text-xs font-medium text-brand-700 hover:underline"
+                    >
+                      account
+                    </Link>
+                  ) : null}
+                </p>
+                <p className="text-slate-700">
+                  {ticket.device}
+                  {ticket.imei ? <span className="font-mono text-xs text-slate-500"> · {ticket.imei}</span> : null}
+                </p>
+                <p className="text-slate-600">{ticket.fault}</p>
+              </div>
+              <Button size="sm" variant="secondary" onClick={() => setEditing(true)} data-repair-edit-open>
+                <Pencil size={13} /> Edit
+              </Button>
+            </div>
+          </Card>
+
+          {/*
             * Always offered, including on a job that has been paid for and
             * handed back. Money and progress are separate facts now, and a
             * phone that comes straight back through the door on Friday needs
@@ -497,8 +670,18 @@ function TicketModal({ id, onClose, onChanged }) {
                     </option>
                   ))}
                 </Select>
-                <Button size="sm" onClick={fitPart} disabled={!partId}>
-                  <Plus size={14} /> Fit
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={partQty}
+                  onChange={(e) => setPartQty(e.target.value)}
+                  aria-label="How many"
+                  title="How many to fit"
+                  className="tnum h-10 w-16 rounded-lg bg-white px-2 text-center text-sm ring-1 ring-edge focus:ring-2 focus:ring-brand-600 focus:outline-none"
+                />
+                <Button size="sm" onClick={fitPart} disabled={!partId || !(Number(partQty) >= 1)}>
+                  <Plus size={14} /> Fit{Number(partQty) > 1 ? ` ${Math.round(Number(partQty))}` : ''}
                 </Button>
               </div>
             )}
@@ -782,6 +965,17 @@ function TicketModal({ id, onClose, onChanged }) {
           </div>
         </div>
       </div>
+      {editing && (
+        <EditTicketModal
+          ticket={ticket}
+          onClose={() => setEditing(false)}
+          onSaved={async () => {
+            setEditing(false);
+            await load();
+            onChanged();
+          }}
+        />
+      )}
     </Modal>
   );
 }

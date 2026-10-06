@@ -245,6 +245,161 @@ export function openTicket(input, userId, branchId = null) {
   return info.lastInsertRowid;
 }
 
+/** The fields of a ticket that are facts about the job, not about its money. */
+const DETAIL_FIELDS = [
+  'customerId',
+  'customerName',
+  'customerPhone',
+  'device',
+  'imei',
+  'fault',
+  'conditionNote',
+  'passcode',
+];
+
+/** Whether an edit carries any of the ticket's details. */
+export function hasDetailEdits(input) {
+  return DETAIL_FIELDS.some((k) => input?.[k] !== undefined);
+}
+
+/**
+ * Put the ticket right.
+ *
+ * A name typed wrong at the counter, a phone number that turned out to be the
+ * cousin's, an IMEI read off the box after the ticket was opened: until now
+ * the only cure was a new ticket, which lost the history and the money on the
+ * old one. So the facts of the job are editable, on a closed job too, and
+ * only what is sent changes.
+ *
+ * The customer works as it does at intake: an account picked off the list
+ * joins the ticket to it, with the name and phone copied across unless they
+ * were typed; a name typed on its own is a walk-in, and `customerId: null`
+ * detaches an account that should never have been on it. A new IMEI is
+ * matched against the handsets the shop sold, the same way, so the warranty
+ * answer follows the phone and not the typo.
+ */
+export function editTicket(ticketId, input, userId) {
+  const ticket = db.prepare('SELECT * FROM repair_tickets WHERE id = ?').get(ticketId);
+  if (!ticket) throw new Error('Ticket not found');
+
+  const next = {
+    customer_id: ticket.customer_id,
+    customer_name: ticket.customer_name,
+    customer_phone: ticket.customer_phone,
+    device: ticket.device,
+    imei: ticket.imei,
+    unit_id: ticket.unit_id,
+    under_warranty: ticket.under_warranty,
+    fault: ticket.fault,
+    condition_note: ticket.condition_note,
+    passcode_enc: ticket.passcode_enc,
+  };
+  const changed = [];
+
+  if (input.customerId !== undefined) {
+    if (input.customerId === null || input.customerId === '') {
+      if (next.customer_id !== null) changed.push('customer');
+      next.customer_id = null;
+    } else {
+      const customer = db.prepare('SELECT * FROM customers WHERE id = ?').get(input.customerId);
+      if (!customer) throw new Error('That customer does not exist');
+      if (next.customer_id !== customer.id) {
+        changed.push('customer');
+        next.customer_id = customer.id;
+        // Off the account unless typed over below, as at intake.
+        next.customer_name = customer.name;
+        next.customer_phone = customer.phone || null;
+      }
+    }
+  }
+  if (input.customerName !== undefined) {
+    const name = String(input.customerName ?? '').trim();
+    if (!name) throw new Error('Whose phone is it? A name is needed');
+    if (name !== next.customer_name) {
+      if (!changed.includes('customer')) changed.push('name');
+      next.customer_name = name;
+    }
+  }
+  if (input.customerPhone !== undefined) {
+    const phone = String(input.customerPhone ?? '').trim() || null;
+    if (phone !== next.customer_phone) {
+      if (!changed.includes('customer')) changed.push('phone');
+      next.customer_phone = phone;
+    }
+  }
+  if (input.device !== undefined) {
+    const device = String(input.device ?? '').trim();
+    if (!device) throw new Error('Say what the device is');
+    if (device !== next.device) {
+      changed.push('device');
+      next.device = device;
+    }
+  }
+  if (input.imei !== undefined) {
+    const imei = normaliseImei(input.imei) || null;
+    if (imei !== next.imei) {
+      changed.push('IMEI');
+      next.imei = imei;
+      const unit = imei
+        ? db.prepare('SELECT * FROM product_units WHERE imei = ? OR imei2 = ?').get(imei, imei)
+        : null;
+      next.unit_id = unit?.id ?? null;
+      next.under_warranty = unit && underWarranty(unit) ? 1 : 0;
+    }
+  }
+  if (input.fault !== undefined) {
+    const fault = String(input.fault ?? '').trim();
+    if (!fault) throw new Error('Say what is wrong with it');
+    if (fault !== next.fault) {
+      changed.push('fault');
+      next.fault = fault;
+    }
+  }
+  if (input.conditionNote !== undefined) {
+    const note = String(input.conditionNote ?? '').trim() || null;
+    if (note !== next.condition_note) {
+      changed.push('condition');
+      next.condition_note = note;
+    }
+  }
+  /*
+   * The passcode is write-only on the screen, so a blank box means "as it
+   * was" and only null clears it. Anything else replaces it.
+   */
+  if (input.passcode !== undefined && input.passcode !== '') {
+    changed.push('passcode');
+    next.passcode_enc = input.passcode === null ? null : encryptSecret(input.passcode);
+  }
+
+  if (changed.length === 0) return ticketWithDetail(ticketId);
+
+  db.prepare(
+    `UPDATE repair_tickets
+       SET customer_id = ?, customer_name = ?, customer_phone = ?, device = ?, imei = ?,
+           unit_id = ?, under_warranty = ?, fault = ?, condition_note = ?, passcode_enc = ?,
+           updated_at = datetime('now')
+     WHERE id = ?`,
+  ).run(
+    next.customer_id,
+    next.customer_name,
+    next.customer_phone,
+    next.device,
+    next.imei,
+    next.unit_id,
+    next.under_warranty,
+    next.fault,
+    next.condition_note,
+    next.passcode_enc,
+    ticketId,
+  );
+  // On the record, so "who changed the name on this?" has an answer.
+  db.prepare(
+    `INSERT INTO repair_events (ticket_id, status, note, user_id) VALUES (?, 'edited', ?, ?)`,
+  ).run(ticketId, `Changed: ${changed.join(', ')}`, userId);
+
+  return ticketWithDetail(ticketId);
+}
+
 /**
  * Move a ticket along.
  *
