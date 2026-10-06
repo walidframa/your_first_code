@@ -407,6 +407,149 @@ test('money can be taken while the phone is still on the bench', async () => {
   assert.equal(drawerAfter.usd, drawerBefore.usd, 'paid once, not twice');
 });
 
+test('several of a part are fitted at once, and come back off together', async () => {
+  const ticket = (await req('GET', '/repairs?status=open', null, adminToken)).json.tickets.find(
+    (t) => t.fault === 'Screen cracked',
+  );
+  const before = (await req('GET', `/products/${part.id}`, null, adminToken)).json.product.stock;
+
+  const res = await req(
+    'POST',
+    `/repairs/${ticket.id}/parts`,
+    { productId: part.id, quantity: 2 },
+    adminToken,
+  );
+  assert.equal(res.status, 201, JSON.stringify(res.json));
+  const fitted = res.json.parts.find((p) => p.product_id === part.id);
+  assert.equal(fitted.quantity, 2);
+  assert.equal(res.json.partsTotal, 180, 'two screens at 90');
+
+  const during = (await req('GET', `/products/${part.id}`, null, adminToken)).json.product.stock;
+  assert.equal(during, before - 2, 'both screens left the drawer');
+
+  // More than the shelf holds is refused, with the figures.
+  const tooMany = await req(
+    'POST',
+    `/repairs/${ticket.id}/parts`,
+    { productId: part.id, quantity: during + 1 },
+    adminToken,
+  );
+  assert.equal(tooMany.status, 400);
+  assert.match(tooMany.json.error, /not enough/i);
+
+  const off = await req('DELETE', `/repairs/parts/${fitted.id}`, null, adminToken);
+  assert.equal(off.status, 200);
+  const after = (await req('GET', `/products/${part.id}`, null, adminToken)).json.product.stock;
+  assert.equal(after, before, 'both came back');
+});
+
+test('the facts on a ticket can be put right after it was opened', async () => {
+  const opened = await req(
+    'POST',
+    '/repairs',
+    { customerName: 'Walid Typo', customerPhone: '03 000 000', device: 'Galaxy A15', fault: 'No charge' },
+    adminToken,
+  );
+  assert.equal(opened.status, 201, JSON.stringify(opened.json));
+  const id = opened.json.ticket.id;
+
+  const res = await req(
+    'PATCH',
+    `/repairs/${id}`,
+    {
+      customerName: 'Walid Ramadan',
+      customerPhone: '03 123 456',
+      device: 'Galaxy A25',
+      fault: 'No charge, port loose',
+      conditionNote: 'Cracked back',
+    },
+    adminToken,
+  );
+  assert.equal(res.status, 200, JSON.stringify(res.json));
+  assert.equal(res.json.ticket.customer_name, 'Walid Ramadan');
+  assert.equal(res.json.ticket.customer_phone, '03 123 456');
+  assert.equal(res.json.ticket.device, 'Galaxy A25');
+  assert.equal(res.json.ticket.fault, 'No charge, port loose');
+  assert.equal(res.json.ticket.condition_note, 'Cracked back');
+  // The ticket number, the date and the history are untouched — it is the
+  // same job, put right, not a new one.
+  assert.equal(res.json.ticket.ticket_number, opened.json.ticket.ticket_number);
+  const edit = res.json.events.find((e) => e.status === 'edited');
+  assert.ok(edit, 'the edit is on the record');
+  assert.match(edit.note, /name/);
+  assert.match(edit.note, /device/);
+
+  // A blank name or device is not an edit, it is a mistake.
+  const blank = await req('PATCH', `/repairs/${id}`, { customerName: '  ' }, adminToken);
+  assert.equal(blank.status, 400);
+  assert.match(blank.json.error, /name/i);
+  const noDevice = await req('PATCH', `/repairs/${id}`, { device: '' }, adminToken);
+  assert.equal(noDevice.status, 400);
+
+  // The board shows the new name, and finds it by the new one.
+  const found = (await req('GET', '/repairs?q=Ramadan', null, adminToken)).json.tickets;
+  assert.ok(found.some((t) => t.id === id));
+});
+
+test('a ticket can be moved onto a customer account, and off it again', async () => {
+  const created = await req('POST', '/customers', { name: 'Late Regular', phone: '70 555 444' }, adminToken);
+  const customer = created.json.party;
+  const opened = await req(
+    'POST',
+    '/repairs',
+    { customerName: 'Late Reg', device: 'iPhone 12', fault: 'Battery' },
+    adminToken,
+  );
+  const id = opened.json.ticket.id;
+
+  // Onto the account: the name and phone come off it.
+  const on = await req('PATCH', `/repairs/${id}`, { customerId: customer.id }, adminToken);
+  assert.equal(on.status, 200, JSON.stringify(on.json));
+  assert.equal(on.json.ticket.customer_id, customer.id);
+  assert.equal(on.json.ticket.customer_name, 'Late Regular');
+  assert.equal(on.json.ticket.customer_phone, '70 555 444');
+  assert.equal(on.json.ticket.account_name, 'Late Regular');
+
+  // A name typed with the account keeps the account and takes the name.
+  const renamed = await req(
+    'PATCH',
+    `/repairs/${id}`,
+    { customerId: customer.id, customerName: 'Late Regular (brother)' },
+    adminToken,
+  );
+  assert.equal(renamed.json.ticket.customer_id, customer.id);
+  assert.equal(renamed.json.ticket.customer_name, 'Late Regular (brother)');
+
+  // And off it: a walk-in again, name kept.
+  const off = await req('PATCH', `/repairs/${id}`, { customerId: null }, adminToken);
+  assert.equal(off.status, 200);
+  assert.equal(off.json.ticket.customer_id, null);
+  assert.equal(off.json.ticket.customer_name, 'Late Regular (brother)');
+
+  const unknown = await req('PATCH', `/repairs/${id}`, { customerId: 999_999 }, adminToken);
+  assert.equal(unknown.status, 400);
+  assert.match(unknown.json.error, /does not exist/i);
+});
+
+test('a corrected IMEI relinks the ticket to the handset the shop sold', async () => {
+  const imei = await sellOne(6);
+  const opened = await req(
+    'POST',
+    '/repairs',
+    { customerName: 'Box Reader', device: 'Galaxy S22', fault: 'Speaker', imei: '000000000000000' },
+    adminToken,
+  );
+  assert.equal(opened.status, 201, JSON.stringify(opened.json));
+  assert.equal(opened.json.ticket.unit_id, null);
+  assert.equal(opened.json.ticket.under_warranty, 0);
+
+  const fixed = await req('PATCH', `/repairs/${opened.json.ticket.id}`, { imei }, adminToken);
+  assert.equal(fixed.status, 200, JSON.stringify(fixed.json));
+  assert.ok(fixed.json.ticket.unit_id, 'joined to the handset');
+  assert.equal(fixed.json.ticket.under_warranty, 1);
+  assert.equal(fixed.json.warranty?.active, true);
+});
+
 test('a repair can be put on a customer from the list', async () => {
   const created = await req(
     'POST',

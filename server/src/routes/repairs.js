@@ -9,6 +9,8 @@ import { recordMovement, registerAccountId, registerSession, requiresSession, ti
 import {
   REPAIR_STATUSES,
   addPart,
+  editTicket,
+  hasDetailEdits,
   openTicket,
   removePart,
   repairProfit,
@@ -172,6 +174,9 @@ router.patch('/:id', requireAuth, (req, res) => {
   const { status, note, quoted, outsideCost, charged, paidUsd, paidLbp } = req.body || {};
   try {
     transaction(() => {
+      // The facts of the job — whose phone, which phone, what is wrong with
+      // it — put right after the ticket was opened. See editTicket.
+      if (hasDetailEdits(req.body)) editTicket(req.params.id, req.body, req.user.id);
       // What the job cost the shop outside. Settable on its own, and on a
       // closed job, because the technician's bill arrives when it arrives.
       if (outsideCost !== undefined) setOutsideCost(req.params.id, outsideCost, req.user.id);
