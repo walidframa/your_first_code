@@ -814,7 +814,7 @@ try {
     await goTo('Products');
     await page.waitForSelector('text=New product', { timeout: 15000 });
     await page.click('button:has-text("New product")');
-    await page.waitForSelector('[role=dialog] >> text=Track each one by IMEI');
+    await page.waitForSelector('[role=dialog] >> text=Track each one by its number');
 
     const dialog = page.locator('[role=dialog]');
     await dialog.getByRole('textbox', { name: 'Name', exact: true }).fill('Galaxy A15');
@@ -822,13 +822,13 @@ try {
     await dialog.getByRole('spinbutton', { name: 'Price', exact: true }).fill('189');
     await dialog.getByRole('spinbutton', { name: 'Cost', exact: true }).fill('150');
     // Named: "Sold as a SIM" sits beside it now, and a bare checkbox is two.
-    await dialog.getByRole('checkbox', { name: /Track each one by IMEI/ }).check();
+    await dialog.getByRole('checkbox', { name: /Track each one by its number/ }).check();
     await dialog.getByRole('button', { name: /^(Create product|Save changes)$/ }).click();
     await page.waitForSelector('text=Galaxy A15', { timeout: 15000 });
   });
 
   await step('handsets are booked in by IMEI and become the stock', async () => {
-    await page.getByRole('button', { name: 'Handsets of Galaxy A15' }).click();
+    await page.getByRole('button', { name: 'Units of Galaxy A15' }).click();
     await page.waitForSelector('text=No handsets booked in yet');
 
     await page.getByRole('button', { name: /^Book in$/ }).click();
@@ -5015,7 +5015,7 @@ try {
       ['Blue case', 'PK-BLUE', '14', '5', '4'],
     ]) {
       await page.click('button:has-text("New product")');
-      await page.waitForSelector('[role=dialog] >> text=Track each one by IMEI');
+      await page.waitForSelector('[role=dialog] >> text=Track each one by its number');
       const dialog = page.locator('[role=dialog]').last();
       await dialog.getByRole('textbox', { name: 'Name', exact: true }).fill(name);
       await dialog.getByRole('textbox', { name: 'SKU', exact: true }).fill(sku);
