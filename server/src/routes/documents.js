@@ -627,11 +627,11 @@ router.post('/:id/convert', requireAuth, requirePermission('documents'), (req, r
           /*
            * A conversion carries the quotation's lines forward; the IMEIs are
            * typed when the goods actually arrive, not when they were quoted.
-           * A return to the supplier is the one case that starts from known
-           * handsets: the delivery's own, for the shop to trim to what is
-           * going back.
+           * A return is the case that starts from known units: the delivery's
+           * own on the way back to the supplier, the invoice's own on the way
+           * back from the customer, for the shop to trim to what is going.
            */
-          target === 'purchase_return' ? i.imeis : null,
+          returning ? i.imeis : null,
         );
       }
       return info.lastInsertRowid;

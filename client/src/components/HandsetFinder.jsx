@@ -135,7 +135,7 @@ export default function HandsetFinder({ open, onClose, initialImei = '' }) {
                     <span className="truncate">{unit.product_name}</span>
                   </p>
                   <p className="tnum mt-0.5 text-xs text-slate-500">
-                    IMEI {unit.imei}
+                    {unit.unit_kind === 'serial' ? 'Serial' : 'IMEI'} {unit.imei}
                     {unit.imei2 ? ` · ${unit.imei2}` : ''}
                     {unit.sku ? ` · ${unit.sku}` : ''}
                   </p>

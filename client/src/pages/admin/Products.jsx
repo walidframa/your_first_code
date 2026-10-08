@@ -75,6 +75,7 @@ const emptyForm = {
   image_url: '',
   image_source: '',
   tracks_units: false,
+  unit_kind: 'imei',
   is_sim: false,
   is_service: false,
   price_lbp: null,
@@ -106,6 +107,7 @@ function ProductModal({ product, categories, allProducts, onClose, onSaved, onCa
           image_url: product.image_url || '',
           image_source: product.image_source || '',
           tracks_units: Boolean(product.tracks_units),
+          unit_kind: product.unit_kind === 'serial' ? 'serial' : 'imei',
           is_sim: Boolean(product.is_sim),
           is_service: Boolean(product.is_service),
         }
@@ -200,6 +202,8 @@ function ProductModal({ product, categories, allProducts, onClose, onSaved, onCa
       reorder_point: Number(form.reorder_point) || 0,
       category_id: form.category_id || null,
       tracks_units: form.tracks_units,
+      // What the number on each one is — only meaningful when tracked.
+      unit_kind: form.tracks_units ? form.unit_kind : 'imei',
       // A product that is not serialised cannot be a SIM.
       is_sim: form.tracks_units && form.is_sim,
       is_service: form.is_service,
@@ -472,12 +476,45 @@ function ProductModal({ product, categories, allProducts, onClose, onSaved, onCa
               }
               className="mt-0.5 h-4 w-4 rounded border-slate-300 accent-brand-600"
             />
-            <span>
-              <span className="block text-sm font-medium text-slate-800">Track each one by IMEI</span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-medium text-slate-800">Track each one by its number</span>
               <span className="block text-xs text-slate-500">
-                For phones and anything with a serial. Stock is then the handsets booked in, and each
+                For phones and anything with a serial. Stock is then the units booked in, and each
                 carries its own cost.
               </span>
+              {/*
+                * Which number. A phone has an IMEI, fifteen digits and maybe a
+                * second for a dual-SIM; a laptop or a router has one serial
+                * with letters in it. The screens that ask for, show and search
+                * the number read this, so a shop booking in laptops is not
+                * asked for "IMEI 2".
+                */}
+              {form.tracks_units && !form.is_sim && (
+                <span className="mt-2 flex flex-wrap gap-2" data-unit-kind>
+                  {[
+                    ['imei', 'IMEI', 'Phones — 15 digits, dual-SIM has two'],
+                    ['serial', 'Serial number', 'One per item, letters allowed'],
+                  ].map(([value, title, hint]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setForm((f) => ({ ...f, unit_kind: value }))}
+                      aria-pressed={form.unit_kind === value}
+                      className={cx(
+                        'rounded-lg px-2.5 py-1.5 text-left text-xs ring-1 transition',
+                        form.unit_kind === value
+                          ? 'bg-brand-600 text-white ring-brand-600'
+                          : 'bg-white text-slate-700 ring-slate-200 hover:bg-slate-50',
+                      )}
+                    >
+                      <span className="block font-medium">{title}</span>
+                      <span className={cx('block', form.unit_kind === value ? 'text-brand-100' : 'text-slate-400')}>
+                        {hint}
+                      </span>
+                    </button>
+                  ))}
+                </span>
+              )}
             </span>
           </label>
 
@@ -854,8 +891,8 @@ export default function Products() {
               size="sm"
               variant="ghost"
               onClick={() => setUnitsFor(p)}
-              aria-label={`Handsets of ${p.name}`}
-              title="Book in and track each IMEI"
+              aria-label={`Units of ${p.name}`}
+              title={p.unit_kind === 'serial' ? 'Book in and track each serial number' : 'Book in and track each IMEI'}
             >
               <Smartphone size={15} />
             </Button>

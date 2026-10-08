@@ -411,12 +411,15 @@ function applyDocumentStock(doc, items, userId, direction, note, { keepUnits = n
        * rather than booked in as a new phone that never existed.
        */
       if (type.returns && type.party === 'customer') {
-        throw new Error(
-          `${product.name} is tracked by IMEI — take it back from the sale it went out on, from the Sales screen`,
-        );
+        takeUnitsBack({ doc, item, product, direction, userId, note, branchId });
+        continue;
       }
       if (type.returns) {
         sendUnitsBack({ doc, item, product, direction, userId, note, branchId });
+        continue;
+      }
+      if (type.stock < 0) {
+        sellUnitsOut({ doc, item, product, direction, userId, note, branchId });
         continue;
       }
       moveUnits({ doc, item, product, direction, userId, note, branchId, keepUnits });
@@ -764,7 +767,7 @@ function sendUnitsBack({ doc, item, product, direction, userId, note, branchId =
   const handsets = parseImeiList(item.imeis);
   if (handsets.length !== wanted) {
     throw new Error(
-      `${product.name}: ${wanted} on the line but ${handsets.length} IMEI${handsets.length === 1 ? '' : 's'} given — say which handsets are going back`,
+      `${product.name}: ${wanted} on the line but ${handsets.length} ${numberWord(product, handsets.length)} given — say which ones are going back`,
     );
   }
 
@@ -807,6 +810,182 @@ function sendUnitsBack({ doc, item, product, direction, userId, note, branchId =
     `INSERT INTO stock_adjustments (product_id, user_id, delta, resulting_stock, reason, note, branch_id)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
   ).run(product.id, userId, -units.length, left, 'count_correction', note, branchId);
+}
+
+/** How the shop calls the number on a product's units, for a message. */
+function numberWord(product, n = 1) {
+  const word = product.unit_kind === 'serial' ? 'serial number' : 'IMEI';
+  return n === 1 ? word : `${word}s`;
+}
+
+/**
+ * The units a line names, looked up and checked against the line.
+ *
+ * Every number on the line must be a unit the shop knows, of this product,
+ * and the count must match the quantity — a line that says two and names
+ * one is refused by count rather than guessed at. The caller decides what
+ * state the unit has to be in.
+ */
+function unitsNamedOn(item, product, why) {
+  const wanted = Math.round(item.quantity);
+  const handsets = parseImeiList(item.imeis);
+  if (handsets.length !== wanted) {
+    throw new Error(
+      `${product.name}: ${wanted} on the line but ${handsets.length} ${numberWord(product, handsets.length)} given — ${why}`,
+    );
+  }
+  const units = [];
+  for (const h of handsets) {
+    const unit = db
+      .prepare('SELECT * FROM product_units WHERE imei = ? OR imei2 = ?')
+      .get(h.imei, h.imei);
+    if (!unit) throw new Error(`${h.imei} is not in the shop's records`);
+    if (unit.product_id !== product.id) throw new Error(`${h.imei} is not a ${product.name}`);
+    if (units.some((u) => u.id === unit.id)) throw new Error(`${unit.imei} is on this line twice`);
+    units.push(unit);
+  }
+  return units;
+}
+
+/**
+ * Units leaving on a sales invoice.
+ *
+ * A serialised product used to be refused on an invoice and sent to the
+ * register, which is the right place when the customer is standing there and
+ * the wrong one for the trade sale written up at the desk. So the line names
+ * which units are going, the way a return to the supplier names which are
+ * going back, and each one leaves the shelf as sold on this document. The
+ * line's cost becomes what those very units cost, which is the whole reason
+ * they are counted one at a time.
+ *
+ * Cancelling the invoice puts the same units back on the shelf — only the
+ * ones still marked sold on it: one that has since come back on a return is
+ * already on the shelf and is left where it is.
+ */
+function sellUnitsOut({ doc, item, product, direction, userId, note, branchId = null }) {
+  if (direction < 0) {
+    const gone = db
+      .prepare("SELECT * FROM product_units WHERE sold_document_id = ? AND product_id = ? AND status = 'sold'")
+      .all(doc.id, product.id);
+    for (const u of gone) {
+      db.prepare(
+        `UPDATE product_units
+            SET status = 'in_stock', sold_document_id = NULL, sold_at = NULL,
+                warranty_months = NULL, warranty_starts = NULL
+          WHERE id = ?`,
+      ).run(u.id);
+    }
+    if (gone.length) {
+      const left = syncStockFromUnits(product.id);
+      db.prepare(
+        `INSERT INTO stock_adjustments (product_id, user_id, delta, resulting_stock, reason, note, branch_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      ).run(product.id, userId, gone.length, left, 'count_correction', note, branchId);
+    }
+    return;
+  }
+
+  const units = unitsNamedOn(item, product, 'say which ones are being sold');
+  for (const unit of units) {
+    if (!isAvailable(unit.status)) {
+      throw new Error(`${unit.imei} is already ${unit.status.replace('_', ' ')}`);
+    }
+    const inTransit = db
+      .prepare(
+        `SELECT t.reference FROM stock_transfer_items i
+           JOIN stock_transfers t ON t.id = i.transfer_id
+          WHERE i.unit_id = ? AND t.status IN ('draft', 'sent') LIMIT 1`,
+      )
+      .get(unit.id);
+    if (inTransit) {
+      throw new Error(`${unit.imei} is on ${inTransit.reference}, still on its way — receive or cancel that first`);
+    }
+  }
+
+  /* The shop's promise starts the day the unit leaves, as at the register. */
+  const sell = db.prepare(
+    `UPDATE product_units
+        SET status = 'sold', sold_document_id = ?, sold_order_id = NULL, sold_at = datetime('now'),
+            warranty_months = ?, warranty_starts = date('now')
+      WHERE id = ?`,
+  );
+  for (const u of units) sell.run(doc.id, product.warranty_months ?? 0, u.id);
+
+  /*
+   * What this line cost is what these units cost, not the catalogue's
+   * average — a handset bought dear and sold at the list price made less
+   * than its shelf-mates, and the profit report should say so.
+   */
+  if (item.id && units.length) {
+    const each = units.reduce((sum, u) => sum + (Number(u.cost) || 0), 0) / units.length;
+    db.prepare('UPDATE document_items SET cost = ? WHERE id = ?').run(round2(each), item.id);
+  }
+
+  const left = syncStockFromUnits(product.id);
+  db.prepare(
+    `INSERT INTO stock_adjustments (product_id, user_id, delta, resulting_stock, reason, note, branch_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  ).run(product.id, userId, -units.length, left, 'count_correction', note, branchId);
+}
+
+/**
+ * Units coming back from a customer on a sales return.
+ *
+ * Named, like everything else that moves a serialised product: the line says
+ * which units came through the door, each has to be one that is out with a
+ * customer, and a return raised against an invoice can only take back what
+ * went out on it. They come back as `returned` rather than `in_stock` — the
+ * same standing as a handset refunded at the register — pointed at this
+ * document so that cancelling the return sends the same units out again.
+ * One sold on since cannot be sent out twice, so that cancel is refused by
+ * name.
+ */
+function takeUnitsBack({ doc, item, product, direction, userId, note, branchId = null }) {
+  if (direction < 0) {
+    const back = db
+      .prepare('SELECT * FROM product_units WHERE returned_document_id = ? AND product_id = ?')
+      .all(doc.id, product.id);
+    for (const u of back) {
+      if (u.status !== 'returned') {
+        throw new Error(`${u.imei} has been ${u.status.replace('_', ' ')} since it came back — the return cannot be undone`);
+      }
+    }
+    for (const u of back) {
+      db.prepare(`UPDATE product_units SET status = 'sold', returned_document_id = NULL WHERE id = ?`).run(u.id);
+    }
+    if (back.length) {
+      const left = syncStockFromUnits(product.id);
+      db.prepare(
+        `INSERT INTO stock_adjustments (product_id, user_id, delta, resulting_stock, reason, note, branch_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      ).run(product.id, userId, -back.length, left, 'count_correction', note, branchId);
+    }
+    return;
+  }
+
+  const units = unitsNamedOn(item, product, 'say which ones came back');
+  const source = doc.converted_from_id
+    ? db.prepare('SELECT id, doc_number FROM documents WHERE id = ?').get(doc.converted_from_id)
+    : null;
+  for (const unit of units) {
+    if (unit.status !== 'sold') {
+      throw new Error(`${unit.imei} is not out with a customer — it is ${unit.status.replace('_', ' ')}`);
+    }
+    if (source && unit.sold_document_id !== source.id) {
+      throw new Error(`${unit.imei} did not go out on ${source.doc_number}`);
+    }
+  }
+
+  const back = db.prepare(
+    `UPDATE product_units SET status = 'returned', returned_document_id = ? WHERE id = ?`,
+  );
+  for (const u of units) back.run(doc.id, u.id);
+
+  const left = syncStockFromUnits(product.id);
+  db.prepare(
+    `INSERT INTO stock_adjustments (product_id, user_id, delta, resulting_stock, reason, note, branch_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  ).run(product.id, userId, units.length, left, 'return', note, branchId);
 }
 
 function moveUnits({ doc, item, product, direction, userId, note, branchId = null, keepUnits = null }) {
@@ -862,14 +1041,9 @@ function moveUnits({ doc, item, product, direction, userId, note, branchId = nul
     return;
   }
 
-  /*
-   * Only a delivery brings handsets in. A sales invoice for a serialised
-   * product would have to name which ones are leaving, and that belongs at the
-   * register where the customer is standing — so it is refused here rather than
-   * guessing.
-   */
+  /* Only a delivery reaches here: sales and returns name their units above. */
   if (DOC_TYPES[doc.doc_type].stock < 0) {
-    throw new Error(`${product.name} is tracked by IMEI — sell it from the register, not a document`);
+    throw new Error(`${product.name} is tracked by ${numberWord(product)} — the invoice has to name which ones`);
   }
 
   /*
@@ -883,7 +1057,7 @@ function moveUnits({ doc, item, product, direction, userId, note, branchId = nul
 
   if (handsets.length !== wanted) {
     throw new Error(
-      `${product.name}: ${wanted} on the line but ${handsets.length} IMEI${handsets.length === 1 ? '' : 's'} given`,
+      `${product.name}: ${wanted} on the line but ${handsets.length} ${numberWord(product, handsets.length)} given`,
     );
   }
 

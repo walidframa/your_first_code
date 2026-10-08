@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Plus, Smartphone, Trash2 } from 'lucide-react';
 import api from '../api';
 import { useLive } from '../lib/live';
+import { unitKindOf } from '../lib/imei';
 import {
   Button,
   EmptyState,
@@ -44,6 +45,7 @@ const STATUS_LABEL = {
  */
 function ReceiveModal({ product, onClose, onSaved }) {
   const toast = useToast();
+  const serial = unitKindOf(product) === 'serial';
   const [text, setText] = useState('');
   const [condition, setCondition] = useState('new');
   const [cost, setCost] = useState(product.cost ?? '');
@@ -83,7 +85,7 @@ function ReceiveModal({ product, onClose, onSaved }) {
       <form onSubmit={submit} className="space-y-3">
         <div>
           <label htmlFor="imeis" className="mb-1 block text-sm font-medium text-slate-700">
-            IMEI or serial numbers
+            {serial ? 'Serial numbers' : 'IMEI numbers'}
           </label>
           <textarea
             id="imeis"
@@ -91,12 +93,13 @@ function ReceiveModal({ product, onClose, onSaved }) {
             onChange={(e) => setText(e.target.value)}
             rows={7}
             autoFocus
-            placeholder={'351234567890123, 351234567890124\n358888777766661'}
+            placeholder={serial ? 'SN-24A0001\nSN-24A0002' : '351234567890123, 351234567890124\n358888777766661'}
             className="w-full rounded-xl px-3 py-2 font-mono text-sm ring-1 ring-edge focus:ring-2 focus:ring-brand-500 focus:outline-none"
           />
           <p className="mt-1 text-xs text-slate-500">
-            One handset per line. For a dual-SIM phone put both numbers on the line, separated by a
-            comma. Spaces and dashes are ignored, so you can type them off the box.
+            {serial
+              ? 'One per line, as printed on the label. Spaces and dashes are ignored; letters are kept.'
+              : 'One handset per line. For a dual-SIM phone put both numbers on the line, separated by a comma. Spaces and dashes are ignored, so you can type them off the box.'}
           </p>
         </div>
 
@@ -146,6 +149,7 @@ function ReceiveModal({ product, onClose, onSaved }) {
 
 /** Every handset of one product, and what became of it. */
 export default function UnitsPanel({ product, onChanged }) {
+  const serialKind = unitKindOf(product) === 'serial';
   const toast = useToast();
   const [data, setData] = useState(null);
   const [receiving, setReceiving] = useState(false);
@@ -188,15 +192,15 @@ export default function UnitsPanel({ product, onChanged }) {
       {data.units.length === 0 ? (
         <EmptyState
           icon={Smartphone}
-          title="No handsets booked in yet"
-          description="Add the IMEIs from the delivery and they become the stock for this product."
+          title={serialKind ? 'Nothing booked in yet' : 'No handsets booked in yet'}
+          description={`Add the ${serialKind ? 'serial numbers' : 'IMEIs'} from the delivery and they become the stock for this product.`}
         />
       ) : (
         <div className="max-h-96 overflow-y-auto rounded-xl ring-1 ring-slate-200">
           <table className="w-full text-sm">
             <thead className="sticky top-0 bg-slate-50 text-left text-xs text-slate-500">
               <tr>
-                <th className="px-3 py-2 font-medium">IMEI / serial</th>
+                <th className="px-3 py-2 font-medium">{serialKind ? 'Serial number' : 'IMEI'}</th>
                 <th className="px-3 py-2 font-medium">Condition</th>
                 <th className="px-3 py-2 text-right font-medium">Cost</th>
                 <th className="px-3 py-2 font-medium">Status</th>

@@ -229,6 +229,7 @@ export function findHandset(imei, { branchId = null } = {}) {
   const unit = db
     .prepare(
       `SELECT u.*, p.name AS product_name, p.sku, p.price, p.image_url, p.image_emoji,
+              p.unit_kind,
               b.name AS branch_name, b.code AS branch_code
          FROM product_units u
          JOIN products p ON p.id = u.product_id
@@ -325,7 +326,7 @@ export function findByImei(imei) {
   const wanted = normaliseImei(imei);
   return db
     .prepare(
-      `SELECT u.*, p.name AS product_name, p.sku, p.price,
+      `SELECT u.*, p.name AS product_name, p.sku, p.price, p.unit_kind,
               o.order_number, o.created_at AS sold_on,
               cu.name AS customer_name, cu.phone AS customer_phone
        FROM product_units u

@@ -261,7 +261,9 @@ function ProductCard({ product: p, exact, open, onToggle, seesCost, priceLbp }) 
             <Row label="Last paid">{money(p.last_cost)}</Row>
           )}
           {p.reorder_point > 0 && <Row label="Reorder at">{p.reorder_point}</Row>}
-          {p.tracks_units === 1 || p.tracks_units === true ? <Row label="Tracked">by IMEI</Row> : null}
+          {p.tracks_units === 1 || p.tracks_units === true ? (
+            <Row label="Tracked">{p.unit_kind === 'serial' ? 'by serial number' : 'by IMEI'}</Row>
+          ) : null}
         </dl>
       )}
     </li>
@@ -280,7 +282,7 @@ function HandsetCard({ found }) {
         <p className="text-sm text-slate-700">{whereIs(found)}</p>
         {unit && (
           <p className="tnum mt-1 text-xs text-slate-500">
-            IMEI {unit.imei}
+            {unit.unit_kind === 'serial' ? 'Serial' : 'IMEI'} {unit.imei}
             {unit.imei2 ? ` · ${unit.imei2}` : ''}
             {unit.price > 0 ? ` · sells for ${money(unit.price)}` : ''}
           </p>
