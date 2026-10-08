@@ -37,6 +37,7 @@ import ProductQuickCreate from '../../components/ProductQuickCreate';
 import ProductQuickEdit from '../../components/ProductQuickEdit';
 import ImeiFields from '../../components/ImeiFields';
 import ReturnHandsets from '../../components/ReturnHandsets';
+import { unitKindOf } from '../../lib/imei';
 import PartyQuickCreate from '../../components/PartyQuickCreate';
 import PartyCombobox from '../../components/PartyCombobox';
 import { A4, usePageSize } from '../../lib/pageSize';
@@ -1088,11 +1089,37 @@ function DocumentForm({ existing, startAs = null, page = false, onClose, onSaved
                                     value={l.imeis || ''}
                                     quantity={l.quantity}
                                     productName={l.product.name}
+                                    kind={unitKindOf(l.product)}
                                     onChange={(imeis) => updateLine(l.key, { imeis })}
                                   />
                                 )}
                                 {docType === 'purchase_return' && l.product.tracks_units && (
                                   <ReturnHandsets
+                                    product={l.product}
+                                    value={l.imeis || ''}
+                                    quantity={l.quantity}
+                                    onChange={(patch) => updateLine(l.key, patch)}
+                                  />
+                                )}
+                                {/*
+                                  * A sale names which units are leaving, off the
+                                  * shelf, the way a return to the supplier does;
+                                  * a sales return names which are coming back,
+                                  * out of the ones sold. A quotation or an order
+                                  * promises nothing in particular yet.
+                                  */}
+                                {docType === 'sales_invoice' && l.product.tracks_units && (
+                                  <ReturnHandsets
+                                    mode="sell"
+                                    product={l.product}
+                                    value={l.imeis || ''}
+                                    quantity={l.quantity}
+                                    onChange={(patch) => updateLine(l.key, patch)}
+                                  />
+                                )}
+                                {docType === 'sales_return' && l.product.tracks_units && (
+                                  <ReturnHandsets
+                                    mode="take_back"
                                     product={l.product}
                                     value={l.imeis || ''}
                                     quantity={l.quantity}

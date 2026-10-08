@@ -671,6 +671,27 @@ addColumn('product_units', 'warranty_months', 'INTEGER');
 addColumn('product_units', 'warranty_starts', 'TEXT');
 
 /*
+ * What the number stamped on a unit is.
+ *
+ * `product_units.imei` has always held either: fifteen digits off a phone, or
+ * the serial off anything else the shop wants to sell one at a time — a
+ * laptop, a router, a power station. The column did not care, but every
+ * screen said "IMEI", offered a second box for a dual-SIM, and moved on by
+ * itself after fifteen digits, which is wrong three times over for a serial.
+ * So a tracked product says which it carries, and the screens read it.
+ */
+addColumn('products', 'unit_kind', "TEXT NOT NULL DEFAULT 'imei'");
+
+/*
+ * The sales return that brought a unit back.
+ *
+ * A unit sold on an invoice comes back on a return document, and cancelling
+ * that return has to send the very same unit out again — so the return is
+ * written on the unit, the way the sale and the delivery already are.
+ */
+addColumn('product_units', 'returned_document_id', 'INTEGER REFERENCES documents(id)');
+
+/*
  * Repair jobs.
  *
  * A phone comes in broken and leaves fixed, and in between it is the shop's

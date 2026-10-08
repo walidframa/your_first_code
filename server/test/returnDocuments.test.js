@@ -361,12 +361,15 @@ test('a handset that moved between branches can still go back; one on the road c
   assert.match(refused.json.error, /still on its way/);
 });
 
-test('a handset is not returned on paper', async () => {
+test('a handset comes back on paper only by name', async () => {
+  // A return that says "one handset" without saying which is refused by
+  // count — the same rule as a delivery. Naming one is covered in
+  // unitSales.test.js.
   const ret = await draft('sales_return', customer.id, [{ productId: phone.id, quantity: 1, price: 300 }]);
   const refused = await confirm(ret.id);
   assert.equal(refused.status, 400);
-  assert.match(refused.json.error, /tracked by IMEI/);
-  assert.match(refused.json.error, /Sales screen/);
+  assert.match(refused.json.error, /1 on the line but 0 IMEIs given/);
+  assert.match(refused.json.error, /which ones came back/);
 });
 
 test('a sales return comes off the profit, and the days still add up', async () => {

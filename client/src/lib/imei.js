@@ -89,3 +89,19 @@ export function handsetSlots(text, quantity) {
   }
   return slots;
 }
+
+/**
+ * What the number on a product's units is called.
+ *
+ * `product_units.imei` holds a phone's IMEI or anything else's serial; the
+ * product says which (`unit_kind`), and every screen that shows, asks for or
+ * searches the number reads the word from here rather than saying "IMEI" to
+ * somebody holding a laptop.
+ */
+export const unitKindOf = (product) => (product?.unit_kind === 'serial' ? 'serial' : 'imei');
+
+export const unitLabel = (product, { plural = false } = {}) =>
+  unitKindOf(product) === 'serial' ? (plural ? 'serial numbers' : 'serial number') : plural ? 'IMEIs' : 'IMEI';
+
+/** "IMEI" or "Serial number", for a heading. */
+export const unitHeading = (product) => (unitKindOf(product) === 'serial' ? 'Serial number' : 'IMEI');

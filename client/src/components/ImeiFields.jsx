@@ -24,7 +24,14 @@ import { cx } from './ui';
  * so nothing else had to learn a new shape — see lib/imei.js, which formats and
  * parses it the way the server does.
  */
-export default function ImeiFields({ value, quantity, productName, onChange }) {
+export default function ImeiFields({ value, quantity, productName, onChange, kind = 'imei' }) {
+  /*
+   * A serial is one box per unit, with letters in it, and no length that
+   * means "done": a laptop's serial is whatever the maker printed. So the
+   * second box goes, the keyboard is the ordinary one, and only Enter or Tab
+   * moves on.
+   */
+  const serial = kind === 'serial';
   /*
    * Every box in scan order — phone 1's two, then phone 2's, and so on — so
    * "the next one" is the next index and needs no arithmetic at the call site.
@@ -74,7 +81,7 @@ export default function ImeiFields({ value, quantity, productName, onChange }) {
               <span className="tnum w-5 shrink-0 text-right text-xs text-slate-400">{phone + 1}</span>
             )}
 
-            {['imei', 'imei2'].map((which, half) => {
+            {(serial ? ['imei'] : ['imei', 'imei2']).map((which, half) => {
               const index = phone * 2 + half;
               return (
                 <input
@@ -83,10 +90,14 @@ export default function ImeiFields({ value, quantity, productName, onChange }) {
                     boxes.current[index] = el;
                   }}
                   value={slot[which] || ''}
-                  inputMode="numeric"
+                  inputMode={serial ? 'text' : 'numeric'}
                   autoComplete="off"
-                  aria-label={`${productName} handset ${phone + 1} IMEI ${half + 1}`}
-                  placeholder={half === 0 ? 'IMEI 1' : 'IMEI 2 (dual-SIM)'}
+                  aria-label={
+                    serial
+                      ? `${productName} unit ${phone + 1} serial number`
+                      : `${productName} handset ${phone + 1} IMEI ${half + 1}`
+                  }
+                  placeholder={serial ? 'Serial number' : half === 0 ? 'IMEI 1' : 'IMEI 2 (dual-SIM)'}
                   onChange={(e) => {
                     const typed = digitsOf(e.target.value);
                     write(phone, which, typed);
@@ -98,7 +109,7 @@ export default function ImeiFields({ value, quantity, productName, onChange }) {
                      * scan of six handsets that would otherwise all land in the
                      * first box.
                      */
-                    if (typed.length >= 15) {
+                    if (!serial && typed.length >= 15) {
                       advancedAt.current = Date.now();
                       focusNext(index);
                     }
@@ -130,8 +141,9 @@ export default function ImeiFields({ value, quantity, productName, onChange }) {
       </ul>
 
       <p className={cx('mt-1 text-xs', filled === wanted ? 'text-brand-700' : 'text-amber-700')}>
-        {filled} of {wanted} handset{wanted === 1 ? '' : 's'} — scan into the first box and it moves
-        on by itself. The second is only for a dual-SIM.
+        {serial
+          ? `${filled} of ${wanted} — one serial number per box, as printed on the label. Enter moves on.`
+          : `${filled} of ${wanted} handset${wanted === 1 ? '' : 's'} — scan into the first box and it moves on by itself. The second is only for a dual-SIM.`}
       </p>
     </div>
   );

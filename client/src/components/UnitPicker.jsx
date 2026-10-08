@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Search, Smartphone } from 'lucide-react';
 import api from '../api';
 import { EmptyState, Modal, Skeleton, cx, money } from './ui';
+import { unitHeading, unitKindOf, unitLabel } from '../lib/imei';
 
 const CONDITION_STYLE = {
   new: 'bg-brand-50 text-brand-700',
@@ -20,6 +21,8 @@ const CONDITION_STYLE = {
 export default function UnitPicker({ product, onPick, onClose }) {
   const [units, setUnits] = useState(null);
   const [term, setTerm] = useState('');
+  const serial = unitKindOf(product) === 'serial';
+  const word = unitHeading(product);
 
   useEffect(() => {
     let cancelled = false;
@@ -38,14 +41,14 @@ export default function UnitPicker({ product, onPick, onClose }) {
   }, [units, term]);
 
   return (
-    <Modal open onClose={onClose} title={product.name} subtitle="Which handset?" size="md">
+    <Modal open onClose={onClose} title={product.name} subtitle={serial ? 'Which one?' : 'Which handset?'} size="md">
       {units === null ? (
         <Skeleton className="h-40" />
       ) : units.length === 0 ? (
         <EmptyState
           icon={Smartphone}
           title="None on the shelf"
-          description="Book the IMEIs in from Products before selling this."
+          description={`Book the ${serial ? 'serial numbers' : 'IMEIs'} in from Products before selling this.`}
         />
       ) : (
         <div className="space-y-3">
@@ -57,8 +60,8 @@ export default function UnitPicker({ product, onPick, onClose }) {
               value={term}
               onChange={(e) => setTerm(e.target.value)}
               autoFocus
-              placeholder="Scan or type part of the IMEI"
-              aria-label="Find a handset by IMEI"
+              placeholder={`Scan or type part of the ${unitLabel(product)}`}
+              aria-label={`Find one by ${word}`}
               className="w-full rounded-xl py-2 pr-3 pl-9 font-mono text-sm ring-1 ring-edge focus:ring-2 focus:ring-brand-500 focus:outline-none"
             />
           </div>
@@ -93,7 +96,7 @@ export default function UnitPicker({ product, onPick, onClose }) {
             ))}
             {shown.length === 0 && (
               <li className="px-3 py-6 text-center text-sm text-slate-400">
-                No handset here matches {term}
+                {serial ? 'Nothing' : 'No handset'} here matches {term}
               </li>
             )}
           </ul>

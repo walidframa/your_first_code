@@ -97,6 +97,23 @@ function serializeProduct(p, { codes = undefined, branchId = null, here = undefi
  * shop just gave, and refusing a product because two boxes disagree teaches
  * nobody anything.
  */
+/** What the number on each unit of a tracked product is. */
+const UNIT_KINDS = ['imei', 'serial'];
+
+/**
+ * A tracked product's number kind, checked.
+ *
+ * Only meaningful on a product counted one at a time; a quantity product
+ * keeps the default and nothing reads it. Undefined is "leave it alone".
+ */
+function unitKindOf(value) {
+  if (value === undefined || value === null || value === '') return undefined;
+  if (!UNIT_KINDS.includes(value)) {
+    throw new Error(`unit_kind must be one of: ${UNIT_KINDS.join(', ')}`);
+  }
+  return value;
+}
+
 function settleService({ isService, tracksUnits, isSim }) {
   if (!isService) return { is_service: 0, tracks_units: tracksUnits ? 1 : 0, is_sim: isSim ? 1 : 0 };
   return { is_service: 1, tracks_units: 0, is_sim: 0 };
@@ -660,10 +677,16 @@ router.post('/', requireAuth, requirePermission('catalogue'), (req, res) => {
     name, sku, price, cost, stock, category_id, image_emoji, barcode, supplier, image_url,
     reorder_point, tracks_units, warranty_months, wallet_id, is_sim,
     validity_days, linked_card_id, credit_recovered, credit_wallet_id, credits_included,
-    wholesale_price, is_service, price_lbp, cost_lbp,
+    wholesale_price, is_service, price_lbp, cost_lbp, unit_kind,
   } = req.body || {};
   if (!name || !sku || price == null) {
     return res.status(400).json({ error: 'name, sku and price are required' });
+  }
+  let unitKind;
+  try {
+    unitKind = unitKindOf(unit_kind) ?? 'imei';
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
   }
 
   /*
@@ -690,8 +713,8 @@ router.post('/', requireAuth, requirePermission('catalogue'), (req, res) => {
   if (problem) return res.status(400).json({ error: problem });
   try {
     const info = db.prepare(`
-      INSERT INTO products (name, sku, price, cost, stock, category_id, image_emoji, barcode, supplier, image_url, reorder_point, tracks_units, warranty_months, wallet_id, is_sim, validity_days, linked_card_id, credit_recovered, credit_wallet_id, credits_included, wholesale_price, is_service, price_lbp, cost_lbp)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO products (name, sku, price, cost, stock, category_id, image_emoji, barcode, supplier, image_url, reorder_point, tracks_units, warranty_months, wallet_id, is_sim, validity_days, linked_card_id, credit_recovered, credit_wallet_id, credits_included, wholesale_price, is_service, price_lbp, cost_lbp, unit_kind)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       name,
       sku,
@@ -732,6 +755,8 @@ router.post('/', requireAuth, requirePermission('catalogue'), (req, res) => {
       kind.is_service,
       pounds(price_lbp),
       pounds(cost_lbp),
+      // IMEI unless the shop says serial — see db.js.
+      unitKind,
     );
     /*
      * The opening count lands on the shelf of the branch it was entered at —
@@ -877,6 +902,8 @@ router.put('/:id', requireAuth, requirePermission('catalogue'), (req, res) => {
      * everything else about the product is ordinary.
      */
     'is_sim',
+    // IMEI or serial number on each unit — see db.js. Checked below.
+    'unit_kind',
     /*
      * A validity card and what selling one sets in motion: which full card is
      * consumed, how much credit comes back, and onto which carrier balance.
@@ -895,6 +922,13 @@ router.put('/:id', requireAuth, requirePermission('catalogue'), (req, res) => {
   const updates = {};
   for (const f of fields) {
     if (req.body[f] !== undefined) updates[f] = req.body[f];
+  }
+  try {
+    const kind = unitKindOf(updates.unit_kind);
+    if (kind === undefined) delete updates.unit_kind;
+    else updates.unit_kind = kind;
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
   }
 
   const walletId = updates.wallet_id === undefined ? product.wallet_id : updates.wallet_id || null;
@@ -984,7 +1018,8 @@ router.put('/:id', requireAuth, requirePermission('catalogue'), (req, res) => {
       tracks_units = ?,
       warranty_months = ?, wallet_id = ?, is_sim = ?,
       validity_days = ?, linked_card_id = ?, credit_recovered = ?, credit_wallet_id = ?,
-      credits_included = ?, wholesale_price = ?, is_service = ?, price_lbp = ?, cost_lbp = ?
+      credits_included = ?, wholesale_price = ?, is_service = ?, price_lbp = ?, cost_lbp = ?,
+      unit_kind = ?
     WHERE id = ?
   `).run(
     merged.name,
@@ -1021,6 +1056,7 @@ router.put('/:id', requireAuth, requirePermission('catalogue'), (req, res) => {
     merged.is_service ? 1 : 0,
     pounds(merged.price_lbp),
     pounds(merged.cost_lbp),
+    merged.unit_kind || 'imei',
     req.params.id
   );
 

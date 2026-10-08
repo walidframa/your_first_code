@@ -2,6 +2,37 @@ import { useEffect, useMemo, useState } from 'react';
 import { Search, Smartphone } from 'lucide-react';
 import api from '../api';
 import { Skeleton, cx } from './ui';
+import { digitsOf, unitHeading, unitKindOf } from '../lib/imei';
+
+/*
+ * The three things a line can be doing with units already known to the shop,
+ * and the words for each. The mechanics are the same — offer a list, tick,
+ * the line's numbers and quantity follow the ticks — only which list and what
+ * it is called change.
+ */
+const MODES = {
+  /* Back to the supplier: what is on this shelf. */
+  send_back: {
+    status: null,
+    here: true,
+    verb: 'going back',
+    empty: 'None of these are on the shelf here — there is nothing to send back.',
+  },
+  /* Out to a customer on an invoice: what is on this shelf. */
+  sell: {
+    status: null,
+    here: true,
+    verb: 'being sold',
+    empty: 'None on the shelf here — book them in from Products first.',
+  },
+  /* Back from a customer on a return: what is out with customers. */
+  take_back: {
+    status: 'sold',
+    here: false,
+    verb: 'coming back',
+    empty: 'None of these are out with a customer.',
+  },
+};
 
 const CONDITION_STYLE = {
   new: 'bg-brand-50 text-brand-700',
@@ -22,24 +53,38 @@ const CONDITION_STYLE = {
  * line; the ones still on the shelf come pre-ticked, and the ones since sold
  * are simply not offered.
  */
-export default function ReturnHandsets({ product, value, quantity, onChange }) {
+export default function ReturnHandsets({ product, value, quantity, onChange, mode = 'send_back' }) {
   const [units, setUnits] = useState(null);
   const [term, setTerm] = useState('');
+  const how = MODES[mode] || MODES.send_back;
+  const serial = unitKindOf(product) === 'serial';
+  const one = serial ? 'one' : 'handset';
+  const word = unitHeading(product);
 
   useEffect(() => {
     let live = true;
-    api.get(`/units/product/${product.id}`, { params: { branch: 'here' } }).then((res) => {
+    const params = how.here ? { branch: 'here' } : {};
+    if (how.status) params.status = how.status;
+    api.get(`/units/product/${product.id}`, { params }).then((res) => {
       if (!live) return;
-      setUnits(res.data.units.filter((u) => u.status === 'in_stock' || u.status === 'returned'));
+      setUnits(
+        how.status
+          ? res.data.units
+          : res.data.units.filter((u) => u.status === 'in_stock' || u.status === 'returned'),
+      );
     });
     return () => {
       live = false;
     };
-  }, [product.id]);
+  }, [product.id, how.here, how.status]);
 
-  /* What the line names, as a set of numbers: either slot of a dual-SIM counts. */
+  /*
+   * What the line names, as a set of numbers: either slot of a dual-SIM
+   * counts. Normalised the way the server does — spaces and dashes out,
+   * letters kept — so a serial with letters in it still matches itself.
+   */
   const named = useMemo(
-    () => new Set(String(value || '').split(/[\s,;/|]+/).map((s) => s.replace(/\D/g, '')).filter(Boolean)),
+    () => new Set(String(value || '').split(/[\s,;/|]+/).map(digitsOf).filter(Boolean)),
     [value],
   );
   const ticked = useMemo(
@@ -78,7 +123,7 @@ export default function ReturnHandsets({ product, value, quantity, onChange }) {
   if (units.length === 0) {
     return (
       <p className="mt-2 flex items-center gap-1.5 text-xs text-amber-700">
-        <Smartphone size={13} /> None of these are on the shelf here — there is nothing to send back.
+        <Smartphone size={13} /> {how.empty}
       </p>
     );
   }
@@ -88,8 +133,8 @@ export default function ReturnHandsets({ product, value, quantity, onChange }) {
       <div className="flex items-center justify-between gap-2">
         <p className="text-xs text-slate-500">
           {ticked.length === 0
-            ? `Tick the handset${units.length === 1 ? '' : 's'} going back`
-            : `${ticked.length} of ${units.length} on the shelf going back`}
+            ? `Tick the ${units.length === 1 ? one : serial ? 'ones' : 'handsets'} ${how.verb}`
+            : `${ticked.length} of ${units.length} ${how.status === 'sold' ? 'out with customers' : 'on the shelf'} ${how.verb}`}
         </p>
         {units.length > 6 && (
           <div className="relative">
@@ -97,8 +142,8 @@ export default function ReturnHandsets({ product, value, quantity, onChange }) {
             <input
               value={term}
               onChange={(e) => setTerm(e.target.value)}
-              placeholder="Find by IMEI"
-              aria-label="Find a handset by IMEI"
+              placeholder={`Find by ${word}`}
+              aria-label={`Find ${serial ? 'one' : 'a handset'} by ${word}`}
               className="h-7 w-40 rounded-lg py-1 pr-2 pl-7 font-mono text-xs ring-1 ring-edge focus:ring-2 focus:ring-brand-500 focus:outline-none"
             />
           </div>
@@ -133,12 +178,15 @@ export default function ReturnHandsets({ product, value, quantity, onChange }) {
                     returned
                   </span>
                 )}
+                {how.status === 'sold' && u.sold_at && (
+                  <span className="tnum text-xs text-slate-400">sold {String(u.sold_at).slice(0, 10)}</span>
+                )}
               </label>
             </li>
           );
         })}
         {shown.length === 0 && (
-          <li className="px-2 py-3 text-center text-xs text-slate-400">No handset here matches {term}</li>
+          <li className="px-2 py-3 text-center text-xs text-slate-400">Nothing here matches {term}</li>
         )}
       </ul>
     </div>
