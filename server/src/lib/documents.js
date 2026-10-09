@@ -1455,7 +1455,17 @@ export function getDocument(id) {
     .get(id);
   if (!doc) return null;
 
-  const items = db.prepare('SELECT * FROM document_items WHERE document_id = ? ORDER BY id').all(id);
+  /* With the kind of number the line's product carries, so the printed
+     invoice can head the numbers on a line "IMEI" or "Serial number". */
+  const items = db
+    .prepare(
+      `SELECT di.*, p.unit_kind
+         FROM document_items di
+         LEFT JOIN products p ON p.id = di.product_id
+        WHERE di.document_id = ?
+        ORDER BY di.id`,
+    )
+    .all(id);
   const convertedTo = db
     .prepare('SELECT id, doc_type, doc_number, status FROM documents WHERE converted_from_id = ?')
     .all(id);

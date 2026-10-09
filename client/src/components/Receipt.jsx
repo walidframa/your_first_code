@@ -9,6 +9,25 @@ import { A4, ROLL, usePageSize } from '../lib/pageSize';
 import { when } from '../lib/when';
 
 /**
+ * The number on the handset that left, under the line it left on.
+ *
+ * A receipt is what the customer brings back — for a warranty, a repair, an
+ * argument — and the number is what the shop checks it against. "Galaxy A55"
+ * on its own could be any of them; the IMEI is the one that went out the
+ * door. A serial reads "SN", because that is what is printed on a laptop.
+ */
+function UnitNumber({ item, className }) {
+  if (!item.imei) return null;
+  const label = item.unit_kind === 'serial' ? 'SN' : 'IMEI';
+  return (
+    <span className={cx('tnum block font-mono text-[11px] text-slate-500', className)} data-unit-number>
+      {label} {item.imei}
+      {item.imei2 ? ` · ${item.imei2}` : ''}
+    </span>
+  );
+}
+
+/**
  * Which paper this shop puts a receipt on.
  *
  * A phone shop has a till roll at the counter and an office printer in the
@@ -190,6 +209,7 @@ function Roll({ order, items, tenders, rate, totalLbp, changeText, reprint, t })
           <div key={item.id} className="flex justify-between gap-3">
             <span className="min-w-0 text-slate-600">
               <span className="tnum text-slate-400">{item.quantity}×</span> {item.name}
+              <UnitNumber item={item} />
             </span>
             <span className="tnum shrink-0 text-slate-800">{money(item.line_total)}</span>
           </div>
@@ -392,6 +412,7 @@ function Sheet({ order, items, tenders, rate, totalLbp, changeText, reprint, t }
                 <td className="tnum py-2.5 pr-2 text-right align-top text-xs text-slate-400">{n + 1}</td>
                 <td className="py-2.5 pr-3 align-top">
                   <p className="font-medium text-slate-900">{item.name}</p>
+                  <UnitNumber item={item} />
                   {item.returned_qty > 0 && (
                     <p className="text-[11px] text-amber-700">{item.returned_qty} returned</p>
                   )}

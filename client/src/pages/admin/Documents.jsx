@@ -37,7 +37,31 @@ import ProductQuickCreate from '../../components/ProductQuickCreate';
 import ProductQuickEdit from '../../components/ProductQuickEdit';
 import ImeiFields from '../../components/ImeiFields';
 import ReturnHandsets from '../../components/ReturnHandsets';
-import { unitKindOf } from '../../lib/imei';
+import { parseImeis, unitKindOf } from '../../lib/imei';
+
+/**
+ * The numbers on a document line, under its description.
+ *
+ * A delivery names what arrived, an invoice names what left, a return names
+ * what came or went back — and the paper has to say so, because the number
+ * is what the customer's warranty and the supplier's credit note both turn
+ * on. One per row; a dual-SIM's pair on one row.
+ */
+function LineNumbers({ item }) {
+  const handsets = parseImeis(item.imeis);
+  if (handsets.length === 0) return null;
+  const label = item.unit_kind === 'serial' ? 'SN' : 'IMEI';
+  return (
+    <ul className="mt-0.5 space-y-0.5" data-line-numbers>
+      {handsets.map((h, i) => (
+        <li key={`${h.imei}-${i}`} className="tnum font-mono text-[11px] text-slate-500">
+          {label} {h.imei}
+          {h.imei2 ? ` · ${h.imei2}` : ''}
+        </li>
+      ))}
+    </ul>
+  );
+}
 import PartyQuickCreate from '../../components/PartyQuickCreate';
 import PartyCombobox from '../../components/PartyCombobox';
 import { A4, usePageSize } from '../../lib/pageSize';
@@ -2044,6 +2068,7 @@ function DocumentDetail({ id, onClose, onChanged, onDeleted, onConverted }) {
                 <td className="py-2.5 pr-3 align-top">
                   <p className="font-medium text-slate-900">{i.name}</p>
                   {i.sku && <p className="font-mono text-[11px] text-slate-400">{i.sku}</p>}
+                  <LineNumbers item={i} />
                 </td>
                 <td className="tnum py-2.5 px-2 text-right align-top text-slate-700">{i.quantity}</td>
                 <td className="tnum py-2.5 px-2 text-right align-top text-slate-700">

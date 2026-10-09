@@ -180,6 +180,12 @@ test('selling takes the named handset, and its own cost', async () => {
   assert.equal(sale.status, 201);
   assert.equal(sale.json.items[0].unit_id, unit.id);
   assert.equal(sale.json.items[0].cost, 415, 'the handset that left, not the shelf average');
+  // On the line, for the receipt: the number of the phone that went out.
+  assert.equal(sale.json.items[0].imei, unit.imei);
+  assert.equal(sale.json.items[0].unit_kind, 'imei');
+  const slip = await req('GET', `/orders/${sale.json.order.id}/whatsapp`, null, cashierToken);
+  assert.equal(slip.status, 200, JSON.stringify(slip.json));
+  assert.match(slip.json.text, new RegExp(`IMEI ${unit.imei}`), 'the receipt text names the handset');
   assert.equal(await stockOf(phone.id), before - 1);
 
   const after = await req('GET', `/units/lookup?imei=${unit.imei}`, null, cashierToken);

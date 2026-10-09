@@ -164,7 +164,20 @@ function buildCreditLine(item, branchId, exchangeRate) {
  */
 function itemsOfOrder(orderId) {
   return db
-    .prepare('SELECT * FROM order_items WHERE order_id = ?')
+    .prepare(
+      /*
+       * The number on the handset that left, on the line it left on. The
+       * receipt is the customer's proof of which phone they bought, and a
+       * warranty claim starts with the IMEI on the slip — a receipt that said
+       * "Galaxy A55" and nothing else could be for any of them.
+       */
+      `SELECT oi.*, u.imei, u.imei2, p.unit_kind
+         FROM order_items oi
+         LEFT JOIN product_units u ON u.id = oi.unit_id
+         LEFT JOIN products p ON p.id = oi.product_id
+        WHERE oi.order_id = ?
+        ORDER BY oi.id`,
+    )
     .all(orderId)
     .map((item) => {
       if (!item.product_id) return item;
