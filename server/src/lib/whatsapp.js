@@ -18,6 +18,7 @@
 import { db } from '../db.js';
 import { DOC_TYPES, getDocument } from './documents.js';
 import { getSettings } from './settings.js';
+import { parseImeiList } from './units.js';
 import { ticketWithDetail } from './repairs.js';
 import { usdToLbp } from './currency.js';
 
@@ -111,8 +112,21 @@ function join(lines) {
  * One sold line. Deliberately not columns: WhatsApp renders in a proportional
  * face, so padded text that lines up here arrives ragged on the phone.
  */
-function itemLine(name, quantity, total) {
-  return `${quantity > 1 ? `${quantity}× ` : ''}${name} — ${money(total)}`;
+function itemLine(name, quantity, total, numbers = []) {
+  const head = `${quantity > 1 ? `${quantity}× ` : ''}${name} — ${money(total)}`;
+  return numbers.length ? [head, ...numbers.map((n) => `  ${n}`)].join('\n') : head;
+}
+
+/**
+ * The numbers on a line, each on its own: "IMEI 3589… / 3589…" for a
+ * handset, "SN …" for anything with a serial. The receipt is what a customer
+ * shows when they come back, and the number is what the shop checks.
+ */
+function numbersOn(kind, handsets) {
+  const label = kind === 'serial' ? 'SN' : 'IMEI';
+  return handsets
+    .filter((h) => h?.imei)
+    .map((h) => `${label} ${[h.imei, h.imei2].filter(Boolean).join(' / ')}`);
 }
 
 /* ---------------------------------------------------------------- messages */
@@ -141,7 +155,15 @@ export function orderMessage(orderId) {
     .get(orderId);
   if (!order) return null;
 
-  const items = db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(orderId);
+  const items = db
+    .prepare(
+      `SELECT oi.*, u.imei, u.imei2, p.unit_kind
+         FROM order_items oi
+         LEFT JOIN product_units u ON u.id = oi.unit_id
+         LEFT JOIN products p ON p.id = oi.product_id
+        WHERE oi.order_id = ? ORDER BY oi.id`,
+    )
+    .all(orderId);
   const settings = getSettings();
   const rate = order.exchange_rate || 0;
 
@@ -150,7 +172,9 @@ export function orderMessage(orderId) {
     `Receipt ${order.order_number}`,
     readableDate(order.created_at, { withTime: true }),
     '',
-    ...items.map((item) => itemLine(item.name, item.quantity, item.line_total)),
+    ...items.map((item) =>
+      itemLine(item.name, item.quantity, item.line_total, numbersOn(item.unit_kind, [item])),
+    ),
     '',
     order.discount > 0 ? `Subtotal: ${money(order.subtotal)}` : null,
     order.discount > 0 ? `Discount: −${money(order.discount)}` : null,
@@ -203,7 +227,9 @@ export function documentMessage(id) {
       ? `${doc.doc_type === 'quotation' ? 'Valid until' : 'Due'}: ${readableDate(doc.valid_until)}`
       : null,
     '',
-    ...items.map((item) => itemLine(item.name, item.quantity, item.line_total)),
+    ...items.map((item) =>
+      itemLine(item.name, item.quantity, item.line_total, numbersOn(item.unit_kind, parseImeiList(item.imeis))),
+    ),
     '',
     doc.discount > 0 ? `Subtotal: ${money(doc.subtotal)}` : null,
     doc.discount > 0 ? `Discount: −${money(doc.discount)}` : null,

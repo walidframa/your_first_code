@@ -170,6 +170,13 @@ test('a sales invoice sells a serialised product by naming which units', async (
   const saved = (await req('GET', `/documents/${invoice.id}`)).json;
   const docNumber = saved.document.doc_number;
   assert.equal(saved.items[0].cost, 700, '(690 + 710) / 2');
+  // And the line knows what kind of number it carries, for the printed invoice.
+  assert.equal(saved.items[0].unit_kind, 'serial');
+  assert.match(saved.items[0].imeis, /WB14A0001/);
+  const sent = await req('GET', `/documents/${invoice.id}/whatsapp`);
+  assert.equal(sent.status, 200, JSON.stringify(sent.json));
+  assert.match(sent.json.text, /SN WB14A0001/, 'the invoice text names each unit');
+  assert.match(sent.json.text, /SN WB14A0002/);
 
   // The finder knows which paper it left on.
   const where = (await req('GET', '/units/find?imei=WB14A0002')).json;
