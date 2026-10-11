@@ -192,10 +192,18 @@ test('taking a payment moves the licence and writes it down', async () => {
   const paid = await req('POST', '/api/tenants/rami/pay', { periods: 1, amount: 25, note: 'cash' });
   assert.equal(paid.status, 200);
 
-  // From the day already paid for, not from today.
-  const expected = new Date(`${before.paidThrough}T00:00:00Z`);
-  expected.setUTCMonth(expected.getUTCMonth() + 1);
-  assert.equal(paid.json.paidThrough, expected.toISOString().slice(0, 10));
+  /*
+   * From the day already paid for, not from today — and a month on means
+   * the same day of the next month, clamped to its last day. The fixture is
+   * dated off today, so on the 11th of October it is paid through the 31st,
+   * and a plain setUTCMonth would read the 31st of November as the 1st of
+   * December and fail the test for three days a year.
+   */
+  const from = new Date(`${before.paidThrough}T00:00:00Z`);
+  const next = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth() + 1, 1));
+  const lastOfNext = new Date(Date.UTC(next.getUTCFullYear(), next.getUTCMonth() + 1, 0)).getUTCDate();
+  next.setUTCDate(Math.min(from.getUTCDate(), lastOfNext));
+  assert.equal(paid.json.paidThrough, next.toISOString().slice(0, 10));
 
   const { json } = await req('GET', '/api/tenants/rami/payments');
   assert.equal(json.payments[0].amount, 25);

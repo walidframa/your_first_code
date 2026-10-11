@@ -257,6 +257,48 @@ test('refunding a cash sale takes the money back out', async () => {
   assert.ok(afterSale > afterRefund);
 });
 
+test('a sale rung up by mistake is voided with the cash undone exactly as taken', async () => {
+  await req('POST', '/cash/open', { openingUsd: 100, openingLbp: 500000 }, adminToken);
+  const item = await product('SNK-001');
+
+  /*
+   * The typo: three hundred thousand dollars for a few dollars of goods, the
+   * change in pounds. Refunding the total from that would leave the drawer
+   * heavy by the whole figure in dollars and light by billions of pounds.
+   */
+  const sale = await req(
+    'POST',
+    '/orders',
+    {
+      items: [{ productId: item.id, quantity: 1 }],
+      paymentMethod: 'cash',
+      payments: [{ currency: 'USD', amount: 300000 }],
+      changeCurrency: 'LBP',
+    },
+    cashierToken,
+  );
+  assert.equal(sale.status, 201, JSON.stringify(sale.json));
+  const order = sale.json.order;
+  assert.ok(order.change_lbp > 0, 'the change was given in pounds');
+
+  const heavy = (await req('GET', '/cash/current', null, adminToken)).json.expected;
+  assert.equal(heavy.usd, 300100, 'the drawer took the whole typo');
+  assert.ok(heavy.lbp < 0, 'and gave more pounds than it had');
+
+  const voided = await req(
+    'POST',
+    `/orders/${order.id}/refund`,
+    { undoTender: true },
+    adminToken,
+    AT_REGISTER,
+  );
+  assert.equal(voided.status, 200, JSON.stringify(voided.json));
+
+  const after = (await req('GET', '/cash/current', null, adminToken)).json.expected;
+  assert.equal(after.usd, 100, 'the dollars are back where they started');
+  assert.equal(after.lbp, 500000, 'and so are the pounds');
+});
+
 test('money can be put in and taken out by hand, with a reason', async () => {
   await req('POST', '/cash/open', { openingUsd: 50 }, adminToken);
 

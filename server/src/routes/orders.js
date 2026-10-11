@@ -8,7 +8,7 @@ import { productForCode } from '../lib/barcodes.js';
 import { getSettings, taxRate } from '../lib/settings.js';
 import { addEntry, balanceOf, creditCheck } from '../lib/accounts.js';
 import { dominantMethod, readTenders, recordTenders, tenderSplit, tendersFor } from '../lib/tenders.js';
-import { recordMovement, registerAccountId, registerSession, requiresSession, tillFor } from '../lib/cash.js';
+import { currentSession, recordMovement, registerAccountId, registerSession, requiresSession, tillFor } from '../lib/cash.js';
 import { notify } from '../lib/telegram.js';
 import { refundText, returnText, saleText } from '../lib/notifyText.js';
 import { postRefund, postSale } from '../lib/postings.js';
@@ -1400,6 +1400,25 @@ function refundCurrencyFrom(body) {
   return c === 'LBP' || c === 'USD' ? c : null;
 }
 
+/**
+ * The sale's own drawer movement, turned back exactly.
+ *
+ * A refund hands the customer the sale's total, which is right when the sale
+ * was real: the change they walked out with was real too, and it is not
+ * coming back. It is wrong when the sale never happened as rung up — $300,000
+ * typed for a $3.33 card, change of twenty-seven billion pounds given on
+ * paper, nobody handing anything over. Refunding $3.33 from that leaves the
+ * drawer three hundred thousand dollars heavy and a mountain of pounds light,
+ * and "drawer short" for the rest of the shift. So a void can say the tender
+ * was a mistake, and then what comes out is what went in, pile by pile.
+ */
+function tenderUndone(order) {
+  return {
+    amountUsd: -round2((order.paid_usd || 0) - (order.change_usd || 0)),
+    amountLbp: -Math.round((order.paid_lbp || 0) - (order.change_lbp || 0)),
+  };
+}
+
 router.post('/:id/refund', requireAuth, requirePermission('refunds'), (req, res) => {
   const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(req.params.id);
   if (!order) return res.status(404).json({ error: 'Order not found' });
@@ -1491,7 +1510,32 @@ router.post('/:id/refund', requireAuth, requirePermission('refunds'), (req, res)
      * done from the Sales screen, or after the drawer was counted and closed,
      * is paid from the safe, not from a count somebody has already signed.
      */
-    const till = tillFor({ atRegister: req.atRegister, branchId: order.branch_id });
+    let till = tillFor({ atRegister: req.atRegister, branchId: order.branch_id });
+
+    /*
+     * Undoing the tender puts the money back where the sale put it.
+     *
+     * A refund from the Sales screen is paid from the safe — a drawer that
+     * has been counted is not reopened for it. But a tender undone is not a
+     * payment to anybody: it is the drawer's own record being corrected, and
+     * correcting it in the safe leaves the drawer wrong by the typo and the
+     * safe wrong by the same amount the other way. So while the drawer the
+     * sale went into is still open, the undo goes there; once it has been
+     * closed and counted, the safe is the only place left.
+     */
+    const undoTender = Boolean(req.body?.undoTender);
+    if (undoTender) {
+      const took = db
+        .prepare(
+          `SELECT s.account_id FROM cash_movements m
+             JOIN cash_sessions s ON s.id = m.session_id
+            WHERE m.order_id = ? AND m.kind = 'sale'
+            ORDER BY m.id LIMIT 1`,
+        )
+        .get(order.id);
+      if (took && currentSession(took.account_id)) till = took.account_id;
+    }
+
     postRefund({
       order,
       items: itemsOfOrder(order.id),
@@ -1500,15 +1544,18 @@ router.post('/:id/refund', requireAuth, requirePermission('refunds'), (req, res)
     });
 
     // Refunding a cash sale hands money back across the counter — the sale's
-    // total, in one currency, not the tender turned inside out.
-    if (order.payment_method === 'cash' && order.total > 0) {
+    // total, in one currency, not the tender turned inside out. Unless the
+    // tender itself was the mistake: then it is exactly that, see tenderUndone.
+    if (order.payment_method === 'cash' && (order.total > 0 || undoTender)) {
       recordMovement({
         accountId: till,
         kind: 'refund',
-        ...refundLegs(order, order.total, refundCurrencyFrom(req.body)),
+        ...(undoTender ? tenderUndone(order) : refundLegs(order, order.total, refundCurrencyFrom(req.body))),
         orderId: order.id,
         reason: 'refund',
-        note: `Refund of ${order.order_number}`,
+        note: undoTender
+          ? `Refund of ${order.order_number} — rung up by mistake, the cash undone as taken`
+          : `Refund of ${order.order_number}`,
         userId: req.user.id,
       });
     }

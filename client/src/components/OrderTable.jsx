@@ -13,9 +13,11 @@ import {
   EmptyState,
   Modal,
   Skeleton,
+  cx,
   money,
   useToast,
 } from './ui';
+import { lbp } from '../context/SettingsContext';
 
 /**
  * Shared sales history. Admins see every cashier's sales and can refund;
@@ -52,6 +54,83 @@ export function PaymentBadge({ method, className }) {
     <Badge tone={look.tone} icon={look.icon} className={className}>
       {look.label}
     </Badge>
+  );
+}
+
+/**
+ * Did the drawer take something other than the total, for this sale?
+ *
+ * Paid in one currency with change in the other, or more handed over than
+ * the sale came to. For those the void has to ask what to give back — the
+ * total, or the tender turned back exactly — because only the person at the
+ * counter knows whether the sale was real.
+ */
+function tenderWasNotTheTotal(order) {
+  if (order.payment_method !== 'cash') return false;
+  const usd = Number(order.paid_usd || 0) - Number(order.change_usd || 0);
+  const lbp = Number(order.paid_lbp || 0) - Number(order.change_lbp || 0);
+  if (Number(order.paid_lbp || 0) > 0 || Number(order.change_lbp || 0) > 0) return true;
+  return Math.abs(usd - Number(order.total || 0)) > 0.01 || lbp !== 0;
+}
+
+/**
+ * Give back the total, or undo the cash exactly as it was rung up.
+ *
+ * The second is for a sale that was a mistake at the keyboard: three hundred
+ * thousand dollars typed for a three-dollar card, change of billions of
+ * pounds on paper. Refunding the total from that leaves the drawer wrong by
+ * the whole typo; undoing the tender puts both piles back where they were.
+ */
+function VoidCashChoice({ order, onChange }) {
+  const [undo, setUndo] = useState(false);
+  const pick = (v) => {
+    setUndo(v);
+    onChange(v);
+  };
+  const took = [
+    Number(order.paid_usd || 0) > 0 ? money(order.paid_usd) : null,
+    Number(order.paid_lbp || 0) > 0 ? lbp(order.paid_lbp) : null,
+  ].filter(Boolean).join(' + ');
+  const gave = [
+    Number(order.change_usd || 0) > 0 ? money(order.change_usd) : null,
+    Number(order.change_lbp || 0) > 0 ? lbp(order.change_lbp) : null,
+  ].filter(Boolean).join(' + ');
+  return (
+    <div className="mt-3 space-y-1.5 text-left" data-void-cash-choice>
+      <p className="text-xs text-slate-500">
+        The drawer took <span className="tnum font-medium text-slate-800">{took || money(0)}</span>
+        {gave ? (
+          <>
+            {' '}and gave <span className="tnum font-medium text-slate-800">{gave}</span> change
+          </>
+        ) : null}
+        . What comes out now?
+      </p>
+      {[
+        [false, `Hand back ${money(order.total)}`, 'A real sale, returned. The change they left with stays theirs.'],
+        [true, 'Rung up by mistake', 'Nothing really changed hands. Both piles go back exactly as they were.'],
+      ].map(([value, title, hint]) => (
+        <label
+          key={String(value)}
+          className={cx(
+            'flex cursor-pointer items-start gap-2 rounded-lg px-2.5 py-2 text-sm ring-1 transition',
+            undo === value ? 'bg-brand-50 ring-brand-300' : 'bg-white ring-slate-200 hover:bg-slate-50',
+          )}
+        >
+          <input
+            type="radio"
+            name="void-cash"
+            checked={undo === value}
+            onChange={() => pick(value)}
+            className="mt-0.5 accent-brand-600"
+          />
+          <span>
+            <span className="block font-medium text-slate-800">{title}</span>
+            <span className="block text-xs text-slate-500">{hint}</span>
+          </span>
+        </label>
+      ))}
+    </div>
   );
 }
 
@@ -134,6 +213,12 @@ export default function OrderTable({
 
   async function refund(id) {
     const order = selected?.order;
+    /*
+     * What comes out of the drawer, chosen on the dialog and read back here.
+     * Held in a plain object rather than state: the dialog's body is drawn
+     * once, and the component inside it writes the choice as it changes.
+     */
+    const choice = { undoTender: false };
     const agreed = await confirm({
       title: `Void ${order?.order_number || 'this sale'}?`,
       body: (
@@ -141,6 +226,9 @@ export default function OrderTable({
           The whole sale comes back: every item returns to the shelf and{' '}
           <strong>{money(order?.total || 0)}</strong> comes out of what the shop has taken. The sale
           stays on the day's list, marked refunded.
+          {order && tenderWasNotTheTotal(order) && (
+            <VoidCashChoice order={order} onChange={(v) => { choice.undoTender = v; }} />
+          )}
         </>
       ),
       confirmLabel: 'Void the sale',
@@ -150,7 +238,7 @@ export default function OrderTable({
 
     setRefunding(true);
     try {
-      await api.post(`/orders/${id}/refund`);
+      await api.post(`/orders/${id}/refund`, { undoTender: choice.undoTender });
       toast('Order refunded and stock restored');
       setSelected(null);
       onChanged?.();
