@@ -2,9 +2,129 @@ import { Router } from 'express';
 import { db } from '../db.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { can } from '../lib/permissions.js';
-import { shopZone, sqlDayShift } from '../lib/shopTime.js';
+import { dayEndUtc, dayStartUtc, shopZone, sqlDayShift } from '../lib/shopTime.js';
+import { branchScope } from '../lib/branchScope.js';
 
 const router = Router();
+
+const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+
+/**
+ * Every line sold, with its cost and the minute it went out.
+ *
+ * The takings say what the day came to; this says what left the shop line by
+ * line — which handset, at what price, costing what, rung up by whom and at
+ * what time — so a shop can read its day the way it happened. Register
+ * sales and confirmed sales invoices both, because the shop sells on both
+ * and a report that showed one of them would be read as the whole.
+ *
+ * For whoever is at the counter, because "what did we sell today" is asked
+ * there. The cost column is behind the catalogue permission, the same gate
+ * as everywhere else cost is shown, and it is stripped here rather than
+ * hidden on the screen.
+ *
+ * A refunded sale stays on the list, marked, and counts for nothing in the
+ * totals; a line partly returned counts for what is still out.
+ */
+router.get('/items-sold', requireAuth, (req, res) => {
+  const { from = null, to = null } = req.query;
+  const branchId = branchScope(req);
+  const seesCost = can(req.user, 'catalogue');
+
+  const when = [];
+  const params = [];
+  if (from) {
+    when.push('>= ?');
+    params.push(dayStartUtc(from));
+  }
+  if (to) {
+    when.push('<= ?');
+    params.push(dayEndUtc(to));
+  }
+  const dated = (column) => when.map((w) => `${column} ${w}`).join(' AND ');
+  const clause = (column) => (when.length ? ` AND ${dated(column)}` : '');
+
+  const receipts = db
+    .prepare(
+      `SELECT oi.id, 'receipt' AS source, o.id AS order_id, NULL AS document_id,
+              o.order_number AS number, o.created_at AS at, o.status,
+              oi.product_id, oi.name, p.sku, oi.quantity, COALESCE(oi.returned_qty, 0) AS returned_qty,
+              oi.price, oi.line_total, oi.cost, COALESCE(oi.is_gift, 0) AS is_gift,
+              u.imei, u.imei2, p.unit_kind,
+              usr.name AS sold_by, COALESCE(c.name, o.buyer_name) AS customer_name, o.branch_id
+         FROM order_items oi
+         JOIN orders o ON o.id = oi.order_id
+         LEFT JOIN products p ON p.id = oi.product_id
+         LEFT JOIN product_units u ON u.id = oi.unit_id
+         LEFT JOIN users usr ON usr.id = o.cashier_id
+         LEFT JOIN customers c ON c.id = o.customer_id
+        WHERE (? IS NULL OR o.branch_id = ?)${clause('o.created_at')}
+        ORDER BY o.created_at DESC, oi.id DESC
+        LIMIT 2000`,
+    )
+    .all(branchId, branchId, ...params);
+
+  const invoices = db
+    .prepare(
+      `SELECT di.id, 'invoice' AS source, NULL AS order_id, d.id AS document_id,
+              d.doc_number AS number, COALESCE(d.confirmed_at, d.created_at) AS at, d.status,
+              di.product_id, di.name, di.sku, di.quantity, 0 AS returned_qty,
+              di.price, di.line_total, di.cost, 0 AS is_gift,
+              NULL AS imei, NULL AS imei2, p.unit_kind, di.imeis,
+              usr.name AS sold_by, c.name AS customer_name, d.branch_id
+         FROM document_items di
+         JOIN documents d ON d.id = di.document_id
+         LEFT JOIN products p ON p.id = di.product_id
+         LEFT JOIN users usr ON usr.id = d.user_id
+         LEFT JOIN customers c ON c.id = d.party_id AND d.party_type = 'customer'
+        WHERE d.doc_type = 'sales_invoice' AND d.status = 'confirmed'
+          AND (? IS NULL OR d.branch_id = ?)${clause("COALESCE(d.confirmed_at, d.created_at)")}
+        ORDER BY at DESC, di.id DESC
+        LIMIT 2000`,
+    )
+    .all(branchId, branchId, ...params);
+
+  const rows = [...receipts, ...invoices]
+    .map((r) => {
+      const quantity = Number(r.quantity) || 0;
+      const stillOut = r.status === 'refunded' ? 0 : Math.max(0, quantity - (Number(r.returned_qty) || 0));
+      const share = quantity > 0 ? stillOut / quantity : 0;
+      const unitCost = r.cost === null || r.cost === undefined ? null : round2(r.cost);
+      const row = {
+        ...r,
+        price: round2(r.price),
+        line_total: round2(r.line_total),
+        net_quantity: stillOut,
+        net_total: round2((Number(r.line_total) || 0) * share),
+        cost: unitCost,
+        cost_total: unitCost === null ? null : round2(unitCost * stillOut),
+      };
+      row.profit = unitCost === null ? null : round2(row.net_total - row.cost_total);
+      if (!seesCost) {
+        delete row.cost;
+        delete row.cost_total;
+        delete row.profit;
+      }
+      return row;
+    })
+    .sort((a, b) => String(b.at).localeCompare(String(a.at)) || b.id - a.id);
+
+  const totals = rows.reduce(
+    (t, r) => {
+      t.quantity += r.net_quantity;
+      t.sold = round2(t.sold + r.net_total);
+      if (seesCost && r.cost_total !== null) t.cost = round2(t.cost + r.cost_total);
+      return t;
+    },
+    { lines: rows.length, quantity: 0, sold: 0, cost: 0 },
+  );
+  if (seesCost) totals.profit = round2(totals.sold - totals.cost);
+  else {
+    delete totals.cost;
+  }
+
+  res.json({ rows, totals, seesCost, from, to, branchId });
+});
 
 router.get('/summary', requireAuth, requirePermission('reports'), (req, res) => {
   const { from, to } = req.query;
