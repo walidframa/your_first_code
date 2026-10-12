@@ -73,6 +73,12 @@ export const COUNTER_NAV = [
   { to: '/vouchers', label: 'Vouchers', icon: ReceiptText, permission: 'vouchers', module: 'vouchers' },
   { to: '/orders', label: 'My sales', icon: Receipt },
   /*
+   * What left the shop, line by line, with the minute it went out — the
+   * day read the way it happened rather than as one figure. Cost is on it
+   * for whoever holds the catalogue permission, as on Check an item.
+   */
+  { to: '/sold', label: 'Items sold', icon: ClipboardList },
+  /*
    * "Is there one, what does it cost" — asked at the counter dozens of times
    * a day with a customer waiting, and answered by a page that is nothing
    * but a search box. Everybody at the counter can look; the cost line on it

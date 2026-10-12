@@ -10,6 +10,7 @@ import Layout from './components/Layout';
 import ProtectedRoute from './components/ProtectedRoute';
 import Checkout from './pages/Checkout';
 import MyOrders from './pages/MyOrders';
+import ItemsSold from './pages/ItemsSold';
 import AdminDashboard from './pages/admin/Dashboard';
 import AdminProducts from './pages/admin/Products';
 import AdminInventory from './pages/admin/Inventory';
@@ -117,6 +118,7 @@ export default function App() {
             it only ever shows the screens this person may open. */}
         <Route path="/menu" element={<MenuPage />} />
         <Route path="/orders" element={<MyOrders />} />
+        <Route path="/sold" element={<ItemsSold />} />
         <Route path="/accounts" element={<HeldAccounts />} />
         <Route
           path="/transfers"
