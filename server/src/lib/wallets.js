@@ -307,6 +307,82 @@ export function creditCostBasis(walletId, branchId = null) {
 }
 
 /**
+ * Put right what a top-up cost, after the fact.
+ *
+ * The "what you paid" box on a hand top-up is optional, and left empty the
+ * credit is costed at face value — a dollar of cost for every dollar of
+ * credit. A shop whose credit comes off cards it scratches, and that typed
+ * nothing in that box, then watched every dollar it sent cost it a dollar
+ * and the credit business earn nothing. The top-up is the one row that was
+ * wrong, so it is the one row that is corrected.
+ *
+ * The cost per dollar is worked out from the top-ups every time it is read,
+ * so the correction reaches every sale made from now on by itself. The
+ * sales already made since that top-up carry the cost they were given at
+ * the time, on their own lines — and those are re-costed here at the
+ * corrected figure, because a report that showed last week's credit sales
+ * still earning nothing would be the same mistake left standing. Sales
+ * made before the top-up never counted it and are left alone.
+ *
+ * Only a credit send is re-costed. A card sold out of this balance carries
+ * the card's own cost from the catalogue, not the balance's, and a
+ * corrected top-up says nothing about that.
+ */
+export function correctTopUpCost(walletId, movementId, costUsd, { userId = null } = {}) {
+  const wallet = db.prepare('SELECT * FROM wallets WHERE id = ?').get(walletId);
+  if (!wallet) throw new Error('That wallet does not exist');
+  const movement = db
+    .prepare('SELECT * FROM wallet_movements WHERE id = ? AND wallet_id = ?')
+    .get(movementId, walletId);
+  if (!movement) throw new Error('That movement is not on this balance');
+  if (movement.kind !== 'top_up') throw new Error('Only a top-up has a cost to correct');
+
+  const cost = Number(costUsd);
+  if (!Number.isFinite(cost) || cost < 0) throw new Error('What you paid has to be a number, zero or more');
+
+  const before = round2(movement.cost_usd === null || movement.cost_usd === undefined ? movement.amount_usd : movement.cost_usd);
+  db.prepare('UPDATE wallet_movements SET cost_usd = ? WHERE id = ?').run(round2(cost), movement.id);
+
+  /*
+   * The credit sent since, re-costed at what a dollar of this balance now
+   * costs. Each send is one sale movement with no product on it (a card has
+   * one); its face is what left the balance, fees included, and the line it
+   * belongs to is the order's credit line with no product either.
+   */
+  const basis = creditCostBasis(wallet.id, movement.branch_id ?? null);
+  const sends = db
+    .prepare(
+      `SELECT m.order_id, m.amount_usd
+         FROM wallet_movements m
+        WHERE m.wallet_id = ? AND m.kind = 'sale' AND m.product_id IS NULL
+          AND m.order_id IS NOT NULL AND m.created_at >= ?`,
+    )
+    .all(wallet.id, movement.created_at);
+  const recost = db.prepare(
+    `UPDATE order_items SET cost = ?
+      WHERE order_id = ? AND product_id IS NULL AND name LIKE ?`,
+  );
+  let recosted = 0;
+  for (const send of sends) {
+    const face = Math.abs(Number(send.amount_usd) || 0);
+    recosted += recost.run(round2(face * basis), send.order_id, `${wallet.name} credit%`).changes;
+  }
+
+  db.prepare(
+    `INSERT INTO wallet_movements
+       (wallet_id, kind, amount, amount_usd, exchange_rate, note, user_id, cost_usd, branch_id)
+     VALUES (?, 'adjustment', 0, 0, NULL, ?, ?, NULL, ?)`,
+  ).run(
+    wallet.id,
+    `Cost of the top-up of ${new Date(`${movement.created_at}Z`).toISOString().slice(0, 10)} put right: $${before.toFixed(2)} → $${round2(cost).toFixed(2)}`,
+    userId,
+    movement.branch_id ?? null,
+  );
+
+  return { before, after: round2(cost), basis, recosted };
+}
+
+/**
  * Move credit from one branch's line to another's.
  *
  * Credit bought centrally and split between shops, or lent from a branch with

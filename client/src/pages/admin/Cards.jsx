@@ -534,7 +534,11 @@ function TopUpDialog({ wallet, onClose, onSaved }) {
               value={paid}
               onChange={(e) => setPaid(e.target.value)}
               placeholder={wallet.currency === 'USD' ? String(amount || '') : ''}
-              hint="Leave empty if you paid face value"
+              hint={
+                paid === ''
+                  ? 'Empty means you paid face value: a dollar of cost for every dollar of credit. Put 0 if this credit came off cards you had already bought.'
+                  : 'What each dollar sent to a customer will be costed at follows from this.'
+              }
             />
 
             {/*
@@ -599,8 +603,63 @@ const PAGE = 100;
  * filtered by date, by kind and by branch, paged as far back as it goes, and
  * comes down as a spreadsheet for the accountant.
  */
-function StatementDialog({ wallet, onClose }) {
+/**
+ * Put right what a top-up cost.
+ *
+ * One box: what was actually paid for that credit. Zero is an answer — the
+ * credit that comes back off a scratched card cost nothing more — and the
+ * credit sent since is re-costed on the way back.
+ */
+function FixCostDialog({ wallet, movement, onClose, onSaved }) {
+  const current = movement.cost_usd === null || movement.cost_usd === undefined ? movement.amount_usd : movement.cost_usd;
+  const [paid, setPaid] = useState(String(current ?? ''));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  async function submit(e) {
+    e.preventDefault();
+    setError('');
+    setBusy(true);
+    try {
+      const res = await api.patch(`/wallets/${wallet.id}/movements/${movement.id}`, { costUsd: Number(paid) });
+      onSaved(res.data);
+    } catch (err) {
+      setError(err.response?.data?.error || 'Could not correct that');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal open onClose={busy ? undefined : onClose} title="What did this top-up cost?" subtitle={`${walletAmount(movement.amount, wallet.currency)} on ${when(movement.created_at)}`} size="sm">
+      <form onSubmit={submit} className="space-y-3" data-fix-cost-form>
+        <Input
+          label="What you paid for it (USD)"
+          type="number"
+          min="0"
+          step="0.01"
+          value={paid}
+          onChange={(e) => setPaid(e.target.value)}
+          autoFocus
+          hint="Put 0 if this credit came off cards you had already bought and sold. Every credit sale made since this top-up is re-costed to match."
+        />
+        {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+        <ModalActions>
+          <Button type="button" variant="secondary" onClick={onClose} disabled={busy}>
+            Cancel
+          </Button>
+          <Button type="submit" className="flex-1" loading={busy}>
+            Save the correction
+          </Button>
+        </ModalActions>
+      </form>
+    </Modal>
+  );
+}
+
+function StatementDialog({ wallet, onClose, onChanged }) {
   const toast = useToast();
+  const [fixing, setFixing] = useState(null);
   const [data, setData] = useState(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [downloading, setDownloading] = useState(false);
@@ -760,11 +819,45 @@ function StatementDialog({ wallet, onClose }) {
                 >
                   {m.amount > 0 ? '+' : '−'}
                   {walletAmount(Math.abs(m.amount), wallet.currency)}
+                  {/*
+                    * What a top-up cost, and the way to put it right. Face
+                    * value when nothing was typed — which is the mistake this
+                    * exists to undo, so it is said rather than hidden.
+                    */}
+                  {m.kind === 'top_up' && (
+                    <button
+                      type="button"
+                      onClick={() => setFixing(m)}
+                      className="tnum mt-0.5 block w-full text-right text-xs font-normal text-brand-700 underline-offset-2 hover:underline"
+                      title="Correct what you paid"
+                      data-fix-cost
+                    >
+                      paid {money(m.cost_usd === null || m.cost_usd === undefined ? m.amount_usd : m.cost_usd)}
+                      {m.cost_usd === null || m.cost_usd === undefined ? ' (face value)' : ''}
+                    </button>
+                  )}
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
+      )}
+      {fixing && (
+        <FixCostDialog
+          wallet={wallet}
+          movement={fixing}
+          onClose={() => setFixing(null)}
+          onSaved={(result) => {
+            setFixing(null);
+            toast(
+              `Costed at ${money(result.after)} — a dollar of ${wallet.name} now costs ${Math.round(result.basis * 100)}¢` +
+                (result.recosted ? `, and ${result.recosted} credit sale${result.recosted === 1 ? '' : 's'} since re-costed` : ''),
+            );
+            setData(null);
+            api.get(`/wallets/${wallet.id}/movements`, { params }).then((res) => setData(res.data));
+            onChanged?.();
+          }}
+        />
       )}
       {data?.more && (
         <div className="mt-3 flex justify-center">
@@ -1474,7 +1567,7 @@ export default function Cards() {
         />
       )}
 
-      {statement && <StatementDialog wallet={statement} onClose={() => setStatement(null)} />}
+      {statement && <StatementDialog wallet={statement} onClose={() => setStatement(null)} onChanged={load} />}
 
       {(newCard || editingCard) && (
         <CardDialog
