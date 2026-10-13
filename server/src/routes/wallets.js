@@ -4,6 +4,7 @@ import { requireAuth, requirePermission } from '../middleware/auth.js';
 import {
   WALLET_CURRENCIES,
   WALLET_KINDS,
+  correctTopUpCost,
   listWallets,
   movementsCsv,
   movementsFor,
@@ -293,6 +294,23 @@ router.post('/:id/movements', requireAuth, requirePermission('cards'), (req, res
     return res.status(400).json({ error: err.message });
   }
   res.status(201).json({ wallet: walletById(wallet.id, { branchId: req.branchId }) });
+});
+
+/**
+ * Put right what a past top-up cost — see correctTopUpCost. The credit sent
+ * since is re-costed with it, and the answer says how many lines moved.
+ */
+router.patch('/:id/movements/:movementId', requireAuth, requirePermission('cards'), (req, res) => {
+  const wallet = db.prepare('SELECT * FROM wallets WHERE id = ?').get(req.params.id);
+  if (!wallet) return res.status(404).json({ error: 'Wallet not found' });
+  try {
+    const result = transaction(() =>
+      correctTopUpCost(wallet.id, Number(req.params.movementId), req.body?.costUsd, { userId: req.user.id }),
+    )();
+    res.json({ ...result, wallet: walletById(wallet.id, { branchId: req.branchId }) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
 });
 
 /**

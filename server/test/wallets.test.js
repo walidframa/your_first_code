@@ -433,6 +433,61 @@ test('credit sent to a customer is costed at what the credit cost, not at face v
   assert.ok(quoted.json.realCost < quoted.json.cost, 'costed below face value');
 });
 
+test('a top-up costed at face value by mistake can be put right, and the credit sent since follows', async () => {
+  const w = (await req('POST', '/wallets', { name: 'Touch line, put right', kind: 'recharge' }, adminToken)).json.wallet;
+  await req('PUT', `/wallets/${w.id}`, { sendsCredit: true, smsFee: 0, creditPriceLbp: 110000 }, adminToken);
+
+  // The mistake: credit that came off scratched cards, topped up by hand with
+  // the "what you paid" box left empty — face value, a dollar for a dollar.
+  await req('POST', `/wallets/${w.id}/movements`, { kind: 'top_up', amount: 200 }, adminToken);
+  const movements = (await req('GET', `/wallets/${w.id}/movements`, null, adminToken)).json.movements;
+  const topUp = movements.find((m) => m.kind === 'top_up');
+  assert.equal(topUp.cost_usd, null, 'nothing typed');
+
+  // Ten dollars sent at that basis: costed at ten dollars, earning nothing.
+  const sale = await req(
+    'POST',
+    '/orders',
+    { items: [{ creditSend: { walletId: w.id, amount: 10 }, price: 12 }], paymentMethod: 'card' },
+    adminToken,
+  );
+  assert.equal(sale.status, 201, JSON.stringify(sale.json));
+  assert.equal(sale.json.items[0].cost, 10);
+
+  // Only a top-up has a cost; nonsense is refused.
+  const saleMovement = (await req('GET', `/wallets/${w.id}/movements`, null, adminToken)).json.movements.find(
+    (m) => m.kind === 'sale',
+  );
+  const notATopUp = await req('PATCH', `/wallets/${w.id}/movements/${saleMovement.id}`, { costUsd: 0 }, adminToken);
+  assert.equal(notATopUp.status, 400);
+  assert.match(notATopUp.json.error, /Only a top-up/);
+  const nonsense = await req('PATCH', `/wallets/${w.id}/movements/${topUp.id}`, { costUsd: -3 }, adminToken);
+  assert.equal(nonsense.status, 400);
+
+  // Put right: it cost nothing. The basis follows, and so does the sale.
+  const fixed = await req('PATCH', `/wallets/${w.id}/movements/${topUp.id}`, { costUsd: 0 }, adminToken);
+  assert.equal(fixed.status, 200, JSON.stringify(fixed.json));
+  assert.equal(fixed.json.before, 200);
+  assert.equal(fixed.json.after, 0);
+  assert.equal(fixed.json.basis, 0);
+  assert.equal(fixed.json.recosted, 1, 'the one credit sale since was re-costed');
+  assert.equal(fixed.json.wallet.cost_basis, 0);
+
+  const order = (await req('GET', `/orders/${sale.json.order.id}`, null, adminToken)).json;
+  assert.equal(order.items[0].cost, 0, 'the line now says what the credit really cost');
+
+  // And it is on the statement, as a correction that moved no credit.
+  const after = (await req('GET', `/wallets/${w.id}/movements`, null, adminToken)).json;
+  assert.equal(after.wallet.balance, 190, 'the balance is untouched');
+  const noted = after.movements.find((m) => m.kind === 'adjustment');
+  assert.match(noted.note, /put right: \$200\.00 → \$0\.00/);
+
+  // A cashier cannot rewrite what the shop paid.
+  const cashier = (await req('POST', '/auth/login', { username: 'cashier', password: 'cashier123' })).json.token;
+  const refused = await req('PATCH', `/wallets/${w.id}/movements/${topUp.id}`, { costUsd: 5 }, cashier);
+  assert.equal(refused.status, 403);
+});
+
 /**
  * Three things that were settable on the server and on no screen.
  *
