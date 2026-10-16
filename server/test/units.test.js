@@ -534,6 +534,18 @@ test('a phone sale records the buyer, a gift and the account handed over', async
   assert.equal(sale.json.order.buyer_name, 'Rami Haddad');
   assert.equal(sale.json.order.buyer_phone, '03 456 789');
 
+  // "Who bought this phone?" is answered by the name typed at the counter,
+  // not only by an account — on the handset list, the lookup and the finder.
+  const listed = (await req('GET', `/units/product/${phone.id}`, null, adminToken)).json.units.find(
+    (u) => u.id === unit.id,
+  );
+  assert.equal(listed.customer_name, 'Rami Haddad');
+  const looked = (await req('GET', `/units/lookup?imei=${unit.imei}`, null, adminToken)).json.unit;
+  assert.equal(looked.customer_name, 'Rami Haddad');
+  assert.equal(looked.customer_phone, '03 456 789');
+  const found = (await req('GET', `/units/find?imei=${unit.imei}`, null, adminToken)).json;
+  assert.equal(found.sale.customer_name, 'Rami Haddad');
+
   const giftLine = sale.json.items.find((i) => i.product_id === gift.id);
   assert.equal(giftLine.is_gift, 1);
   assert.equal(giftLine.line_total, 0, 'a gift is not revenue');
