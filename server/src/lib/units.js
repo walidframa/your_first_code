@@ -108,9 +108,16 @@ export function unitsFor(productId, status = null, branchId = null) {
     params.push(mainBranchId(), branchId);
   }
 
+  /*
+   * Who took it: the account the sale went on, or the name typed in the
+   * phone-sale dialog when nobody made an account. Most handset buyers are
+   * the second kind, and "who bought this phone" was answered with nothing
+   * for every one of them.
+   */
   return db
     .prepare(
-      `SELECT u.*, o.order_number, o.created_at AS order_date, cu.name AS customer_name
+      `SELECT u.*, o.order_number, o.created_at AS order_date,
+              COALESCE(cu.name, o.buyer_name) AS customer_name
        FROM product_units u
        LEFT JOIN orders o ON o.id = u.sold_order_id
        LEFT JOIN customers cu ON cu.id = o.customer_id
@@ -259,7 +266,8 @@ export function findHandset(imei, { branchId = null } = {}) {
       const o = db
         .prepare(
           `SELECT o.id, o.order_number AS number, o.created_at AS at, o.total,
-                  c.name AS customer_name, c.phone AS customer_phone
+                  COALESCE(c.name, o.buyer_name) AS customer_name,
+                  COALESCE(c.phone, o.buyer_phone) AS customer_phone
              FROM orders o LEFT JOIN customers c ON c.id = o.customer_id
             WHERE o.id = ?`,
         )
@@ -328,7 +336,8 @@ export function findByImei(imei) {
     .prepare(
       `SELECT u.*, p.name AS product_name, p.sku, p.price, p.unit_kind,
               o.order_number, o.created_at AS sold_on,
-              cu.name AS customer_name, cu.phone AS customer_phone
+              COALESCE(cu.name, o.buyer_name) AS customer_name,
+              COALESCE(cu.phone, o.buyer_phone) AS customer_phone
        FROM product_units u
        JOIN products p ON p.id = u.product_id
        LEFT JOIN orders o ON o.id = u.sold_order_id
