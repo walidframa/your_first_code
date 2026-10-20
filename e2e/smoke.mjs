@@ -5178,6 +5178,8 @@ try {
 
   await step('handing it back charges nothing more, and it can still be reopened', async () => {
     const ticket = page.locator('[role=dialog]').last();
+    // The hand-back will not go without the job's outside cost — 0 is an answer.
+    await ticket.getByRole('spinbutton', { name: 'Paid outside for this repair' }).fill('0');
     await ticket.getByRole('button', { name: 'Hand it back' }).click();
     await page.waitForSelector('[role=dialog] >> text=Put it back on the bench', { timeout: 15000 });
 

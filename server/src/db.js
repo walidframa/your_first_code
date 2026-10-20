@@ -2441,6 +2441,15 @@ addColumn('repair_tickets', 'paid_at', 'TEXT');
  */
 addColumn('repair_tickets', 'outside_cost', 'REAL NOT NULL DEFAULT 0');
 
+/*
+ * What of a repair went onto the customer's account instead of across the
+ * counter. A regular whose phone is on the bench is the same regular who buys
+ * on account; the bench could only take cash from them, so the job was either
+ * "still owing" on the ticket for ever or paid out of a drawer it never
+ * reached. Signed positive: dollars the account now owes for this job.
+ */
+addColumn('repair_tickets', 'on_account_usd', 'REAL NOT NULL DEFAULT 0');
+
 /**
  * What actually went in the bag.
  *
@@ -2966,6 +2975,14 @@ db.exec(`
 `);
 /* The billed charges, summed, so the total can be read without a join. */
 addColumn('documents', 'charges', 'REAL NOT NULL DEFAULT 0');
+
+/*
+ * Whether the discount was given as a percentage or as a figure. Both are
+ * stored as the figure they came to; this says which box to put back on the
+ * screen when the document is edited, so "$20 off" does not come back as
+ * "6.6667%".
+ */
+addColumn('documents', 'discount_mode', "TEXT NOT NULL DEFAULT 'percent'");
 
 export const ADJUSTMENT_REASONS = [
   'received',

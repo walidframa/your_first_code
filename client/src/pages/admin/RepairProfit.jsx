@@ -6,6 +6,7 @@ import { useLive } from '../../lib/live';
 import PageHeader from '../../components/PageHeader';
 import { Card, EmptyState, Input, LoadError, Select, Skeleton, cx, money } from '../../components/ui';
 import { isoDay } from '../../lib/when';
+import Peek from '../../components/Peek';
 
 const PRESETS = [
   ['today', 'Today'],
@@ -153,7 +154,9 @@ export default function RepairProfit() {
               ].map(([label, value, colour]) => (
                 <div key={label}>
                   <p className="text-[11px] tracking-wide text-slate-500 uppercase">{label}</p>
-                  <p className={cx('tnum text-xl font-semibold', colour)}>{money(value)}</p>
+                  <Peek storageKey="pos_peek_repairs" label={`Show ${label.toLowerCase()}`}>
+                    <p className={cx('tnum text-xl font-semibold', colour)}>{money(value)}</p>
+                  </Peek>
                 </div>
               ))}
               <p className="col-span-full text-xs text-slate-500">
@@ -226,7 +229,7 @@ export default function RepairProfit() {
                               r.profit >= 0 ? 'text-brand-700' : 'text-red-600',
                             )}
                           >
-                            {money(r.profit)}
+                            <Peek storageKey="pos_peek_repairs" label="Show the profit">{money(r.profit)}</Peek>
                           </td>
                         </tr>
                       ))}
@@ -238,7 +241,9 @@ export default function RepairProfit() {
                         <td className="tnum px-3 py-2 text-right text-slate-900">{money(report.revenue)}</td>
                         <td className="tnum px-3 py-2 text-right text-slate-600">{money(report.partsCost)}</td>
                         <td className="tnum px-3 py-2 text-right text-slate-600">{money(report.outsideCost)}</td>
-                        <td className="tnum px-5 py-2 text-right text-brand-700">{money(report.profit)}</td>
+                        <td className="tnum px-5 py-2 text-right text-brand-700">
+                          <Peek storageKey="pos_peek_repairs" label="Show the profit">{money(report.profit)}</Peek>
+                        </td>
                       </tr>
                     </tfoot>
                   </table>

@@ -12,6 +12,7 @@ import { UNIT_CONDITIONS, normaliseImei, receiveUnits, syncStockFromUnits } from
 import { removeIdPhoto, setIdPhoto } from './idPhotos.js';
 import { currentSession, recordMovement, tillFor } from './cash.js';
 import { getSettings } from './settings.js';
+import { addEntry } from './accounts.js';
 import { dayEndUtc, dayStartUtc, sqlDayShift } from './shopTime.js';
 
 export const REPAIR_STATUSES = [
@@ -466,8 +467,56 @@ export function setStatus(ticketId, status, note, userId) {
 export function outstandingOn(ticket, rate = 0) {
   if (ticket.under_warranty) return 0;
   const agreed = Number(ticket.charged ?? ticket.quoted ?? 0) || 0;
-  const paid = Number(ticket.paid_usd || 0) + (rate > 0 ? Number(ticket.paid_lbp || 0) / rate : 0);
+  const paid =
+    Number(ticket.paid_usd || 0) +
+    (rate > 0 ? Number(ticket.paid_lbp || 0) / rate : 0) +
+    // On the customer's account is settled as far as the bench is concerned:
+    // the money is now the account's to collect, not the ticket's.
+    Number(ticket.on_account_usd || 0);
   return Math.round(Math.max(0, agreed - paid) * 100) / 100;
+}
+
+/**
+ * Put some of a job on the customer's account.
+ *
+ * A regular whose phone is on the bench is the same regular who buys on
+ * account, and the bench could only take cash from them. So a payment, or
+ * what is still owing when the phone goes home, can go on the account
+ * instead: the customer's balance rises by it, exactly as an invoice on
+ * account does, and the ticket counts it as settled. No drawer moves.
+ *
+ * Only for a ticket joined to an account — a typed name has no account to
+ * put anything on, and the screen says so before offering it.
+ */
+export function putOnAccount(ticketId, { amountUsd, charged = null, note = null }, userId) {
+  const ticket = db.prepare('SELECT * FROM repair_tickets WHERE id = ?').get(ticketId);
+  if (!ticket) throw new Error('Ticket not found');
+  if (!ticket.customer_id) {
+    throw new Error('This ticket is not on a customer account — pick the customer from the list first');
+  }
+  const amount = Math.round((Number(amountUsd) || 0) * 100) / 100;
+  if (amount <= 0) throw new Error('Enter an amount to put on the account');
+
+  addEntry({
+    partyType: 'customer',
+    partyId: ticket.customer_id,
+    kind: 'sale',
+    amountUsd: amount,
+    note: note || `Repair ${ticket.ticket_number}`,
+    userId,
+    branchId: ticket.branch_id ?? null,
+  });
+  db.prepare(
+    `UPDATE repair_tickets
+       SET on_account_usd = on_account_usd + ?, charged = COALESCE(?, charged),
+           updated_at = datetime('now')
+     WHERE id = ?`,
+  ).run(amount, charged === null || charged === undefined ? null : Number(charged), ticketId);
+  db.prepare(
+    'INSERT INTO repair_events (ticket_id, status, note, user_id) VALUES (?, ?, ?, ?)',
+  ).run(ticketId, 'payment', `$${amount.toFixed(2)} put on the customer's account`, userId);
+
+  return ticketWithDetail(ticketId);
 }
 
 /**

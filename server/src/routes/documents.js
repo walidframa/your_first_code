@@ -173,6 +173,7 @@ router.post('/', requireAuth, requirePermission('documents'), (req, res) => {
     partyType: partyTypeInput,
     items,
     discountPercent = 0,
+    discountAmount = null,
     notes,
     validUntil,
     payments = [],
@@ -203,7 +204,7 @@ router.post('/', requireAuth, requirePermission('documents'), (req, res) => {
   try {
     const lines = buildLines(items, docType);
     const charges = buildCharges(chargesInput, docType);
-    const totals = totalsFor(lines, discountPercent, charges);
+    const totals = totalsFor(lines, discountPercent, charges, discountAmount);
     const { exchange_rate: rate } = getSettings();
     const paid = settlement(payments, paymentMethod, totals.total, rate);
 
@@ -213,8 +214,8 @@ router.post('/', requireAuth, requirePermission('documents'), (req, res) => {
           `INSERT INTO documents
              (doc_type, doc_number, party_type, party_id, status, valid_until, subtotal,
               discount_percent, discount, tax, total, exchange_rate, on_account, notes, user_id,
-              paid_usd, paid_lbp, payment_method, branch_id, charges)
-           VALUES (?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              paid_usd, paid_lbp, payment_method, branch_id, charges, discount_mode)
+           VALUES (?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           docType,
@@ -248,6 +249,7 @@ router.post('/', requireAuth, requirePermission('documents'), (req, res) => {
            */
           req.branchId,
           totals.charges,
+          totals.discountMode,
         );
 
       const insertItem = db.prepare(
@@ -292,6 +294,7 @@ router.put('/:id', requireAuth, requirePermission('documents'), (req, res) => {
     partyType: partyTypeInput,
     items,
     discountPercent,
+    discountAmount,
     notes,
     validUntil,
     payments,
@@ -329,7 +332,17 @@ router.put('/:id', requireAuth, requirePermission('documents'), (req, res) => {
       chargesInput === undefined
         ? chargesOf(doc.id).map((c) => ({ ...c, amountUsd: c.amount_usd, paidWith: c.paid_with }))
         : buildCharges(chargesInput, doc.doc_type);
-    const totals = totalsFor(lines, discountPercent ?? doc.discount_percent, charges);
+    /*
+     * The discount as sent, or as it stands: a figure stays a figure and a
+     * percentage a percentage when the edit says nothing about it.
+     */
+    const keptAmount = doc.discount_mode === 'amount' ? doc.discount : null;
+    const totals = totalsFor(
+      lines,
+      discountPercent ?? doc.discount_percent,
+      charges,
+      discountAmount !== undefined ? discountAmount : discountPercent !== undefined ? null : keptAmount,
+    );
 
     /*
      * A payment is replaced wholesale when one is sent, and left alone when the
@@ -373,7 +386,7 @@ router.put('/:id', requireAuth, requirePermission('documents'), (req, res) => {
       db.prepare(
         `UPDATE documents SET party_type = ?, party_id = ?, valid_until = ?, subtotal = ?, discount_percent = ?,
            discount = ?, tax = ?, total = ?, on_account = ?, notes = ?,
-           paid_usd = ?, paid_lbp = ?, payment_method = ?, charges = ? WHERE id = ?`,
+           paid_usd = ?, paid_lbp = ?, payment_method = ?, charges = ?, discount_mode = ? WHERE id = ?`,
       ).run(
         nextPartyType,
         nextPartyId,
@@ -389,6 +402,7 @@ router.put('/:id', requireAuth, requirePermission('documents'), (req, res) => {
         paid.paidLbp,
         paid.method,
         totals.charges,
+        totals.discountMode,
         doc.id,
       );
       /* The old version's charges were reversed above with everything else, so

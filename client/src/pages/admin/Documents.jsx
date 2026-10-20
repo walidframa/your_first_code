@@ -248,6 +248,17 @@ function DocumentForm({ existing, startAs = null, page = false, onClose, onSaved
     draft?.discountPercent ?? doc?.discount_percent ?? 0,
   );
   /*
+   * Given as a percentage or as a figure — both are said at a counter, and
+   * "call it a hundred" was being worked back into a percentage by hand.
+   * The figure is held as typed; the server caps it at the goods.
+   */
+  const [discountMode, setDiscountMode] = useState(
+    draft?.discountMode ?? (doc?.discount_mode === 'amount' ? 'amount' : 'percent'),
+  );
+  const [discountAmount, setDiscountAmount] = useState(
+    draft?.discountAmount ?? (doc?.discount_mode === 'amount' ? doc.discount : ''),
+  );
+  /*
    * How the document is settled. `account` leaves the whole total owing; `full`
    * settles it at the counter; `part` takes something now and leaves the rest.
    * The amount is held as typed so a half-entered figure is never rounded away
@@ -457,6 +468,8 @@ function DocumentForm({ existing, startAs = null, page = false, onClose, onSaved
       partyId,
       partyKind,
       discountPercent,
+      discountMode,
+      discountAmount,
       notes,
       trade,
       charges,
@@ -687,7 +700,10 @@ function DocumentForm({ existing, startAs = null, page = false, onClose, onSaved
   });
   const dearerLines = priced.filter((l) => l.dearer !== null && l.product);
   const subtotal = priced.reduce((sum, l) => sum + l.lineTotal, 0);
-  const discount = subtotal * ((Number(discountPercent) || 0) / 100);
+  const discount =
+    discountMode === 'amount'
+      ? Math.min(Math.max(0, Number(discountAmount) || 0), subtotal)
+      : subtotal * ((Number(discountPercent) || 0) / 100);
   const tax = (subtotal - discount) * taxRate;
   /* On the invoice, to the party: after the discount and outside the tax. */
   const billedCharges = charges.filter((c) => c.billed).reduce((sum, c) => sum + (Number(c.amount) || 0), 0);
@@ -759,7 +775,9 @@ function DocumentForm({ existing, startAs = null, page = false, onClose, onSaved
     const payload = {
       partyId: Number(partyId),
       partyType: partyKind,
-      discountPercent: Number(discountPercent) || 0,
+      ...(discountMode === 'amount'
+        ? { discountAmount: Number(discountAmount) || 0 }
+        : { discountPercent: Number(discountPercent) || 0 }),
       payments,
       paymentMethod: payments.length ? payMethod : null,
       notes: notes || null,
@@ -1325,14 +1343,56 @@ function DocumentForm({ existing, startAs = null, page = false, onClose, onSaved
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-3">
-              <Input
-                label="Discount %"
-                type="number"
-                min="0"
-                max="100"
-                value={discountPercent}
-                onChange={(e) => setDiscountPercent(e.target.value)}
-              />
+              <div>
+                <div className="mb-1 flex items-center justify-between">
+                  <label htmlFor="doc-discount" className="block text-sm font-medium text-slate-700">
+                    Discount
+                  </label>
+                  <div className="flex gap-1" data-discount-mode>
+                    {[
+                      ['percent', '%'],
+                      ['amount', '$'],
+                    ].map(([mode, label]) => (
+                      <button
+                        key={mode}
+                        type="button"
+                        onClick={() => setDiscountMode(mode)}
+                        aria-pressed={discountMode === mode}
+                        className={cx(
+                          'rounded-md px-2 py-0.5 text-xs font-semibold ring-1 transition',
+                          discountMode === mode
+                            ? 'bg-brand-600 text-white ring-brand-600'
+                            : 'bg-white text-slate-600 ring-slate-200 hover:bg-slate-50',
+                        )}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {discountMode === 'amount' ? (
+                  <Input
+                    id="doc-discount"
+                    aria-label="Discount in dollars"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={discountAmount}
+                    onChange={(e) => setDiscountAmount(e.target.value)}
+                    hint="Off the goods, before tax and charges"
+                  />
+                ) : (
+                  <Input
+                    id="doc-discount"
+                    aria-label="Discount %"
+                    type="number"
+                    min="0"
+                    max="100"
+                    value={discountPercent}
+                    onChange={(e) => setDiscountPercent(e.target.value)}
+                  />
+                )}
+              </div>
               <Input label="Notes" value={notes} onChange={(e) => setNotes(e.target.value)} />
             </div>
 

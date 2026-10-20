@@ -583,6 +583,59 @@ test('a repair can be put on a customer from the list', async () => {
   assert.match(unknown.json.error, /does not exist/i);
 });
 
+test('a repair for a regular can go on their account instead of across the counter', async () => {
+  const made = await req('POST', '/customers', { name: 'Slate Regular', phone: '03 777 888', credit_limit: 5000 }, adminToken);
+  const customer = made.json.party;
+  const balanceOf = async () =>
+    (await req('GET', '/accounts/registry', null, adminToken)).json.registry.customer.find((p) => p.id === customer.id)
+      .balance;
+  const before = await balanceOf();
+
+  const opened = await req(
+    'POST',
+    '/repairs',
+    { customerId: customer.id, device: 'Galaxy A15', fault: 'Screen', quoted: 60 },
+    adminToken,
+  );
+  assert.equal(opened.status, 201, JSON.stringify(opened.json));
+  const id = opened.json.ticket.id;
+
+  // Part of it on the account while the phone is still on the bench.
+  const part = await req('POST', `/repairs/${id}/payment`, { onAccount: true, amount: 20, charged: 60 }, adminToken);
+  assert.equal(part.status, 200, JSON.stringify(part.json));
+  assert.equal(part.json.ticket.on_account_usd, 20);
+  assert.equal(part.json.ticket.paid_usd, 0, 'no cash crossed the counter');
+  assert.equal(part.json.outstanding, 40);
+  assert.equal(await balanceOf(), round(before + 20), 'the account owes it');
+  assert.ok(part.json.events.some((e) => e.status === 'payment' && /on the customer/.test(e.note)));
+
+  // The rest onto the account when the phone goes home.
+  const home = await req('POST', `/repairs/${id}/collect`, { charged: 60, outsideCost: 0, onAccount: true }, adminToken);
+  assert.equal(home.status, 200, JSON.stringify(home.json));
+  assert.equal(home.json.ticket.status, 'collected');
+  assert.equal(home.json.ticket.on_account_usd, 60);
+  assert.equal(home.json.outstanding, 0, 'nothing left on the ticket');
+  assert.equal(await balanceOf(), round(before + 60));
+
+  // A walk-in has no account to put anything on.
+  const walkIn = await req('POST', '/repairs', { customerName: 'Walk In', device: 'A15', fault: 'Port' }, adminToken);
+  const refused = await req('POST', `/repairs/${walkIn.json.ticket.id}/payment`, { onAccount: true, amount: 10 }, adminToken);
+  assert.equal(refused.status, 400);
+  assert.match(refused.json.error, /not on a customer account/);
+});
+
+test('the board narrows to one branch when asked', async () => {
+  const branches = (await req('GET', '/branches', null, adminToken)).json.branches;
+  const main = branches[0];
+  const all = (await req('GET', '/repairs?branch=all', null, adminToken)).json.tickets;
+  const mine = (await req('GET', `/repairs?branchId=${main.id}`, null, adminToken)).json.tickets;
+  assert.ok(mine.length > 0);
+  assert.ok(mine.every((t) => t.branch_id === main.id || t.branch_id === null));
+  const nowhere = (await req('GET', '/repairs?branchId=999999', null, adminToken)).json.tickets;
+  assert.equal(nowhere.length, 0);
+  assert.ok(all.length >= mine.length);
+});
+
 test('a paid repair puts the money in the drawer', async () => {
   const opened = await req('POST', '/cash/open', { openingUsd: 50 }, adminToken);
   assert.ok([201, 400].includes(opened.status));

@@ -275,17 +275,42 @@ export function billedCharges(charges) {
  * a freight bill is not discounted with the goods and is passed through at
  * what it cost. The shop's own tax setting is on the goods, as it always was.
  */
-export function totalsFor(lines, discountPercent = 0, charges = []) {
-  const pct = Number(discountPercent) || 0;
-  if (pct < 0 || pct > 100) throw new Error('Discount must be between 0 and 100 percent');
-
+export function totalsFor(lines, discountPercent = 0, charges = [], discountAmount = null) {
   const subtotal = round2(lines.reduce((sum, l) => sum + l.lineTotal, 0));
-  const discount = round2(subtotal * (pct / 100));
+
+  /*
+   * A discount is given either way at a counter — "ten percent off" and
+   * "call it a hundred" are both said — so both are taken. A figure is
+   * capped at the goods: a hundred off eighty is eighty off. The percentage
+   * it came to is kept beside it so every report that reads one still can.
+   */
+  let pct;
+  let discount;
+  let mode = 'percent';
+  if (discountAmount !== null && discountAmount !== undefined && discountAmount !== '') {
+    const amount = round2(Number(discountAmount) || 0);
+    if (amount < 0) throw new Error('A discount cannot be less than nothing');
+    discount = Math.min(amount, subtotal);
+    pct = subtotal > 0 ? Math.round((discount / subtotal) * 10000) / 100 : 0;
+    mode = 'amount';
+  } else {
+    pct = Number(discountPercent) || 0;
+    if (pct < 0 || pct > 100) throw new Error('Discount must be between 0 and 100 percent');
+    discount = round2(subtotal * (pct / 100));
+  }
   const taxable = round2(subtotal - discount);
   const tax = round2(taxable * taxRate());
   const extra = billedCharges(charges);
 
-  return { subtotal, discountPercent: pct, discount, tax, charges: extra, total: round2(taxable + tax + extra) };
+  return {
+    subtotal,
+    discountPercent: pct,
+    discount,
+    discountMode: mode,
+    tax,
+    charges: extra,
+    total: round2(taxable + tax + extra),
+  };
 }
 
 /* ----------------------------------------------------------------- payment */
