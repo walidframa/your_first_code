@@ -23,6 +23,7 @@ import { countDifference } from '../lib/cashCount.js';
 import { Button, Input, Modal, ModalActions, Select, cx, money, useToast } from './ui';
 import { useT } from '../context/LanguageContext';
 import { atTime } from '../lib/when';
+import Peek from './Peek';
 
 const IN_REASONS = [
   ['petty_cash', 'Petty cash'],
@@ -830,8 +831,10 @@ export default function CashBox({
                   <span className="block text-brand-700/50">
                     Since the drawer opened, at this till
                   </span>
-                  {money(profit.revenue)} sold · {money(profit.grossProfit)} gross ·{' '}
-                  {money(profit.expenses)} spent
+                  <Peek storageKey="pos_peek_profit" label="Show the profit">
+                    {money(profit.revenue)} sold · {money(profit.grossProfit)} gross ·{' '}
+                    {money(profit.expenses)} spent
+                  </Peek>
                   {/*
                     * Where it came from, whenever it did not all come from
                     * here. This panel sits on the register and is read as the
@@ -1077,9 +1080,11 @@ export default function CashBox({
               )}
             >
               <TrendingUp size={12} className="text-brand-600" />
-              <span className="tnum text-sm font-semibold text-brand-700">
-                {money(profit.netProfit)}
-              </span>
+              <Peek storageKey="pos_peek_profit" label="Show the profit">
+                <span className="tnum text-sm font-semibold text-brand-700">
+                  {money(profit.netProfit)}
+                </span>
+              </Peek>
               {/*
                 * Marked where it is read, not two presses away.
                 *

@@ -11,6 +11,7 @@ import {
   addPart,
   editTicket,
   hasDetailEdits,
+  putOnAccount,
   openTicket,
   removePart,
   repairProfit,
@@ -27,6 +28,7 @@ import {
   editTradeIn,
 } from '../lib/repairs.js';
 import { repairMessage, sendable } from '../lib/whatsapp.js';
+import { branchScope } from '../lib/branchScope.js';
 import { presetRange } from '../lib/profit.js';
 import { getIdPhoto, removeIdPhoto, setIdPhoto } from '../lib/idPhotos.js';
 import { notify } from '../lib/telegram.js';
@@ -55,7 +57,8 @@ router.get('/profit', requireAuth, requirePermission('reports'), (req, res) => {
   const range = preset
     ? presetRange(preset)
     : { from: req.query.from || null, to: req.query.to || null };
-  const scope = { ...range, branchId: req.branchId };
+  // The whole company's bench when asked for and allowed; this counter's otherwise.
+  const scope = { ...range, branchId: branchScope(req) };
 
   try {
     const report = repairProfit(scope);
@@ -73,6 +76,16 @@ router.get('/', requireAuth, (req, res) => {
   const { status, q, from = null, to = null } = req.query;
   const clauses = [];
   const params = [];
+
+  /*
+   * One shop's bench, when asked. The board shows every branch by default —
+   * a phone left at the other shop is still a phone the company has — and
+   * narrows to one when the filter says so.
+   */
+  if (req.query.branchId) {
+    clauses.push('t.branch_id = ?');
+    params.push(Number(req.query.branchId));
+  }
 
   if (status && status !== 'open') {
     if (!REPAIR_STATUSES.includes(status)) {
@@ -237,7 +250,24 @@ function tally(payments) {
  * is in the drawer, and the ticket carries on being a ticket.
  */
 router.post('/:id/payment', requireAuth, (req, res) => {
-  const { charged = null, payments = [], note, outsideCost } = req.body || {};
+  const { charged = null, payments = [], note, outsideCost, onAccount = false, amount = null } = req.body || {};
+
+  /*
+   * On the customer's account rather than across the counter — see
+   * putOnAccount. The charge and the outside cost are written in the same
+   * breath, as with cash.
+   */
+  if (onAccount) {
+    try {
+      const detail = transaction(() => {
+        setOutsideCost(req.params.id, outsideCost, req.user.id);
+        return putOnAccount(req.params.id, { amountUsd: amount, charged, note }, req.user.id);
+      })();
+      return res.json(detail);
+    } catch (err) {
+      return res.status(400).json({ error: err.message });
+    }
+  }
 
   try {
     const detail = transaction(() => {
@@ -281,7 +311,8 @@ router.post('/:id/payment', requireAuth, (req, res) => {
  * could reach its last status. Now it is only the handing back.
  */
 router.post('/:id/collect', requireAuth, (req, res) => {
-  const { charged = null, payments = [], note, outsideCost, takeBalance = false } = req.body || {};
+  const { charged = null, payments = [], note, outsideCost, takeBalance = false, onAccount = false } =
+    req.body || {};
 
   try {
     const detail = transaction(() => {
@@ -338,6 +369,17 @@ router.post('/:id/collect', requireAuth, (req, res) => {
              collected_at = datetime('now'), updated_at = datetime('now')
          WHERE id = ?`,
       ).run(amount, paidUsd, paidLbp, paidUsd, paidLbp, ticket.id);
+
+      /*
+       * Whatever is still owing at the charge handed in, onto the customer's
+       * account — after the cash above, so a part paid now and the rest on
+       * the slate is one hand-back, not two.
+       */
+      if (onAccount) {
+        const after = db.prepare('SELECT * FROM repair_tickets WHERE id = ?').get(ticket.id);
+        const owing = outstandingOn(after, getSettings().exchange_rate);
+        if (owing > 0) putOnAccount(ticket.id, { amountUsd: owing }, req.user.id);
+      }
       db.prepare(
         `INSERT INTO repair_events (ticket_id, status, note, user_id) VALUES (?, 'collected', ?, ?)`,
       ).run(ticket.id, note || null, req.user.id);

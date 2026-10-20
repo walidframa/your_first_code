@@ -27,7 +27,7 @@ function line() {
  * down, because that is the paragraph that settles arguments later.
  */
 export default function RepairSlip({ detail }) {
-  const { ticket, parts, partsTotal } = detail;
+  const { ticket } = detail;
   // The shop's own details, so a customer holding this can ring the number on it.
   const company = useCompany();
   const { rate, toLbp } = useSettings();
@@ -105,25 +105,12 @@ export default function RepairSlip({ detail }) {
         )}
       </div>
 
-      {parts.length > 0 && (
-        <>
-          {line()}
-          <p className="font-bold">Parts</p>
-          {parts.map((p) => (
-            <p key={p.id} className="flex justify-between gap-2">
-              <span>
-                {p.quantity > 1 ? `${p.quantity}× ` : ''}
-                {p.name}
-              </span>
-              <span>{p.price ? `$${(p.price * p.quantity).toFixed(2)}` : '—'}</span>
-            </p>
-          ))}
-          <p className="flex justify-between font-bold">
-            <span>Parts total</span>
-            <span>${partsTotal.toFixed(2)}</span>
-          </p>
-        </>
-      )}
+      {/*
+        * The parts fitted are the shop's business, not the customer's: what
+        * they are handed is a price for the job, and a slip that itemised a
+        * $12 flex cable under a $60 repair started an argument at every
+        * counter it was printed at. They stay on the ticket screen.
+        */}
 
       {line()}
 

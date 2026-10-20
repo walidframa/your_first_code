@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { Eye, Pencil, Plus, Trash2, Wrench } from 'lucide-react';
+import Peek from '../../components/Peek';
+import { onDate } from '../../lib/when';
 import api from '../../api';
 import { useLive } from '../../lib/live';
 import PageHeader from '../../components/PageHeader';
@@ -364,6 +366,14 @@ function TicketModal({ id, onClose, onChanged }) {
    */
   const [stillOwed, setStillOwed] = useState('');
   const [stillTouched, setStillTouched] = useState(false);
+  /*
+   * Across the counter, or onto the customer's account. A regular whose
+   * phone is on the bench is the same regular who buys on account, and
+   * until now the bench could only take cash from them.
+   */
+  const [onAccount, setOnAccount] = useState(false);
+  /* What the hand-back is missing, said beside the box rather than refused silently. */
+  const [missing, setMissing] = useState(null);
   /* The figures as worked out on the last render, for the handlers to send. */
   const figures = useRef({ chargeNow: 0, takeNow: 0, owedNow: 0 });
   /* What the shop paid outside for the job — as typed, so it can be edited. */
@@ -382,7 +392,15 @@ function TicketModal({ id, onClose, onChanged }) {
     setPayNow(d.data.outstanding > 0 ? String(d.data.outstanding) : '');
     setStillOwed('');
     setStillTouched(false);
-    setOutsideCost(Number(d.data.ticket.outside_cost) > 0 ? String(d.data.ticket.outside_cost) : '');
+    /*
+     * What was typed stays typed. The column cannot tell "never said" from
+     * "said nought", so a 0 typed a moment ago must not come back as an empty
+     * box after the reload that follows every payment — the hand-back would
+     * then ask for it again.
+     */
+    setOutsideCost((typed) =>
+      typed !== '' ? typed : Number(d.data.ticket.outside_cost) > 0 ? String(d.data.ticket.outside_cost) : '',
+    );
     setFixPaidUsd(String(Number(d.data.ticket.paid_usd) || 0));
     setFixPaidLbp(String(Math.round(Number(d.data.ticket.paid_lbp) || 0)));
   }, [id]);
@@ -451,9 +469,11 @@ function TicketModal({ id, onClose, onChanged }) {
       await api.post(`/repairs/${id}/payment`, {
         charged: figures.current.chargeNow,
         outsideCost: outsideCostValue,
-        payments: [{ currency: 'USD', amount }],
+        ...(onAccount
+          ? { onAccount: true, amount }
+          : { payments: [{ currency: 'USD', amount }] }),
       });
-      toast(`${money(amount)} taken`);
+      toast(onAccount ? `${money(amount)} put on the account` : `${money(amount)} taken`);
       setPayNow('');
       await load();
       onChanged();
@@ -465,11 +485,35 @@ function TicketModal({ id, onClose, onChanged }) {
   async function collect() {
     const { chargeNow, takeNow, owedNow } = figures.current;
     /*
+     * Two things the hand-back will not go without, because they are the two
+     * things most often left blank and most expensive to reconstruct later:
+     * what the job cost the shop (0 is an answer), and what was received if
+     * nothing has been yet (0 is an answer there too — it then goes on the
+     * ticket as still to come, or on the account).
+     */
+    const warranty = detail?.ticket.under_warranty === 1;
+    if (outsideCost === '') {
+      setMissing('cost');
+      toast('Say what the repair cost you outside — 0 if nothing', 'error');
+      return;
+    }
+    const settledBefore =
+      Number(detail?.ticket.paid_usd || 0) > 0 ||
+      Number(detail?.ticket.paid_lbp || 0) > 0 ||
+      Number(detail?.ticket.on_account_usd || 0) > 0;
+    if (!warranty && chargeNow > 0 && !settledBefore && payNow === '') {
+      setMissing('received');
+      toast('Enter what was received — 0 if nothing yet', 'error');
+      return;
+    }
+    setMissing(null);
+    /*
      * The phone is about to leave with money still to come. Said out loud,
      * because once it has gone home the figure on the ticket is all the shop
      * has — and "he said he would come back Tuesday" is how it gets lost.
+     * Unless the rest is going on the account, which is a settled thing.
      */
-    if (owedNow > 0) {
+    if (owedNow > 0 && !onAccount) {
       const agreed = await confirm({
         title: `${money(owedNow)} still to come from the customer`,
         body: `Take it before the phone goes, or hand it back with ${money(owedNow)} still owing on the ticket.`,
@@ -487,8 +531,16 @@ function TicketModal({ id, onClose, onChanged }) {
         outsideCost: outsideCostValue,
         /* What was actually handed over now — nothing if nothing was. */
         payments: takeNow > 0 ? [{ currency: 'USD', amount: takeNow }] : [],
+        /* And the rest onto the customer's account, when that is the arrangement. */
+        onAccount: onAccount && owedNow > 0,
       });
-      toast(owedNow > 0 ? `Handed back — ${money(owedNow)} still to come` : 'Handed back');
+      toast(
+        owedNow > 0
+          ? onAccount
+            ? `Handed back — ${money(owedNow)} put on the account`
+            : `Handed back — ${money(owedNow)} still to come`
+          : 'Handed back',
+      );
       await load();
       onChanged();
     } catch (err) {
@@ -526,14 +578,20 @@ function TicketModal({ id, onClose, onChanged }) {
 
   const { ticket, parts, events, partsTotal, outstanding } = detail;
   const closed = ['collected', 'cancelled'].includes(ticket.status);
-  const paid = Number(ticket.paid_usd || 0) > 0 || Number(ticket.paid_lbp || 0) > 0;
+  const paid =
+    Number(ticket.paid_usd || 0) > 0 ||
+    Number(ticket.paid_lbp || 0) > 0 ||
+    Number(ticket.on_account_usd || 0) > 0;
   /* What the parts fitted cost the shop — the price they went out at is a
      different figure, and it is the cost that decides what the job makes. */
   const partsCost = parts.reduce((sum, p) => sum + (Number(p.cost) || 0) * p.quantity, 0);
   const agreed = ticket.under_warranty === 1 ? 0 : Number(charged) || 0;
   const makes = Math.round((agreed - partsCost - outsideCostValue) * 100) / 100;
   /* The money as the counter sees it: taken now, still to come, and the charge that makes. */
-  const paidSoFar = Number(ticket.paid_usd || 0) + (rate > 0 ? Number(ticket.paid_lbp || 0) / rate : 0);
+  const paidSoFar =
+    Number(ticket.paid_usd || 0) +
+    (rate > 0 ? Number(ticket.paid_lbp || 0) / rate : 0) +
+    Number(ticket.on_account_usd || 0);
   const takeNow = Math.max(0, Number(payNow) || 0);
   const owedFollowing = Math.round(Math.max(0, outstanding - takeNow) * 100) / 100;
   const owedShown = stillTouched ? stillOwed : owedFollowing > 0 ? String(owedFollowing) : '';
@@ -707,19 +765,55 @@ function TicketModal({ id, onClose, onChanged }) {
                     * on pick-up, or partly, and what is left is written down
                     * here so that handing the phone back can say so.
                     */}
+                  {/*
+                    * Cash across the counter, or the customer's account — only
+                    * offered when the ticket is on one. A typed name has no
+                    * account to put anything on.
+                    */}
+                  {ticket.customer_id ? (
+                    <div className="mb-2 flex flex-wrap gap-1.5" data-repair-settle>
+                      {[
+                        [false, 'Cash now'],
+                        [true, `On ${ticket.account_name || 'the'} account`],
+                      ].map(([value, label]) => (
+                        <button
+                          key={String(value)}
+                          type="button"
+                          onClick={() => setOnAccount(value)}
+                          aria-pressed={onAccount === value}
+                          className={cx(
+                            'rounded-lg px-2.5 py-1 text-xs font-medium ring-1 transition',
+                            onAccount === value
+                              ? 'bg-brand-600 text-white ring-brand-600'
+                              : 'bg-white text-slate-600 ring-slate-200 hover:bg-slate-50',
+                          )}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
                   <div className="flex gap-2">
                     <Input
-                      label="Take money now"
+                      label={onAccount ? 'Put on the account now' : 'Take money now'}
                       type="number"
                       step="0.01"
                       min="0"
                       value={payNow}
-                      onChange={(e) => setPayNow(e.target.value)}
-                      hint="The phone stays on the bench"
+                      onChange={(e) => {
+                        setPayNow(e.target.value);
+                        if (missing === 'received') setMissing(null);
+                      }}
+                      error={missing === 'received' ? 'Enter what was received — 0 if nothing yet' : undefined}
+                      hint={
+                        onAccount
+                          ? 'Goes on their balance; the phone stays on the bench'
+                          : 'The phone stays on the bench'
+                      }
                     />
                     <div className="flex items-start pt-6">
                       <Button variant="secondary" onClick={takePayment} disabled={!(takeNow > 0)}>
-                        Take it
+                        {onAccount ? 'On account' : 'Take it'}
                       </Button>
                     </div>
                   </div>
@@ -739,7 +833,11 @@ function TicketModal({ id, onClose, onChanged }) {
                   <div className="mt-3 flex items-center justify-between gap-3 border-t border-slate-100 pt-3">
                     <p className="tnum text-sm text-slate-600">
                       Charge for the job <span className="font-semibold text-slate-900">{money(chargeNow)}</span>
-                      {owedNow > 0 && <span className="text-amber-700"> · {money(owedNow)} still to come</span>}
+                      {owedNow > 0 && (
+                        <span className={onAccount ? 'text-brand-700' : 'text-amber-700'}>
+                          {' '}· {money(owedNow)} {onAccount ? 'onto the account' : 'still to come'}
+                        </span>
+                      )}
                     </p>
                     <Button onClick={collect}>Hand it back</Button>
                   </div>
@@ -747,6 +845,9 @@ function TicketModal({ id, onClose, onChanged }) {
                     <p className="tnum mt-2 text-sm text-slate-600">
                       Paid so far {money(ticket.paid_usd)}
                       {ticket.paid_lbp > 0 ? ` + ${Number(ticket.paid_lbp).toLocaleString('en-US')} LL` : ''}
+                      {Number(ticket.on_account_usd) > 0
+                        ? ` + ${money(ticket.on_account_usd)} on the account`
+                        : ''}
                       {outstanding > 0 ? (
                         <span className="text-amber-700"> · {money(outstanding)} still to pay</span>
                       ) : (
@@ -884,9 +985,13 @@ function TicketModal({ id, onClose, onChanged }) {
                 step="0.01"
                 min="0"
                 value={outsideCost}
-                onChange={(e) => setOutsideCost(e.target.value)}
+                onChange={(e) => {
+                  setOutsideCost(e.target.value);
+                  if (missing === 'cost') setMissing(null);
+                }}
                 placeholder="0.00"
-                hint="A technician's fee, or a part bought in for this job"
+                error={missing === 'cost' ? 'Say what it cost you outside — 0 if nothing' : undefined}
+                hint="A technician's fee, or a part bought in for this job. Needed before handing back; 0 if nothing."
               />
               <div className="flex items-start pt-6">
                 <Button variant="secondary" onClick={saveCost} disabled={!costDirty}>
@@ -988,7 +1093,10 @@ function TicketModal({ id, onClose, onChanged }) {
  */
 function AmountCell({ ticket: t, rate }) {
   const agreed = t.under_warranty === 1 ? 0 : Number(t.charged ?? t.quoted ?? 0) || 0;
-  const paid = Number(t.paid_usd || 0) + (rate > 0 ? Number(t.paid_lbp || 0) / rate : 0);
+  const paid =
+    Number(t.paid_usd || 0) +
+    (rate > 0 ? Number(t.paid_lbp || 0) / rate : 0) +
+    Number(t.on_account_usd || 0);
   const owed = Math.round(Math.max(0, agreed - paid) * 100) / 100;
   if (t.under_warranty === 1 || (!agreed && !paid)) return <span className="text-slate-400">—</span>;
   return (
@@ -1004,8 +1112,10 @@ function AmountCell({ ticket: t, rate }) {
 export default function Repairs() {
   const { rate } = useSettings();
   /* Which shop each phone is at — only worth a column when there is more than one. */
-  const { total: branchCount } = useBranch();
+  const { total: branchCount, branches } = useBranch();
   const severalBranches = branchCount > 1;
+  /* One shop's bench, or every shop's — '' is all of them. */
+  const [branchPick, setBranchPick] = useState('');
   /*
    * Arrived pointing at one ticket — from a customer's account, say, which now
    * lists the phones they have left here. A link that lands on a filtered board
@@ -1039,16 +1149,25 @@ export default function Repairs() {
   const { from, to } = history.range;
 
   const load = useCallback(async () => {
-    const params = { status: filter || undefined, q: q || undefined, from: from || undefined, to: to || undefined };
+    const where = branchPick ? { branchId: branchPick } : { branch: 'all' };
+    const params = {
+      status: filter || undefined,
+      q: q || undefined,
+      from: from || undefined,
+      to: to || undefined,
+      ...where,
+    };
     const [list, earned] = await Promise.all([
       api.get('/repairs', { params }),
       // The owner's figure. A cashier has no `reports` permission and simply
       // does not get one, which is not an error worth showing them.
-      api.get('/repairs/profit', { params: { from: from || undefined, to: to || undefined } }).catch(() => null),
+      api
+        .get('/repairs/profit', { params: { from: from || undefined, to: to || undefined, ...where } })
+        .catch(() => null),
     ]);
     setTickets(list.data.tickets);
     setProfit(earned?.data ?? null);
-  }, [filter, q, from, to]);
+  }, [filter, q, from, to, branchPick]);
 
   useEffect(() => {
     load();
@@ -1085,6 +1204,18 @@ export default function Repairs() {
               ))}
             </Select>
           </div>
+          {severalBranches && (
+            <div className="w-44">
+              <Select value={branchPick} onChange={(e) => setBranchPick(e.target.value)} aria-label="Branch filter">
+                <option value="">All branches</option>
+                {branches.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          )}
         </HistoryFilter>
 
         {/*
@@ -1099,14 +1230,16 @@ export default function Repairs() {
           <Card className="mb-4 flex flex-wrap items-end gap-x-8 gap-y-3 px-5 py-4">
             <div>
               <p className="text-xs text-slate-500">Profit on jobs handed back</p>
-              <p
-                className={cx(
-                  'tnum text-2xl font-semibold',
-                  profit.profit < 0 ? 'text-red-600' : 'text-slate-900',
-                )}
-              >
-                {money(profit.profit)}
-              </p>
+              <Peek storageKey="pos_peek_repairs" label="Show the profit">
+                <p
+                  className={cx(
+                    'tnum text-2xl font-semibold',
+                    profit.profit < 0 ? 'text-red-600' : 'text-slate-900',
+                  )}
+                >
+                  {money(profit.profit)}
+                </p>
+              </Peek>
               <p className="mt-0.5 text-xs text-slate-400">
                 {money(profit.revenue)} charged less {money(profit.partsCost)} of parts
                 {profit.outsideCost > 0 ? ` and ${money(profit.outsideCost)} paid outside` : ''} ·{' '}
@@ -1166,6 +1299,7 @@ export default function Repairs() {
               <thead className="border-b border-slate-100 text-left text-xs text-slate-500">
                 <tr>
                   <th className="px-5 py-2 font-medium">Ticket</th>
+                  <th className="hidden px-3 py-2 font-medium sm:table-cell">Taken in</th>
                   <th className="px-3 py-2 font-medium">Device</th>
                   <th className="hidden px-3 py-2 font-medium sm:table-cell">Customer</th>
                   <th className="hidden px-3 py-2 font-medium md:table-cell">Fault</th>
@@ -1190,9 +1324,14 @@ export default function Repairs() {
                         </span>
                       )}
                     </td>
+                    <td className="tnum hidden px-3 py-2.5 text-slate-600 sm:table-cell">
+                      {onDate(t.created_at)}
+                    </td>
                     <td className="px-3 py-2.5 text-slate-800">
                       {t.device}
-                      <span className="block text-xs text-slate-400 sm:hidden">{t.customer_name}</span>
+                      <span className="block text-xs text-slate-400 sm:hidden">
+                        {onDate(t.created_at)} · {t.customer_name}
+                      </span>
                     </td>
                     <td className="hidden px-3 py-2.5 text-slate-600 sm:table-cell">
                       {t.customer_name}
