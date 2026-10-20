@@ -410,6 +410,39 @@ input:-webkit-autofill:focus {
 }
 
 /*
+ * The line along the top of the window while the app waits on the server.
+ *
+ * Indeterminate on purpose: nothing here knows how long a request will take,
+ * and a bar that pretends to is a bar that stops at ninety percent. A bright
+ * segment sweeping along says "working" without promising when.
+ */
+@keyframes activity-sweep {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+.activity-bar {
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    oklch(1 0 0 / 0.75) 50%,
+    transparent 100%
+  );
+  background-size: 50% 100%;
+  background-repeat: no-repeat;
+  animation: activity-sweep 1.2s ease-in-out infinite;
+}
+
+/* In the app the top of the window is under the camera cutout. */
+body.native .activity-badge {
+  top: calc(env(safe-area-inset-top) + 0.5rem);
+}
+
+/*
  * A dialog's backdrop fades; the dialog itself already rises (sheet-in above).
  * Separating the two is what stops a modal feeling like it was stamped onto
  * the screen.
@@ -528,7 +561,8 @@ input:-webkit-autofill:focus {
   .animate-backdrop-in,
   .animate-page-in,
   .animate-value-bump,
-  .skeleton {
+  .skeleton,
+  .activity-bar {
     animation: none;
   }
 

@@ -3,7 +3,7 @@ import { Printer, Trash2 } from 'lucide-react';
 import api from '../api';
 import { lbp } from '../context/SettingsContext';
 import { useConfirm } from './ConfirmProvider';
-import { Button, Modal, ModalActions, money, useToast } from './ui';
+import { Button, Loading, Modal, ModalActions, money, useToast } from './ui';
 import { useCompany } from './Letterhead';
 import { ROLL, usePageSize } from '../lib/pageSize';
 
@@ -190,7 +190,7 @@ export default function VoucherSlip({ voucher: given, voucherId, onClose, onChan
         {error ? (
           <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
         ) : (
-          <p className="py-6 text-center text-sm text-slate-400">Loading…</p>
+          <Loading />
         )}
       </Modal>
     );

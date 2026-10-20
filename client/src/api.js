@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { apiBase, isNative } from './lib/server.js';
 import { CLIENT_ID, setLiveToken } from './lib/live.js';
+import { begin as beginActivity, finish as finishActivity } from './lib/activity.js';
 
 /*
  * Where the shop is.
@@ -22,6 +23,16 @@ api.defaults.headers.common['X-Client-Id'] = CLIENT_ID;
 
 api.interceptors.request.use((config) => {
   if (isNative()) config.baseURL = apiBase();
+  return config;
+});
+
+/*
+ * Counted out here and back in below, so one icon can say the app is waiting
+ * on the server without every screen having to report it. See lib/activity.js
+ * for what is left out of the count and why.
+ */
+api.interceptors.request.use((config) => {
+  beginActivity(config);
   return config;
 });
 
@@ -155,10 +166,17 @@ function finishedRotating(config) {
 api.interceptors.response.use(
   (response) => {
     finishedRotating(response.config);
+    finishActivity(response.config);
     return response;
   },
   async (error) => {
     finishedRotating(error.config);
+    /*
+     * Before any retry below: a retried request goes out through the request
+     * interceptor again and is counted again there, so its first attempt has
+     * to be counted out first or the icon would never go off.
+     */
+    finishActivity(error.config);
     const expired = error.response?.status === 401;
     /*
      * Two 401s mean "you typed it wrong", not "your session ended", and both
