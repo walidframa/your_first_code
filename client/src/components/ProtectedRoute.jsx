@@ -1,6 +1,7 @@
 import { Navigate } from 'react-router';
 import { useAuth } from '../context/AuthContext';
 import ChangePassword from '../pages/ChangePassword';
+import { Loading } from './ui';
 
 /**
  * Guard a route by permission rather than by role.
@@ -13,7 +14,7 @@ export default function ProtectedRoute({ roles, permission, children }) {
   const { user, loading, can } = useAuth();
 
   if (loading) {
-    return <div className="flex h-screen items-center justify-center text-slate-500">Loading…</div>;
+    return <Loading fill />;
   }
   if (!user) {
     return <Navigate to="/login" replace />;

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Plus, Search, UserPlus, UserRound, X } from 'lucide-react';
 import api from '../api';
-import { Badge, Button, EmptyState, Modal, cx, money } from './ui';
+import { Badge, Button, EmptyState, Loading, Modal, cx, money } from './ui';
 import { useT } from '../context/LanguageContext';
 import { useAuth } from '../context/AuthContext';
 import PartyQuickCreate from './PartyQuickCreate';
@@ -121,7 +121,7 @@ export default function CustomerPicker({ customer, onChange }) {
         )}
 
         {!customers ? (
-          <p className="py-6 text-center text-sm text-slate-400">Loading…</p>
+          <Loading />
         ) : visible.length === 0 ? (
           <EmptyState
             icon={UserRound}

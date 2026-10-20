@@ -591,6 +591,28 @@ export function Skeleton({ className }) {
   return <div className={cx('skeleton rounded-md bg-slate-200/70', className)} />;
 }
 
+/**
+ * A spinner with its word, for the places that wait for one thing and have
+ * no shape to draw a skeleton of — a modal that has asked for its record, a
+ * list that has not come back yet. `fill` makes it the whole screen, for the
+ * moment before the app knows who is signed in.
+ */
+export function Loading({ label = 'Loading…', fill = false, className }) {
+  return (
+    <div
+      role="status"
+      className={cx(
+        'flex items-center justify-center gap-2 text-sm text-slate-500',
+        fill ? 'h-screen' : 'py-6',
+        className,
+      )}
+    >
+      <Loader2 size={18} className="animate-spin text-brand-600" aria-hidden="true" />
+      <span>{label}</span>
+    </div>
+  );
+}
+
 /* ---------------------------------------------------------------- Toasts */
 
 const ToastContext = createContext(null);

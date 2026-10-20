@@ -8,6 +8,7 @@ import Vouchers from './pages/Vouchers';
 import { useAuth } from './context/AuthContext';
 import Layout from './components/Layout';
 import ProtectedRoute from './components/ProtectedRoute';
+import ActivityIndicator from './components/ActivityIndicator';
 import Checkout from './pages/Checkout';
 import MyOrders from './pages/MyOrders';
 import ItemsSold from './pages/ItemsSold';
@@ -89,6 +90,10 @@ function Landing() {
 
 export default function App() {
   return (
+    <>
+      {/* Above every route, signed in or not: the sign-in screen waits on the
+          server too. */}
+      <ActivityIndicator />
     <Routes>
       <Route path="/login" element={<Login />} />
       {/* Outside the protected block on purpose: this is the route that *makes*
@@ -467,5 +472,6 @@ export default function App() {
         />
       </Route>
     </Routes>
+    </>
   );
 }
