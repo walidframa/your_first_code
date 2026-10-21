@@ -3,6 +3,7 @@ import { BadgeCheck, HandCoins, Pencil, Plus, ShieldAlert, Trash2, Undo2 } from 
 import BuyHandsetModal from '../../components/BuyHandsetModal';
 import api from '../../api';
 import { useLive } from '../../lib/live';
+import { onDate } from '../../lib/when';
 import PageHeader from '../../components/PageHeader';
 import HistoryFilter from '../../components/HistoryFilter';
 import { useHistoryFilter } from '../../lib/history';
@@ -92,9 +93,7 @@ function IdPhotoViewer({ tradeIn, onClose, onRemoved }) {
       onClose={onClose}
       size="lg"
       title="Seller’s ID"
-      subtitle={`${tradeIn.seller_name || 'Unnamed seller'} · ${tradeIn.product_name} · ${String(
-        tradeIn.created_at,
-      ).slice(0, 10)}`}
+      subtitle={`${tradeIn.seller_name || 'Unnamed seller'} · ${tradeIn.product_name} · ${onDate(tradeIn.created_at)}`}
     >
       {error ? (
         <p className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800">{error}</p>
@@ -353,7 +352,7 @@ export default function TradeIns() {
               <tbody className="divide-y divide-rule">
                 {shown.map((t) => (
                   <tr key={t.id}>
-                    <td className="px-5 py-2.5 text-slate-500">{String(t.created_at).slice(0, 10)}</td>
+                    <td className="px-5 py-2.5 text-slate-500">{onDate(t.created_at)}</td>
                     <td className="px-3 py-2.5">
                       <p className="text-slate-800">{t.product_name}</p>
                       <p className="font-mono text-xs text-slate-400">{t.imei}</p>

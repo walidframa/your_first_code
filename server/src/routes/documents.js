@@ -326,6 +326,14 @@ router.put('/:id', requireAuth, requirePermission('documents'), (req, res) => {
           quantity: i.quantity,
           lineTotal: i.line_total,
           cost: i.cost,
+          /*
+           * The handsets stay on the line. Left off, a discount given after
+           * the fact — an edit that sends no lines at all — rebuilt the
+           * invoice without its IMEIs, and the re-sale was refused for naming
+           * nothing: "1 on the line but 0 IMEIs given" about a phone the
+           * invoice had sold a week earlier.
+           */
+          imeis: i.imeis,
         }));
     /* Replaced when sent, kept when not — the same rule as the payment below. */
     const charges =

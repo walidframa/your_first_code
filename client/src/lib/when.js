@@ -36,9 +36,18 @@
  */
 function parse(value) {
   if (!value) return null;
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
 
   const text = String(value).trim();
   if (!text) return null;
+
+  /*
+   * A day with no time on it — a warranty start, a due date — is a calendar
+   * day, not a moment. Read as UTC midnight it would show as the day before
+   * on any device west of Greenwich, so it is read as midnight here instead.
+   */
+  const bare = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text);
+  if (bare) return new Date(Number(bare[1]), Number(bare[2]) - 1, Number(bare[3]));
 
   // Already says which clock it is on: a trailing Z, or a +02:00 / -0500.
   const carriesZone = /([zZ]|[+-]\d{2}:?\d{2})$/.test(text);
@@ -53,6 +62,13 @@ export function when(value, fallback = '—') {
   const at = parse(value);
   if (!at) return fallback;
   return at.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+/** Day and time with no year — for a timeline where the year is obvious. */
+export function whenShort(value, fallback = '—') {
+  const at = parse(value);
+  if (!at) return fallback;
+  return at.toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 }
 
 /** Just the time — for a list where every row is from today anyway. */

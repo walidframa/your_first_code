@@ -4,6 +4,7 @@ import api from '../../api';
 import PageHeader from '../../components/PageHeader';
 import { useAuth } from '../../context/AuthContext';
 import { Button, Card, EmptyState, cx, useToast } from '../../components/ui';
+import { onDate } from '../../lib/when';
 
 const KIND_STYLE = {
   icloud: 'bg-sky-50 text-sky-700',
@@ -120,7 +121,7 @@ export default function HeldAccounts() {
                         {a.imei2 && <span className="font-mono"> / {a.imei2}</span>}
                       </p>
                       <p className="mt-0.5 text-xs text-slate-400">
-                        Sold {String(a.sold_on ?? '').slice(0, 10)} on {a.order_number}
+                        Sold {onDate(a.sold_on)} on {a.order_number}
                       </p>
                       {a.note && <p className="mt-1 text-xs text-slate-500">{a.note}</p>}
                     </div>

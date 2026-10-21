@@ -3,6 +3,7 @@ import { Search, Smartphone } from 'lucide-react';
 import api from '../api';
 import { Skeleton, cx } from './ui';
 import { digitsOf, unitHeading, unitKindOf } from '../lib/imei';
+import { onDate } from '../lib/when';
 
 /*
  * The three things a line can be doing with units already known to the shop,
@@ -53,7 +54,20 @@ const CONDITION_STYLE = {
  * line; the ones still on the shelf come pre-ticked, and the ones since sold
  * are simply not offered.
  */
-export default function ReturnHandsets({ product, value, quantity, onChange, mode = 'send_back' }) {
+export default function ReturnHandsets({
+  product,
+  value,
+  quantity,
+  onChange,
+  mode = 'send_back',
+  /*
+   * The document being edited, if any. A sale offers the shelf — and the
+   * units it already sold, which are not on the shelf any more precisely
+   * because of it. Without this, opening a confirmed invoice to correct a
+   * price emptied the line, and the save was refused for naming nothing.
+   */
+  documentId = null,
+}) {
   const [units, setUnits] = useState(null);
   const [term, setTerm] = useState('');
   const how = MODES[mode] || MODES.send_back;
@@ -65,18 +79,25 @@ export default function ReturnHandsets({ product, value, quantity, onChange, mod
     let live = true;
     const params = how.here ? { branch: 'here' } : {};
     if (how.status) params.status = how.status;
+    const onThis = mode === 'sell' && documentId ? Number(documentId) : null;
+    if (onThis) params.onDocument = onThis;
     api.get(`/units/product/${product.id}`, { params }).then((res) => {
       if (!live) return;
       setUnits(
         how.status
           ? res.data.units
-          : res.data.units.filter((u) => u.status === 'in_stock' || u.status === 'returned'),
+          : res.data.units.filter(
+              (u) =>
+                u.status === 'in_stock' ||
+                u.status === 'returned' ||
+                (onThis && u.sold_document_id === onThis),
+            ),
       );
     });
     return () => {
       live = false;
     };
-  }, [product.id, how.here, how.status]);
+  }, [product.id, how.here, how.status, mode, documentId]);
 
   /*
    * What the line names, as a set of numbers: either slot of a dual-SIM
@@ -178,8 +199,13 @@ export default function ReturnHandsets({ product, value, quantity, onChange, mod
                     returned
                   </span>
                 )}
+                {u.status === 'sold' && how.status !== 'sold' && (
+                  <span className="rounded-full bg-sky-50 px-2 py-0.5 text-xs font-medium text-sky-700">
+                    on this invoice
+                  </span>
+                )}
                 {how.status === 'sold' && u.sold_at && (
-                  <span className="tnum text-xs text-slate-400">sold {String(u.sold_at).slice(0, 10)}</span>
+                  <span className="tnum text-xs text-slate-400">sold {onDate(u.sold_at)}</span>
                 )}
               </label>
             </li>

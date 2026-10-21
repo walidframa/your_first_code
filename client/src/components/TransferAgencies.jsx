@@ -358,7 +358,7 @@ function StatementDialog({ company, onClose }) {
             <li key={e.id} className="flex items-baseline justify-between gap-3 py-2">
               <span className="min-w-0">
                 <span className="text-slate-700">{e.note || e.kind}</span>
-                <span className="ml-2 text-xs text-slate-400">{String(e.created_at).slice(0, 16)}</span>
+                <span className="ml-2 text-xs text-slate-400">{when(e.created_at)}</span>
               </span>
               <span
                 className={cx(

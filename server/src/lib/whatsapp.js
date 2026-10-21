@@ -18,6 +18,7 @@
 import { db } from '../db.js';
 import { DOC_TYPES, getDocument } from './documents.js';
 import { getSettings } from './settings.js';
+import { shopZone } from './shopTime.js';
 import { parseImeiList } from './units.js';
 import { ticketWithDetail } from './repairs.js';
 import { usdToLbp } from './currency.js';
@@ -76,7 +77,13 @@ function readableDate(value, { withTime = false } = {}) {
   // Stored as UTC without the marker, the way SQLite's datetime() writes it.
   const date = new Date(`${String(value).replace(' ', 'T')}Z`);
   if (Number.isNaN(date.getTime())) return String(value);
+  /*
+   * In the shop's own zone — the server's clock is wherever the server is,
+   * and a receipt that says a sale happened three hours before it did is
+   * wrong in the one place a customer will read it.
+   */
   return date.toLocaleString('en-GB', {
+    timeZone: shopZone(),
     day: '2-digit',
     month: 'short',
     year: 'numeric',

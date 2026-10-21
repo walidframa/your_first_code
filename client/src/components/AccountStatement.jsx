@@ -5,6 +5,7 @@ import { useLive } from '../lib/live';
 import Letterhead from './Letterhead';
 import { A4, usePageSize } from '../lib/pageSize';
 import { Button, Input, Modal, ModalActions, Skeleton, cx, money } from './ui';
+import { onDate, when } from '../lib/when';
 
 const DOC_LABEL = {
   quotation: 'Quotation',
@@ -16,8 +17,9 @@ const DOC_LABEL = {
   transfer: 'Transfer voucher',
 };
 
-const day = (value) => String(value || '').slice(0, 10);
-const stamp = (value) => String(value || '').slice(0, 16).replace('T', ' ');
+/* On the clock of whoever is reading it — see lib/when.js. */
+const day = (value) => onDate(value, '');
+const stamp = (value) => when(value, '');
 
 /**
  * The account, as a page somebody can be handed.
@@ -131,7 +133,7 @@ export default function AccountStatement({ partyType, partyId, path, name, onClo
                 <p>
                   {statement.period.from || 'the beginning'} to {statement.period.to || 'today'}
                 </p>
-                <p className="text-xs text-slate-400">Printed {day(new Date().toISOString())}</p>
+                <p className="text-xs text-slate-400">Printed {day(new Date())}</p>
               </div>
             </div>
 
@@ -209,7 +211,7 @@ export default function AccountStatement({ partyType, partyId, path, name, onClo
             >
               {Math.abs(closing) < 0.005
                 ? 'This account is settled.'
-                : `${money(Math.abs(closing))} ${closingWords} as at ${statement.period.to || day(new Date().toISOString())}.`}
+                : `${money(Math.abs(closing))} ${closingWords} as at ${statement.period.to || day(new Date())}.`}
             </p>
 
             {/*

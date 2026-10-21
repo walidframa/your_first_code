@@ -67,9 +67,10 @@ export function useHistoryFilter(initialPreset = 'month', initialTerm = '') {
 
   const within = (stamp) => {
     if (!range.from && !range.to) return true;
-    // Dates arrive as 'YYYY-MM-DD HH:MM:SS' or just the day; either way the
-    // first ten characters are the day, and days compare as strings.
-    const on = String(stamp || '').slice(0, 10);
+    // Dates arrive as a UTC 'YYYY-MM-DD HH:MM:SS' or just the day. Either
+    // way the day is the one on this device's clock — a sale at one in the
+    // morning here is today's, whatever UTC says — and days compare as strings.
+    const on = isoDay(stamp);
     if (!on) return true;
     return (!range.from || on >= range.from) && (!range.to || on <= range.to);
   };

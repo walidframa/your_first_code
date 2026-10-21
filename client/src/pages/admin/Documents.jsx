@@ -1156,6 +1156,7 @@ function DocumentForm({ existing, startAs = null, page = false, onClose, onSaved
                                     product={l.product}
                                     value={l.imeis || ''}
                                     quantity={l.quantity}
+                                    documentId={editing ? doc.id : null}
                                     onChange={(patch) => updateLine(l.key, patch)}
                                   />
                                 )}

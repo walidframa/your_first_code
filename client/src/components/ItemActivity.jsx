@@ -4,7 +4,7 @@ import api from '../api';
 import { Badge, Modal, Skeleton, cx, money } from './ui';
 import Receipt from './Receipt';
 import { ProductSalesHistory } from './ProductSales';
-import { onDate } from '../lib/when';
+import { onDate, when } from '../lib/when';
 
 /** What each kind of thing that can happen to a product looks like. */
 const KINDS = {
@@ -114,8 +114,7 @@ export default function ItemActivity({ productId, onClose, onOpenDocument, onOpe
           <p className="tnum text-sm text-brand-800">{money(sales.revenue)}</p>
           {sales.firstSoldAt && (
             <p className="text-xs text-brand-700">
-              first {String(sales.firstSoldAt).slice(0, 16).replace('T', ' ')} · last{' '}
-              {String(sales.lastSoldAt).slice(0, 16).replace('T', ' ')}
+              first {when(sales.firstSoldAt)} · last {when(sales.lastSoldAt)}
             </p>
           )}
         </div>
