@@ -25,7 +25,7 @@ import AccountStatement from '../../components/AccountStatement';
 import ExportList from '../../components/ExportList';
 import VoucherSlip from '../../components/VoucherSlip';
 import { useSettings, lbp } from '../../context/SettingsContext';
-import { when } from '../../lib/when';
+import { onDate, when } from '../../lib/when';
 
 /** Mirrors DEFAULT_CREDIT_LIMIT on the server — see server/src/lib/accounts.js. */
 const DEFAULT_CREDIT_LIMIT = 100000;
@@ -457,7 +457,7 @@ function DealingItems({ dealing, onClose }) {
       open
       onClose={onClose}
       title={`${DEALING_LABELS[dealing.kind] || dealing.kind} ${dealing.reference || ''}`}
-      subtitle={String(dealing.at || '').slice(0, 16).replace('T', ' ')}
+      subtitle={when(dealing.at, '')}
       size="lg"
     >
       {error ? (
@@ -619,7 +619,7 @@ function PartyDetail({ partyId, config, onClose, onChanged }) {
                     </span>
                     <span className="w-24 shrink-0 truncate text-xs text-slate-500">{d.reference}</span>
                     <span className="min-w-0 flex-1 truncate text-xs text-slate-400">
-                      {String(d.at).slice(0, 16).replace('T', ' ')}
+                      {when(d.at)}
                       {d.who ? ` · ${d.who}` : ''}
                       {/* A refunded sale still happened; saying so is the point
                           of a history. */}
@@ -1038,7 +1038,7 @@ export default function Parties({ type }) {
             ? [{ key: 'credit_limit', label: 'Credit limit (USD)', align: 'right', get: (p) => Number(p.credit_limit) || 0, default: false }]
             : []),
           { key: 'notes', label: 'Notes', get: (p) => p.notes || '', default: false },
-          { key: 'since', label: 'Since', get: (p) => String(p.created_at || '').slice(0, 10), default: false },
+          { key: 'since', label: 'Since', get: (p) => onDate(p.created_at, ''), default: false },
           { key: 'active', label: 'Active', get: (p) => (p.active === false || p.active === 0 ? 'archived' : 'yes'), default: false },
         ]}
       />

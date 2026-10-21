@@ -3,6 +3,7 @@ import { CalendarCheck, FileText, IdCard, Pencil, Plus, Trash2, Wallet } from 'l
 import { Link } from 'react-router';
 import api from '../../api';
 import { useLive } from '../../lib/live';
+import { when } from '../../lib/when';
 import PageHeader from '../../components/PageHeader';
 import AccountStatement from '../../components/AccountStatement';
 import { useConfirm } from '../../components/ConfirmProvider';
@@ -392,7 +393,7 @@ function EmployeeModal({ id, onClose, onChanged }) {
                           {e.note || e.kind}
                         </span>
                         <span className="text-xs text-slate-400">
-                          {String(e.created_at).slice(0, 16).replace('T', ' ')}
+                          {when(e.created_at)}
                         </span>
                       </span>
                       <span

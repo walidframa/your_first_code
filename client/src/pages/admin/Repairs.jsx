@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { Eye, Pencil, Plus, Trash2, Wrench } from 'lucide-react';
 import Peek from '../../components/Peek';
-import { onDate } from '../../lib/when';
+import { onDate, whenShort } from '../../lib/when';
 import api from '../../api';
 import { useLive } from '../../lib/live';
 import PageHeader from '../../components/PageHeader';
@@ -145,7 +145,7 @@ function IntakeModal({ onClose, onSaved }) {
                   warranty.warranty.active ? 'bg-brand-50 text-brand-800' : 'bg-amber-50 text-amber-800',
                 )}
               >
-                {warranty.unit.product_name} sold on {String(warranty.unit.sold_at ?? '').slice(0, 10)} ·{' '}
+                {warranty.unit.product_name} sold on {onDate(warranty.unit.sold_at)} ·{' '}
                 {warranty.warranty.active
                   ? `under warranty until ${warranty.warranty.ends}`
                   : warranty.warranty.ends
@@ -1021,7 +1021,7 @@ function TicketModal({ id, onClose, onChanged }) {
               {events.map((e) => (
                 <li key={e.id} className="flex gap-2">
                   <span className="w-28 shrink-0 text-xs text-slate-400">
-                    {String(e.created_at).slice(5, 16).replace('T', ' ')}
+                    {whenShort(e.created_at)}
                   </span>
                   <span className="text-slate-700">
                     {EVENT_LABEL[e.status] || e.status}

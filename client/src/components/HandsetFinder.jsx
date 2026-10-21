@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router';
 import { Smartphone, Search } from 'lucide-react';
 import api from '../api';
 import { Badge, Button, Modal, ModalActions, money } from './ui';
+import { onDate } from '../lib/when';
 
 /**
  * Where is this handset?
@@ -26,7 +27,7 @@ const STATUS = {
   sent_back: { label: 'Sent back to the supplier', tone: 'warning' },
 };
 
-const day = (at) => String(at || '').slice(0, 10);
+const day = (at) => onDate(at, '');
 
 /** One line saying where it is, for a toast at the register. */
 export function whereIs(found) {

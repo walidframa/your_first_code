@@ -83,7 +83,7 @@ export function syncStockFromUnits(productId) {
 }
 
 /** The units of a product, newest first, optionally narrowed to one status. */
-export function unitsFor(productId, status = null, branchId = null) {
+export function unitsFor(productId, status = null, branchId = null, onDocumentId = null) {
   /*
    * `branchId` narrows this to the handsets standing in one shop.
    *
@@ -106,6 +106,18 @@ export function unitsFor(productId, status = null, branchId = null) {
   if (branchId) {
     where += ' AND COALESCE(u.branch_id, ?) = ?';
     params.push(mainBranchId(), branchId);
+  }
+
+  /*
+   * And the ones that went out on this very document, whatever shelf they
+   * were on. An invoice being edited has to be able to keep the handset it
+   * sold: offered only what is in stock, the line lost its unit the moment
+   * the form opened, and a price correction turned into a sale that could
+   * not be saved.
+   */
+  if (onDocumentId) {
+    where = `(${where}) OR (u.product_id = ? AND u.sold_document_id = ?)`;
+    params.push(productId, onDocumentId);
   }
 
   /*

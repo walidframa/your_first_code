@@ -66,7 +66,13 @@ router.get('/product/:productId', requireAuth, (req, res) => {
    * gets the company's whole history of the product, which is what a warranty
    * question needs.
    */
-  const units = unitsFor(product.id, status || null, req.query.branch === 'here' ? req.branchId : null);
+  const onDocument = Number(req.query.onDocument) || null;
+  const units = unitsFor(
+    product.id,
+    status || null,
+    req.query.branch === 'here' ? req.branchId : null,
+    onDocument,
+  );
   res.json({
     product,
     units,

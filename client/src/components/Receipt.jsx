@@ -376,7 +376,7 @@ function Sheet({ order, items, tenders, rate, totalLbp, changeText, reprint, t }
           </div>
           <div className="mt-1 flex justify-between gap-6">
             <dt className="text-slate-500">Date</dt>
-            <dd className="tnum text-slate-800">{String(order.created_at).slice(0, 16)}</dd>
+            <dd className="tnum text-slate-800">{when(order.created_at)}</dd>
           </div>
           {rate > 0 && (
             <div className="mt-1 flex justify-between gap-6">

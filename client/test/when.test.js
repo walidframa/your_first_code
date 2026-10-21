@@ -19,7 +19,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { atTime, isoDay, onDate, when } from '../src/lib/when.js';
+import { atTime, isoDay, onDate, when, whenShort } from '../src/lib/when.js';
 
 /** The instant a rendering refers to, recovered for comparison. */
 const instant = (value) => Date.parse(value);
@@ -87,4 +87,31 @@ test('a time-only rendering is still the right instant', () => {
   const rendered = atTime('2026-08-22 14:05:00');
   const expected = new Date(Date.UTC(2026, 7, 22, 14, 5, 0));
   assert.equal(rendered, expected.toLocaleTimeString(undefined, { timeStyle: 'short' }));
+});
+
+test('a bare day is a calendar day, not midnight in London', () => {
+  /*
+   * A warranty start or a due date is stored as `date('now')` — a day with no
+   * time. Read as a UTC instant it is the evening before on any device west
+   * of Greenwich; read as a day it is the same day on every device.
+   */
+  const shown = onDate('2026-03-05');
+  const sameDay = new Date(2026, 2, 5).toLocaleDateString(undefined, { dateStyle: 'medium' });
+  assert.equal(shown, sameDay);
+  assert.equal(isoDay('2026-03-05'), '2026-03-05');
+});
+
+test('a Date goes through as it is', () => {
+  const now = new Date();
+  assert.equal(onDate(now), now.toLocaleDateString(undefined, { dateStyle: 'medium' }));
+  assert.equal(when(now), now.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }));
+  assert.equal(onDate(new Date('nonsense')), '—');
+});
+
+test('the short form keeps the day and the time and drops the year', () => {
+  const at = new Date(Date.UTC(2026, 7, 22, 14, 5, 0));
+  assert.equal(
+    whenShort('2026-08-22 14:05:00'),
+    at.toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }),
+  );
 });

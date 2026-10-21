@@ -3,6 +3,7 @@ import { Button } from './ui';
 import { useCompany } from './Letterhead';
 import { lbp, useSettings } from '../context/SettingsContext';
 import { ROLL, usePageSize } from '../lib/pageSize';
+import { when } from '../lib/when';
 
 const STATUS_LABEL = {
   received: 'Received',
@@ -69,7 +70,7 @@ export default function RepairSlip({ detail }) {
         */}
       <dl className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5">
         <dt>Taken in</dt>
-        <dd>{String(ticket.created_at).slice(0, 16).replace('T', ' ')}</dd>
+        <dd>{when(ticket.created_at)}</dd>
         <dt>Customer</dt>
         <dd>{ticket.customer_name}</dd>
         {ticket.customer_phone && (
