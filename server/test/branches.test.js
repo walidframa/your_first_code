@@ -419,6 +419,31 @@ test('a cashier is pinned to their own counter', async () => {
   assert.equal(seen.json.product.stock, 5, 'still reading their own shelf');
 });
 
+test('but checking an item shows them every branch’s shelf', async () => {
+  /*
+   * A clerk with no say over branches was shown one figure on the check-an-
+   * item page, with nothing about the other shop. "Is there one at the other
+   * branch?" is the question that page exists to answer, so every shelf is
+   * offered to whoever asks it — and only there: the owner's "all branches"
+   * stays the owner's.
+   */
+  const made = await makeProduct(4);
+  const find = (rows) => rows.find((p) => p.id === made.id);
+
+  const own = find((await req('GET', '/products', null, cashierToken)).json.products);
+  assert.equal(own.stock, 4);
+  assert.equal(own.stock_by_branch, undefined, 'the register still reads one shelf');
+
+  const widened = find((await req('GET', '/products?branch=all', null, cashierToken)).json.products);
+  assert.equal(widened.stock_by_branch, undefined, 'the owner’s switch is not theirs to throw');
+
+  const every = find((await req('GET', '/products?shelves=every', null, cashierToken)).json.products);
+  const shelves = Object.fromEntries(every.stock_by_branch.map((b) => [b.branch_id, b.stock]));
+  assert.equal(shelves[mainBranch.id], 4);
+  assert.equal(shelves[saida.id], 0, 'the other shop is named, with its none');
+  assert.equal(every.stock, 4, 'and the company figure with it');
+});
+
 test('and cannot open a branch', async () => {
   const refused = await req('POST', '/branches', { name: 'Tripoli' }, cashierToken);
   assert.equal(refused.status, 403);
