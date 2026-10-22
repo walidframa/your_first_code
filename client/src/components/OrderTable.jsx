@@ -1,5 +1,14 @@
 import { useState } from 'react';
-import { Banknote, CreditCard, Landmark, Printer, Receipt as ReceiptIcon, RotateCcw, Send } from 'lucide-react';
+import {
+  Banknote,
+  CreditCard,
+  Landmark,
+  Printer,
+  Receipt as ReceiptIcon,
+  RotateCcw,
+  Send,
+  Smartphone,
+} from 'lucide-react';
 import api from '../api';
 import Receipt from './Receipt';
 import { useConfirm } from './ConfirmProvider';
@@ -48,8 +57,17 @@ const PAYMENT_LOOKS = {
   split: { tone: 'neutral', icon: null, label: 'Split' },
 };
 
-export function PaymentBadge({ method, className }) {
-  const look = PAYMENT_LOOKS[method] || { tone: 'neutral', icon: null, label: method || 'Paid' };
+export function PaymentBadge({ method, label = null, className }) {
+  /*
+   * Whish, OMT and the like are "card" to the drawer and something else to
+   * the person reading the list: a sale paid on Whish was tagged "Card", the
+   * same as a bank card, and the two had to be told apart by opening each
+   * one. The tender names the app, so the tag says it.
+   */
+  const look =
+    method === 'card' && label
+      ? { tone: 'info', icon: Smartphone, label }
+      : PAYMENT_LOOKS[method] || { tone: 'neutral', icon: null, label: method || 'Paid' };
   return (
     <Badge tone={look.tone} icon={look.icon} className={className}>
       {look.label}
@@ -320,7 +338,7 @@ export default function OrderTable({
                         </span>
                         <span className="flex shrink-0 items-center gap-1">
                           {o.kind === 'order' && o.status !== 'refunded' && (
-                            <PaymentBadge method={o.payment_method} />
+                            <PaymentBadge method={o.payment_method} label={o.card_label} />
                           )}
                           {o.kind === 'invoice' ? (
                             <Badge tone={o.outstanding > 0 ? 'info' : 'good'}>
@@ -378,6 +396,7 @@ export default function OrderTable({
                               ? 'account'
                               : o.payment_method || 'paid'
                         }
+                        label={o.kind === 'order' ? o.card_label : null}
                       />
                     </td>
                     <td className="px-3 py-2.5">

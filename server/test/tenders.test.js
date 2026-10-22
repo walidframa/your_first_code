@@ -132,6 +132,24 @@ test('half in cash and half on a card lands in the drawer once', async () => {
   assert.equal(sale.json.order.payment_method, 'cash');
 });
 
+test('the sales list says which app an electronic payment came through', async () => {
+  /*
+   * A Whish sale and a bank-card sale were both tagged "Card" on the sales
+   * list — both are `card` to the drawer — and telling them apart meant
+   * opening each one. The row now carries the app's name off the tender.
+   */
+  const whish = await sell([{ method: 'card', amountUsd: 100, label: 'Whish' }]);
+  assert.equal(whish.status, 201, JSON.stringify(whish.json));
+  const bank = await sell([{ method: 'card', amountUsd: 100 }]);
+  assert.equal(bank.status, 201, JSON.stringify(bank.json));
+
+  const rows = (await req('GET', '/orders', null, adminToken)).json.orders;
+  const byId = Object.fromEntries(rows.map((o) => [o.id, o]));
+  assert.equal(byId[whish.json.order.id].payment_method, 'card');
+  assert.equal(byId[whish.json.order.id].card_label, 'Whish', 'the list names the app');
+  assert.equal(byId[bank.json.order.id].card_label, null, 'a bank card has no app to name');
+});
+
 test('a customer who is short pays what they can and owes the rest', async () => {
   const cashBefore = await drawer();
   const owedBefore = await owed();
