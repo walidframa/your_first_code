@@ -537,7 +537,16 @@ router.get('/', requireAuth, (req, res) => {
    * two screens used to answer differently to the same question, and a shop
    * with two counters saw two quantities for one product.
    */
-  const scope = branchScope(req);
+  /*
+   * `?shelves=every` is the check-an-item page asking for every branch's
+   * shelf side by side, and anybody signed in may ask it. It is not the
+   * owner's "all branches" view: that widens invoices, tills and takings to
+   * the whole company and stays behind `branches`. How many of a thing each
+   * shop has on its shelf is counter work — "is there one at the other
+   * branch?" is asked across the counter with a customer waiting, and the
+   * answer was one branch's figure for anybody but the owner.
+   */
+  const scope = req.query.shelves === 'every' ? null : branchScope(req);
   const here = scope === null ? null : stockMap(scope);
   /* The whole company, but branch by branch — a sum hides where the stock is. */
   const byBranch = scope === null ? stockByBranchMap() : null;

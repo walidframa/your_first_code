@@ -1157,7 +1157,18 @@ router.post('/', requireAuth, requirePermission('register'), (req, res) => {
 
 router.get('/', requireAuth, (req, res) => {
   const { from, to } = req.query;
-  let sql = `SELECT o.*, u.name AS cashier_name, c.name AS customer_name
+  /*
+   * Which app the electronic money came through, when the tender said.
+   *
+   * A Whish transfer and a bank card are both `card` to the drawer — neither
+   * is in it — and the list showed both as "Card". The shop reconciling its
+   * Whish balance against the day's sales had to open each one. The tender
+   * carries the name (see lib/tenders.js), so the row carries it too.
+   */
+  let sql = `SELECT o.*, u.name AS cashier_name, c.name AS customer_name,
+    (SELECT op.label FROM order_payments op
+      WHERE op.order_id = o.id AND op.method = 'card' AND op.label IS NOT NULL AND op.label != ''
+      ORDER BY op.id LIMIT 1) AS card_label
     FROM orders o JOIN users u ON u.id = o.cashier_id
     LEFT JOIN customers c ON c.id = o.customer_id WHERE 1=1`;
   const params = [];

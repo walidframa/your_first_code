@@ -7,7 +7,6 @@ import { useBranch } from '../context/BranchContext';
 import { lbp, useSettings } from '../context/SettingsContext';
 import { useLive } from '../lib/live';
 import { matchesSearch } from '../lib/search';
-import { stockScopeParams } from '../components/StockScope';
 import BarcodeScanner, { ScanButton, canScan } from '../components/BarcodeScanner';
 import { looksLikeImei, whereIs } from '../components/HandsetFinder';
 import { Badge, ProductThumb, StockBadge, cx, money } from '../components/ui';
@@ -30,7 +29,7 @@ const LIMIT = 40;
 
 export default function Lookup() {
   const { can } = useAuth();
-  const { branch, canSwitch, total } = useBranch();
+  const { branch, total } = useBranch();
   const { rate, toLbp } = useSettings();
   const [products, setProducts] = useState(null);
   const [search, setSearch] = useState('');
@@ -41,12 +40,17 @@ export default function Lookup() {
 
   /* Costs for whoever may open the catalogue — the same gate as the products page. */
   const seesCost = can('catalogue');
-  /* Every branch's shelf, side by side, when there is more than one to see. */
-  const everyBranch = canSwitch && total > 1;
+  /*
+   * Every branch's shelf, side by side, when there is more than one to see —
+   * for whoever is asking. It used to follow the owner's branch switch, so a
+   * clerk checking an item saw their own counter's figure and nothing about
+   * the other shop, which is exactly the question they were asking.
+   */
+  const everyBranch = total > 1;
 
   const load = useCallback(async () => {
     const res = await api.get('/products', {
-      params: { activeOnly: 'true', ...(everyBranch ? stockScopeParams('all') : {}) },
+      params: { activeOnly: 'true', ...(everyBranch ? { shelves: 'every' } : {}) },
     });
     setProducts(res.data.products.filter((p) => !p.is_service));
   }, [everyBranch]);
