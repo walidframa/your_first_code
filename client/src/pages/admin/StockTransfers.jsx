@@ -704,12 +704,130 @@ function ReceiveDialog({ transfer, onClose, onReceived }) {
   );
 }
 
+/** The words for each stage of a transfer, for the detail's timeline. */
+function stageLine(transfer) {
+  if (transfer.status === 'cancelled') return 'Cancelled — everything went back to the shelf it left';
+  if (transfer.status === 'received') {
+    return `Received ${when(transfer.received_at)}${transfer.received_by_name ? ` by ${transfer.received_by_name}` : ''}`;
+  }
+  if (transfer.status === 'sent') return 'On the way — not unpacked yet';
+  return 'Not sent yet';
+}
+
+/**
+ * What moved on one transfer, line by line.
+ *
+ * The list says a reference, a route and a count, and that is all it said:
+ * to find out *which* phone went to Saida on TR-0012 somebody had to go to
+ * the handset and work backwards. Clicking the row opens it — every line,
+ * with its number if it has one, what was sent and what was counted at the
+ * other end, and a short line called out rather than left to be noticed.
+ */
+function TransferDetail({ transfer, canReceive, onReceive, onClose }) {
+  const items = transfer.items || [];
+  const sent = items.reduce((n, i) => n + i.quantity, 0);
+  const received = transfer.status === 'received';
+  const got = received ? items.reduce((n, i) => n + (i.received_quantity ?? i.quantity), 0) : null;
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={transfer.reference}
+      subtitle={`${transfer.from_branch_name} → ${transfer.to_branch_name}`}
+      size="lg"
+    >
+      <div className="space-y-4" data-transfer-detail>
+        <dl className="grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
+          <div className="flex justify-between gap-3 sm:block">
+            <dt className="text-slate-500">Sent</dt>
+            <dd className="text-slate-800">
+              {transfer.sent_at ? when(transfer.sent_at) : '—'}
+              {transfer.sent_by_name ? ` by ${transfer.sent_by_name}` : ''}
+            </dd>
+          </div>
+          <div className="flex justify-between gap-3 sm:block">
+            <dt className="text-slate-500">Then</dt>
+            <dd className="text-slate-800">{stageLine(transfer)}</dd>
+          </div>
+          {transfer.note && (
+            <div className="flex justify-between gap-3 sm:col-span-2 sm:block">
+              <dt className="text-slate-500">Note</dt>
+              <dd className="text-slate-800">{transfer.note}</dd>
+            </div>
+          )}
+        </dl>
+
+        <table className="w-full text-sm">
+          <thead className="border-b border-slate-100 text-left text-xs text-slate-500">
+            <tr>
+              <th className="py-2 pr-3 font-medium">Item</th>
+              <th className="py-2 pr-3 text-right font-medium">Sent</th>
+              {received && <th className="py-2 text-right font-medium">Arrived</th>}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-rule">
+            {items.map((item) => {
+              const arrived = item.received_quantity ?? item.quantity;
+              const short = received && arrived < item.quantity;
+              return (
+                <tr key={item.id} className={cx(short && 'bg-amber-50')} data-transfer-line>
+                  <td className="py-2 pr-3">
+                    <span className="block text-slate-800">{item.name}</span>
+                    <span className="block text-xs text-slate-400">
+                      {item.sku}
+                      {item.imei && (
+                        <>
+                          {' · '}
+                          <span className="font-mono text-slate-500">{item.imei}</span>
+                        </>
+                      )}
+                    </span>
+                  </td>
+                  <td className="tnum py-2 pr-3 text-right text-slate-700">{item.quantity}</td>
+                  {received && (
+                    <td className={cx('tnum py-2 text-right', short ? 'font-medium text-amber-800' : 'text-slate-700')}>
+                      {arrived}
+                      {short && <span className="ml-1 text-xs">· {item.quantity - arrived} short</span>}
+                    </td>
+                  )}
+                </tr>
+              );
+            })}
+          </tbody>
+          <tfoot className="border-t border-slate-200 text-xs text-slate-500">
+            <tr>
+              <td className="py-2 pr-3">
+                {items.length} line{items.length === 1 ? '' : 's'}
+              </td>
+              <td className="tnum py-2 pr-3 text-right">{sent}</td>
+              {received && <td className="tnum py-2 text-right">{got}</td>}
+            </tr>
+          </tfoot>
+        </table>
+
+        <ModalActions>
+          <Button type="button" variant="secondary" className="flex-1" onClick={onClose}>
+            Close
+          </Button>
+          {canReceive && (
+            <Button type="button" className="flex-1" onClick={onReceive}>
+              <PackageCheck size={16} /> Receive it
+            </Button>
+          )}
+        </ModalActions>
+      </div>
+    </Modal>
+  );
+}
+
 export default function StockTransfers() {
   const toast = useToast();
   const { branch, branches, refresh: refreshBranches } = useBranch();
   const [transfers, setTransfers] = useState(null);
   const [sending, setSending] = useState(false);
   const [receiving, setReceiving] = useState(null);
+  const [viewing, setViewing] = useState(null);
 
   const load = useCallback(async () => {
     const res = await api.get('/stock-transfers');
@@ -743,12 +861,23 @@ export default function StockTransfers() {
 
   async function openReceive(row) {
     const res = await api.get(`/stock-transfers/${row.id}`);
+    setViewing(null);
     setReceiving(res.data.transfer);
+  }
+
+  async function openDetail(row) {
+    try {
+      const res = await api.get(`/stock-transfers/${row.id}`);
+      setViewing(res.data.transfer);
+    } catch (err) {
+      toast(err.response?.data?.error || 'Could not open that transfer', 'error');
+    }
   }
 
   const done = async () => {
     setSending(false);
     setReceiving(null);
+    setViewing(null);
     await load();
     await refreshBranches();
   };
@@ -795,7 +924,14 @@ export default function StockTransfers() {
                 <li key={t.id} className="flex items-center gap-3 px-5 py-3">
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-medium text-slate-800">
-                      {t.reference} <span className="text-slate-400">from {t.from_branch_name}</span>
+                      <button
+                        type="button"
+                        onClick={() => openDetail(t)}
+                        className="rounded underline-offset-2 hover:underline focus:underline focus:outline-none"
+                      >
+                        {t.reference}
+                      </button>{' '}
+                      <span className="text-slate-400">from {t.from_branch_name}</span>
                     </p>
                     <p className="text-xs text-slate-400">
                       {t.item_count} item{t.item_count === 1 ? '' : 's'} · sent{' '}
@@ -838,8 +974,29 @@ export default function StockTransfers() {
               </thead>
               <tbody className="divide-y divide-rule">
                 {transfers.map((t) => (
-                  <tr key={t.id} className={cx(t.status === 'cancelled' && 'opacity-55')}>
-                    <td className="px-5 py-2.5 font-medium text-slate-800">{t.reference}</td>
+                  <tr
+                    key={t.id}
+                    onClick={() => openDetail(t)}
+                    className={cx(
+                      'cursor-pointer transition hover:bg-slate-50',
+                      t.status === 'cancelled' && 'opacity-55',
+                    )}
+                    data-transfer-row={t.reference}
+                  >
+                    <td className="px-5 py-2.5 font-medium text-slate-800">
+                      {/* A real button under the row's click, so the keyboard
+                          can open it too. */}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openDetail(t);
+                        }}
+                        className="rounded underline-offset-2 hover:underline focus:underline focus:outline-none"
+                      >
+                        {t.reference}
+                      </button>
+                    </td>
                     <td className="px-3 py-2.5 text-slate-600">
                       <span className="inline-flex items-center gap-1.5">
                         {t.from_branch_name}
@@ -857,7 +1014,14 @@ export default function StockTransfers() {
                           {t.status === 'sent' ? 'on the way' : t.status}
                         </Badge>
                         {t.status === 'sent' && t.from_branch_id === branch?.id && (
-                          <Button size="sm" variant="secondary" onClick={() => cancel(t)}>
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              cancel(t);
+                            }}
+                          >
                             <Ban size={13} /> Cancel
                           </Button>
                         )}
@@ -876,6 +1040,14 @@ export default function StockTransfers() {
       )}
       {receiving && (
         <ReceiveDialog transfer={receiving} onClose={() => setReceiving(null)} onReceived={done} />
+      )}
+      {viewing && !receiving && (
+        <TransferDetail
+          transfer={viewing}
+          canReceive={viewing.status === 'sent' && viewing.to_branch_id === branch?.id}
+          onReceive={() => openReceive(viewing)}
+          onClose={() => setViewing(null)}
+        />
       )}
     </div>
   );
