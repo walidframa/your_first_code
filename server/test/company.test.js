@@ -190,6 +190,28 @@ test('a label design is saved, normalised, and read back whole', async () => {
   assert.equal(style.nameScale, 1);
 });
 
+test('a coded price is saved with its digits, and only digits', async () => {
+  // Five dollars printed as 23523: the digits either side are the shop's,
+  // kept as typed but for anything that is not a digit.
+  const res = await req(
+    'PUT',
+    '/settings',
+    { label_style: { codedPrice: true, codeBefore: '2a3', codeAfter: '123456789' } },
+    adminToken,
+  );
+  assert.equal(res.status, 200);
+  const style = JSON.parse(res.json.settings.label_style);
+  assert.equal(style.codedPrice, true);
+  assert.equal(style.codeBefore, '23');
+  assert.equal(style.codeAfter, '1234', 'four digits a side at most');
+
+  // Left unsaid, it is off — a shop that never asked for a code prints prices.
+  const plain = await req('PUT', '/settings', { label_style: { shop: true } }, adminToken);
+  const back = JSON.parse(plain.json.settings.label_style);
+  assert.equal(back.codedPrice, false);
+  assert.equal(back.codeBefore, '23');
+});
+
 test('a design that would print off the label is brought back into range', async () => {
   const res = await req(
     'PUT',

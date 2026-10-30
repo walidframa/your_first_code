@@ -141,3 +141,38 @@ export function dayEndUtc(date, zone = shopZone()) {
 export function sqlDayShift(zone = shopZone(), at = new Date()) {
   return `${zoneOffsetMinutes(zone, at) >= 0 ? '+' : '-'}${Math.abs(zoneOffsetMinutes(zone, at))} minutes`;
 }
+
+/** A stored UTC bound as milliseconds, or null for the open-ended sentinels. */
+function boundMs(stamp) {
+  const text = String(stamp || '').trim();
+  if (!text) return null;
+  const ms = Date.parse(`${text.replace(' ', 'T')}${/[zZ]$/.test(text) ? '' : 'Z'}`);
+  if (!Number.isFinite(ms)) return null;
+  // '0000-01-01' and '9999-12-31' mean "no bound", not a date to measure at.
+  if (ms < Date.UTC(1900, 0, 1) || ms > Date.UTC(2200, 0, 1)) return null;
+  return ms;
+}
+
+/**
+ * The shift for a report over a given stretch of time.
+ *
+ * Measured in the middle of the period being reported rather than today: a
+ * September report read in November was shifting September's sales by the
+ * winter offset, which is an hour short of the one they were rung up under,
+ * and a sale at half past midnight slid back onto the day before. The trade
+ * documented above still stands for a range that itself spans a clock change;
+ * what this removes is the report changing its answer with the calendar.
+ */
+export function rangeShift(fromUtc, toUtc, zone = shopZone()) {
+  const lo = boundMs(fromUtc);
+  const hi = boundMs(toUtc);
+  const at =
+    lo !== null && hi !== null
+      ? new Date((lo + hi) / 2)
+      : lo !== null
+        ? new Date(lo)
+        : hi !== null
+          ? new Date(hi)
+          : new Date();
+  return sqlDayShift(zone, at);
+}
