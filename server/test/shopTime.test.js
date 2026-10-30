@@ -25,6 +25,7 @@ import {
   dayStartUtc,
   knownZone,
   shopDay,
+  rangeShift,
   sqlDayShift,
   zoneOffsetMinutes,
 } from '../src/lib/shopTime.js';
@@ -115,6 +116,17 @@ test('SQLite is told the same offset, for grouping by day', () => {
   assert.equal(sqlDayShift('Asia/Beirut', new Date('2026-07-15T12:00:00Z')), '+180 minutes');
   assert.equal(sqlDayShift('America/New_York', new Date('2026-07-15T12:00:00Z')), '-240 minutes');
   assert.equal(sqlDayShift('UTC', new Date('2026-07-15T12:00:00Z')), '+0 minutes');
+});
+
+test('a report over a past month is shifted by that month’s offset, not today’s', () => {
+  // September in Beirut is summer time, whatever the clock says in November.
+  assert.equal(rangeShift('2026-09-01 00:00:00', '2026-09-30 23:59:59', 'Asia/Beirut'), '+180 minutes');
+  assert.equal(rangeShift('2026-01-01 00:00:00', '2026-01-31 23:59:59', 'Asia/Beirut'), '+120 minutes');
+  // Open at one end, the real end decides; open at both, it is today.
+  assert.equal(rangeShift('2026-07-10 00:00:00', '9999-12-31', 'Asia/Beirut'), '+180 minutes');
+  assert.equal(rangeShift('0000-01-01', '2026-02-10 23:59:59', 'Asia/Beirut'), '+120 minutes');
+  assert.equal(rangeShift('0000-01-01', '9999-12-31', 'UTC'), '+0 minutes');
+  assert.equal(rangeShift(null, null, 'Asia/Beirut'), sqlDayShift('Asia/Beirut'));
 });
 
 test('named periods are the shop’s calendar, not the server’s', () => {

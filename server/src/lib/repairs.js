@@ -13,7 +13,7 @@ import { removeIdPhoto, setIdPhoto } from './idPhotos.js';
 import { currentSession, recordMovement, tillFor } from './cash.js';
 import { getSettings } from './settings.js';
 import { addEntry } from './accounts.js';
-import { dayEndUtc, dayStartUtc, sqlDayShift } from './shopTime.js';
+import { dayEndUtc, dayStartUtc, rangeShift } from './shopTime.js';
 
 export const REPAIR_STATUSES = [
   'received',
@@ -773,7 +773,7 @@ export function repairProfitByPeriod({ from = null, to = null, branchId = null, 
   }
   const lo = from ? dayStartUtc(from) : '0000-01-01';
   const hi = to ? dayEndUtc(to) : '9999-12-31';
-  const shift = sqlDayShift();
+  const shift = rangeShift(lo, hi);
   const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
   /*

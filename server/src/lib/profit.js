@@ -15,7 +15,7 @@ import { db } from '../db.js';
 import { round2 } from './currency.js';
 import { expenseSummary, expensesDuring } from './expenses.js';
 import { sessionById } from './cash.js';
-import { dayEndUtc, dayStartUtc, shopDay, shopZone, sqlDayShift } from './shopTime.js';
+import { dayEndUtc, dayStartUtc, rangeShift, shopDay, shopZone } from './shopTime.js';
 
 /**
  * A period, as SQL bounds.
@@ -528,7 +528,7 @@ function byCategory(bounds, branchId = null) {
  * carry no revenue, and the group-by adds them up.
  */
 function byDay(bounds, branchId = null, limit = 400) {
-  const shift = sqlDayShift(bounds.zone);
+  const shift = rangeShift(bounds.from, bounds.to, bounds.zone);
   return db
     .prepare(
       `SELECT s.day,

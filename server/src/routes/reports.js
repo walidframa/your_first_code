@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { db } from '../db.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { can } from '../lib/permissions.js';
-import { dayEndUtc, dayStartUtc, shopZone, sqlDayShift } from '../lib/shopTime.js';
+import { dayEndUtc, dayStartUtc, rangeShift, shopZone } from '../lib/shopTime.js';
 import { branchScope } from '../lib/branchScope.js';
 
 const router = Router();
@@ -174,7 +174,7 @@ router.get('/summary', requireAuth, requirePermission('reports'), (req, res) => 
    * Greenwich that puts the evening's takings on tomorrow's bar and reports a
    * shop that is busiest at three in the afternoon when it is busiest at six.
    */
-  const shift = sqlDayShift(shopZone());
+  const shift = rangeShift(from, to, shopZone());
 
   const byDay = db.prepare(`
     SELECT date(created_at, ?) AS day, COALESCE(SUM(total), 0) AS revenue, COUNT(*) AS orders
