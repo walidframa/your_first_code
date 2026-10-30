@@ -6,6 +6,8 @@ import {
   LABEL_PARTS,
   LABEL_SIZES,
   SCALE_LIMITS,
+  codeDigits,
+  codedPriceText,
   contentHeightMm,
   customSize,
   deriveLayout,
@@ -140,4 +142,38 @@ test('a style scales what the size worked out rather than replacing it', () => {
   assert.equal(bigger.namePt, base.namePt);
   assert.equal(bigger.barWidth, base.barWidth);
   assert.equal(bigger.width, base.width);
+});
+
+test('a coded price hides the dollars between the shop’s digits', () => {
+  // The example the shop gave: five dollars reads 23523, with 23 either side.
+  const style = normaliseStyle({ codedPrice: true, codeBefore: '23', codeAfter: '23' });
+  assert.equal(codedPriceText(5, style), '23523');
+  // Cents keep their point, so the staff can still take the figure apart.
+  assert.equal(codedPriceText(12.5, style), '2312.5023');
+  assert.equal(codedPriceText('7', style), '23723');
+  // The digits are whatever the shop chose, on either side, or nothing.
+  assert.equal(codedPriceText(5, { codeBefore: '9', codeAfter: '' }), '95');
+});
+
+test('the code digits are digits, and not too many of them', () => {
+  assert.equal(codeDigits('2a3 '), '23');
+  assert.equal(codeDigits('123456789'), '1234');
+  assert.equal(codeDigits(undefined), '');
+  const s = normaliseStyle({ codedPrice: 'true', codeBefore: 'x4', codeAfter: 77 });
+  assert.equal(s.codedPrice, true);
+  assert.equal(s.codeBefore, '4');
+  assert.equal(s.codeAfter, '77');
+  // Off, with the shop's digits ready, until somebody turns it on.
+  assert.equal(DEFAULT_STYLE.codedPrice, false);
+  assert.equal(DEFAULT_STYLE.codeBefore, '23');
+});
+
+test('a coded price takes the pounds line with it', () => {
+  // Printed underneath, the pounds would say exactly what the code hides —
+  // so it is not printed, and does not take up room either.
+  const size = LABEL_SIZES.tiny;
+  const plain = styleLayout(size, { lbp: true });
+  const coded = styleLayout(size, { lbp: true, codedPrice: true });
+  assert.ok(contentHeightMm(coded) < contentHeightMm(plain));
+  assert.equal(contentHeightMm(coded), contentHeightMm(styleLayout(size, { lbp: false })));
 });

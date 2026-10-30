@@ -49,7 +49,17 @@ export const DEFAULT_LABEL_STYLE = {
   lbpScale: 1,
   barcodeScale: 1,
   codeScale: 1,
+  // The price hidden in a run of digits — "23523" for five dollars. See the
+  // client's labelLayout.js for what it is for.
+  codedPrice: false,
+  codeBefore: '23',
+  codeAfter: '23',
 };
+
+/** How many digits may sit on each side of a coded price. */
+export const CODE_DIGITS_MAX = 4;
+
+const codeDigits = (value) => String(value ?? '').replace(/\D/g, '').slice(0, CODE_DIGITS_MAX);
 
 const clamp = (n, min, max) => Math.min(Math.max(n, min), max);
 
@@ -85,6 +95,10 @@ export function normaliseLabelStyle(input) {
   if (Number.isFinite(w)) out.width = clamp(w, SIZE_LIMITS.minWidth, SIZE_LIMITS.maxWidth);
   if (Number.isFinite(h)) out.height = clamp(h, SIZE_LIMITS.minHeight, SIZE_LIMITS.maxHeight);
   if (raw.mode === 'roll' || raw.mode === 'sheet') out.mode = raw.mode;
+
+  if (raw.codedPrice !== undefined) out.codedPrice = raw.codedPrice === true || raw.codedPrice === 'true';
+  if (raw.codeBefore !== undefined) out.codeBefore = codeDigits(raw.codeBefore);
+  if (raw.codeAfter !== undefined) out.codeAfter = codeDigits(raw.codeAfter);
 
   return out;
 }

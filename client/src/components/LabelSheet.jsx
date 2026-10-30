@@ -4,6 +4,7 @@ import { codeFor, detectFormat } from '../lib/barcode';
 import { money } from './ui';
 import { lbp } from '../context/SettingsContext';
 import { usePageSize } from '../lib/pageSize';
+import { codedPriceText } from '../lib/labelLayout';
 
 /**
  * One barcode, drawn by JsBarcode into an inline SVG.
@@ -47,8 +48,11 @@ export function Label({ product, size, rate, showLbp = true, shopName = '' }) {
   const priceLbp = rate ? Math.round((product.price * rate) / 1000) * 1000 : 0;
   const style = size.style || {};
   // The checkbox on the screen and the style both have a say; either turning it
-  // off turns it off, so the old caller keeps working unchanged.
-  const withLbp = showLbp && style.lbp !== false;
+  // off turns it off, so the old caller keeps working unchanged. A coded price
+  // drops the pounds line too — printed beside it, it would say what the code
+  // is there to hide.
+  const coded = style.codedPrice === true;
+  const withLbp = showLbp && style.lbp !== false && !coded;
 
   return (
     <div
@@ -85,8 +89,12 @@ export function Label({ product, size, rate, showLbp = true, shopName = '' }) {
       )}
 
       {style.price !== false && (
-        <span className="font-bold text-black" style={{ fontSize: `${size.pricePt}pt`, lineHeight: 1 }}>
-          {money(product.price)}
+        <span
+          className="font-bold text-black"
+          style={{ fontSize: `${size.pricePt}pt`, lineHeight: 1 }}
+          data-label-price={coded ? 'coded' : 'plain'}
+        >
+          {coded ? codedPriceText(product.price, style) : money(product.price)}
         </span>
       )}
 

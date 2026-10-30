@@ -13,6 +13,9 @@ import {
   LABEL_PARTS,
   LABEL_SIZES,
   SCALE_LIMITS,
+  CODE_DIGITS_MAX,
+  codeDigits,
+  codedPriceText,
   customSize,
   normaliseStyle,
   overflows,
@@ -39,6 +42,37 @@ function presetFor(width, height) {
   return Object.values(LABEL_SIZES).find((s) => s.width === width && s.height === height) || null;
 }
 
+/*
+ * The size and stock chosen last time, on this machine.
+ *
+ * The shop's saved design carries a size too, but only whoever may change
+ * settings can save it, and only by pressing the button under the design. The
+ * person printing a run of labels on a Tuesday picks the roll they have in the
+ * printer and wants it to be there on Wednesday — so the choice is remembered
+ * here the moment it is made, and comes up first the next time.
+ */
+const SIZE_KEY = 'pos_label_size';
+
+function rememberedSize() {
+  try {
+    const raw = localStorage.getItem(SIZE_KEY);
+    if (!raw) return null;
+    const got = JSON.parse(raw);
+    if (!got || typeof got !== 'object') return null;
+    return got;
+  } catch {
+    return null;
+  }
+}
+
+function rememberSize(choice) {
+  try {
+    localStorage.setItem(SIZE_KEY, JSON.stringify(choice));
+  } catch {
+    /* A browser that refuses storage still prints; it just asks again. */
+  }
+}
+
 export default function Labels() {
   const toast = useToast();
   const { rate, settings, refresh } = useSettings();
@@ -63,23 +97,53 @@ export default function Labels() {
    * later save does not reach back and undo what is on the screen.
    */
   const saved = settings?.label_style;
+  /* Set once the saved design and this machine's choice have been read, so
+     the remembering below never overwrites them with the defaults first. */
+  const [sizeReady, setSizeReady] = useState(false);
   useEffect(() => {
-    if (!saved) return;
-    let stored;
-    try {
-      stored = normaliseStyle(JSON.parse(saved));
-    } catch {
-      return; // A row edited into nonsense leaves the built-in design alone.
+    if (saved === undefined) return;
+    let stored = null;
+    if (saved) {
+      try {
+        stored = normaliseStyle(JSON.parse(saved));
+      } catch {
+        stored = null; // A row edited into nonsense leaves the built-in design alone.
+      }
     }
-    setStyle(stored);
-    setMode(stored.mode);
-    setCustomW(String(stored.width));
-    setCustomH(String(stored.height));
-    const preset = presetFor(stored.width, stored.height);
-    setSizeKey(preset ? preset.key : 'custom');
+    if (stored) {
+      setStyle(stored);
+      setMode(stored.mode);
+      setCustomW(String(stored.width));
+      setCustomH(String(stored.height));
+      const preset = presetFor(stored.width, stored.height);
+      setSizeKey(preset ? preset.key : 'custom');
+    }
+    /*
+     * What this machine printed on last wins over the shop's design for the
+     * size and stock alone — the design is the shop's, the roll in the
+     * printer is this counter's.
+     */
+    const mine = rememberedSize();
+    if (mine) {
+      if (mine.mode === 'roll' || mine.mode === 'sheet') setMode(mine.mode);
+      if (mine.sizeKey === 'custom' && customSize(mine.width, mine.height)) {
+        setCustomW(String(mine.width));
+        setCustomH(String(mine.height));
+        setSizeKey('custom');
+      } else if (LABEL_SIZES[mine.sizeKey]) {
+        setSizeKey(mine.sizeKey);
+      }
+    }
+    setSizeReady(true);
     // Only the first read: after that the screen is the source of truth.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [saved !== undefined]);
+
+  /* And remembered from then on, every time it changes. */
+  useEffect(() => {
+    if (!sizeReady) return;
+    rememberSize({ sizeKey, width: Number(customW), height: Number(customH), mode });
+  }, [sizeReady, sizeKey, customW, customH, mode]);
 
   // A custom size falls back to a preset while the typed values are unusable,
   // so the preview never blanks out mid-keystroke.
@@ -404,6 +468,54 @@ export default function Labels() {
                     </div>
                   );
                 })}
+              </div>
+
+              {/*
+                * The price in disguise. On by the shop that does not want the
+                * customer reading the price off the shelf, with the digits the
+                * staff will learn to read past. The pounds line goes with it,
+                * because printed underneath it would undo the disguise.
+                */}
+              <div className="mt-3 border-t border-slate-100 pt-3" data-coded-price>
+                <label className="flex items-center gap-2 text-sm text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={style.codedPrice === true}
+                    disabled={style.price === false}
+                    onChange={(e) => setPart('codedPrice', e.target.checked)}
+                    className="h-4 w-4 shrink-0 rounded border-slate-300 accent-brand-600"
+                  />
+                  <span>Hide the price in a code</span>
+                </label>
+                {style.codedPrice && style.price !== false && (
+                  <div className="mt-2 space-y-1.5">
+                    <div className="flex items-end gap-2">
+                      <Input
+                        label="Digits before"
+                        name="codeBefore"
+                        inputMode="numeric"
+                        maxLength={CODE_DIGITS_MAX}
+                        value={style.codeBefore}
+                        onChange={(e) => setPart('codeBefore', codeDigits(e.target.value))}
+                      />
+                      <span className="pb-2.5 text-slate-400">price</span>
+                      <Input
+                        label="Digits after"
+                        name="codeAfter"
+                        inputMode="numeric"
+                        maxLength={CODE_DIGITS_MAX}
+                        value={style.codeAfter}
+                        onChange={(e) => setPart('codeAfter', codeDigits(e.target.value))}
+                      />
+                    </div>
+                    <p className="text-xs text-slate-500">
+                      $5 prints as <span className="tnum font-medium text-slate-800">{codedPriceText(5, style)}</span>
+                      {' · '}$12.50 as{' '}
+                      <span className="tnum font-medium text-slate-800">{codedPriceText(12.5, style)}</span>. The
+                      price in pounds is left off, or it would give the dollars away.
+                    </p>
+                  </div>
+                )}
               </div>
 
               {clipped && (

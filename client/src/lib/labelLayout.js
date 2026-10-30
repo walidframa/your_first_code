@@ -73,7 +73,36 @@ export const DEFAULT_STYLE = {
   lbpScale: 1,
   barcodeScale: 1,
   codeScale: 1,
+  /*
+   * The price hidden in a run of digits — "23523" for five dollars, with 23
+   * either side. A shop that does not want customers reading the price off
+   * the shelf, while its own staff can. The digits are the shop's to choose,
+   * and are the same on every label so the staff only learn them once.
+   */
+  codedPrice: false,
+  codeBefore: '23',
+  codeAfter: '23',
 };
+
+/** How many digits may sit on each side of a coded price. */
+export const CODE_DIGITS_MAX = 4;
+
+/** The digits the shop typed, and nothing else — letters and spaces dropped. */
+export const codeDigits = (value) => String(value ?? '').replace(/\D/g, '').slice(0, CODE_DIGITS_MAX);
+
+/**
+ * The price as it prints inside the code.
+ *
+ * Whole dollars print as a whole number, so five dollars is "5" and the label
+ * reads 23523; a price with cents keeps its point, so 5.50 reads 235.5023 —
+ * a figure the staff can still take apart by eye.
+ */
+export function codedPriceText(price, style) {
+  const s = normaliseStyle(style);
+  const n = Number(price) || 0;
+  const digits = Number.isInteger(n) ? String(n) : n.toFixed(2);
+  return `${s.codeBefore}${digits}${s.codeAfter}`;
+}
 
 const SCALE_KEYS = ['shopScale', 'nameScale', 'priceScale', 'lbpScale', 'barcodeScale', 'codeScale'];
 const FLAG_KEYS = LABEL_PARTS.map(([key]) => key);
@@ -103,6 +132,10 @@ export function normaliseStyle(style) {
   if (Number.isFinite(w)) out.width = clamp(w, minWidth, maxWidth);
   if (Number.isFinite(h)) out.height = clamp(h, minHeight, maxHeight);
   if (raw.mode === 'roll' || raw.mode === 'sheet') out.mode = raw.mode;
+
+  if (raw.codedPrice !== undefined) out.codedPrice = raw.codedPrice === true || raw.codedPrice === 'true';
+  if (raw.codeBefore !== undefined) out.codeBefore = codeDigits(raw.codeBefore);
+  if (raw.codeAfter !== undefined) out.codeAfter = codeDigits(raw.codeAfter);
 
   return out;
 }
@@ -174,7 +207,8 @@ export function contentHeightMm(size) {
   if (on.shop) mm += (size.shopPt * 1.1) / PT_PER_MM;
   if (on.name) mm += (size.namePt * 1.1 * size.nameLines) / PT_PER_MM;
   if (on.price) mm += size.pricePt / PT_PER_MM;
-  if (on.lbp) mm += size.subPt / PT_PER_MM;
+  // A coded price has no pounds line: it would give the dollars away.
+  if (on.lbp && !on.codedPrice) mm += size.subPt / PT_PER_MM;
   if (on.barcode) mm += size.barcodeHeight / PX_PER_MM + 0.3;
   if (on.code) mm += size.codePt / PT_PER_MM;
   return mm;
