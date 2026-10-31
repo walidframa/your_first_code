@@ -389,7 +389,7 @@ export function itemsOf(documentId) {
  * Move stock for a document's lines. `direction` is +1 to apply the document's
  * own effect and -1 to undo it.
  */
-function applyDocumentStock(doc, items, userId, direction, note, { keepUnits = null } = {}) {
+function applyDocumentStock(doc, items, userId, direction, note, { keepUnits = null, editing = false } = {}) {
   const type = DOC_TYPES[doc.doc_type];
   if (type.stock === 0) return;
 
@@ -494,14 +494,24 @@ function applyDocumentStock(doc, items, userId, direction, note, { keepUnits = n
      */
     const parts = componentsOf(product.id);
     if (parts.length) {
-      movePackStock({ doc, item, product, parts, type, direction, userId, note, branchId, logMovement });
+      movePackStock({ doc, item, product, parts, type, direction, userId, note, branchId, logMovement, editing });
       continue;
     }
 
     const delta = Math.round(item.quantity) * type.stock * direction;
     const here = stockAt(branchId, product.id);
     const resulting = here + delta;
-    if (resulting < 0) {
+    /*
+     * Undoing a delivery whose goods have sold on is refused — except in the
+     * middle of an edit, where the edited version is applied straight after
+     * and the shelf only dips below zero for the length of the transaction.
+     * Correcting the price on a delivery of ten was refused for a week
+     * after the tenth sold, which is the moment the price usually turns out
+     * to be wrong. The route checks the shelf once the edit has landed —
+     * see productsBelowZero — so a delivery cannot be edited down to fewer
+     * than were sold.
+     */
+    if (delta < 0 && resulting < 0 && !editing) {
       throw new Error(
         direction > 0
           ? `Not enough stock for ${product.name} (have ${here}, need ${Math.round(item.quantity)})`
@@ -527,7 +537,7 @@ function applyDocumentStock(doc, items, userId, direction, note, { keepUnits = n
       });
     }
 
-    moveStock({ branchId, productId: product.id, delta });
+    moveStock({ branchId, productId: product.id, delta, allowNegative: editing });
     logMovement.run(
       product.id,
       userId,
@@ -560,11 +570,13 @@ function applyDocumentStock(doc, items, userId, direction, note, { keepUnits = n
  * each line's parts as it sells them; documents have no such table yet, and
  * giving them one is its own change.
  */
-function movePackStock({ item, product, parts, type, direction, userId, note, branchId, logMovement }) {
+function movePackStock({ item, product, parts, type, direction, userId, note, branchId, logMovement, editing = false }) {
   const packs = Math.round(item.quantity);
   const sign = type.stock * direction;
 
-  if (sign < 0) {
+  /* Same allowance as a plain line: an edit may dip below zero on the way
+     through, and is checked once it has landed. */
+  if (sign < 0 && !editing) {
     for (const c of parts) {
       const need = (Number(c.quantity) || 0) * packs;
       const here = stockAt(branchId, c.productId);
@@ -578,7 +590,7 @@ function movePackStock({ item, product, parts, type, direction, userId, note, br
     }
   }
 
-  movePartsStock({ branchId, parts, quantity: packs, sign });
+  movePartsStock({ branchId, parts, quantity: packs, sign, allowNegative: editing });
 
   for (const c of parts) {
     const delta = sign * (Number(c.quantity) || 0) * packs;
@@ -1445,6 +1457,33 @@ export function reverseEffects(doc, items, userId, note = `Cancelled ${doc.doc_n
       cancelDocumentVouchers(doc.id);
     }
   }
+}
+
+/**
+ * The shelves an edit left below zero, by name.
+ *
+ * An edit undoes the old lines and applies the new, and is allowed to dip
+ * below zero in between (see applyDocumentStock). This is the check at the
+ * end: every product on either version, a pack's parts included, has to be
+ * back at nought or more, or the delivery was edited down to fewer than the
+ * shop has already sold.
+ */
+export function productsBelowZero(branchId, items) {
+  const ids = new Set();
+  for (const item of items) {
+    if (!item.product_id) continue;
+    ids.add(item.product_id);
+    for (const c of componentsOf(item.product_id)) ids.add(c.productId);
+  }
+  const short = [];
+  for (const id of ids) {
+    const here = stockAt(branchId ?? null, id);
+    if (here < 0) {
+      const product = db.prepare('SELECT name FROM products WHERE id = ?').get(id);
+      short.push({ id, name: product?.name || `product ${id}`, stock: here });
+    }
+  }
+  return short;
 }
 
 /**

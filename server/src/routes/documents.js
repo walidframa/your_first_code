@@ -22,6 +22,7 @@ import {
   reverseEffects,
   settlement,
   totalsFor,
+  productsBelowZero,
 } from '../lib/documents.js';
 import {
   currentSession,
@@ -387,8 +388,9 @@ router.put('/:id', requireAuth, requirePermission('documents'), (req, res) => {
 
     transaction(() => {
       // Undo the old version first, using the lines as they stand now.
+      const before = itemsOf(doc.id);
       if (doc.status === 'confirmed') {
-        reverseEffects(doc, itemsOf(doc.id), req.user.id, `Edited ${doc.doc_number}`, null, { keepUnits });
+        reverseEffects(doc, before, req.user.id, `Edited ${doc.doc_number}`, null, { keepUnits, editing: true });
       }
 
       db.prepare(
@@ -451,8 +453,20 @@ router.put('/:id', requireAuth, requirePermission('documents'), (req, res) => {
           // reason: an edit re-applies the payment, and it must land where the
           // original did rather than in whichever drawer the fallback found.
           req.body?.accountId ?? settlementAccountId(req.branchId),
-          { keepUnits },
+          { keepUnits, editing: true },
         );
+        /*
+         * The shelf was allowed to dip while the old lines came off and the
+         * new went on; now it has to be back. A delivery edited down to fewer
+         * than have been sold is the one edit that cannot be made.
+         */
+        const short = productsBelowZero(updated.branch_id ?? null, [...before, ...itemsOf(doc.id)]);
+        if (short.length) {
+          const s = short[0];
+          throw new Error(
+            `${s.name} would go below zero — ${-s.stock} more ${-s.stock === 1 ? 'has' : 'have'} been sold than this delivery now brings in`,
+          );
+        }
       }
     })();
 

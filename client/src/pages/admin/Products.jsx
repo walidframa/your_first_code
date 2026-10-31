@@ -174,6 +174,22 @@ function ProductModal({ product, categories, allProducts, onClose, onSaved, onCa
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
 
   /*
+   * Suggest a SKU from the name, the way the quick-create on a delivery
+   * does, so the field is rarely typed by hand. Only for a new product, and
+   * only while the box is still empty: a SKU somebody chose stays chosen.
+   */
+  function suggestSku() {
+    if (product || form.sku || !form.name.trim()) return;
+    const slug = form.name
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z0-9]+/g, '-')
+      .replace(/^-|-$/g, '')
+      .slice(0, 12);
+    setForm((f) => (f.sku ? f : { ...f, sku: `${slug}-${Math.floor(Math.random() * 900 + 100)}` }));
+  }
+
+  /*
    * What this product is made of, if anything. Held beside the form rather
    * than inside it because it is saved through its own endpoint — the recipe
    * is a relationship between products, not a column on one.
@@ -273,8 +289,22 @@ function ProductModal({ product, categories, allProducts, onClose, onSaved, onCa
       )}
       <form onSubmit={submit} className="space-y-4">
         <div className="grid grid-cols-2 gap-3">
-          <Input label="Name" value={form.name} onChange={set('name')} required autoFocus className="col-span-2" />
-          <Input label="SKU" value={form.sku} onChange={set('sku')} required />
+          <Input
+            label="Name"
+            value={form.name}
+            onChange={set('name')}
+            onBlur={suggestSku}
+            required
+            autoFocus
+            className="col-span-2"
+          />
+          <Input
+            label="SKU"
+            value={form.sku}
+            onChange={set('sku')}
+            required
+            hint={product ? undefined : 'Filled in from the name'}
+          />
           <div className="col-span-2">
             <BarcodeField
               value={form.barcodes}

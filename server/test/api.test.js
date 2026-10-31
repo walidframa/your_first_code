@@ -1408,6 +1408,73 @@ test('an edit that cannot be applied leaves the confirmed document untouched', a
   assert.equal((await product('BAK-001')).stock, 0, 'and no stock moved');
 });
 
+test('a delivery whose goods have sold on can still have its price corrected', async () => {
+  /*
+   * The price on a delivery usually turns out to be wrong after the goods
+   * have gone, and an edit used to be refused the moment one had sold:
+   * undoing the receipt took the shelf below zero. The shelf is allowed to
+   * dip while the edit goes through, and checked once it has landed.
+   */
+  const supplier = (await req('POST', '/suppliers', { name: 'Priced Late' }, adminToken)).json.party;
+  const item = await product('SNK-003');
+  const before = item.stock;
+
+  const doc = (
+    await req(
+      'POST',
+      '/documents',
+      {
+        docType: 'purchase_invoice',
+        partyId: supplier.id,
+        items: [{ productId: item.id, quantity: 4, price: 2 }],
+      },
+      adminToken,
+    )
+  ).json.document;
+  await req('POST', `/documents/${doc.id}/confirm`, null, adminToken);
+  assert.equal((await product('SNK-003')).cost, 2, 'the delivery set the cost');
+
+  // Every one of them has gone.
+  await req(
+    'POST',
+    '/inventory/adjust',
+    { productId: item.id, delta: -(before + 4), reason: 'other', note: 'all sold' },
+    adminToken,
+  );
+  assert.equal((await product('SNK-003')).stock, 0);
+
+  // The price was wrong: same four, at 2.50 each.
+  const edited = await req(
+    'PUT',
+    `/documents/${doc.id}`,
+    { items: [{ productId: item.id, quantity: 4, price: 2.5 }] },
+    adminToken,
+  );
+  assert.equal(edited.status, 200, JSON.stringify(edited.json));
+  assert.equal(edited.json.document.subtotal, 10);
+  assert.equal((await product('SNK-003')).stock, 0, 'the shelf is where it was');
+  assert.equal((await product('SNK-003')).cost, 2.5, 'and the product carries the corrected cost');
+  // The supplier is owed the corrected figure — the document's own total,
+  // tax and all, and nothing left over from the version it replaced.
+  const owed = (await req('GET', `/suppliers/${supplier.id}`, null, adminToken)).json.party.balance;
+  assert.ok(
+    Math.abs(owed - edited.json.document.total) < 0.01,
+    `owed ${owed} against a corrected total of ${edited.json.document.total}`,
+  );
+
+  // Fewer than have sold is still the one edit that cannot be made.
+  const tooFew = await req(
+    'PUT',
+    `/documents/${doc.id}`,
+    { items: [{ productId: item.id, quantity: 3, price: 2.5 }] },
+    adminToken,
+  );
+  assert.equal(tooFew.status, 400);
+  assert.match(tooFew.json.error, /below zero/);
+  assert.equal((await req('GET', `/documents/${doc.id}`, null, adminToken)).json.items[0].quantity, 4);
+  assert.equal((await product('SNK-003')).stock, 0, 'nothing moved on the refused edit');
+});
+
 test('deleting a confirmed document reverses it first', async () => {
   const supplier = (await req('POST', '/suppliers', { name: 'Deletable' }, adminToken)).json.party;
   const item = await product('SNK-001');
