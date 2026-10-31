@@ -69,7 +69,7 @@ export default function Letterhead({ variant = 'slip', className, subtitle }) {
           <img
             src={logo}
             alt=""
-            className="max-h-16 max-w-[9rem] shrink-0 object-contain"
+            className="max-h-28 max-w-[16rem] shrink-0 object-contain"
             /* A broken logo URL must not leave a torn-image icon on an invoice
                that is about to be handed to somebody. */
             onError={(e) => {
@@ -88,7 +88,7 @@ export default function Letterhead({ variant = 'slip', className, subtitle }) {
         <img
           src={logo}
           alt=""
-          className="mx-auto mb-1.5 max-h-14 max-w-[8rem] object-contain"
+          className="mx-auto mb-1.5 max-h-24 max-w-[14rem] object-contain"
           onError={(e) => {
             e.currentTarget.style.display = 'none';
           }}
