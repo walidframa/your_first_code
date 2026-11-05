@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Printer } from 'lucide-react';
+import { FileDown, Printer } from 'lucide-react';
 import api from '../api';
 import { useLive } from '../lib/live';
 import Letterhead from './Letterhead';
 import { A4, usePageSize } from '../lib/pageSize';
-import { Button, Input, Modal, ModalActions, Skeleton, cx, money } from './ui';
+import { Button, Input, Modal, ModalActions, Skeleton, cx, money, useToast } from './ui';
+import { apiBase, isNative } from '../lib/server';
 import { onDate, when } from '../lib/when';
 
 const DOC_LABEL = {
@@ -45,6 +46,53 @@ export default function AccountStatement({ partyType, partyId, path, name, onClo
   usePageSize(A4);
 
   const base = path || `/${partyType}s/${partyId}`;
+  const toast = useToast();
+  const [saving, setSaving] = useState(false);
+
+  /*
+   * The statement as a file.
+   *
+   * In the phone app this is what Print does: the WebView has no print
+   * dialog, so `window.print()` did nothing and the button looked broken.
+   * The phone's own browser can show a PDF, share it and print it, so the
+   * app opens the file there — with the login token on the link, because a
+   * link cannot carry a header. On the web the file simply downloads, for
+   * the customer who asked for their account by email.
+   */
+  async function savePdf() {
+    const params = new URLSearchParams();
+    if (range.from) params.set('from', range.from);
+    if (range.to) params.set('to', range.to);
+    try {
+      params.set('tz', Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC');
+    } catch {
+      /* an old browser: the shop's zone will do */
+    }
+    if (isNative()) {
+      params.set('token', localStorage.getItem('pos_token') || '');
+      window.open(`${apiBase()}${base}/statement.pdf?${params}`, '_blank');
+      return;
+    }
+    setSaving(true);
+    try {
+      const res = await api.get(`${base}/statement.pdf`, {
+        params: Object.fromEntries(params),
+        responseType: 'blob',
+      });
+      const url = URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `statement-${(statement?.party.name || name || 'account').replace(/[^\w.-]+/g, '-')}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 0);
+    } catch (err) {
+      toast(err.response?.data?.error || 'Could not make the PDF', 'error');
+    } finally {
+      setSaving(false);
+    }
+  }
 
   const load = useCallback(async () => {
     setStatement(null);
@@ -245,8 +293,15 @@ export default function AccountStatement({ partyType, partyId, path, name, onClo
       )}
 
       <ModalActions className="no-print">
-        <Button variant="secondary" onClick={() => window.print()} disabled={!statement}>
+        <Button
+          variant="secondary"
+          onClick={() => (isNative() ? savePdf() : window.print())}
+          disabled={!statement}
+        >
           <Printer size={16} /> Print
+        </Button>
+        <Button variant="secondary" onClick={savePdf} disabled={!statement} loading={saving}>
+          <FileDown size={16} /> PDF
         </Button>
         <Button className="flex-1" onClick={onClose}>
           Close

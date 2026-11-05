@@ -114,7 +114,10 @@ export default function CompanySettings() {
     .some(([key]) => (form[key] || '') !== (settings[key] || ''));
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
+    /* One column that can shrink below its content on a phone: a bare `grid`
+       sizes its column to the widest thing in it, and the logo row pushed the
+       whole settings page off the right edge. */
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
       <Card className="p-5">
         <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
           <Building2 size={15} className="text-brand-600" /> Your company
@@ -172,7 +175,7 @@ export default function CompanySettings() {
                 </div>
               )}
               <div className="min-w-0 flex-1 space-y-2">
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <Button type="button" size="sm" variant="secondary" onClick={() => fileRef.current?.click()}>
                     <ImageUp size={14} /> Choose an image
                   </Button>

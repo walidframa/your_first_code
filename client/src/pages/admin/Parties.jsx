@@ -540,7 +540,7 @@ function PartyDetail({ partyId, config, onClose, onChanged }) {
   return (
     <>
       <Modal open onClose={onClose} title={party.name} subtitle={party.phone || party.email || ''} size="lg">
-        <div className="mb-4 flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-slate-50 px-4 py-3">
           <div>
             <p className="text-xs text-slate-500">Balance</p>
             <p
@@ -556,7 +556,7 @@ function PartyDetail({ partyId, config, onClose, onChanged }) {
               {config.hasCreditLimit && ` · limit ${money(party.credit_limit)}`}
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             {/*
               * The page somebody can be handed. Everything below is on it —
               * this screen answers "what has happened?", and the statement is

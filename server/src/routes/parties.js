@@ -14,6 +14,7 @@ import {
   dealingsWith,
 } from '../lib/accounts.js';
 import { statementFor } from '../lib/statements.js';
+import { renderStatementPdf } from '../lib/statementPdf.js';
 import { lastPricesFor } from '../lib/lastPrices.js';
 
 /**
@@ -461,6 +462,40 @@ export function partyRouter(partyType) {
       res.status(404).json({ error: err.message });
     }
   });
+
+  /*
+   * The same statement as a PDF.
+   *
+   * The phone app cannot print a page — the WebView has no print dialog — so
+   * it opens this in the phone's own browser instead, which can show, share
+   * and print a file. A browser cannot set a header on a link it opens, so
+   * the token may arrive in the query, the way the live stream takes it.
+   */
+  router.get(
+    '/:id/statement.pdf',
+    (req, _res, next) => {
+      if (!req.headers.authorization && req.query.token) {
+        req.headers.authorization = `Bearer ${req.query.token}`;
+      }
+      next();
+    },
+    requireAuth,
+    requirePermission('parties'),
+    (req, res) => {
+      let statement;
+      try {
+        statement = statementFor(partyType, req.params.id, { from: req.query.from, to: req.query.to });
+      } catch (err) {
+        return res.status(404).json({ error: err.message });
+      }
+      const pdf = renderStatementPdf(statement, { timeZone: req.query.tz });
+      const safe = String(statement.party.name || partyType).replace(/[^A-Za-z0-9._-]+/g, '-').slice(0, 40);
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `inline; filename="statement-${safe}.pdf"`);
+      res.setHeader('Content-Length', pdf.length);
+      res.send(pdf);
+    },
+  );
 
   /** A supplier bill, or a manual charge on a customer account. */
   router.post('/:id/charges', requireAuth, requirePermission('parties'), (req, res) => {
