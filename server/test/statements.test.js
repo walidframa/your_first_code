@@ -109,6 +109,35 @@ test('a fresh account states plainly that nothing has happened', async () => {
   assert.equal(s.party.name, 'Nabil Traders');
 });
 
+test('the statement comes down as a PDF, with the token on the link if need be', async () => {
+  /*
+   * The phone app opens this in the phone's browser, which cannot send a
+   * header — so the token may ride the query string, as the live stream's
+   * does. Without any token it is refused, like everything else.
+   */
+  const noAuth = await fetch(`${BASE}/customers/${customer.id}/statement.pdf`);
+  assert.equal(noAuth.status, 401);
+
+  const withHeader = await fetch(`${BASE}/customers/${customer.id}/statement.pdf`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  assert.equal(withHeader.status, 200);
+  assert.match(withHeader.headers.get('content-type'), /application\/pdf/);
+  const bytes = Buffer.from(await withHeader.arrayBuffer());
+  assert.equal(bytes.subarray(0, 4).toString(), '%PDF', 'a real PDF, not an error page');
+  assert.ok(bytes.length > 500);
+
+  const onLink = await fetch(
+    `${BASE}/customers/${customer.id}/statement.pdf?token=${encodeURIComponent(adminToken)}&tz=Asia/Beirut`,
+  );
+  assert.equal(onLink.status, 200);
+  assert.match(onLink.headers.get('content-disposition'), /Nabil-Traders/);
+
+  // A cashier may not read an account, on paper or otherwise.
+  const cashier = await fetch(`${BASE}/customers/${customer.id}/statement.pdf?token=${encodeURIComponent(cashierToken)}`);
+  assert.equal(cashier.status, 403);
+});
+
 test('a sales invoice on account is a charge, and names the invoice', async () => {
   const doc = await req(
     'POST',

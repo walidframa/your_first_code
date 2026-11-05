@@ -284,7 +284,9 @@ export default function Labels() {
       />
 
       <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
-        <div className="grid grid-cols-[380px_1fr] gap-6">
+        {/* One column on a phone: a 380px picker beside a preview is two
+            half-screens, each cut off. */}
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[380px_1fr]">
           {/* Picker */}
           <div className="no-print space-y-4">
             <Card className="p-4">

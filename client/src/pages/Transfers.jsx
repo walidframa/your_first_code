@@ -543,7 +543,7 @@ export default function Transfers() {
         title="Transfers"
         subtitle="Money sent and paid out over the counter, and what it does to the drawer"
         actions={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {/*
               * A desk with a drawer of its own says so and does not offer to
               * change it — that is the owner's to set. Without one, the old
@@ -557,7 +557,7 @@ export default function Transfers() {
               </span>
             ) : (
               tills.length > 1 && (
-                <div className="w-44 shrink-0">
+                <div className="w-44 max-w-full">
                   <Select
                     name="till"
                     aria-label="Which till"

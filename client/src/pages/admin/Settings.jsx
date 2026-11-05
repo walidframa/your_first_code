@@ -292,7 +292,7 @@ export default function Settings() {
           <CompanySettings />
         </div>
 
-        <div className="mb-4 grid max-w-4xl grid-cols-2 gap-4">
+        <div className="mb-4 grid max-w-4xl gap-4 sm:grid-cols-2">
           <LanguageChoice />
           <Theme />
           <TextSize />
@@ -311,7 +311,7 @@ export default function Settings() {
           <PhotoSourceSettings />
         </div>
 
-        <div className="mb-4 grid max-w-4xl grid-cols-2 gap-4">
+        <div className="mb-4 grid max-w-4xl gap-4 sm:grid-cols-2">
           <InstallApp />
           <Card className="p-5">
             <h2 className="text-sm font-semibold text-slate-900">Your password</h2>
@@ -344,7 +344,7 @@ export default function Settings() {
           <SupportVisits />
         </div>
 
-        <div className="grid max-w-4xl grid-cols-2 gap-4">
+        <div className="grid max-w-4xl gap-4 sm:grid-cols-2">
           <Card className="p-5">
             <h2 className="text-sm font-semibold text-slate-900">Exchange rate</h2>
             <p className="mt-0.5 mb-4 text-xs text-slate-500">
