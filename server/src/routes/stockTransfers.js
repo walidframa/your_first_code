@@ -21,7 +21,15 @@ router.get('/', ...stockroom, (req, res) => {
    * coming to them. A list of every branch's paperwork is not something anybody
    * stands at a counter and reads.
    */
-  res.json({ transfers: listTransfers({ branchId: req.branchId, status, limit: req.query.limit }) });
+  res.json({
+    transfers: listTransfers({
+      branchId: req.branchId,
+      status,
+      limit: req.query.limit,
+      from: req.query.from || null,
+      to: req.query.to || null,
+    }),
+  });
 });
 
 router.get('/:id', ...stockroom, (req, res) => {

@@ -677,6 +677,18 @@ test('the list shows both what this branch sent and what is coming to it', async
   assert.equal(atSaida.status, 200);
 });
 
+test('the list takes a period, so last month’s box can still be found', async () => {
+  const all = (await req('GET', '/stock-transfers?limit=2000', null, adminToken, mainBranch.id)).json.transfers;
+  assert.ok(all.length > 0);
+  // Everything so far was sent today; a period in the future holds none of it.
+  const future = (await req('GET', '/stock-transfers?from=2099-01-01&to=2099-12-31', null, adminToken, mainBranch.id)).json;
+  assert.equal(future.transfers.length, 0);
+  // And one that covers today holds all of it.
+  const today = new Date().toISOString().slice(0, 10);
+  const now = (await req('GET', `/stock-transfers?from=2000-01-01&to=${today}&limit=2000`, null, adminToken, mainBranch.id)).json;
+  assert.equal(now.transfers.length, all.length);
+});
+
 test('a whole shelf booked in at the wrong counter can be sent in one go', async () => {
   /*
    * The mistake this exists for, reported from the shop: a catalogue imported

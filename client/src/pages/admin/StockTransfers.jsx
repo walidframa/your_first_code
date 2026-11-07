@@ -29,6 +29,8 @@ import {
   useToast,
 } from '../../components/ui';
 import { useConfirm } from '../../components/ConfirmProvider';
+import HistoryFilter from '../../components/HistoryFilter';
+import { useHistoryFilter } from '../../lib/history';
 import { when } from '../../lib/when';
 
 const STATUS_TONES = { draft: 'neutral', sent: 'warning', received: 'good', cancelled: 'critical' };
@@ -829,15 +831,31 @@ export default function StockTransfers() {
   const [receiving, setReceiving] = useState(null);
   const [viewing, setViewing] = useState(null);
 
+  /*
+   * A period and a search, like every other history in the app. The list
+   * was the fifty most recent and stopped there, so a shop moving stock
+   * every day could not find last month's box at all.
+   */
+  const history = useHistoryFilter('month');
+  const { from: rangeFrom, to: rangeTo } = history.range;
+
   const load = useCallback(async () => {
-    const res = await api.get('/stock-transfers');
+    const res = await api.get('/stock-transfers', {
+      params: { limit: 2000, from: rangeFrom || undefined, to: rangeTo || undefined },
+    });
     setTransfers(res.data.transfers);
-  }, []);
+  }, [rangeFrom, rangeTo]);
 
   useEffect(() => {
     load();
   }, [load, branch?.id]);
   useLive(load);
+
+  const shown = (transfers || []).filter(
+    (t) =>
+      history.within(t.created_at) &&
+      history.matches(t.reference, t.from_branch_name, t.to_branch_name, t.note, t.created_by_name),
+  );
 
   const confirm = useConfirm();
 
@@ -948,6 +966,12 @@ export default function StockTransfers() {
           </Card>
         )}
 
+        <HistoryFilter
+          filter={history}
+          label="Search transfers"
+          placeholder="Reference, branch, note, who sent it…"
+        />
+
         <Card>
           {!transfers ? (
             <div className="space-y-2 p-5">
@@ -955,11 +979,15 @@ export default function StockTransfers() {
                 <Skeleton key={i} className="h-12" />
               ))}
             </div>
-          ) : transfers.length === 0 ? (
+          ) : shown.length === 0 ? (
             <EmptyState
               icon={Truck}
-              title="Nothing has moved between branches"
-              description="Sending stock keeps one catalogue and moves the shelf."
+              title={transfers.length === 0 ? 'Nothing has moved between branches' : 'Nothing in this period'}
+              description={
+                transfers.length === 0
+                  ? 'Sending stock keeps one catalogue and moves the shelf.'
+                  : 'Widen the period above, or clear the search.'
+              }
             />
           ) : (
             <table className="w-full text-sm">
@@ -973,7 +1001,7 @@ export default function StockTransfers() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-rule">
-                {transfers.map((t) => (
+                {shown.map((t) => (
                   <tr
                     key={t.id}
                     onClick={() => openDetail(t)}
