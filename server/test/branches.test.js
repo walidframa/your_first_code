@@ -520,6 +520,37 @@ test('receiving it puts the stock on the other shelf', async () => {
  * one shelf, and that a handset which came back over the counter can still be
  * moved.
  */
+test('the product’s history says which shelf each line happened on', async () => {
+  /*
+   * A transfer is two lines — one off the sending shelf, one onto the
+   * receiving — and without a branch on either they read as a contradiction:
+   * "Sent to Saida, −1" over "Received from Main branch, +1" for one item
+   * that changed shelves. Each line now names its shelf.
+   */
+  const made = await makeProduct(3);
+  const sent = (
+    await req(
+      'POST',
+      '/stock-transfers',
+      { toBranchId: saida.id, items: [{ productId: made.id, quantity: 1 }] },
+      adminToken,
+      mainBranch.id,
+    )
+  ).json.transfer;
+  const received = await req('POST', `/stock-transfers/${sent.id}/receive`, {}, adminToken, saida.id);
+  assert.equal(received.status, 200, JSON.stringify(received.json));
+
+  const { activity } = (await req('GET', `/products/${made.id}/activity`, null, adminToken)).json;
+  const out = activity.find((a) => /^Sent to /.test(a.detail));
+  const back = activity.find((a) => /^Received from /.test(a.detail));
+  assert.ok(out && back, 'both halves of the move are on the list');
+  assert.equal(out.branch, mainBranch.name, 'the one that left names the shelf it left');
+  assert.equal(out.quantity, -1);
+  assert.equal(back.branch, saida.name, 'the one that arrived names the shelf it landed on');
+  assert.equal(back.quantity, 1);
+  assert.match(back.detail, new RegExp(sent.reference));
+});
+
 test('a handset moves by its IMEI, and is on exactly one shelf throughout', async () => {
   const phone = await makeProduct(0);
   await req('PUT', `/products/${phone.id}`, { tracks_units: true }, adminToken, mainBranch.id);
