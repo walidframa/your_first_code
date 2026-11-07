@@ -113,9 +113,23 @@ export function salesSummaryFor(productId) {
 export function activityFor(productId, limit = 200) {
   const cap = Math.min(Number(limit) || 200, 500);
 
+  /*
+   * Which shelf each line happened on.
+   *
+   * A transfer between branches is two lines — one off the sending shelf,
+   * one onto the receiving — and with no branch on either they read as a
+   * contradiction: "Sent to DT, −1" and "Received from Main branch, +1" for
+   * what was one phone changing shelves. A movement written before branches
+   * existed carries none, and belongs to the main shop, the same reading
+   * every other query takes.
+   */
+  const branches = new Map(db.prepare('SELECT id, name FROM branches').all().map((b) => [b.id, b.name]));
+  const main = db.prepare('SELECT id FROM branches WHERE is_main = 1 LIMIT 1').get()?.id ?? null;
+  const branchName = (id) => branches.get(id ?? main) ?? null;
+
   const sales = db
     .prepare(
-      `SELECT o.id AS order_id, o.created_at, o.order_number AS reference, o.status,
+      `SELECT o.id AS order_id, o.created_at, o.order_number AS reference, o.status, o.branch_id,
               oi.quantity, oi.price, oi.cost, u.name AS user_name
        FROM order_items oi
        JOIN orders o ON o.id = oi.order_id
@@ -135,13 +149,14 @@ export function activityFor(productId, limit = 200) {
       // What to open when somebody presses the row: the sale it came from.
       orderId: r.order_id,
       who: r.user_name,
+      branch: branchName(r.branch_id),
       detail: r.status === 'refunded' ? 'Refunded' : 'Sold at the register',
     }));
 
   const documents = db
     .prepare(
       `SELECT d.id AS document_id, d.created_at, d.confirmed_at, d.doc_number AS reference,
-              d.doc_type, d.status,
+              d.doc_type, d.status, d.branch_id,
               di.quantity, di.price, di.cost, COALESCE(c.name, s.name) AS party_name
        FROM document_items di
        JOIN documents d ON d.id = di.document_id
@@ -167,13 +182,14 @@ export function activityFor(productId, limit = 200) {
         reference: r.reference,
         documentId: r.document_id,
         who: r.party_name,
+        branch: branchName(r.branch_id),
         detail: how[2],
       };
     });
 
   const adjustments = db
     .prepare(
-      `SELECT a.created_at, a.delta, a.resulting_stock, a.reason, a.note, u.name AS user_name
+      `SELECT a.created_at, a.delta, a.resulting_stock, a.reason, a.note, a.branch_id, u.name AS user_name
        FROM stock_adjustments a
        LEFT JOIN users u ON u.id = a.user_id
        WHERE a.product_id = ?
@@ -190,6 +206,7 @@ export function activityFor(productId, limit = 200) {
       stockAfter: r.resulting_stock,
       reference: null,
       who: r.user_name,
+      branch: branchName(r.branch_id),
       detail: r.note || r.reason.replace(/_/g, ' '),
     }));
 

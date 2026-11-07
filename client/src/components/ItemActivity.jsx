@@ -5,6 +5,7 @@ import { Badge, Modal, Skeleton, cx, money } from './ui';
 import Receipt from './Receipt';
 import { ProductSalesHistory } from './ProductSales';
 import { onDate, when } from '../lib/when';
+import { useBranch } from '../context/BranchContext';
 
 /** What each kind of thing that can happen to a product looks like. */
 const KINDS = {
@@ -27,6 +28,9 @@ const KINDS = {
  * when purchases, sales and cost changes sit in the same column.
  */
 export default function ItemActivity({ productId, onClose, onOpenDocument, onOpenSale }) {
+  /* Which shelf a line happened on is only worth saying when there is more
+     than one: with a single branch every line would carry the same word. */
+  const { total: branchCount } = useBranch();
   const [data, setData] = useState(null);
   /* Bumped when a line is taken back below, so the feed above it agrees. */
   const [version, setVersion] = useState(0);
@@ -232,6 +236,14 @@ export default function ItemActivity({ productId, onClose, onOpenDocument, onOpe
                       </span>
                     </td>
                     <td className="px-2 py-1.5 text-slate-600">
+                      {branchCount > 1 && a.branch && (
+                        <span
+                          className="mr-1.5 rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-medium text-slate-600"
+                          data-activity-branch
+                        >
+                          {a.branch}
+                        </span>
+                      )}
                       {a.detail}
                       {a.who && <span className="ml-1 text-xs text-slate-400">{a.who}</span>}
                     </td>
