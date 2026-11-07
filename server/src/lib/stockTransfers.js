@@ -16,6 +16,7 @@
  */
 import { db, transaction } from '../db.js';
 import { mainBranchId, moveStock, stockAt } from './stock.js';
+import { dayEndUtc, dayStartUtc } from './shopTime.js';
 import { AVAILABLE_STATUSES, isAvailable, syncStockFromUnits } from './units.js';
 
 export const TRANSFER_STATUSES = ['draft', 'sent', 'received', 'cancelled'];
@@ -61,7 +62,16 @@ export function transferById(id) {
  * Both directions on purpose: what is coming *to* you is the more urgent half —
  * a box waiting to be received is stock the shop cannot sell yet.
  */
-export function listTransfers({ branchId = null, status = null, limit = 50 } = {}) {
+export function listTransfers({ branchId = null, status = null, limit = 50, from = null, to = null } = {}) {
+  /*
+   * A period, on the shop's calendar. The list used to be the fifty most
+   * recent and nothing else, with no way to ask for March — which on a shop
+   * that moves stock daily is a history that stops three weeks back. The
+   * days are the shop's (see lib/shopTime.js), and the cap is high enough
+   * that a chosen period comes back whole.
+   */
+  const lo = from ? dayStartUtc(from) : null;
+  const hi = to ? dayEndUtc(to) : null;
   return db
     .prepare(
       `SELECT t.*, f.name AS from_branch_name, d.name AS to_branch_name,
@@ -73,10 +83,12 @@ export function listTransfers({ branchId = null, status = null, limit = 50 } = {
        LEFT JOIN users c ON c.id = t.created_by
        WHERE (? IS NULL OR t.from_branch_id = ? OR t.to_branch_id = ?)
          AND (? IS NULL OR t.status = ?)
+         AND (? IS NULL OR t.created_at >= ?)
+         AND (? IS NULL OR t.created_at <= ?)
        ORDER BY t.created_at DESC, t.id DESC
        LIMIT ?`,
     )
-    .all(branchId, branchId, branchId, status, status, Math.min(Number(limit) || 50, 200));
+    .all(branchId, branchId, branchId, status, status, lo, lo, hi, hi, Math.min(Number(limit) || 50, 2000));
 }
 
 /**
