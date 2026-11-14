@@ -930,3 +930,85 @@ test('an edit that adds a handset books in only the new one', async () => {
   assert.ok(after.find((u) => u.imei === '356003000100074'), 'the second arrived');
   assert.equal((await req('GET', `/products/${phone.id}`, null, adminToken)).json.product.stock, 2);
 });
+
+test('a cost changed on the product form reaches the handsets on the shelf, and a sold one can be corrected into its sale', async () => {
+  const made = await req(
+    'POST',
+    '/products',
+    { name: 'Recost Phone', sku: 'PH-RECOST', price: 500, cost: 400, tracks_units: true },
+    adminToken,
+  );
+  assert.equal(made.status, 201, JSON.stringify(made.json));
+  const product = made.json.product;
+  const booked = await req(
+    'POST',
+    `/units/product/${product.id}`,
+    {
+      units: [
+        { imei: '357700000000011', cost: 400 }, // at the product's cost; will sell first
+        { imei: '357700000000029', cost: 400 }, // at the product's cost; stays on the shelf
+        { imei: '357700000000037', cost: 380 }, // its own figure, a trade-in say
+      ],
+    },
+    adminToken,
+  );
+  assert.equal(booked.status, 201, JSON.stringify(booked.json));
+  const units = (await req('GET', `/units/product/${product.id}`, null, adminToken)).json.units;
+  const byImei = (imei) => units.find((u) => u.imei === imei);
+
+  // One sells at the register, carrying 400.
+  const sale = await req(
+    'POST',
+    '/orders',
+    { items: [{ productId: product.id, quantity: 1, unitId: byImei('357700000000011').id }], paymentMethod: 'cash', payments: [{ currency: 'USD', amount: 500 }] },
+    cashierToken,
+  );
+  assert.equal(sale.status, 201, JSON.stringify(sale.json));
+  assert.equal(sale.json.items[0].cost, 400);
+
+  // The owner corrects the product's cost to 350.
+  const edited = await req('PUT', `/products/${product.id}`, { ...product, cost: 350 }, adminToken);
+  assert.equal(edited.status, 200, JSON.stringify(edited.json));
+  assert.equal(edited.json.units_recosted, 1, 'the shelf unit at the old product cost follows');
+  assert.equal(edited.json.units_kept, 1, 'the one with its own figure keeps it');
+
+  const after = (await req('GET', `/units/product/${product.id}`, null, adminToken)).json.units;
+  const costOf = (imei) => after.find((u) => u.imei === imei).cost;
+  assert.equal(costOf('357700000000029'), 350);
+  assert.equal(costOf('357700000000037'), 380);
+  assert.equal(costOf('357700000000011'), 400, 'sold is history');
+
+  // The next sale carries the corrected cost.
+  const next = await req(
+    'POST',
+    '/orders',
+    { items: [{ productId: product.id, quantity: 1, unitId: byImei('357700000000029').id }], paymentMethod: 'cash', payments: [{ currency: 'USD', amount: 500 }] },
+    cashierToken,
+  );
+  assert.equal(next.status, 201, JSON.stringify(next.json));
+  assert.equal(next.json.items[0].cost, 350);
+
+  // And the first sale, made at the wrong figure, is corrected through its handset.
+  const fixed = await req('PATCH', `/units/${byImei('357700000000011').id}`, { cost: 350 }, adminToken);
+  assert.equal(fixed.status, 200, JSON.stringify(fixed.json));
+  assert.equal(fixed.json.lines_recosted, 1);
+  const order = await req('GET', `/orders/${sale.json.order.id}`, null, adminToken);
+  assert.equal(order.status, 200, JSON.stringify(order.json));
+  assert.equal(order.json.items[0].cost, 350, 'the sale line follows the handset');
+
+  // A handset sold on an invoice is corrected the same way, into the invoice line.
+  const customer = (await req('POST', '/customers', { name: 'Recost Buyer', credit_limit: 10000 }, adminToken)).json.party;
+  const inv = await req(
+    'POST',
+    '/documents',
+    { docType: 'sales_invoice', partyId: customer.id, items: [{ productId: product.id, quantity: 1, price: 500, imeis: '357700000000037' }] },
+    adminToken,
+  );
+  assert.equal(inv.status, 201, JSON.stringify(inv.json));
+  assert.equal((await req('POST', `/documents/${inv.json.document.id}/confirm`, null, adminToken)).status, 200);
+  assert.equal((await req('GET', `/documents/${inv.json.document.id}`, null, adminToken)).json.items[0].cost, 380);
+  const fixedToo = await req('PATCH', `/units/${byImei('357700000000037').id}`, { cost: 360 }, adminToken);
+  assert.equal(fixedToo.status, 200, JSON.stringify(fixedToo.json));
+  assert.equal(fixedToo.json.lines_recosted, 1);
+  assert.equal((await req('GET', `/documents/${inv.json.document.id}`, null, adminToken)).json.items[0].cost, 360);
+});

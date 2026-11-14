@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Plus, Smartphone, Trash2 } from 'lucide-react';
+import { Pencil, Plus, Smartphone, Trash2 } from 'lucide-react';
 import api from '../api';
 import { useLive } from '../lib/live';
 import { unitKindOf } from '../lib/imei';
@@ -175,6 +175,35 @@ export default function UnitsPanel({ product, onChanged }) {
     }
   }
 
+  /*
+   * Correcting what one handset cost, sold or not.
+   *
+   * A phone booked in at the wrong figure sells at the wrong figure, and the
+   * profit report says so for ever. Each unit carries its own cost, so the
+   * correction is per handset — and on one already sold the sale it left on
+   * is recosted too, which is the whole reason to come back and fix it.
+   */
+  const [editing, setEditing] = useState(null);
+  const [costText, setCostText] = useState('');
+  function startEdit(unit) {
+    setEditing(unit.id);
+    setCostText(String(unit.cost ?? ''));
+  }
+  async function saveCost(unit) {
+    const cost = Number(costText);
+    if (!Number.isFinite(cost) || cost < 0) return toast('A cost is a number, zero or more', 'error');
+    try {
+      const res = await api.patch(`/units/${unit.id}`, { cost });
+      const lines = res.data.lines_recosted || 0;
+      toast(lines ? `${unit.imei} now cost ${money(cost)} — its sale follows` : `${unit.imei} now cost ${money(cost)}`);
+      setEditing(null);
+      await load();
+      onChanged?.();
+    } catch (err) {
+      toast(err.response?.data?.error || 'Could not change the cost', 'error');
+    }
+  }
+
   if (!data) return <Skeleton className="h-40" />;
 
   return (
@@ -216,7 +245,36 @@ export default function UnitsPanel({ product, onChanged }) {
                     {u.imei2 && <span className="block text-slate-400">{u.imei2}</span>}
                   </td>
                   <td className="px-3 py-2 capitalize text-slate-600">{u.condition}</td>
-                  <td className="tnum px-3 py-2 text-right text-slate-700">{money(u.cost)}</td>
+                  <td className="tnum px-3 py-2 text-right text-slate-700">
+                    {editing === u.id ? (
+                      <input
+                        autoFocus
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={costText}
+                        aria-label={`Cost of ${u.imei}`}
+                        onChange={(e) => setCostText(e.target.value)}
+                        onBlur={() => saveCost(u)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') e.currentTarget.blur();
+                          if (e.key === 'Escape') setEditing(null);
+                        }}
+                        className="h-7 w-24 rounded-lg bg-white px-2 text-right text-sm ring-1 ring-edge focus:ring-2 focus:ring-brand-600 focus:outline-none"
+                      />
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => startEdit(u)}
+                        title={u.status === 'sold' ? 'Correct what it cost — the sale it left on follows' : 'Correct what it cost'}
+                        aria-label={`Change the cost of ${u.imei}`}
+                        className="inline-flex items-center gap-1 rounded-md px-1 hover:bg-slate-100"
+                      >
+                        {money(u.cost)}
+                        <Pencil size={11} className="text-slate-400" />
+                      </button>
+                    )}
+                  </td>
                   <td className="px-3 py-2">
                     <span
                       className={cx(

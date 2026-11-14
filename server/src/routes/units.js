@@ -9,6 +9,7 @@ import {
   normaliseImei,
   findHandset,
   receiveUnits,
+  recostSoldUnitLine,
   syncStockFromUnits,
   unitsFor,
 } from '../lib/units.js';
@@ -138,13 +139,24 @@ router.patch('/:id', requireAuth, requirePermission('inventory'), (req, res) => 
   }
 
   try {
+    let linesRecosted = 0;
     transaction(() => {
       db.prepare(
         'UPDATE product_units SET condition = ?, cost = ?, note = ?, status = ? WHERE id = ?',
       ).run(condition, Number(cost) || 0, note || null, status, unit.id);
       syncStockFromUnits(unit.product_id);
+      /*
+       * A sold handset's cost corrected after the fact: the sale it left on
+       * copied the old figure, and its profit is wrong by the same slip.
+       */
+      if (unit.status === 'sold' && Number(cost) !== Number(unit.cost)) {
+        linesRecosted = recostSoldUnitLine(db.prepare('SELECT * FROM product_units WHERE id = ?').get(unit.id));
+      }
     })();
-    res.json({ unit: db.prepare('SELECT * FROM product_units WHERE id = ?').get(unit.id) });
+    res.json({
+      unit: db.prepare('SELECT * FROM product_units WHERE id = ?').get(unit.id),
+      lines_recosted: linesRecosted,
+    });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
