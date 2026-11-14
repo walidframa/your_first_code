@@ -9,6 +9,7 @@ import {
   normaliseImei,
   findHandset,
   receiveUnits,
+  recostAllUnits,
   recostSoldUnitLine,
   syncStockFromUnits,
   unitsFor,
@@ -98,6 +99,25 @@ router.post('/product/:productId', requireAuth, requirePermission('inventory'), 
       receiveUnits(req.params.productId, units, { documentId, branchId: req.branchId }),
     )();
     res.status(201).json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+/**
+ * Every handset of this product to one cost — the shelf, and the sold ones
+ * too when asked, with the sales they left on recosted. See recostAllUnits.
+ */
+router.post('/product/:productId/recost', requireAuth, requirePermission('inventory'), (req, res) => {
+  const product = db.prepare('SELECT * FROM products WHERE id = ?').get(req.params.productId);
+  if (!product) return res.status(404).json({ error: 'Product not found' });
+  const { cost = product.cost, includeSold = false } = req.body || {};
+  if (!Number.isFinite(Number(cost)) || Number(cost) < 0) {
+    return res.status(400).json({ error: 'A cost is a number, zero or more' });
+  }
+  try {
+    const result = transaction(() => recostAllUnits(product.id, cost, { includeSold: Boolean(includeSold) }))();
+    res.json({ cost: Number(cost), ...result });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
