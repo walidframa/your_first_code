@@ -198,7 +198,7 @@ export function activityFor(productId, limit = 200) {
     .all(productId, cap)
     // Movements a document or a sale already explains would otherwise appear
     // twice; those carry the document number in their note.
-    .filter((r) => !/^(PI|SI|SO|QT)-\d+$/.test(r.note || ''))
+    .filter((r) => !/^(PI|SI|SO|QT|SR|PR)-\d+$/.test(r.note || ''))
     .map((r) => ({
       at: r.created_at,
       kind: 'adjustment',

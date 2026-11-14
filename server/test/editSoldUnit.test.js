@@ -144,3 +144,32 @@ test('a confirmed invoice with no stock left can still have its price corrected'
   assert.equal((await unitOf('359900111100001')).unit.status, 'sold');
   assert.equal(await stockOf(phone.id), 0);
 });
+
+test('a handset taken back on a sales return shows once in the product history, with its cost unchanged', async () => {
+  // The refund is less than the sale: a used phone is not worth what a boxed one was.
+  const raised = await req('POST', `/documents/${invoice.id}/convert`, { docType: 'sales_return' });
+  assert.equal(raised.status, 201, JSON.stringify(raised.json));
+  const ret = raised.json.document;
+  const priced = await req('PUT', `/documents/${ret.id}`, {
+    items: [{ productId: phone.id, quantity: 1, price: 180, imeis: '359900111100001' }],
+  });
+  assert.equal(priced.status, 200, JSON.stringify(priced.json));
+  const done = await req('POST', `/documents/${ret.id}/confirm`, null);
+  assert.equal(done.status, 200, JSON.stringify(done.json));
+
+  // What was refunded is the refund; what the phone cost is still what it cost.
+  const product = (await req('GET', `/products/${phone.id}`)).json.product;
+  assert.equal(product.cost, 200, 'a refund is not a purchase');
+  assert.equal((await unitOf('359900111100001')).unit.cost, 200);
+  const line = (await req('GET', `/documents/${ret.id}`)).json.items[0];
+  assert.equal(line.price, 180);
+  assert.equal(line.cost, 200);
+
+  // Once in the history, under the return, and not again as a bare correction.
+  const { activity } = (await req('GET', `/products/${phone.id}/activity`)).json;
+  const rows = activity.filter((a) => a.reference === ret.doc_number || a.detail === ret.doc_number);
+  assert.equal(rows.length, 1, JSON.stringify(rows));
+  assert.equal(rows[0].kind, 'refund');
+  assert.equal(rows[0].quantity, 1);
+  assert.ok(!activity.some((a) => a.kind === 'adjustment' && a.detail === ret.doc_number));
+});
