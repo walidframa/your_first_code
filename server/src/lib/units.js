@@ -554,3 +554,37 @@ export function recostSoldUnitLine(unit) {
   }
   return lines;
 }
+
+/**
+ * Every handset of a model to one cost, by the owner's say-so.
+ *
+ * The rule on the product form is careful — only the shelf, only the units
+ * that carried the old product cost — and careful is sometimes not what is
+ * wanted. A model booked in at the wrong figure weeks ago, corrected on the
+ * product since, and sold at the wrong cost yesterday needs the lot put
+ * right, which is this: the shelf always, and the sold ones when asked, each
+ * sale they left on recosted with them.
+ */
+export function recostAllUnits(productId, cost, { includeSold = false } = {}) {
+  const next = Number(cost) || 0;
+  const shelf = db
+    .prepare(
+      `UPDATE product_units SET cost = ?
+        WHERE product_id = ? AND status IN ('in_stock', 'returned') AND cost IS NOT ?`,
+    )
+    .run(next, productId, next).changes;
+  let sold = 0;
+  let lines = 0;
+  if (includeSold) {
+    const units = db
+      .prepare(`SELECT * FROM product_units WHERE product_id = ? AND status = 'sold' AND cost IS NOT ?`)
+      .all(productId, next);
+    const set = db.prepare('UPDATE product_units SET cost = ? WHERE id = ?');
+    for (const u of units) {
+      set.run(next, u.id);
+      lines += recostSoldUnitLine({ ...u, cost: next });
+      sold += 1;
+    }
+  }
+  return { shelf, sold, lines };
+}

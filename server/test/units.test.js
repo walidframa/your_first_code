@@ -1012,3 +1012,55 @@ test('a cost changed on the product form reaches the handsets on the shelf, and 
   assert.equal(fixedToo.json.lines_recosted, 1);
   assert.equal((await req('GET', `/documents/${inv.json.document.id}`, null, adminToken)).json.items[0].cost, 360);
 });
+
+test('every handset of a model can be set to the product’s cost in one go, sold ones and their sales included', async () => {
+  const made = await req(
+    'POST',
+    '/products',
+    { name: 'Recost All Phone', sku: 'PH-RECOST-ALL', price: 1200, cost: 1489, tracks_units: true },
+    adminToken,
+  );
+  assert.equal(made.status, 201, JSON.stringify(made.json));
+  const product = made.json.product;
+  const booked = await req(
+    'POST',
+    `/units/product/${product.id}`,
+    { units: [{ imei: '357700000000045', cost: 1489 }, { imei: '357700000000052', cost: 1489 }] },
+    adminToken,
+  );
+  assert.equal(booked.status, 201, JSON.stringify(booked.json));
+  const units = (await req('GET', `/units/product/${product.id}`, null, adminToken)).json.units;
+  const first = units.find((u) => u.imei === '357700000000045');
+
+  // Sold at the wrong cost, then the product corrected to 990 — the sale keeps 1489.
+  const sale = await req(
+    'POST',
+    '/orders',
+    { items: [{ productId: product.id, quantity: 1, unitId: first.id }], paymentMethod: 'cash', payments: [{ currency: 'USD', amount: 1200 }] },
+    cashierToken,
+  );
+  assert.equal(sale.status, 201, JSON.stringify(sale.json));
+  assert.equal(sale.json.items[0].cost, 1489);
+
+  // The shelf alone first.
+  const shelfOnly = await req('POST', `/units/product/${product.id}/recost`, { cost: 990 }, adminToken);
+  assert.equal(shelfOnly.status, 200, JSON.stringify(shelfOnly.json));
+  assert.deepEqual([shelfOnly.json.shelf, shelfOnly.json.sold, shelfOnly.json.lines], [1, 0, 0]);
+  let after = (await req('GET', `/units/product/${product.id}`, null, adminToken)).json.units;
+  assert.equal(after.find((u) => u.imei === '357700000000052').cost, 990);
+  assert.equal(after.find((u) => u.imei === '357700000000045').cost, 1489, 'sold left alone until asked');
+
+  // Then the sold ones too, and the sale follows.
+  const all = await req('POST', `/units/product/${product.id}/recost`, { cost: 990, includeSold: true }, adminToken);
+  assert.equal(all.status, 200, JSON.stringify(all.json));
+  assert.deepEqual([all.json.shelf, all.json.sold, all.json.lines], [0, 1, 1]);
+  after = (await req('GET', `/units/product/${product.id}`, null, adminToken)).json.units;
+  assert.equal(after.find((u) => u.imei === '357700000000045').cost, 990);
+  const order = await req('GET', `/orders/${sale.json.order.id}`, null, adminToken);
+  assert.equal(order.json.items[0].cost, 990, 'the sale line follows');
+
+  // Nothing to do is nothing done.
+  const again = await req('POST', `/units/product/${product.id}/recost`, { cost: 990, includeSold: true }, adminToken);
+  assert.deepEqual([again.json.shelf, again.json.sold], [0, 0]);
+  assert.equal((await req('POST', `/units/product/${product.id}/recost`, { cost: -1 }, adminToken)).status, 400);
+});

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Pencil, Plus, Smartphone, Trash2 } from 'lucide-react';
+import { Pencil, Plus, Smartphone, Tags, Trash2 } from 'lucide-react';
 import api from '../api';
 import { useLive } from '../lib/live';
 import { unitKindOf } from '../lib/imei';
@@ -204,19 +204,109 @@ export default function UnitsPanel({ product, onChanged }) {
     }
   }
 
+  /*
+   * The whole model to the product's cost, in one go.
+   *
+   * The product form already carries a changed cost onto the shelf — but only
+   * when it changes, and only onto handsets that carried the old figure. A
+   * model booked in wrong, corrected on the product a while ago and sold at
+   * the wrong cost since needs the lot put right, sold ones included, and
+   * going down the list one handset at a time is how one gets missed.
+   */
+  const [recosting, setRecosting] = useState(false);
+  const [withSold, setWithSold] = useState(false);
+  const [recostBusy, setRecostBusy] = useState(false);
+  const target = Number(data?.product?.cost ?? product.cost) || 0;
+  const offShelf = (data?.units || []).filter(
+    (u) => (u.status === 'in_stock' || u.status === 'returned') && Number(u.cost) !== target,
+  ).length;
+  const offSold = (data?.units || []).filter((u) => u.status === 'sold' && Number(u.cost) !== target).length;
+  async function recostAll() {
+    setRecostBusy(true);
+    try {
+      const res = await api.post(`/units/product/${product.id}/recost`, { cost: target, includeSold: withSold });
+      const { shelf, sold } = res.data;
+      toast(
+        `${shelf} on the shelf now cost ${money(target)}${
+          sold ? ` · ${sold} sold ones too, and their sales follow` : ''
+        }`,
+      );
+      setRecosting(false);
+      await load();
+      onChanged?.();
+    } catch (err) {
+      toast(err.response?.data?.error || 'Could not change the costs', 'error');
+    } finally {
+      setRecostBusy(false);
+    }
+  }
+
   if (!data) return <Skeleton className="h-40" />;
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm text-slate-600">
           <span className="font-semibold text-slate-900">{data.available}</span> on the shelf ·{' '}
           {data.units.length} ever booked in
         </p>
-        <Button size="sm" onClick={() => setReceiving(true)}>
-          <Plus size={15} /> Book in
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          {offShelf + offSold > 0 && (
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => {
+                setWithSold(false);
+                setRecosting(true);
+              }}
+              title={`Set every handset of this model to the product's cost, ${money(target)}`}
+            >
+              <Tags size={15} /> All to {money(target)}
+            </Button>
+          )}
+          <Button size="sm" onClick={() => setReceiving(true)}>
+            <Plus size={15} /> Book in
+          </Button>
+        </div>
       </div>
+
+      {recosting && (
+        <Modal
+          open
+          onClose={recostBusy ? undefined : () => setRecosting(false)}
+          title={`Every ${product.name} to ${money(target)}`}
+          size="sm"
+        >
+          <p className="text-sm text-slate-600">
+            The product's cost is <span className="font-semibold text-slate-900">{money(target)}</span>.{' '}
+            {offShelf > 0
+              ? `${offShelf} handset${offShelf === 1 ? '' : 's'} on the shelf carr${offShelf === 1 ? 'ies' : 'y'} another figure and will take it.`
+              : 'Every handset on the shelf already carries it.'}
+          </p>
+          {offSold > 0 && (
+            <label className="mt-3 flex items-start gap-2 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                checked={withSold}
+                onChange={(e) => setWithSold(e.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand-600"
+              />
+              <span>
+                Also the {offSold} sold one{offSold === 1 ? '' : 's'}. The sale{offSold === 1 ? '' : 's'} they
+                left on {offSold === 1 ? 'is' : 'are'} recosted, so the profit on them changes.
+              </span>
+            </label>
+          )}
+          <ModalActions>
+            <Button variant="secondary" onClick={() => setRecosting(false)} disabled={recostBusy}>
+              Cancel
+            </Button>
+            <Button onClick={recostAll} loading={recostBusy} disabled={offShelf === 0 && !withSold}>
+              Set the cost
+            </Button>
+          </ModalActions>
+        </Modal>
+      )}
 
       {data.units.length === 0 ? (
         <EmptyState
