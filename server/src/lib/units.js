@@ -492,3 +492,65 @@ export function returnOneUnit(unitId) {
   syncStockFromUnits(unit.product_id);
   return unit;
 }
+
+/**
+ * The product's cost changed on the form: the handsets on the shelf follow.
+ *
+ * Each unit carries its own cost, which is the point of counting them one at a
+ * time — but most of a shelf was booked in at whatever the product cost that
+ * day, and when the owner corrects that figure they mean those phones too. So
+ * the units still here that carry the old product cost (or none) take the new
+ * one; a unit with a figure of its own — a trade-in, a delivery at another
+ * price, one corrected by hand — keeps it. Sold units are history, and the
+ * profit on a sale made last month must not move when a cost is typed today.
+ *
+ * Returns how many followed and how many kept their own, so the form can say.
+ */
+export function recostUnsoldUnits(productId, previousCost, cost) {
+  const next = Number(cost) || 0;
+  const was = Number(previousCost) || 0;
+  const followed = db
+    .prepare(
+      `UPDATE product_units SET cost = ?
+        WHERE product_id = ? AND status IN ('in_stock', 'returned')
+          AND (cost IS NULL OR cost = 0 OR cost = ?)`,
+    )
+    .run(next, productId, was).changes;
+  const kept = db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM product_units
+        WHERE product_id = ? AND status IN ('in_stock', 'returned') AND cost != ?`,
+    )
+    .get(productId, next).n;
+  return { followed, kept };
+}
+
+/**
+ * A sold handset's cost was corrected: the sale it left on follows.
+ *
+ * The line copied the unit's cost the moment it sold, so the profit on that
+ * sale is wrong by exactly the same slip — and the only reason anyone edits
+ * the cost of a phone that has already gone is that the profit on it looks
+ * wrong. A register line is the unit's alone; an invoice line may carry
+ * several units, and is costed at their average again, as it was when they
+ * went out.
+ */
+export function recostSoldUnitLine(unit) {
+  if (!unit || unit.status !== 'sold') return 0;
+  let lines = 0;
+  if (unit.sold_order_id) {
+    lines += db.prepare('UPDATE order_items SET cost = ? WHERE order_id = ? AND unit_id = ?')
+      .run(unit.cost, unit.sold_order_id, unit.id).changes;
+  }
+  if (unit.sold_document_id) {
+    lines += db
+      .prepare(
+        `UPDATE document_items
+            SET cost = (SELECT ROUND(AVG(COALESCE(u.cost, 0)), 2) FROM product_units u
+                         WHERE u.sold_document_id = ? AND u.product_id = ?)
+          WHERE document_id = ? AND product_id = ?`,
+      )
+      .run(unit.sold_document_id, unit.product_id, unit.sold_document_id, unit.product_id).changes;
+  }
+  return lines;
+}

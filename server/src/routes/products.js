@@ -16,6 +16,7 @@ import {
 } from '../lib/bundles.js';
 import { attribution, download, findPhotos } from '../lib/productPhotos.js';
 import { scratchMap, scratchedBy, setScratched } from '../lib/validityCards.js';
+import { recostUnsoldUnits } from '../lib/units.js';
 
 /**
  * What this request says a validity package scratches.
@@ -1098,12 +1099,22 @@ router.put('/:id', requireAuth, requirePermission('catalogue'), (req, res) => {
     userId: req.user.id,
   });
 
+  /*
+   * And the handsets on the shelf follow it. A serialised product's sale
+   * costs the line at the unit's own cost, so a cost corrected here and
+   * nowhere else left every phone selling at the old figure and the profit
+   * report insisting on a cost the owner had already changed.
+   */
+  const costMoved = updates.cost !== undefined && Number(merged.cost) !== Number(product.cost);
+  const units = costMoved && merged.tracks_units ? recostUnsoldUnits(product.id, product.cost, merged.cost) : null;
+
   const updated = db.prepare('SELECT * FROM products WHERE id = ?').get(req.params.id);
   res.json({
     product: {
       ...serializeProduct(updated, { branchId: req.branchId }),
       scratch_cards: scratchedBy(product.id),
     },
+    ...(units ? { units_recosted: units.followed, units_kept: units.kept } : {}),
   });
 });
 

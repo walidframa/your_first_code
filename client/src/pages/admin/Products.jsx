@@ -242,9 +242,10 @@ function ProductModal({ product, categories, allProducts, onClose, onSaved, onCa
       ...(form.is_service ? { stock: 0, reorder_point: 0 } : {}),
     };
     try {
-      const saved = product
-        ? (await api.put(`/products/${product.id}`, payload)).data.product
-        : (await api.post('/products', payload)).data.product;
+      const res = product
+        ? (await api.put(`/products/${product.id}`, payload)).data
+        : (await api.post('/products', payload)).data;
+      const saved = res.product;
 
       /*
        * The recipe goes second, and only when there is one or there was one —
@@ -260,7 +261,22 @@ function ProductModal({ product, categories, allProducts, onClose, onSaved, onCa
           })),
         });
       }
-      toast(product ? 'Product updated' : 'Product created');
+      /*
+       * A cost changed on a serialised product reaches the handsets on the
+       * shelf, and the owner is told so — and told when some kept a figure of
+       * their own, which is the case they would otherwise not see.
+       */
+      const followed = res.units_recosted || 0;
+      const kept = res.units_kept || 0;
+      toast(
+        !product
+          ? 'Product created'
+          : followed || kept
+            ? `Product updated · ${followed} on the shelf take the new cost${
+                kept ? `, ${kept} keep their own` : ''
+              }`
+            : 'Product updated',
+      );
       onSaved();
       if (andLabel && id) navigate(`/admin/labels?product=${id}&qty=${Number(form.stock) || 1}`);
     } catch (err) {
